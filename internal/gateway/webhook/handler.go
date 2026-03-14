@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"strings"
 	"time"
@@ -69,6 +70,11 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	triggerName := ""
 	triggerNamespace := ""
 
+	sourceIP, _, splitErr := net.SplitHostPort(r.RemoteAddr)
+	if splitErr != nil {
+		sourceIP = r.RemoteAddr
+	}
+
 	defer func() {
 		durationMs := time.Since(start).Milliseconds()
 		h.log.Info("webhook access",
@@ -80,6 +86,7 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			"flowRun", flowRunName,
 			"duration_ms", durationMs,
 			"content_type", r.Header.Get("Content-Type"),
+			"source_ip", sourceIP,
 		)
 	}()
 

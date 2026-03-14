@@ -30,6 +30,11 @@
 - [x] `MockEndpoint` CRD Go types in `api/v1alpha1/mockendpoint_types.go`
 - [x] Run `make generate && make manifests` after each CRD type addition
 - [x] Sample CRs in `config/samples/` for each new CRD
+- [x] Add `CronTrigger` sub-spec to `trigger_types.go` (`schedule` string)
+- [x] Add `PubSubTrigger` sub-spec to `trigger_types.go` (`type`, `integrationRef`, `topic`, `consumerGroup`)
+- [x] Add `spec.webhook.auth` stub field (`WebhookAuth`) to `WebhookTrigger` in `trigger_types.go`
+- [x] Add `spec.maxFlowRuns` to `TriggerSpec` for FlowRun GC cap
+- [x] Run `make generate && make manifests` after Trigger type additions
 
 ### Webhook Gateway
 - [x] HTTP server skeleton in `cmd/webhook-gateway/main.go`
@@ -43,22 +48,24 @@
 - [ ] Basic auth, mTLS, API-key header, IP allowlist support
 - [ ] `/mock/*` path support for MockEndpoint CRDs
 - [x] Structured JSON access logs (source IP in logs only, not Prometheus labels)
+- [x] Fix: add source IP (`RemoteAddr`) to access log in `internal/gateway/webhook/handler.go`
+- [x] Fix: remove dead `RouteRegistry.ServeHTTP` method from `internal/gateway/webhook/registry.go`
 - [ ] HPA configuration for webhook gateway Deployment
 - [x] Controller manages webhook gateway Deployment lifecycle (one per namespace)
 
 ### Cron Trigger
-- [ ] Cron scheduler implementation in controller (e.g., using `robfig/cron`)
-- [ ] FlowRun creation on schedule fire: `<trigger>-<scheduled-time>` naming
+- [x] Cron scheduler implementation in controller (`robfig/cron v3`)
+- [x] FlowRun creation on schedule fire: `<trigger>-<scheduled-time>` naming
 - [ ] Cooldown enforcement for cron triggers
 
 ### Controller: FlowRun Execution
-- [ ] `FlowRun` reconciler in `internal/controller/flowrun_controller.go`
-- [ ] Fetch referenced Flow and resolve steps in dependency order
-- [ ] Execute HTTP action steps
+- [x] `FlowRun` reconciler in `internal/controller/flowrun_controller.go`
+- [x] Fetch referenced Flow and resolve steps in dependency order
+- [x] Execute HTTP action steps
 - [ ] Step result passing and CEL expression evaluation
-- [ ] FlowRun status conditions (Running, Succeeded, Failed)
-- [ ] FlowRun GC: `spec.ttlAfterFinished`, operator flags `--flowrun-ttl-succeeded` / `--flowrun-ttl-failed`
-- [ ] `kubezap.io/retain=true` annotation exempts FlowRun from GC
+- [x] FlowRun status conditions (Running, Succeeded, Failed)
+- [x] FlowRun GC: `spec.ttlAfterFinished`, operator flags `--flowrun-ttl-succeeded` / `--flowrun-ttl-failed`
+- [x] `kubezap.io/retain=true` annotation exempts FlowRun from GC
 
 ---
 

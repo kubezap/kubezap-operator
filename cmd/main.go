@@ -21,6 +21,7 @@ import (
 	"flag"
 	"os"
 	"path/filepath"
+	"time"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
@@ -64,6 +65,8 @@ func main() {
 	var secureMetrics bool
 	var enableHTTP2 bool
 	var tlsOpts []func(*tls.Config)
+	var flowRunTTLSucceeded time.Duration
+	var flowRunTTLFailed time.Duration
 	flag.StringVar(&metricsAddr, "metrics-bind-address", "0", "The address the metrics endpoint binds to. "+
 		"Use :8443 for HTTPS or :8080 for HTTP, or leave as 0 to disable the metrics service.")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
@@ -81,6 +84,8 @@ func main() {
 	flag.StringVar(&metricsCertKey, "metrics-cert-key", "tls.key", "The name of the metrics server key file.")
 	flag.BoolVar(&enableHTTP2, "enable-http2", false,
 		"If set, HTTP/2 will be enabled for the metrics and webhook servers")
+	flag.DurationVar(&flowRunTTLSucceeded, "flowrun-ttl-succeeded", 24*time.Hour, "TTL for succeeded FlowRuns before GC")
+	flag.DurationVar(&flowRunTTLFailed, "flowrun-ttl-failed", 72*time.Hour, "TTL for failed FlowRuns before GC")
 	opts := zap.Options{
 		Development: true,
 	}
@@ -202,11 +207,24 @@ func main() {
 		os.Exit(1)
 	}
 
-	if err := (&controller.TriggerReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
+	cronScheduler := controller.NewCronScheduler(mgr.GetClient(), ctrl.Log.WithName("cron-scheduler"))
+	defer cronScheduler.Stop()
+
+	if err = (&controller.TriggerReconciler{
+		Client:        mgr.GetClient(),
+		Scheme:        mgr.GetScheme(),
+		CronScheduler: cronScheduler,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Trigger")
+		os.Exit(1)
+	}
+	if err = (&controller.FlowRunReconciler{
+		Client:       mgr.GetClient(),
+		Scheme:       mgr.GetScheme(),
+		TTLSucceeded: flowRunTTLSucceeded,
+		TTLFailed:    flowRunTTLFailed,
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "FlowRun")
 		os.Exit(1)
 	}
 	// +kubebuilder:scaffold:builder

@@ -5,14 +5,20 @@ metadata:
   name: manager-role
 rules:
 - apiGroups:
-  - automation.kubezap.io
+  - apps
   resources:
-  - flowruns
+  - deployments
   verbs:
   - create
+  - get
+  - list
+  - patch
+  - update
+  - watch
 - apiGroups:
   - automation.kubezap.io
   resources:
+  - flowruns
   - triggers
   verbs:
   - create
@@ -25,14 +31,24 @@ rules:
 - apiGroups:
   - automation.kubezap.io
   resources:
+  - flowruns/finalizers
   - triggers/finalizers
   verbs:
   - update
 - apiGroups:
   - automation.kubezap.io
   resources:
+  - flowruns/status
   - triggers/status
   verbs:
   - get
   - patch
   - update
+- apiGroups:
+  - automation.kubezap.io
+  resources:
+  - flows
+  verbs:
+  - get
+  - list
+  - watch

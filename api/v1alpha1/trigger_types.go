@@ -17,6 +17,7 @@ limitations under the License.
 package v1alpha1
 
 import (
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -35,6 +36,12 @@ type TriggerSpec struct {
 
 	// Webhook configuration (only for type=webhook)
 	Webhook *WebhookTrigger `json:"webhook,omitempty"`
+
+	// Cron configuration (only for type=cron)
+	Cron *CronTrigger `json:"cron,omitempty"`
+
+	// PubSub configuration (only for type=pubsub)
+	PubSub *PubSubTrigger `json:"pubsub,omitempty"`
 
 	// Reference to the flow this trigger invokes. FlowRef is the primary
 	// action target for the MVP. If omitted, the optional inline Action can
@@ -56,6 +63,12 @@ type TriggerSpec struct {
 
 	// Cooldown/debounce policy to limit the number of firings in a window.
 	Cooldown *CooldownPolicy `json:"cooldown,omitempty"`
+
+	// MaxFlowRuns caps the number of retained FlowRuns for this Trigger.
+	// When exceeded, the oldest completed FlowRuns are garbage-collected.
+	// If zero or omitted, no cap is applied.
+	// +kubebuilder:validation:Minimum=0
+	MaxFlowRuns *int32 `json:"maxFlowRuns,omitempty"`
 }
 
 type WebhookTrigger struct {
@@ -65,6 +78,23 @@ type WebhookTrigger struct {
 	// +kubebuilder:validation:Enum=POST;PUT
 	// +kubebuilder:default=POST
 	Method string `json:"method,omitempty"`
+
+	// Auth configures authentication for this webhook endpoint.
+	// If omitted, the endpoint accepts requests from any caller.
+	Auth *WebhookAuth `json:"auth,omitempty"`
+}
+
+// CronTrigger configures a cron-based scheduled trigger.
+type CronTrigger struct {
+	// Schedule in standard cron format (e.g. "*/5 * * * *").
+	// Supports the robfig/cron v3 extended syntax including @every and @daily.
+	// +kubebuilder:validation:MinLength=1
+	Schedule string `json:"schedule"`
+
+	// Timezone for the schedule, e.g. "America/New_York".
+	// Defaults to UTC if omitted.
+	// +kubebuilder:validation:Optional
+	Timezone string `json:"timezone,omitempty"`
 }
 
 type FlowReference struct {
@@ -125,6 +155,55 @@ type CooldownPolicy struct {
 	// Window for counting invocations, e.g. "60s". If omitted, defaults to 60s.
 	// +kubebuilder:default="60s"
 	Window *metav1.Duration `json:"window,omitempty"`
+}
+
+// PubSubTrigger configures a message-broker-based trigger.
+type PubSubTrigger struct {
+	// Message broker type.
+	// +kubebuilder:validation:Enum=kafka
+	Type string `json:"type"`
+
+	// Reference to an Integration CR with broker connection details.
+	IntegrationRef corev1.LocalObjectReference `json:"integrationRef"`
+
+	// Topic to consume from.
+	Topic string `json:"topic"`
+
+	// Kafka consumer group ID. Defaults to "kubezap-<trigger-name>" at runtime.
+	ConsumerGroup string `json:"consumerGroup,omitempty"`
+}
+
+// WebhookAuth configures authentication for a webhook trigger endpoint.
+type WebhookAuth struct {
+	// Authentication method.
+	// +kubebuilder:validation:Enum=hmac;bearer;oidc;basic;mtls;apiKey;ipAllowlist
+	Type string `json:"type"`
+
+	// HMAC secret reference (key contains the shared secret). Used when type is "hmac".
+	HMACSecretRef *corev1.SecretKeySelector `json:"hmacSecretRef,omitempty"`
+
+	// Bearer token secret reference. Used when type is "bearer".
+	BearerTokenSecretRef *corev1.SecretKeySelector `json:"bearerTokenSecretRef,omitempty"`
+
+	// OIDC/JWT issuer URL. Used when type is "oidc".
+	OIDCIssuer string `json:"oidcIssuer,omitempty"`
+
+	// OIDC audience. Used when type is "oidc".
+	OIDCAudience string `json:"oidcAudience,omitempty"`
+
+	// Basic auth credentials secret (must have keys "username" and "password"). Used when type is "basic".
+	BasicAuthSecretRef *corev1.LocalObjectReference `json:"basicAuthSecretRef,omitempty"`
+
+	// API key value secret reference. Used when type is "apiKey".
+	APIKeySecretRef *corev1.SecretKeySelector `json:"apiKeySecretRef,omitempty"`
+
+	// Header name to check for the API key. Used when type is "apiKey".
+	// +kubebuilder:default="X-Api-Key"
+	APIKeyHeader string `json:"apiKeyHeader,omitempty"`
+
+	// CIDR blocks allowed to call this endpoint. Used when type is "ipAllowlist".
+	// Example: ["10.0.0.0/8", "192.168.1.0/24"]
+	IPAllowlist []string `json:"ipAllowlist,omitempty"`
 }
 
 // TriggerStatus defines the observed state of Trigger.

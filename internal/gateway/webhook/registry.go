@@ -1,7 +1,6 @@
 package webhook
 
 import (
-	"net/http"
 	"strings"
 	"sync"
 
@@ -93,24 +92,4 @@ func (r *RouteRegistry) IsSynced() bool {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	return r.synced
-}
-
-// ServeHTTP handles incoming requests and routes them to configured paths.
-func (r *RouteRegistry) ServeHTTP(w http.ResponseWriter, req *http.Request) {
-	entry, ok := r.Lookup(req.URL.Path)
-	if !ok {
-		http.NotFound(w, req)
-		return
-	}
-
-	if entry.AllowedMethod != "" && req.Method != entry.AllowedMethod {
-		w.Header().Set("Allow", entry.AllowedMethod)
-		w.WriteHeader(http.StatusMethodNotAllowed)
-		_, _ = w.Write([]byte("method not allowed"))
-		return
-	}
-
-	// For now, just acknowledge. Real execution is handled by controller.
-	w.WriteHeader(http.StatusAccepted)
-	_, _ = w.Write([]byte("trigger accepted"))
 }

@@ -30,6 +30,11 @@
 - [x] `MockEndpoint` CRD Go types in `api/v1alpha1/mockendpoint_types.go`
 - [x] Run `make generate && make manifests` after each CRD type addition
 - [x] Sample CRs in `config/samples/` for each new CRD
+- [ ] Add `CronTrigger` sub-spec to `trigger_types.go` (`schedule` string) — **blocks cron implementation**
+- [ ] Add `PubSubTrigger` sub-spec to `trigger_types.go` (`type`, `integrationRef`, `topic`, `consumerGroup`) — **blocks Kafka gateway**
+- [ ] Add `spec.webhook.auth` stub field (`WebhookAuth`) to `WebhookTrigger` in `trigger_types.go`
+- [ ] Add `spec.maxFlowRuns` to `TriggerSpec` for FlowRun GC cap
+- [ ] Run `make generate && make manifests` after Trigger type additions
 
 ### Webhook Gateway
 - [x] HTTP server skeleton in `cmd/webhook-gateway/main.go`
@@ -43,8 +48,10 @@
 - [ ] Basic auth, mTLS, API-key header, IP allowlist support
 - [ ] `/mock/*` path support for MockEndpoint CRDs
 - [x] Structured JSON access logs (source IP in logs only, not Prometheus labels)
+- [ ] Fix: add source IP (`RemoteAddr`) to access log in `internal/gateway/webhook/handler.go`
+- [ ] Fix: remove dead `RouteRegistry.ServeHTTP` method from `internal/gateway/webhook/registry.go` (actual routing goes through `WebhookHandler`)
 - [ ] HPA configuration for webhook gateway Deployment
-- [x] Controller manages webhook gateway Deployment lifecycle (one per namespace)
+- [ ] Controller manages webhook gateway Deployment lifecycle (one per namespace)
 
 ### Cron Trigger
 - [ ] Cron scheduler implementation in controller (e.g., using `robfig/cron`)

@@ -20,6 +20,8 @@ import (
 	"context"
 	"fmt"
 
+	appsv1 "k8s.io/api/apps/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"k8s.io/apimachinery/pkg/runtime"
@@ -39,6 +41,7 @@ type TriggerReconciler struct {
 // +kubebuilder:rbac:groups=automation.kubezap.io,resources=triggers,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=automation.kubezap.io,resources=triggers/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=automation.kubezap.io,resources=triggers/finalizers,verbs=update
+// +kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch;create;update;patch
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
@@ -60,6 +63,12 @@ func (r *TriggerReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
+	if trg.Spec.Type == "webhook" && trg.Spec.Enabled {
+		if err := r.reconcileWebhookGatewayDeployment(ctx, trg.Namespace); err != nil {
+			return ctrl.Result{}, fmt.Errorf("reconciling webhook gateway deployment: %w", err)
+		}
+	}
+
 	// Simple prototype behavior: when the Trigger is enabled, record a lastTriggeredTime
 	// and set a LastResult of "Accepted". This provides a visible status update
 	// for testing the reconciliation flow. Production logic will create Run CRs.
@@ -75,6 +84,40 @@ func (r *TriggerReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	}
 
 	return ctrl.Result{}, nil
+}
+
+// reconcileWebhookGatewayDeployment ensures the webhook gateway Deployment exists in the given
+// namespace and that its image is up to date. The Deployment is shared across all webhook
+// Triggers in the namespace — only one instance is ever created.
+func (r *TriggerReconciler) reconcileWebhookGatewayDeployment(ctx context.Context, namespace string) error {
+	log := logf.FromContext(ctx)
+	desired := desiredWebhookGatewayDeployment(namespace)
+
+	existing := &appsv1.Deployment{}
+	err := r.Get(ctx, client.ObjectKeyFromObject(desired), existing)
+	if err != nil {
+		if !apierrors.IsNotFound(err) {
+			return err
+		}
+		if err := r.Create(ctx, desired); err != nil && !apierrors.IsAlreadyExists(err) {
+			return err
+		}
+		log.Info("created webhook gateway deployment", "namespace", namespace)
+		return nil
+	}
+
+	// Update image if it has drifted from the desired value.
+	if len(existing.Spec.Template.Spec.Containers) > 0 {
+		c := &existing.Spec.Template.Spec.Containers[0]
+		if c.Image != webhookGatewayImage {
+			c.Image = webhookGatewayImage
+			if err := r.Update(ctx, existing); err != nil {
+				return err
+			}
+			log.Info("updated webhook gateway deployment", "namespace", namespace)
+		}
+	}
+	return nil
 }
 
 // SetupWithManager sets up the controller with the Manager.

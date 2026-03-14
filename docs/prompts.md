@@ -264,7 +264,7 @@ Do not implement HPA yet — that is a later task.
 
 ## 7. Cron trigger: scheduler implementation
 
-**Status:** `[ ]`
+**Status:** `[x]`
 
 **Why:** With `CronTrigger.Schedule` now in the spec (prompt 1), the controller can implement
 the scheduler. Use `robfig/cron` — it is lightweight and standard for Go cron work.
@@ -311,7 +311,7 @@ Follow idempotent patterns: re-registering the same trigger should replace the o
 
 ## 8. FlowRun reconciler: basic execution
 
-**Status:** `[ ]`
+**Status:** `[x]`
 
 **Why:** FlowRuns are created by the webhook gateway and (soon) the cron scheduler. Nothing
 currently picks them up and executes them. This is the core of the engine.

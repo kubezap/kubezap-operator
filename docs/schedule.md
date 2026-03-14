@@ -54,16 +54,16 @@
 - [x] Controller manages webhook gateway Deployment lifecycle (one per namespace)
 
 ### Cron Trigger
-- [ ] Cron scheduler implementation in controller (e.g., using `robfig/cron`)
-- [ ] FlowRun creation on schedule fire: `<trigger>-<scheduled-time>` naming
+- [x] Cron scheduler implementation in controller (`robfig/cron v3`)
+- [x] FlowRun creation on schedule fire: `<trigger>-<scheduled-time>` naming
 - [ ] Cooldown enforcement for cron triggers
 
 ### Controller: FlowRun Execution
-- [ ] `FlowRun` reconciler in `internal/controller/flowrun_controller.go`
-- [ ] Fetch referenced Flow and resolve steps in dependency order
-- [ ] Execute HTTP action steps
+- [x] `FlowRun` reconciler in `internal/controller/flowrun_controller.go`
+- [x] Fetch referenced Flow and resolve steps in dependency order
+- [x] Execute HTTP action steps
 - [ ] Step result passing and CEL expression evaluation
-- [ ] FlowRun status conditions (Running, Succeeded, Failed)
+- [x] FlowRun status conditions (Running, Succeeded, Failed)
 - [ ] FlowRun GC: `spec.ttlAfterFinished`, operator flags `--flowrun-ttl-succeeded` / `--flowrun-ttl-failed`
 - [ ] `kubezap.io/retain=true` annotation exempts FlowRun from GC
 

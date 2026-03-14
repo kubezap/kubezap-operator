@@ -17,7 +17,7 @@ Work top-to-bottom. Each prompt assumes the previous ones are complete.
 
 ## 1. Add `CronTrigger` and `PubSubTrigger` sub-specs to Trigger CRD
 
-**Status:** `[ ]`
+**Status:** `[x]`
 
 **Why:** The `Trigger` CRD currently only has a `Webhook` sub-spec. Without `Cron` and
 `PubSub` sub-specs the cron scheduler and Kafka gateway have no configuration to read from.
@@ -70,7 +70,7 @@ Do not change anything else in the file.
 
 ## 2. Add `WebhookAuth` stub to `WebhookTrigger`
 
-**Status:** `[ ]`
+**Status:** `[x]`
 
 **Why:** The API docs (`docs/api/trigger.md`) specify `spec.webhook.auth` for HMAC, bearer
 token, OIDC, Basic, mTLS, API key, and IP allowlist. The field needs to exist in the schema
@@ -130,7 +130,7 @@ Do not change anything else in the file.
 
 ## 3. Add `spec.maxFlowRuns` to `TriggerSpec`
 
-**Status:** `[ ]`
+**Status:** `[x]`
 
 **Why:** The architecture specifies a `spec.maxFlowRuns` field on Trigger as a GC cap —
 when the number of FlowRuns for this Trigger exceeds this value, the oldest finished ones are
@@ -159,7 +159,7 @@ Do not change anything else in the file.
 
 ## 4. Fix: add source IP to webhook gateway access logs
 
-**Status:** `[ ]`
+**Status:** `[x]`
 
 **Why:** The architecture explicitly requires source IPs in structured access logs (not as
 Prometheus label values). The current handler logs method, path, status, etc. but omits the
@@ -192,7 +192,7 @@ Do not change any other behavior.
 
 ## 5. Fix: remove dead `RouteRegistry.ServeHTTP` method
 
-**Status:** `[ ]`
+**Status:** `[x]`
 
 **Why:** `RouteRegistry` has a `ServeHTTP` method that is never called. Actual HTTP routing
 goes through `WebhookHandler.ServeHTTP`, which calls `registry.Lookup()` directly. The dead
@@ -213,7 +213,7 @@ Do not change anything else in the file.
 
 ## 6. Controller: manage webhook gateway Deployment lifecycle
 
-**Status:** `[ ]`
+**Status:** `[x]`
 
 **Why:** The architecture requires the operator to own one webhook gateway Deployment per
 namespace. Currently the controller only sets trigger status — it does not create or manage

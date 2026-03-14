@@ -32,10 +32,13 @@ import (
 	automationv1alpha1 "github.com/yourname/kubezap/api/v1alpha1"
 )
 
+const cronTriggerFinalizer = "cron.kubezap.io/scheduler-cleanup"
+
 // TriggerReconciler reconciles a Trigger object
 type TriggerReconciler struct {
 	client.Client
-	Scheme *runtime.Scheme
+	Scheme        *runtime.Scheme
+	CronScheduler *CronScheduler
 }
 
 // +kubebuilder:rbac:groups=automation.kubezap.io,resources=triggers,verbs=get;list;watch;create;update;patch;delete
@@ -45,33 +48,60 @@ type TriggerReconciler struct {
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
-// TODO(user): Modify the Reconcile function to compare the state specified by
-// the Trigger object against the actual cluster state, and then
-// perform operations to make the cluster state reflect the state specified by
-// the user.
 //
 // For more details, check Reconcile and its Result here:
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.21.0/pkg/reconcile
 func (r *TriggerReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	_ = logf.FromContext(ctx)
-
-	// TODO(user): your logic here
+	log := logf.FromContext(ctx)
 
 	var trg automationv1alpha1.Trigger
 	if err := r.Get(ctx, req.NamespacedName, &trg); err != nil {
-		// NotFound or other errors are handled by controller-runtime
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
+	key := req.Namespace + "/" + req.Name
+
+	// Handle deletion
+	if !trg.DeletionTimestamp.IsZero() {
+		if r.CronScheduler != nil {
+			r.CronScheduler.Deregister(key)
+		}
+		if containsString(trg.Finalizers, cronTriggerFinalizer) {
+			trg.Finalizers = removeString(trg.Finalizers, cronTriggerFinalizer)
+			if err := r.Update(ctx, &trg); err != nil {
+				return ctrl.Result{}, err
+			}
+		}
+		return ctrl.Result{}, nil
+	}
+
+	// Handle cron triggers
+	if trg.Spec.Type == "cron" && r.CronScheduler != nil {
+		if trg.Spec.Enabled && trg.Spec.Cron != nil {
+			// Ensure finalizer is present
+			if !containsString(trg.Finalizers, cronTriggerFinalizer) {
+				trg.Finalizers = append(trg.Finalizers, cronTriggerFinalizer)
+				if err := r.Update(ctx, &trg); err != nil {
+					return ctrl.Result{}, err
+				}
+			}
+			if err := r.CronScheduler.Register(&trg); err != nil {
+				log.Error(err, "failed to register cron trigger")
+				return ctrl.Result{}, err
+			}
+		} else {
+			r.CronScheduler.Deregister(key)
+		}
+	}
+
+	// Handle webhook triggers — ensure gateway Deployment exists
 	if trg.Spec.Type == "webhook" && trg.Spec.Enabled {
 		if err := r.reconcileWebhookGatewayDeployment(ctx, trg.Namespace); err != nil {
 			return ctrl.Result{}, fmt.Errorf("reconciling webhook gateway deployment: %w", err)
 		}
 	}
 
-	// Simple prototype behavior: when the Trigger is enabled, record a lastTriggeredTime
-	// and set a LastResult of "Accepted". This provides a visible status update
-	// for testing the reconciliation flow. Production logic will create Run CRs.
+	// Set initial status for enabled triggers
 	if trg.Spec.Enabled {
 		now := metav1.Now()
 		if trg.Status.LastTriggeredTime == nil || trg.Status.LastTriggeredTime.Time.IsZero() {
@@ -126,4 +156,23 @@ func (r *TriggerReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		For(&automationv1alpha1.Trigger{}).
 		Named("trigger").
 		Complete(r)
+}
+
+func containsString(slice []string, s string) bool {
+	for _, item := range slice {
+		if item == s {
+			return true
+		}
+	}
+	return false
+}
+
+func removeString(slice []string, s string) []string {
+	result := make([]string, 0, len(slice))
+	for _, item := range slice {
+		if item != s {
+			result = append(result, item)
+		}
+	}
+	return result
 }

@@ -84,6 +84,19 @@ type WebhookTrigger struct {
 	Auth *WebhookAuth `json:"auth,omitempty"`
 }
 
+// CronTrigger configures a cron-based scheduled trigger.
+type CronTrigger struct {
+	// Schedule in standard cron format (e.g. "*/5 * * * *").
+	// Supports the robfig/cron v3 extended syntax including @every and @daily.
+	// +kubebuilder:validation:MinLength=1
+	Schedule string `json:"schedule"`
+
+	// Timezone for the schedule, e.g. "America/New_York".
+	// Defaults to UTC if omitted.
+	// +kubebuilder:validation:Optional
+	Timezone string `json:"timezone,omitempty"`
+}
+
 type FlowReference struct {
 	// Name of the Flow CR to execute
 	Name string `json:"name"`
@@ -142,14 +155,6 @@ type CooldownPolicy struct {
 	// Window for counting invocations, e.g. "60s". If omitted, defaults to 60s.
 	// +kubebuilder:default="60s"
 	Window *metav1.Duration `json:"window,omitempty"`
-}
-
-// CronTrigger configures a scheduled cron-based trigger.
-type CronTrigger struct {
-	// Standard five-field cron expression (UTC).
-	// Examples: "0 * * * *" (hourly), "*/15 * * * *" (every 15 min), "0 2 * * *" (daily 2am)
-	// +kubebuilder:validation:MinLength=9
-	Schedule string `json:"schedule"`
 }
 
 // PubSubTrigger configures a message-broker-based trigger.

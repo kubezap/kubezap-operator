@@ -98,9 +98,14 @@ spec:
                 properties:
                   schedule:
                     description: |-
-                      Standard five-field cron expression (UTC).
-                      Examples: "0 * * * *" (hourly), "*/15 * * * *" (every 15 min), "0 2 * * *" (daily 2am)
-                    minLength: 9
+                      Schedule in standard cron format (e.g. "*/5 * * * *").
+                      Supports the robfig/cron v3 extended syntax including @every and @daily.
+                    minLength: 1
+                    type: string
+                  timezone:
+                    description: |-
+                      Timezone for the schedule, e.g. "America/New_York".
+                      Defaults to UTC if omitted.
                     type: string
                 required:
                 - schedule

@@ -202,9 +202,13 @@ func main() {
 		os.Exit(1)
 	}
 
-	if err := (&controller.TriggerReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
+	cronScheduler := controller.NewCronScheduler(mgr.GetClient(), ctrl.Log.WithName("cron-scheduler"))
+	defer cronScheduler.Stop()
+
+	if err = (&controller.TriggerReconciler{
+		Client:        mgr.GetClient(),
+		Scheme:        mgr.GetScheme(),
+		CronScheduler: cronScheduler,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Trigger")
 		os.Exit(1)

@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"sort"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -36,16 +37,21 @@ import (
 	automationv1alpha1 "github.com/yourname/kubezap/api/v1alpha1"
 )
 
+const retainAnnotation = "kubezap.io/retain"
+
 // +kubebuilder:rbac:groups=automation.kubezap.io,resources=flowruns,verbs=get;list;watch;update;patch;delete
 // +kubebuilder:rbac:groups=automation.kubezap.io,resources=flowruns/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=automation.kubezap.io,resources=flowruns/finalizers,verbs=update
 // +kubebuilder:rbac:groups=automation.kubezap.io,resources=flows,verbs=get;list;watch
+// +kubebuilder:rbac:groups=automation.kubezap.io,resources=triggers,verbs=get;list;watch
 
 // FlowRunReconciler reconciles a FlowRun object.
 type FlowRunReconciler struct {
 	client.Client
-	Scheme     *runtime.Scheme
-	HTTPClient *http.Client
+	Scheme       *runtime.Scheme
+	HTTPClient   *http.Client
+	TTLSucceeded time.Duration
+	TTLFailed    time.Duration
 }
 
 func (r *FlowRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -54,6 +60,16 @@ func (r *FlowRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	var flowRun automationv1alpha1.FlowRun
 	if err := r.Get(ctx, req.NamespacedName, &flowRun); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
+	}
+
+	// GC: handle terminal FlowRuns (TTL expiry + maxFlowRuns cap).
+	if flowRun.Status.Phase == "Succeeded" || flowRun.Status.Phase == "Failed" {
+		if requeue, err := r.reconcileGC(ctx, &flowRun); err != nil {
+			return ctrl.Result{}, err
+		} else if requeue > 0 {
+			return ctrl.Result{RequeueAfter: requeue}, nil
+		}
+		return ctrl.Result{}, nil
 	}
 
 	// Skip already-terminal FlowRuns.
@@ -316,6 +332,112 @@ func (r *FlowRunReconciler) dependenciesMet(step automationv1alpha1.FlowStep, st
 		}
 	}
 	return true
+}
+
+// reconcileGC handles TTL-based deletion and maxFlowRuns enforcement for terminal FlowRuns.
+func (r *FlowRunReconciler) reconcileGC(ctx context.Context, flowRun *automationv1alpha1.FlowRun) (time.Duration, error) {
+	log := logf.FromContext(ctx)
+
+	// Exempt from GC if retain annotation is set.
+	if flowRun.Annotations[retainAnnotation] == "true" {
+		return 0, nil
+	}
+
+	// Enforce maxFlowRuns cap if trigger label is present.
+	if triggerName, ok := flowRun.Labels["kubezap.io/trigger"]; ok && triggerName != "" {
+		var trigger automationv1alpha1.Trigger
+		if err := r.Get(ctx, types.NamespacedName{Name: triggerName, Namespace: flowRun.Namespace}, &trigger); err == nil {
+			if trigger.Spec.MaxFlowRuns != nil && *trigger.Spec.MaxFlowRuns > 0 {
+				if err := r.enforceMaxFlowRuns(ctx, triggerName, flowRun.Namespace, *trigger.Spec.MaxFlowRuns); err != nil {
+					return 0, err
+				}
+			}
+		}
+		// Ignore NotFound — trigger may have been deleted.
+	}
+
+	// Determine TTL: per-FlowRun spec overrides operator flag.
+	ttl := r.TTLSucceeded
+	if flowRun.Status.Phase == "Failed" {
+		ttl = r.TTLFailed
+	}
+	if flowRun.Spec.TTLAfterFinished != nil {
+		ttl = flowRun.Spec.TTLAfterFinished.Duration
+	}
+	if ttl == 0 {
+		return 0, nil
+	}
+
+	completionTime := flowRun.Status.CompletionTime
+	if completionTime == nil {
+		return 0, nil
+	}
+
+	expiry := completionTime.Add(ttl)
+	now := time.Now()
+	if now.Before(expiry) {
+		return expiry.Sub(now), nil
+	}
+
+	log.Info("garbage collecting expired FlowRun",
+		"flowRun", flowRun.Name,
+		"phase", flowRun.Status.Phase,
+		"ttl", ttl)
+	if err := r.Delete(ctx, flowRun); err != nil && !apierrors.IsNotFound(err) {
+		return 0, err
+	}
+	return 0, nil
+}
+
+// enforceMaxFlowRuns deletes the oldest completed FlowRuns for a trigger
+// until the count is within the maxFlowRuns cap.
+func (r *FlowRunReconciler) enforceMaxFlowRuns(ctx context.Context, triggerName, namespace string, maxFlowRuns int32) error {
+	log := logf.FromContext(ctx)
+
+	var list automationv1alpha1.FlowRunList
+	if err := r.List(ctx, &list,
+		client.InNamespace(namespace),
+		client.MatchingLabels{"kubezap.io/trigger": triggerName},
+	); err != nil {
+		return err
+	}
+
+	var completed []automationv1alpha1.FlowRun
+	for _, fr := range list.Items {
+		if fr.Status.Phase != "Succeeded" && fr.Status.Phase != "Failed" {
+			continue
+		}
+		if fr.Annotations[retainAnnotation] == "true" {
+			continue
+		}
+		completed = append(completed, fr)
+	}
+
+	if int32(len(completed)) <= maxFlowRuns {
+		return nil
+	}
+
+	sort.Slice(completed, func(i, j int) bool {
+		ti := completed[i].Status.CompletionTime
+		tj := completed[j].Status.CompletionTime
+		if ti == nil {
+			return true
+		}
+		if tj == nil {
+			return false
+		}
+		return ti.Before(tj)
+	})
+
+	toDelete := int(int32(len(completed)) - maxFlowRuns)
+	for i := 0; i < toDelete; i++ {
+		fr := completed[i]
+		log.Info("enforcing maxFlowRuns, deleting oldest", "flowRun", fr.Name, "trigger", triggerName)
+		if err := r.Delete(ctx, &fr); err != nil && !apierrors.IsNotFound(err) {
+			return err
+		}
+	}
+	return nil
 }
 
 // SetupWithManager sets up the controller with the Manager.

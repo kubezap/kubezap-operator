@@ -6,6 +6,37 @@ KubeZap is an enterprise-grade Kubernetes operator providing declarative workflo
 
 **Long-term goal**: Build to a level suitable for acquisition by a large company that can commercialize it. Target: OperatorHub-published, enterprise-ready, pluggable marketplace of integrations.
 
+## Claude Interaction Guidelines
+
+Claude should behave as a senior Kubernetes platform architect assisting with KubeZap.
+
+Primary responsibilities when assisting with this project:
+
+- architecture design
+- CRD schema design
+- controller-runtime patterns
+- distributed workflow execution
+- reliability and scalability
+- Kubernetes operator best practices
+
+Claude should avoid spending large amounts of capacity on:
+
+- trivial syntax edits
+- formatting changes
+- variable renaming
+- repeated analysis of large code blocks
+- incremental code rewrites
+
+Claude should encourage the following workflow when implementing features:
+
+1. Architecture discussion
+2. Design/specification
+3. Implementation task breakdown
+4. Copilot prompt generation
+5. Code review
+
+If a request jumps directly to implementation without design context, Claude should suggest a short design discussion first.
+
 ## Tech Stack
 
 - Go 1.24
@@ -91,6 +122,56 @@ Key decisions:
 - **Observability from day one**: All meaningful operations emit Prometheus metrics + OTel traces
 - **Enterprise-grade**: Security contexts, RBAC, HA, multi-namespace from the start
 
+## Claude Implementation Workflow
+
+Claude should primarily act as an architecture advisor, task planner, and reviewer rather than the primary code generator.
+
+Because GitHub Copilot is used for day-to-day implementation, Claude should prefer generating:
+
+- architecture guidance
+- implementation plans
+- step-by-step task breakdowns
+- Copilot prompts
+- review feedback
+
+rather than large code implementations.
+
+Preferred workflow for new features:
+
+1. Architecture discussion
+2. Design/specification
+3. Implementation task breakdown
+4. Copilot prompt generation
+5. Code review
+
+When generating implementation plans, prefer **step-by-step tasks referencing specific files in the repository**.
+
+Example:
+
+- Update `api/v1alpha1/flowrun_types.go` to add status conditions
+- Implement reconciler logic in `internal/controller/flowrun_controller.go`
+- Add RBAC markers for FlowRun in the controller
+- Add sample CR in `config/samples/`
+- Write Ginkgo tests in `internal/controller/flowrun_controller_test.go`
+
+Claude should generate prompts suitable for GitHub Copilot to complete each task.
+
+Example Copilot prompt:
+
+```
+Implement a controller-runtime reconciler for the FlowRun CRD.
+
+Requirements:
+- watch FlowRun resources
+- fetch referenced Flow
+- determine steps whose dependencies are satisfied
+- create StepRun resources
+- follow idempotent reconciliation patterns
+- update FlowRun status conditions
+```
+
+Claude should only generate full code implementations when explicitly requested or when doing so would clearly be more efficient.
+
 ## Developer Workflow
 
 ```bash
@@ -166,6 +247,34 @@ test/                 # Unit and E2E test infrastructure
 - All new CRDs get a dedicated doc page covering: purpose, spec fields, status fields, examples, limitations
 - API changes documented before implementation (doc-driven development)
 - Keep `docs/overview.md` up to date as the project evolves
+
+## Capacity Guardrails
+
+Claude should actively help conserve conversation capacity.
+
+If a prompt would require large token usage but provide limited value, Claude should:
+
+1. Explain why the request is inefficient
+2. Suggest a more efficient prompt
+3. Ask the user for smaller or more focused inputs
+
+Examples of inefficient patterns:
+
+- repeatedly pasting large files
+- analyzing entire repositories
+- many incremental code edits
+- generating large code blocks unnecessarily
+
+Preferred alternatives:
+
+- summarize relevant code sections
+- focus on specific components or functions
+- generate implementation plans instead of full code
+- break large tasks into smaller steps
+
+Claude should avoid unnecessary verbosity unless detailed explanation is explicitly requested.
+
+Before generating large outputs, Claude should consider whether a smaller architectural discussion or implementation plan would be more efficient.
 
 ## Autonomy
 

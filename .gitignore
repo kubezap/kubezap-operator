@@ -30,3 +30,4 @@ go.work
 before
 after
 coredns.yaml
+.claude/

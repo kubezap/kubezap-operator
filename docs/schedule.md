@@ -24,12 +24,12 @@
 - [x] Basic Trigger reconciler (marks enabled Triggers as Accepted)
 - [x] CI/CD: test, lint, e2e pipelines
 - [x] Devcontainer, distroless Dockerfile, OLM bundle scaffolding
-- [ ] `Flow` CRD Go types in `api/v1alpha1/flow_types.go`
-- [ ] `FlowRun` CRD Go types in `api/v1alpha1/flowrun_types.go`
-- [ ] `Integration` CRD Go types in `api/v1alpha1/integration_types.go`
-- [ ] `MockEndpoint` CRD Go types in `api/v1alpha1/mockendpoint_types.go`
-- [ ] Run `make generate && make manifests` after each CRD type addition
-- [ ] Sample CRs in `config/samples/` for each new CRD
+- [x] `Flow` CRD Go types in `api/v1alpha1/flow_types.go`
+- [x] `FlowRun` CRD Go types in `api/v1alpha1/flowrun_types.go`
+- [x] `Integration` CRD Go types in `api/v1alpha1/integration_types.go`
+- [x] `MockEndpoint` CRD Go types in `api/v1alpha1/mockendpoint_types.go`
+- [x] Run `make generate && make manifests` after each CRD type addition
+- [x] Sample CRs in `config/samples/` for each new CRD
 
 ### Webhook Gateway
 - [ ] HTTP server skeleton in `cmd/webhook-gateway/main.go`

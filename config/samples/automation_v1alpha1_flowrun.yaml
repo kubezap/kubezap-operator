@@ -1,0 +1,14 @@
+apiVersion: automation.kubezap.io/v1alpha1
+kind: FlowRun
+metadata:
+  name: handle-order-manual-test
+spec:
+  flowRef:
+    name: handle-order
+  params:
+  - name: orderId
+    value: "12345"
+  triggerRef:
+    name: order-received
+    type: webhook
+  ttlAfterFinished: 24h

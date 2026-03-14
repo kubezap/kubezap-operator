@@ -1,0 +1,10 @@
+apiVersion: automation.kubezap.io/v1alpha1
+kind: Trigger
+metadata:
+  name: example-trigger
+spec:
+  type: webhook
+  webhook:
+    path: /hooks/example
+  flowRef:
+    name: example-flow

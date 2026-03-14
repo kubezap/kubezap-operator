@@ -1,0 +1,861 @@
+# Observability
+
+KubeZap exposes three complementary observability signals:
+
+- **Prometheus metrics** — aggregates and counters for alerting and dashboards
+- **Structured access logs** — per-request detail including source IP, payload size, auth results
+- **OpenTelemetry traces** — distributed traces spanning trigger receipt through flow step execution
+
+---
+
+## Contents
+
+- [Prometheus Metrics](#prometheus-metrics)
+  - [Webhook Gateway Metrics](#webhook-gateway-metrics)
+  - [Auth Metrics](#auth-metrics)
+  - [Rate Limit Metrics](#rate-limit-metrics)
+  - [Flow Execution Metrics](#flow-execution-metrics)
+  - [Kafka Gateway Metrics](#kafka-gateway-metrics)
+  - [Controller Metrics](#controller-metrics)
+  - [Labels Reference](#labels-reference)
+- [Structured Access Logs](#structured-access-logs)
+  - [Access Log Fields](#access-log-fields)
+  - [Source IP Tracking](#source-ip-tracking)
+  - [Log Configuration](#log-configuration)
+- [OpenTelemetry Traces](#opentelemetry-traces)
+- [Example Alerts](#example-alerts)
+- [Example Grafana Panels](#example-grafana-panels)
+- [Cardinality Guidance](#cardinality-guidance)
+
+---
+
+## Prometheus Metrics
+
+All metrics use the `kubezap_` prefix. Each component exposes a `/metrics` endpoint on a dedicated metrics port:
+
+| Component | Default metrics port | Notes |
+|---|---|---|
+| `kubezap-controller` | `:8443` | HTTPS, secured by cert-manager-issued TLS |
+| `kubezap-webhook-gateway` | `:8080` | HTTP by default; configure HTTPS via Helm |
+| `kubezap-kafka-gateway` | `:8080` | HTTP by default; configure HTTPS via Helm |
+
+The webhook trigger endpoint and the metrics endpoint share port `:8080` on the webhook gateway but use different paths (`/hooks/*` and `/metrics` respectively).
+
+### Webhook Gateway Metrics
+
+#### `kubezap_webhook_requests_total`
+**Type**: Counter
+
+Total webhook requests received, by outcome.
+
+| Label | Values | Description |
+|---|---|---|
+| `namespace` | string | Kubernetes namespace of the Trigger |
+| `trigger` | string | Name of the Trigger |
+| `method` | `POST`, `GET`, … | HTTP method of the request |
+| `status_code` | `200`, `401`, `429`, `500`, … | HTTP response status code |
+| `auth_result` | `success`, `failure`, `skipped` | Whether auth passed, failed, or was not configured |
+
+```promql
+# Total requests per trigger
+sum by (trigger, namespace) (kubezap_webhook_requests_total)
+
+# Error rate per trigger (non-2xx)
+sum by (trigger) (rate(kubezap_webhook_requests_total{status_code!~"2.."}[5m]))
+  /
+sum by (trigger) (rate(kubezap_webhook_requests_total[5m]))
+```
+
+---
+
+#### `kubezap_webhook_request_duration_seconds`
+**Type**: Histogram
+
+End-to-end request latency from receipt to response (includes auth verification and FlowRun creation).
+
+Buckets: 5ms, 10ms, 25ms, 50ms, 100ms, 250ms, 500ms, 1s, 2.5s, 5s, 10s
+
+| Label | Description |
+|---|---|
+| `namespace` | Kubernetes namespace of the Trigger |
+| `trigger` | Name of the Trigger |
+
+```promql
+# 99th percentile latency per trigger
+histogram_quantile(0.99, sum by (trigger, le) (
+  rate(kubezap_webhook_request_duration_seconds_bucket[5m])
+))
+```
+
+---
+
+#### `kubezap_webhook_request_body_bytes`
+**Type**: Histogram
+
+Size of incoming request bodies in bytes.
+
+Buckets: 256B, 1KB, 4KB, 16KB, 64KB, 256KB, 1MB, 4MB
+
+| Label | Description |
+|---|---|
+| `namespace` | Kubernetes namespace of the Trigger |
+| `trigger` | Name of the Trigger |
+| `content_type` | Parsed content type: `json`, `xml`, `form`, `text`, `binary` |
+
+```promql
+# Average request body size per trigger
+histogram_quantile(0.50, sum by (trigger, le) (
+  rate(kubezap_webhook_request_body_bytes_bucket[1h])
+))
+
+# Total data ingested per namespace (bytes/sec)
+sum by (namespace) (rate(kubezap_webhook_request_body_bytes_sum[5m]))
+```
+
+---
+
+#### `kubezap_webhook_request_bytes_total`
+**Type**: Counter
+
+Cumulative bytes received across all requests (request body only, not headers).
+
+| Label | Description |
+|---|---|
+| `namespace` | Kubernetes namespace of the Trigger |
+| `trigger` | Name of the Trigger |
+
+---
+
+#### `kubezap_webhook_active_routes`
+**Type**: Gauge
+
+Number of webhook paths currently registered in this gateway instance.
+
+| Label | Description |
+|---|---|
+| `namespace` | Kubernetes namespace |
+
+---
+
+### Auth Metrics
+
+#### `kubezap_webhook_auth_attempts_total`
+**Type**: Counter
+
+Total authentication attempts.
+
+| Label | Values | Description |
+|---|---|---|
+| `namespace` | string | Kubernetes namespace of the Trigger |
+| `trigger` | string | Name of the Trigger |
+| `auth_type` | `hmac`, `bearer`, `oidc`, `basic`, `mtls`, `header_equals` | Authentication method in use |
+| `result` | `success`, `failure` | Outcome |
+
+---
+
+#### `kubezap_webhook_auth_failures_total`
+**Type**: Counter
+
+Authentication failures, broken down by failure reason. This is the primary metric for security alerting.
+
+| Label | Values | Description |
+|---|---|---|
+| `namespace` | string | Kubernetes namespace of the Trigger |
+| `trigger` | string | Name of the Trigger |
+| `auth_type` | see above | Authentication method that failed |
+| `reason` | see below | Specific failure reason |
+
+**`reason` values by auth type:**
+
+| `auth_type` | `reason` values |
+|---|---|
+| `hmac` | `invalid_signature`, `missing_header`, `malformed_header` |
+| `bearer` | `missing_token`, `token_mismatch` |
+| `oidc` | `expired_token`, `invalid_signature`, `invalid_issuer`, `invalid_audience`, `missing_claim`, `malformed_token`, `jwks_fetch_failed` |
+| `basic` | `invalid_credentials`, `missing_credentials` |
+| `mtls` | `no_client_cert`, `cert_expired`, `ca_mismatch`, `cn_mismatch`, `san_mismatch` |
+| `header_equals` | `missing_header`, `value_mismatch` |
+| `ip_allowlist` | `ip_not_allowed` |
+
+```promql
+# Auth failure rate per trigger
+sum by (trigger, auth_type, reason) (
+  rate(kubezap_webhook_auth_failures_total[5m])
+)
+
+# Spike in OIDC expired tokens (could indicate clock skew or compromised token reuse)
+rate(kubezap_webhook_auth_failures_total{auth_type="oidc", reason="expired_token"}[5m]) > 1
+
+# IP allowlist blocks (potential scanning/probing)
+rate(kubezap_webhook_auth_failures_total{reason="ip_not_allowed"}[5m]) > 0.5
+```
+
+---
+
+#### `kubezap_webhook_ip_blocked_total`
+**Type**: Counter
+
+Requests blocked by IP allowlist. Separate from `auth_failures` so that IP blocks can be alerted independently without raising the overall auth failure rate.
+
+| Label | Description |
+|---|---|
+| `namespace` | Kubernetes namespace of the Trigger |
+| `trigger` | Name of the Trigger |
+| `source_range` | Source IP truncated to `/24` (e.g., `203.0.113.0/24`). See [Cardinality Guidance](#cardinality-guidance). |
+
+The `source_range` label uses `/24` truncation as a compromise: enough specificity to identify attack sources without per-IP cardinality explosion.
+
+---
+
+### Rate Limit Metrics
+
+#### `kubezap_webhook_rate_limited_total`
+**Type**: Counter
+
+Requests suppressed by the trigger's `cooldown` policy.
+
+| Label | Description |
+|---|---|
+| `namespace` | Kubernetes namespace of the Trigger |
+| `trigger` | Name of the Trigger |
+
+---
+
+#### `kubezap_webhook_cooldown_invocations`
+**Type**: Gauge
+
+Current invocation count within the active cooldown window, per trigger.
+
+| Label | Description |
+|---|---|
+| `namespace` | Kubernetes namespace of the Trigger |
+| `trigger` | Name of the Trigger |
+
+---
+
+### Flow Execution Metrics
+
+These are emitted by the controller as it processes FlowRun resources, but they are attributable back to the originating trigger.
+
+#### `kubezap_flowrun_created_total`
+**Type**: Counter
+
+| Label | Description |
+|---|---|
+| `namespace` | Namespace |
+| `trigger` | Name of the originating Trigger |
+| `trigger_type` | `webhook`, `cron`, `pubsub` |
+| `flow` | Name of the Flow |
+
+---
+
+#### `kubezap_flowrun_completed_total`
+**Type**: Counter
+
+| Label | Values | Description |
+|---|---|---|
+| `namespace` | string | Namespace |
+| `flow` | string | Name of the Flow |
+| `result` | `Succeeded`, `Failed`, `PartialFailure`, `Cancelled` | Outcome |
+
+---
+
+#### `kubezap_flowrun_duration_seconds`
+**Type**: Histogram
+
+End-to-end flow execution duration.
+
+| Label | Description |
+|---|---|
+| `namespace` | Namespace |
+| `flow` | Name of the Flow |
+
+---
+
+#### `kubezap_flowrun_step_duration_seconds`
+**Type**: Histogram
+
+Per-step execution duration.
+
+| Label | Values | Description |
+|---|---|---|
+| `namespace` | string | Namespace |
+| `flow` | string | Name of the Flow |
+| `step` | string | Name of the step |
+| `action_type` | `http`, `transform`, `kubernetes_job` | Step action type |
+| `result` | `Succeeded`, `Failed`, `Skipped` | Step outcome |
+
+---
+
+### Kafka Gateway Metrics
+
+#### `kubezap_kafka_messages_consumed_total`
+**Type**: Counter
+
+| Label | Description |
+|---|---|
+| `namespace` | Namespace |
+| `trigger` | Name of the Trigger |
+| `topic` | Kafka topic |
+| `partition` | Kafka partition |
+
+---
+
+#### `kubezap_kafka_consumer_lag`
+**Type**: Gauge
+
+Current consumer group lag per topic/partition. Use this to drive KEDA autoscaling.
+
+| Label | Description |
+|---|---|
+| `namespace` | Namespace |
+| `integration` | Name of the Integration (Kafka cluster) |
+| `topic` | Kafka topic |
+| `partition` | Kafka partition |
+| `consumer_group` | Consumer group ID |
+
+---
+
+#### `kubezap_kafka_message_size_bytes`
+**Type**: Histogram
+
+Size of consumed Kafka message values.
+
+| Label | Description |
+|---|---|
+| `namespace` | Namespace |
+| `topic` | Kafka topic |
+
+---
+
+### Controller Metrics
+
+Standard controller-runtime metrics are exposed automatically. KubeZap adds:
+
+#### `kubezap_reconcile_errors_total`
+**Type**: Counter
+
+| Label | Description |
+|---|---|
+| `controller` | Controller name (`trigger`, `flow`, `flowrun`, `mockendpoint`, etc.) |
+| `namespace` | Namespace of the reconciled resource |
+
+---
+
+#### `kubezap_gateway_deployments_managed`
+**Type**: Gauge
+
+Number of gateway Deployments currently managed by the controller.
+
+| Label | Values | Description |
+|---|---|---|
+| `gateway_type` | `webhook`, `kafka` | Type of gateway |
+| `namespace` | string | Namespace |
+
+---
+
+### Labels Reference
+
+All KubeZap metrics include these common labels where applicable:
+
+| Label | Description |
+|---|---|
+| `namespace` | Kubernetes namespace of the resource |
+| `trigger` | Name of the Trigger CRD |
+| `flow` | Name of the Flow CRD |
+| `gateway_type` | `webhook` or `kafka` |
+
+---
+
+## Structured Access Logs
+
+Every request to the webhook gateway produces a structured JSON access log entry. Access logs are written to stdout and collected by your log aggregation stack (Loki, Splunk, CloudWatch, Datadog, etc.).
+
+**This is where source IP tracking lives.** Raw IP addresses are not Prometheus label values due to cardinality — they are in the access log.
+
+### Access Log Fields
+
+```json
+{
+  "ts": "2026-03-14T10:32:11.423Z",
+  "level": "info",
+  "msg": "webhook_request",
+  "trace_id": "4bf92f3577b34da6a3ce929d0e0e4736",
+  "span_id": "00f067aa0ba902b7",
+
+  "request": {
+    "method": "POST",
+    "path": "/hooks/orders",
+    "trigger": "order-received",
+    "namespace": "automation",
+    "source_ip": "203.0.113.42",
+    "source_port": 54321,
+    "forwarded_for": "203.0.113.42, 10.0.0.1",
+    "user_agent": "GitHub-Hookshot/abc123",
+    "request_id": "req-9f8e7d6c",
+    "content_type": "application/json",
+    "body_bytes": 1247
+  },
+
+  "auth": {
+    "type": "hmac",
+    "result": "success"
+  },
+
+  "response": {
+    "status_code": 202,
+    "duration_ms": 12.4
+  },
+
+  "flowrun": {
+    "created": true,
+    "name": "order-received-1741954332-xk92p",
+    "flow": "process-order"
+  }
+}
+```
+
+**On auth failure:**
+```json
+{
+  "ts": "2026-03-14T10:35:44.001Z",
+  "level": "warn",
+  "msg": "webhook_request",
+  "trace_id": "...",
+
+  "request": {
+    "method": "POST",
+    "path": "/hooks/orders",
+    "trigger": "order-received",
+    "namespace": "automation",
+    "source_ip": "198.51.100.7",
+    "user_agent": "curl/7.88.1",
+    "body_bytes": 0
+  },
+
+  "auth": {
+    "type": "hmac",
+    "result": "failure",
+    "reason": "invalid_signature"
+  },
+
+  "response": {
+    "status_code": 401,
+    "duration_ms": 0.8
+  },
+
+  "flowrun": {
+    "created": false
+  }
+}
+```
+
+### Access Log Fields Reference
+
+| Field | Type | Description |
+|---|---|---|
+| `ts` | RFC3339 | Request timestamp |
+| `level` | string | `info` (success), `warn` (auth failure, rate limited), `error` (gateway error) |
+| `trace_id` | string | OpenTelemetry trace ID for correlation with traces |
+| `request.source_ip` | string | Client IP (respects `trustedProxies` for X-Forwarded-For) |
+| `request.forwarded_for` | string | Raw X-Forwarded-For header if present |
+| `request.user_agent` | string | HTTP User-Agent header |
+| `request.body_bytes` | integer | Request body size in bytes |
+| `request.content_type` | string | Normalized content type: `json`, `xml`, `form`, `text`, `binary` |
+| `auth.type` | string | Auth method configured on the trigger |
+| `auth.result` | string | `success`, `failure`, `skipped` |
+| `auth.reason` | string | Failure reason (only present when `result: failure`) |
+| `response.status_code` | integer | HTTP status code returned |
+| `response.duration_ms` | float | Total request handling time in milliseconds |
+| `flowrun.created` | boolean | Whether a FlowRun was created |
+| `flowrun.name` | string | Name of the created FlowRun (only when `created: true`) |
+
+### Source IP Tracking
+
+To analyze traffic by source, query your log aggregation stack:
+
+**Loki — top source IPs for a trigger:**
+```logql
+topk(10,
+  sum by (source_ip) (
+    count_over_time(
+      {namespace="automation"} |= "webhook_request" | json | trigger="order-received"
+      [1h]
+    )
+  )
+)
+```
+
+**Loki — all auth failures in the last 24h:**
+```logql
+{namespace="automation"}
+  | json
+  | msg="webhook_request"
+  | auth_result="failure"
+  | line_format "{{.ts}} {{.request_source_ip}} {{.request_trigger}} {{.auth_reason}}"
+```
+
+**Identifying scanning/probing activity:**
+```logql
+sum by (request_source_ip) (
+  count_over_time(
+    {namespace="automation"} | json | auth_result="failure" [10m]
+  )
+) > 20
+```
+
+### Log Configuration
+
+Access logging is enabled by default. Configure via operator environment variables:
+
+| Variable | Default | Description |
+|---|---|---|
+| `ACCESS_LOG_ENABLED` | `true` | Enable/disable access logging |
+| `ACCESS_LOG_LEVEL` | `info` | Minimum log level: `debug`, `info`, `warn`, `error` |
+| `ACCESS_LOG_REDACT_HEADERS` | `Authorization,X-Api-Key` | Comma-separated list of headers to redact in logs |
+| `ACCESS_LOG_MAX_BODY_LOG_BYTES` | `0` | Log request body bytes (0 = disabled; set carefully for PII compliance) |
+| `TRUSTED_PROXIES` | `""` | Comma-separated CIDR list for X-Forwarded-For processing |
+
+> **PII and compliance**: Request bodies may contain personal data. `ACCESS_LOG_MAX_BODY_LOG_BYTES` is off by default. If enabled, ensure your log retention and access controls meet applicable regulations (GDPR, HIPAA, PCI DSS).
+
+---
+
+## OpenTelemetry Traces
+
+Each webhook request creates an OTel trace that spans the full lifecycle from receipt to flow completion.
+
+```
+webhook_request (root span)
+├── auth_verify (span)
+├── cooldown_check (span)
+├── payload_parse (span)
+└── flowrun_create (span)
+    └── [flow execution — separate trace, linked by trace ID]
+        ├── step: fetch-order (span)
+        │   └── http_call (span)
+        ├── step: transform (span)
+        └── step: notify-slack (span)
+            └── http_call (span)
+```
+
+The `trace_id` in access logs matches the OTel trace ID, enabling log-to-trace correlation in tools like Grafana, Jaeger, or Honeycomb.
+
+### Configuration
+
+Configure the OTel exporter via standard environment variables on the operator and gateway Deployments:
+
+```yaml
+env:
+  - name: OTEL_EXPORTER_OTLP_ENDPOINT
+    value: "http://otel-collector.monitoring.svc:4318"
+  - name: OTEL_EXPORTER_OTLP_PROTOCOL
+    value: "http/protobuf"    # or "grpc"
+  - name: OTEL_SERVICE_NAME
+    value: "kubezap-webhook-gateway"
+  - name: OTEL_RESOURCE_ATTRIBUTES
+    value: "k8s.namespace=$(POD_NAMESPACE),k8s.pod.name=$(POD_NAME)"
+```
+
+---
+
+## Prometheus ServiceMonitor
+
+KubeZap does **not** automatically create `ServiceMonitor` resources. This is intentional — `ServiceMonitor` is a Prometheus Operator CRD that may not be installed in every cluster, and auto-creating it would cause the operator to fail in clusters without Prometheus Operator. It is also common for platform teams to control what is scraped centrally.
+
+Create the `ServiceMonitor` manually after installing KubeZap.
+
+### Controller ServiceMonitor
+
+```yaml
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: kubezap-controller
+  namespace: kubezap-system
+  labels:
+    # Match the label selector your Prometheus uses to discover ServiceMonitors.
+    # For kube-prometheus-stack, the default is: release: <helm-release-name>
+    release: prometheus
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: kubezap
+      app.kubernetes.io/component: controller
+  namespaceSelector:
+    matchNames:
+      - kubezap-system
+  endpoints:
+    - port: metrics
+      path: /metrics
+      scheme: https
+      tlsConfig:
+        # The controller metrics endpoint is HTTPS on port 8443, secured by cert-manager.
+        # Reference the cert-manager-issued Secret here, or use insecureSkipVerify for dev.
+        insecureSkipVerify: false
+        caFile: /etc/prometheus/secrets/kubezap-metrics-ca/ca.crt
+      interval: 30s
+      scrapeTimeout: 10s
+```
+
+### Webhook Gateway ServiceMonitor
+
+One `ServiceMonitor` can match all webhook gateway Services across namespaces using `namespaceSelector: any: true`. Adjust the namespace selector to match your deployment topology.
+
+```yaml
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: kubezap-webhook-gateways
+  namespace: kubezap-system
+  labels:
+    release: prometheus
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: kubezap
+      app.kubernetes.io/component: webhook-gateway
+  namespaceSelector:
+    any: true   # match webhook-gateway Services in all namespaces
+  endpoints:
+    - port: metrics
+      path: /metrics
+      scheme: http    # adjust to https if TLS is enabled on the metrics endpoint
+      interval: 15s   # more frequent — gateway is on the hot path
+      scrapeTimeout: 10s
+```
+
+### Kafka Gateway ServiceMonitor
+
+```yaml
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: kubezap-kafka-gateways
+  namespace: kubezap-system
+  labels:
+    release: prometheus
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: kubezap
+      app.kubernetes.io/component: kafka-gateway
+  namespaceSelector:
+    any: true
+  endpoints:
+    - port: metrics
+      path: /metrics
+      scheme: http
+      interval: 30s
+```
+
+### Verifying scrape targets
+
+After creating the `ServiceMonitor`, confirm Prometheus is picking up the targets:
+
+```bash
+# Port-forward to Prometheus and check targets
+kubectl port-forward -n monitoring svc/prometheus-operated 9090
+
+# Then open: http://localhost:9090/targets
+# Look for: kubezap-system/kubezap-controller, kubezap-webhook-gateways, etc.
+```
+
+Or query via the API:
+```bash
+curl http://localhost:9090/api/v1/targets | jq '.data.activeTargets[] | select(.labels.job | startswith("kubezap"))'
+```
+
+---
+
+## Example Alerts
+
+PrometheusRule examples for common alerting scenarios.
+
+```yaml
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: kubezap-webhook-alerts
+  namespace: monitoring
+spec:
+  groups:
+    - name: kubezap.webhook.security
+      interval: 30s
+      rules:
+
+        - alert: WebhookAuthFailureSpike
+          expr: |
+            sum by (namespace, trigger, auth_type) (
+              rate(kubezap_webhook_auth_failures_total[5m])
+            ) > 1
+          for: 2m
+          labels:
+            severity: warning
+          annotations:
+            summary: "High webhook auth failure rate on {{ $labels.trigger }}"
+            description: >
+              Trigger {{ $labels.namespace }}/{{ $labels.trigger }} is seeing
+              {{ $value | humanize }} auth failures/sec using {{ $labels.auth_type }}.
+              This may indicate a misconfigured caller or a brute-force attempt.
+
+        - alert: WebhookIPBlockSpike
+          expr: |
+            sum by (namespace, trigger, source_range) (
+              rate(kubezap_webhook_ip_blocked_total[5m])
+            ) > 2
+          for: 1m
+          labels:
+            severity: warning
+          annotations:
+            summary: "IP blocks on {{ $labels.trigger }} from {{ $labels.source_range }}"
+            description: >
+              {{ $value | humanize }} requests/sec from {{ $labels.source_range }}
+              are being blocked by IP allowlist on {{ $labels.namespace }}/{{ $labels.trigger }}.
+
+        - alert: WebhookOIDCJWKSFetchFailed
+          expr: |
+            rate(kubezap_webhook_auth_failures_total{reason="jwks_fetch_failed"}[5m]) > 0
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "OIDC JWKS endpoint unreachable for {{ $labels.trigger }}"
+            description: >
+              The webhook gateway cannot reach the JWKS endpoint for trigger
+              {{ $labels.namespace }}/{{ $labels.trigger }}. All OIDC-authenticated
+              requests will be rejected until this is resolved.
+
+    - name: kubezap.webhook.health
+      rules:
+
+        - alert: WebhookHighErrorRate
+          expr: |
+            sum by (namespace, trigger) (
+              rate(kubezap_webhook_requests_total{status_code=~"5.."}[5m])
+            )
+            /
+            sum by (namespace, trigger) (
+              rate(kubezap_webhook_requests_total[5m])
+            ) > 0.05
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "High 5xx error rate on webhook trigger {{ $labels.trigger }}"
+
+        - alert: WebhookGatewayDown
+          expr: |
+            kubezap_webhook_active_routes == 0
+          for: 2m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Webhook gateway in {{ $labels.namespace }} has no active routes"
+
+        - alert: WebhookHighLatency
+          expr: |
+            histogram_quantile(0.99,
+              sum by (trigger, le) (
+                rate(kubezap_webhook_request_duration_seconds_bucket[5m])
+              )
+            ) > 2
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "P99 webhook latency > 2s on {{ $labels.trigger }}"
+
+    - name: kubezap.kafka.health
+      rules:
+
+        - alert: KafkaConsumerHighLag
+          expr: |
+            kubezap_kafka_consumer_lag > 10000
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Kafka consumer lag is high for topic {{ $labels.topic }}"
+            description: >
+              Consumer group {{ $labels.consumer_group }} on topic {{ $labels.topic }}
+              has a lag of {{ $value }} messages. Consider scaling the Kafka gateway.
+```
+
+---
+
+## Example Grafana Panels
+
+Key panels for a webhook gateway dashboard:
+
+**Request rate:**
+```promql
+sum by (trigger) (rate(kubezap_webhook_requests_total[5m]))
+```
+
+**Auth failure rate (stacked by reason):**
+```promql
+sum by (reason) (rate(kubezap_webhook_auth_failures_total[5m]))
+```
+
+**Request body size distribution (heatmap):**
+```promql
+sum by (le) (rate(kubezap_webhook_request_body_bytes_bucket[5m]))
+```
+
+**Total data ingested (bytes/sec):**
+```promql
+sum(rate(kubezap_webhook_request_bytes_total[5m]))
+```
+
+**P50 / P95 / P99 request latency:**
+```promql
+histogram_quantile(0.50, sum by (le) (rate(kubezap_webhook_request_duration_seconds_bucket[5m])))
+histogram_quantile(0.95, sum by (le) (rate(kubezap_webhook_request_duration_seconds_bucket[5m])))
+histogram_quantile(0.99, sum by (le) (rate(kubezap_webhook_request_duration_seconds_bucket[5m])))
+```
+
+**Auth failures by trigger (table):**
+```promql
+sort_desc(sum by (trigger, auth_type, reason) (
+  increase(kubezap_webhook_auth_failures_total[1h])
+))
+```
+
+**IP blocks by source range (bar chart):**
+```promql
+sort_desc(sum by (source_range) (
+  increase(kubezap_webhook_ip_blocked_total[1h])
+))
+```
+
+---
+
+## Cardinality Guidance
+
+### Why source IPs are not Prometheus label values
+
+Prometheus stores one time series per unique combination of label values. A busy gateway receiving traffic from thousands of IP addresses would create thousands of time series per metric — this is a **cardinality explosion** that degrades Prometheus query performance and increases memory usage.
+
+**The rule of thumb**: a label should have bounded, low cardinality (ideally < 100 unique values). Source IPs are unbounded.
+
+**The solution**: use the structured access log for per-IP analysis, and use `/24`-bucketed `source_range` labels in Prometheus for coarse-grained IP source metrics on the `kubezap_webhook_ip_blocked_total` metric only.
+
+| Signal | Source IP handling |
+|---|---|
+| Prometheus metrics | `/24` bucket on `ip_blocked` only — everything else is IP-free |
+| Access logs | Full source IP in every log entry |
+| OTel traces | Source IP as a span attribute (not a metric label) |
+
+### Label cardinality table
+
+| Label | Cardinality | Safe? |
+|---|---|---|
+| `namespace` | Low (tens) | Yes |
+| `trigger` | Medium (hundreds) | Yes |
+| `flow` | Medium (hundreds) | Yes |
+| `status_code` | Low (~10) | Yes |
+| `auth_type` | Very low (6) | Yes |
+| `reason` | Low (~15) | Yes |
+| `source_ip` | Unbounded | **No — use access log** |
+| `user_agent` | Unbounded | **No — use access log** |
+| `source_range` | Medium (/24 buckets, thousands possible) | **Limited use only** |

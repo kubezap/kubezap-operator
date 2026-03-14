@@ -1,0 +1,403 @@
+# FlowRun CRD
+
+A `FlowRun` is an execution instance of a `Flow`. Gateways create a `FlowRun` each time a trigger fires; the KubeZap controller watches for new `FlowRun` resources and executes the referenced `Flow`. Every execution is a persistent Kubernetes resource — you can inspect it with `kubectl` while it is running and after it completes.
+
+---
+
+## Contents
+
+- [Overview](#overview)
+- [Lifecycle](#lifecycle)
+- [Who Creates FlowRuns](#who-creates-flowruns)
+- [Spec Reference](#spec-reference)
+- [Status Reference](#status-reference)
+- [Garbage Collection](#garbage-collection)
+- [Deduplication](#deduplication)
+- [Examples](#examples)
+  - [Webhook-triggered FlowRun](#example-1-webhook-triggered-flowrun)
+  - [Kafka-triggered FlowRun](#example-2-kafka-triggered-flowrun)
+  - [Cron-triggered FlowRun](#example-3-cron-triggered-flowrun)
+- [kubectl Reference](#kubectl-reference)
+
+---
+
+## Overview
+
+`FlowRun` is the decoupling mechanism between the event-receiving gateways and the flow-executing controller. This separation means:
+
+- **Gateways are stateless routers** — they receive events and write FlowRuns, then move on
+- **Every execution is auditable** — FlowRun persists in etcd with full trigger metadata, step results, and timing
+- **Scaling is independent** — webhook gateways and Kafka gateways scale based on load; the controller scales based on concurrency requirements
+- **Crash recovery is automatic** — if the controller restarts mid-execution, it reconciles in-progress FlowRuns from CRD state
+
+```
+  Webhook Request ──► webhook-gateway ──► creates FlowRun ──► controller picks up
+  Kafka Message   ──► kafka-gateway   ──► creates FlowRun ──► controller picks up
+  Cron Schedule   ──► controller      ──► creates FlowRun ──► controller picks up
+  K8s Event       ──► controller      ──► creates FlowRun ──► controller picks up
+```
+
+---
+
+## Lifecycle
+
+```
+  ┌─────────┐
+  │ Pending │  FlowRun created; controller has not yet started execution
+  └────┬────┘
+       │  controller picks up FlowRun
+       ▼
+  ┌─────────┐
+  │ Running │  Controller is executing steps
+  └────┬────┘
+       │
+       ├──► all steps Succeeded ──────────────────────────────► ┌───────────┐
+       │                                                         │ Succeeded │
+       │                                                         └───────────┘
+       ├──► any step Failed (no onFailure handler, or ──────────► ┌────────┐
+       │    handler also failed)                                   │ Failed │
+       │                                                           └────────┘
+       └──► cancelled via annotation ──────────────────────────► ┌───────────┐
+                                                                  │ Cancelled │
+                                                                  └───────────┘
+```
+
+### Step Lifecycle
+
+Each step within a FlowRun follows its own phase:
+
+```
+Pending ──► Running ──► Succeeded
+                   ──► Failed ──► (retry) ──► Running
+                                         ──► Failed (max attempts reached)
+                   ──► Skipped  (when condition was false)
+```
+
+A FlowRun is `Succeeded` only when all non-skipped steps reach `Succeeded`. A single step that exhausts its retries and remains `Failed` causes the entire FlowRun to be `Failed`, unless an `onFailure` handler succeeds.
+
+---
+
+## Who Creates FlowRuns
+
+FlowRuns are always created by KubeZap components — never directly by users (though you can create them manually for testing).
+
+| Creator | Trigger Type | FlowRun Naming Pattern |
+|---|---|---|
+| `kubezap-webhook-gateway` | `spec.type: webhook` | `<trigger-name>-<timestamp>-<random>` |
+| `kubezap-kafka-gateway` | `spec.type: pubsub` (Kafka) | `<trigger-name>-p<partition>-offset-<offset>` |
+| `kubezap-controller` | `spec.type: cron` | `<trigger-name>-<scheduled-time>` |
+| `kubezap-controller` | Kubernetes resource events _(planned)_ | `<trigger-name>-<object-uid>-<resourceVersion>` |
+
+The Kafka naming convention (`-p0-offset-12345`) is the deduplication key — see [Deduplication](#deduplication).
+
+---
+
+## Spec Reference
+
+### FlowRunSpec
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `flowRef` | LocalObjectReference | **Yes** | Name of the `Flow` to execute. Must be in the same namespace. |
+| `params` | []ParamValue | No | Input parameters passed to the Flow. Must satisfy the Flow's `params` declarations. |
+| `triggerRef` | TriggerReference | No | Reference to the Trigger that created this FlowRun. |
+| `triggerData` | TriggerData | No | Snapshot of the triggering event (payload, metadata). |
+| `ttlAfterFinished` | duration | No | How long to retain the FlowRun after it reaches a terminal phase. Overrides the operator-level default. Examples: `24h`, `7d`. Set to `0` to delete immediately. |
+
+### TriggerReference
+
+| Field | Type | Description |
+|---|---|---|
+| `name` | string | Name of the Trigger that created this FlowRun |
+| `type` | string | Trigger type: `webhook`, `cron`, `pubsub` |
+
+### TriggerData
+
+Snapshot of the event that caused this FlowRun. The full set of fields depends on the trigger type; unpopulated fields are omitted.
+
+| Field | Type | Description |
+|---|---|---|
+| `source` | string | `webhook`, `cron`, `kafka`, `kubernetes-event` |
+| `method` | string | HTTP method (webhook only) |
+| `path` | string | URL path (webhook only) |
+| `headers` | map[string]string | Request headers (webhook only; sensitive headers redacted) |
+| `topic` | string | Kafka topic (pubsub only) |
+| `partition` | integer | Kafka partition (pubsub only) |
+| `offset` | integer | Kafka message offset (pubsub only) |
+| `kafkaHeaders` | map[string]string | Kafka message headers (pubsub only) |
+| `scheduledTime` | timestamp | Scheduled fire time (cron only) |
+| `body` | string | Request or message body (truncated at 4KB) |
+| `bodyTruncated` | boolean | `true` if the body exceeded 4KB and was truncated |
+| `contentType` | string | Content-Type of the body |
+
+### ParamValue
+
+| Field | Type | Description |
+|---|---|---|
+| `name` | string | Parameter name (must match a `Flow.spec.params` declaration) |
+| `value` | string | Parameter value |
+
+---
+
+## Status Reference
+
+### FlowRunStatus
+
+| Field | Type | Description |
+|---|---|---|
+| `phase` | string | Overall execution phase: `Pending`, `Running`, `Succeeded`, `Failed`, `Cancelled` |
+| `conditions` | []Condition | Standard conditions (see below) |
+| `startTime` | timestamp | When the controller began executing the FlowRun |
+| `completionTime` | timestamp | When the FlowRun reached a terminal phase |
+| `steps` | []StepRunStatus | Per-step execution status (see below) |
+| `message` | string | Human-readable summary, especially on failure |
+
+### Conditions
+
+| Type | Status | Meaning |
+|---|---|---|
+| `Succeeded` | `True` | All steps completed successfully |
+| `Succeeded` | `False` | One or more steps failed |
+| `Running` | `True` | Execution is in progress |
+
+### StepRunStatus
+
+| Field | Type | Description |
+|---|---|---|
+| `name` | string | Step name (matches `Flow.spec.steps[].name`) |
+| `phase` | string | `Pending`, `Running`, `Succeeded`, `Failed`, `Skipped` |
+| `startTime` | timestamp | When this step began executing |
+| `completionTime` | timestamp | When this step reached a terminal phase |
+| `attempts` | integer | Number of execution attempts (1 on first try; incremented on retry) |
+| `message` | string | Error message or skip reason |
+| `results` | []ResultValue | Output values produced by this step |
+
+### ResultValue
+
+| Field | Type | Description |
+|---|---|---|
+| `name` | string | Result name (matches `Flow.spec.steps[].results[].name`) |
+| `value` | string | Result value captured from the step output |
+
+### Printer Columns
+
+```bash
+kubectl get flowruns -n automation
+```
+
+```
+NAME                           FLOW           PHASE       AGE    DURATION
+order-received-1710412335-x8k  handle-order   Succeeded   5m     3.2s
+order-received-1710412280-j2q  handle-order   Failed      12m    1.8s
+nightly-report-2026031402      gen-report     Running     30s    —
+```
+
+---
+
+## Garbage Collection
+
+FlowRuns accumulate over time. KubeZap garbage collects completed FlowRuns based on:
+
+1. **`spec.ttlAfterFinished`** — if set on the FlowRun itself, takes precedence
+2. **Operator-level TTL defaults** — configured via the controller's `--flowrun-ttl-succeeded` and `--flowrun-ttl-failed` flags (defaults: `24h` succeeded, `72h` failed)
+3. **`spec.maxFlowRuns`** on the `Trigger` — keeps the N most recent FlowRuns for that trigger, deleting older ones regardless of TTL
+
+FlowRuns in `Pending` or `Running` phase are never garbage collected automatically.
+
+To retain a specific FlowRun indefinitely, annotate it:
+
+```bash
+kubectl annotate flowrun order-received-1710412335-x8k \
+  -n automation \
+  kubezap.io/retain=true
+```
+
+The garbage collector skips FlowRuns with this annotation.
+
+---
+
+## Deduplication
+
+### Kafka (at-least-once delivery)
+
+Kafka guarantees at-least-once delivery. A gateway crash after consuming a message but before committing the offset can cause the same message to be delivered again. KubeZap handles this by encoding the Kafka partition and offset in the FlowRun name:
+
+```
+<trigger-name>-p<partition>-offset-<offset>
+```
+
+For example: `order-events-p0-offset-12345`
+
+Because Kubernetes object names are unique within a namespace, a second attempt to create a FlowRun with the same name will fail with a `409 Conflict` — the controller ignores this error and moves on. The original FlowRun (already created and potentially already executing) is unaffected.
+
+### Webhook
+
+Webhook FlowRuns include a random suffix (`<trigger-name>-<timestamp>-<random>`) and are not deduplicated. If idempotency matters for your use case, include a deduplication key in the request payload and use a `when` condition in the Flow to check for it.
+
+---
+
+## Examples
+
+### Example 1: Webhook-triggered FlowRun
+
+This is what the `kubezap-webhook-gateway` creates when it receives a POST to `/hooks/orders`:
+
+```yaml
+apiVersion: automation.kubezap.io/v1alpha1
+kind: FlowRun
+metadata:
+  name: order-received-1710412335-x8k
+  namespace: automation
+  labels:
+    kubezap.io/trigger: order-received
+    kubezap.io/trigger-type: webhook
+    kubezap.io/flow: handle-order
+spec:
+  flowRef:
+    name: handle-order
+  params:
+    - name: orderId
+      value: "ORD-9921"
+  triggerRef:
+    name: order-received
+    type: webhook
+  triggerData:
+    source: webhook
+    method: POST
+    path: /hooks/orders
+    body: '{"orderId": "ORD-9921", "customer": "Acme Corp"}'
+    contentType: application/json
+    headers:
+      X-Request-Id: "abc123"
+  ttlAfterFinished: 48h
+```
+
+After execution:
+
+```yaml
+status:
+  phase: Succeeded
+  startTime: "2026-03-14T10:32:15Z"
+  completionTime: "2026-03-14T10:32:18Z"
+  steps:
+    - name: enrich-order
+      phase: Succeeded
+      startTime: "2026-03-14T10:32:15Z"
+      completionTime: "2026-03-14T10:32:17Z"
+      attempts: 1
+      results:
+        - name: customerName
+          value: "Acme Corp"
+        - name: status
+          value: "confirmed"
+    - name: notify-slack
+      phase: Succeeded
+      startTime: "2026-03-14T10:32:17Z"
+      completionTime: "2026-03-14T10:32:18Z"
+      attempts: 1
+  conditions:
+    - type: Succeeded
+      status: "True"
+      lastTransitionTime: "2026-03-14T10:32:18Z"
+```
+
+---
+
+### Example 2: Kafka-triggered FlowRun
+
+Created by `kubezap-kafka-gateway` for message at partition 0, offset 12345:
+
+```yaml
+apiVersion: automation.kubezap.io/v1alpha1
+kind: FlowRun
+metadata:
+  name: order-events-p0-offset-12345
+  namespace: automation
+  labels:
+    kubezap.io/trigger: order-events
+    kubezap.io/trigger-type: pubsub
+    kubezap.io/flow: process-order
+spec:
+  flowRef:
+    name: process-order
+  params:
+    - name: orderId
+      value: "ORD-9922"
+  triggerRef:
+    name: order-events
+    type: pubsub
+  triggerData:
+    source: kafka
+    topic: orders.created
+    partition: 0
+    offset: 12345
+    body: '{"orderId": "ORD-9922"}'
+    contentType: application/json
+    kafkaHeaders:
+      X-Correlation-Id: "corr-789"
+```
+
+---
+
+### Example 3: Cron-triggered FlowRun
+
+Created by the controller at the scheduled fire time:
+
+```yaml
+apiVersion: automation.kubezap.io/v1alpha1
+kind: FlowRun
+metadata:
+  name: nightly-report-2026031402
+  namespace: automation
+  labels:
+    kubezap.io/trigger: nightly-report
+    kubezap.io/trigger-type: cron
+    kubezap.io/flow: generate-report
+spec:
+  flowRef:
+    name: generate-report
+  triggerRef:
+    name: nightly-report
+    type: cron
+  triggerData:
+    source: cron
+    scheduledTime: "2026-03-14T02:00:00Z"
+  ttlAfterFinished: 168h  # 7 days
+```
+
+---
+
+## kubectl Reference
+
+| Command | Description |
+|---|---|
+| `kubectl get flowruns -n <ns>` | List all FlowRuns with phase and age |
+| `kubectl get flowrun <name> -n <ns> -o yaml` | Full spec and status |
+| `kubectl get flowrun <name> -n <ns> -o jsonpath='{.status.steps}'` | Step statuses |
+| `kubectl get flowruns -n <ns> -l kubezap.io/trigger=<trigger-name>` | All FlowRuns for a trigger |
+| `kubectl get flowruns -n <ns> --field-selector=status.phase=Failed` | All failed FlowRuns |
+| `kubectl annotate flowrun <name> -n <ns> kubezap.io/cancel=true` | Cancel a running FlowRun |
+| `kubectl annotate flowrun <name> -n <ns> kubezap.io/retain=true` | Exempt from garbage collection |
+| `kubectl delete flowrun <name> -n <ns>` | Delete a FlowRun manually |
+
+### Watch a FlowRun execute in real time
+
+```bash
+kubectl get flowrun order-received-1710412335-x8k -n automation -w
+```
+
+### Get all step results
+
+```bash
+kubectl get flowrun order-received-1710412335-x8k -n automation \
+  -o jsonpath='{range .status.steps[*]}{.name}{": "}{.phase}{"\n"}{end}'
+```
+
+### Find the most recent FlowRun for a trigger
+
+```bash
+kubectl get flowruns -n automation \
+  -l kubezap.io/trigger=order-received \
+  --sort-by=.metadata.creationTimestamp \
+  -o name | tail -1
+```

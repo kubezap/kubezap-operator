@@ -1,0 +1,534 @@
+# KubeZap Overview
+
+KubeZap is an enterprise-grade Kubernetes operator that provides declarative workflow automation. It lets you connect events to actions using standard Kubernetes custom resources — no web UI, no proprietary runtime, no vendor lock-in.
+
+If you have used tools like Zapier or Camunda, the concepts will feel familiar. The difference is that KubeZap runs entirely inside your cluster and is configured through YAML.
+
+---
+
+## Contents
+
+- [What KubeZap Does](#what-kubezap-does)
+- [Core Concepts](#core-concepts)
+- [Architecture](#architecture)
+- [CRD Overview](#crd-overview)
+- [Trigger Types](#trigger-types)
+- [Credential Management](#credential-management)
+- [TLS and mTLS](#tls-and-mtls)
+- [Exposing Webhook Triggers](#exposing-webhook-triggers)
+- [Payload Formats](#payload-formats)
+- [Quick Example](#quick-example)
+- [Design Goals](#design-goals)
+- [Installation](#installation)
+- [Compatibility](#compatibility)
+- [Roadmap](#roadmap)
+
+---
+
+## What KubeZap Does
+
+KubeZap lets you define automation workflows declaratively. A workflow starts from an **event** (an incoming webhook, a Kafka message, a cron schedule) and executes a **flow** — a series of steps that can call HTTP APIs, transform data, apply conditional logic, and chain outputs from one step to the next.
+
+Example use cases:
+
+- Receive a webhook from GitHub and trigger a deployment pipeline
+- Consume a Kafka message and fan out to multiple downstream services
+- Run a nightly cron job that calls a reporting API and posts results to Slack
+- React to Kubernetes resource events and call an external ITSM system
+
+All of this is configured through Kubernetes custom resources, meaning it is version-controlled, auditable, and compatible with GitOps workflows.
+
+---
+
+## Core Concepts
+
+### Trigger
+
+A `Trigger` defines the event source that starts a workflow. It specifies what to listen for and which `Flow` to execute when the event fires.
+
+Supported trigger types: **webhook**, **cron**, **pubsub** (Kafka first; additional message brokers via the `Integration` plugin model — see [Integration CRD](api/integration.md)).
+
+### Flow
+
+A `Flow` defines the sequence of steps to execute when a trigger fires. Steps can pass data to each other, evaluate conditions, transform payloads, and call external services. Flows support conditional branching, retry policies, and timeout controls.
+
+### Step
+
+Steps are the individual units of work within a Flow. Each step declares an action (such as an HTTP call), optional conditions for execution, retry behavior, and the outputs it produces for downstream steps.
+
+### Integration _(planned)_
+
+An `Integration` stores connection details and credentials for an external system — a Kafka cluster, a REST API, a database — separately from the flows that use it. This keeps sensitive configuration reusable and out of individual Flow specs.
+
+---
+
+## Architecture
+
+```
+  Event Sources            KubeZap Operator
+  ─────────────            ──────────────────────────────────────────────
+  Webhook (HTTP) ────────► Trigger Controller
+  Kafka (Pub/Sub) ───────►   │  watches Trigger CRDs
+  Cron (Schedule) ───────►   │
+                             ▼
+                         Flow Engine
+                           │  reads Flow CRDs
+                           │  executes steps in dependency order
+                           │  evaluates CEL conditions
+                           │  passes results between steps
+                           ▼
+                       Step Executor
+                       │            │            │            │
+                       ▼            ▼            ▼            ▼
+                   HTTP Call    Transform    K8s Job      Plugin
+                                            (planned)    (planned)
+
+  ──────────────────────────────────────────────────────────────────
+  Observability: Prometheus Metrics  +  OpenTelemetry Traces
+```
+
+KubeZap runs as three separate components — a controller and two types of gateway pods:
+
+- **`kubezap-controller`** — the Kubernetes operator. Reconciles all CRDs, creates and manages gateway Deployments, and executes Flows when a `FlowRun` CRD is created.
+- **`kubezap-webhook-gateway`** — a lightweight HTTP server. The controller creates one Deployment per namespace where webhook Triggers exist. It watches Trigger CRDs directly and registers/deregisters routes dynamically without restarts.
+- **`kubezap-kafka-gateway`** — a Kafka consumer. The controller creates one Deployment per Kafka cluster (Integration) per namespace. It subscribes to all topics referenced by Triggers in that namespace.
+
+Gateways communicate trigger events to the controller by creating `FlowRun` CRDs. The controller watches FlowRuns and executes the referenced Flow. This decoupling means gateways scale independently from the controller, and every execution is a Kubernetes resource you can inspect.
+
+See [Architecture](architecture.md) for the full design including scaling, namespace isolation, and how to add new trigger types.
+
+---
+
+## CRD Overview
+
+| CRD | API Group | Scope | Status |
+|-----|-----------|-------|--------|
+| `Trigger` | `automation.kubezap.io/v1alpha1` | Namespaced | Available |
+| `Flow` | `automation.kubezap.io/v1alpha1` | Namespaced | In design |
+| `FlowRun` | `automation.kubezap.io/v1alpha1` | Namespaced | In design |
+| `Integration` | `automation.kubezap.io/v1alpha1` | Namespaced | In design |
+| `MockEndpoint` | `automation.kubezap.io/v1alpha1` | Namespaced | In design |
+| `Step` | `automation.kubezap.io/v1alpha1` | Namespaced | Planned |
+
+All CRDs are namespaced by default. Cluster-scoped variants are planned for multi-tenant deployments.
+
+`FlowRun` is an execution instance created automatically each time a trigger fires. It persists in etcd with full trigger metadata, step results, and timing — every execution is a Kubernetes resource you can inspect with `kubectl`. See [FlowRun CRD](api/flowrun.md).
+
+`Integration` stores connection details and credentials for external systems (Kafka clusters, message brokers, community plugins) and is referenced by Triggers (subscriber) and Flow steps (publisher). See [Integration CRD](api/integration.md).
+
+`MockEndpoint` is a development and testing aid — it registers a local HTTP endpoint on the operator's webhook server that captures requests and logs them to the CRD status instead of calling real external services. See [MockEndpoint CRD](api/mock-endpoint.md).
+
+---
+
+## Trigger Types
+
+### Webhook
+
+KubeZap exposes an HTTP endpoint inside the cluster. External systems (or an Ingress) send requests to this endpoint to fire the trigger. The request payload is made available to the Flow as input data.
+
+```yaml
+apiVersion: automation.kubezap.io/v1alpha1
+kind: Trigger
+metadata:
+  name: github-webhook
+spec:
+  type: webhook
+  webhook:
+    path: /hooks/github
+    method: POST
+  flowRef:
+    name: process-github-event
+```
+
+### Cron
+
+Triggers fire on a schedule using standard cron syntax. The trigger passes timing metadata to the Flow.
+
+```yaml
+apiVersion: automation.kubezap.io/v1alpha1
+kind: Trigger
+metadata:
+  name: nightly-report
+spec:
+  type: cron
+  cron:
+    schedule: "0 2 * * *"
+  flowRef:
+    name: generate-nightly-report
+```
+
+### Pub/Sub — Kafka _(in development)_
+
+KubeZap subscribes to a Kafka topic and fires the trigger for each message consumed. The message payload and metadata (topic, partition, offset, headers) are passed to the Flow.
+
+```yaml
+apiVersion: automation.kubezap.io/v1alpha1
+kind: Trigger
+metadata:
+  name: order-events
+spec:
+  type: pubsub
+  pubsub:
+    type: kafka
+    integrationRef:
+      name: kafka-cluster
+    topic: orders.created
+    consumerGroup: kubezap-order-processor
+  flowRef:
+    name: process-order
+```
+
+### Rate Limiting
+
+All trigger types support a cooldown policy to prevent trigger storms:
+
+```yaml
+spec:
+  cooldown:
+    maxInvocations: 10
+    window: "60s"
+```
+
+---
+
+## Credential Management
+
+KubeZap supports several approaches for providing credentials and connection details to flows and integrations.
+
+### Kubernetes Secrets (recommended)
+
+Reference any key from a Kubernetes Secret using `$(secrets.<secret-name>.<key>)` interpolation. Secrets are resolved at step execution time and are never stored in Flow specs or status.
+
+```yaml
+headers:
+  Authorization: "Bearer $(secrets.my-api-credentials.token)"
+```
+
+Populate secrets with tools like [External Secrets Operator](https://external-secrets.io) (AWS Secrets Manager, Vault, GCP Secret Manager) or any standard Kubernetes workflow.
+
+### ConfigMaps
+
+Reference non-sensitive configuration from a ConfigMap using `$(configmaps.<configmap-name>.<key>)`:
+
+```yaml
+url: "$(configmaps.service-endpoints.orders-api-url)/orders/$(params.orderId)"
+```
+
+### Environment Variables
+
+Reference operator environment variables using `$(env.<VAR_NAME>)`. These are set on the KubeZap deployment and are useful for base URLs or cluster-wide configuration:
+
+```yaml
+url: "$(env.ORDERS_API_BASE_URL)/orders/$(params.orderId)"
+```
+
+### Hardcoded Values (development only)
+
+Credentials can be hardcoded directly in specs for local development and testing. This is **not recommended for production** as values are stored in plain text in the CRD spec.
+
+```yaml
+# For development/testing only
+headers:
+  X-Api-Key: "dev-key-do-not-use-in-prod"
+```
+
+Flow steps reference credentials using the same `$(secrets.name.key)` and `$(configmaps.name.key)` syntax. See [Flow CRD → Data and Expressions](api/flow.md#data-and-expressions) for the full interpolation reference.
+
+---
+
+## TLS and mTLS
+
+### Custom Certificate Authorities
+
+When calling services that use a private or self-signed CA, annotate the resource with the name of a Kubernetes Secret containing the CA bundle (`ca.crt`):
+
+```yaml
+metadata:
+  annotations:
+    kubezap.io/tls-ca-secret: "my-internal-ca"
+```
+
+The referenced Secret must contain a `ca.crt` key with a PEM-encoded certificate bundle. The operator uses this CA when making outbound HTTPS connections on behalf of that resource.
+
+### Mutual TLS (mTLS)
+
+For outbound connections requiring client certificate authentication, annotate with both the CA and a client certificate secret:
+
+```yaml
+metadata:
+  annotations:
+    kubezap.io/tls-ca-secret: "my-internal-ca"
+    kubezap.io/tls-client-cert-secret: "my-client-cert"
+```
+
+The client certificate secret must contain `tls.crt` and `tls.key` keys (standard Kubernetes TLS secret format). Use [cert-manager](https://cert-manager.io) to issue and rotate client certificates.
+
+### Inbound Webhook mTLS
+
+To require clients to present a certificate when calling webhook endpoints, annotate the `Trigger`:
+
+```yaml
+metadata:
+  annotations:
+    kubezap.io/webhook-mtls-ca-secret: "webhook-client-ca"
+```
+
+The operator will verify that the client certificate is signed by the specified CA.
+
+### TLS for Development (skip verification)
+
+```yaml
+metadata:
+  annotations:
+    kubezap.io/tls-insecure-skip-verify: "true"
+```
+
+> `tls-insecure-skip-verify` is intended for local development only. It disables certificate validation entirely and **must not** be used in production.
+
+---
+
+## Exposing Webhook Triggers
+
+The KubeZap operator runs a webhook HTTP server as a Kubernetes `Service`. In-cluster services can call it directly. For external access, front it with an Ingress, Gateway API route, or OpenShift Route.
+
+### Kubernetes Ingress
+
+```yaml
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: kubezap-webhooks
+  namespace: kubezap-system
+spec:
+  rules:
+    - host: webhooks.example.com
+      http:
+        paths:
+          - path: /hooks/
+            pathType: Prefix
+            backend:
+              service:
+                name: kubezap-webhook-service
+                port:
+                  number: 8080
+  tls:
+    - hosts: [webhooks.example.com]
+      secretName: kubezap-webhook-tls
+```
+
+### Kubernetes Gateway API (recommended for new deployments)
+
+The [Gateway API](https://gateway-api.sigs.k8s.io/) is the successor to Ingress and is GA as of Kubernetes 1.28. It provides more expressive routing and better multi-tenancy support.
+
+```yaml
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: kubezap-webhooks
+  namespace: kubezap-system
+spec:
+  parentRefs:
+    - name: my-gateway
+      namespace: gateway-system
+  hostnames: ["webhooks.example.com"]
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /hooks/
+      backendRefs:
+        - name: kubezap-webhook-service
+          port: 8080
+```
+
+### OpenShift Route
+
+```yaml
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: kubezap-webhooks
+  namespace: kubezap-system
+spec:
+  host: webhooks.apps.cluster.example.com
+  path: /hooks/
+  to:
+    kind: Service
+    name: kubezap-webhook-service
+  port:
+    targetPort: 8080
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect
+```
+
+For re-encrypt TLS (TLS all the way to the operator pod) or passthrough (mTLS), change `termination` to `reencrypt` or `passthrough` respectively.
+
+---
+
+## Payload Formats
+
+KubeZap infers the payload format from the `Content-Type` header of the incoming request or message. The parsed payload is then available via `$(trigger.payload.<field>)` interpolation and as variables in CEL conditions.
+
+| Content-Type | Behavior |
+|---|---|
+| `application/json` | Parsed as JSON. Fields navigable via dot-path: `$(trigger.payload.user.id)` |
+| `application/xml`, `text/xml` | Parsed as XML and converted to a navigable map. Elements: `$(trigger.payload.order.id)`, attributes: `$(trigger.payload.order.@status)` |
+| `application/x-www-form-urlencoded` | Parsed as key-value pairs. Fields: `$(trigger.payload.fieldName)` |
+| `text/plain` | Available as `$(trigger.payload._raw)` |
+| other / unknown | Available as `$(trigger.payload._raw)` (base64 encoded for binary) |
+
+For HTTP step responses, the response body is parsed the same way using the response `Content-Type`. Result mappings support both **JSONPath** (e.g., `$.user.id`) for JSON responses and **XPath** (e.g., `/response/user/id`) for XML responses — the syntax is auto-detected.
+
+See [Flow CRD → Payload Formats](api/flow.md#payload-formats) for details on using XML data in flows.
+
+---
+
+## Quick Example
+
+The following example receives a webhook, fetches additional data from an API, and posts a notification to Slack — all declared as Kubernetes resources.
+
+**Trigger** — listen for incoming webhooks on `/hooks/orders`:
+
+```yaml
+apiVersion: automation.kubezap.io/v1alpha1
+kind: Trigger
+metadata:
+  name: order-received
+  namespace: automation
+spec:
+  type: webhook
+  webhook:
+    path: /hooks/orders
+    method: POST
+  flowRef:
+    name: handle-order
+```
+
+**Flow** — enrich the order data and notify:
+
+```yaml
+apiVersion: automation.kubezap.io/v1alpha1
+kind: Flow
+metadata:
+  name: handle-order
+  namespace: automation
+spec:
+  description: "Enrich order payload and send Slack notification"
+  timeout: "2m"
+  params:
+    - name: orderId
+      required: true
+  steps:
+    - name: enrich-order
+      description: "Fetch full order details from order service"
+      action:
+        type: http
+        http:
+          url: "https://orders.internal/api/orders/$(params.orderId)"
+          method: GET
+          headers:
+            Authorization: "Bearer $(secrets.order-api-creds.token)"
+          resultMappings:
+            id: "$.id"
+            customerName: "$.customerName"
+      results:
+        - name: id
+        - name: customerName
+
+    - name: notify-slack
+      description: "Post notification to Slack"
+      runAfter: [enrich-order]
+      when:
+        - expression: 'steps.enrich_order.status == "Succeeded"'
+      action:
+        type: http
+        http:
+          url: "https://hooks.slack.com/services/YOUR/WEBHOOK/URL"
+          method: POST
+          body: |
+            {"text": "New order received: $(steps.enrich_order.results.id) for $(steps.enrich_order.results.customerName)"}
+```
+
+---
+
+## Design Goals
+
+**Declarative and Kubernetes-native**
+All configuration is expressed as custom resources. KubeZap integrates naturally with GitOps tooling (Flux, ArgoCD) and standard Kubernetes RBAC.
+
+**Idempotent and safe**
+Reconcilers are designed to be re-run safely. Flows track execution state in status subresources. Duplicate trigger firings are handled gracefully via cooldown policies.
+
+**Extensible by design**
+The plugin model is based on external webhook calls, making it possible to add integrations in any language or runtime. A marketplace of community integrations is planned.
+
+**Observable from day one**
+Every trigger firing, flow execution, and step result is recorded in CRD status and emitted as Prometheus metrics and OpenTelemetry traces. No black-box execution.
+
+**Enterprise-ready**
+- mTLS support via cert-manager
+- Namespace-scoped RBAC with least-privilege defaults
+- Multi-replica deployment with leader election
+- OpenShift compatible (restricted SCC compliant)
+- OLM / OperatorHub installable
+- Multi-tenant: configurable `WATCH_NAMESPACES` supports AllNamespaces, MultiNamespace, SingleNamespace, and OwnNamespace OLM install modes
+
+---
+
+## Installation
+
+> Installation documentation is in progress. The following methods will be supported:
+
+- **Helm chart** — `helm install kubezap kubezap/kubezap`
+- **OLM / OperatorHub** — install via the OpenShift or community OperatorHub catalog
+- **Raw manifests** — `kubectl apply -k config/default`
+
+---
+
+## Compatibility
+
+| Platform | Status |
+|----------|--------|
+| Kubernetes 1.27+ | Supported |
+| Kubernetes 1.28+ (Gateway API) | Supported |
+| OpenShift 4.12+ | Planned |
+| k3s | Tested (local development) |
+| EKS / GKE / AKS | Compatible (no cloud-specific dependencies) |
+
+---
+
+## Roadmap
+
+### v0.1 — MVP
+
+- [x] `Trigger` CRD with webhook, cron, and Kafka sources
+- [ ] Webhook HTTP server implementation
+- [ ] Cron scheduler implementation
+- [ ] Kafka consumer integration
+- [ ] `Flow` CRD with sequential steps and HTTP actions
+- [ ] Status conditions and observability
+
+### v0.2 — Flow Engine
+
+- [ ] Conditional step execution (CEL expressions)
+- [ ] Step input/output data passing
+- [ ] Data transformation step type
+- [ ] Retry policies with exponential backoff
+- [ ] `Integration` CRD — Kafka (built-in), plugin protocol for community integrations
+- [ ] `FlowRun` CRD — execution history, garbage collection
+
+### v0.3 — Enterprise
+
+- [ ] `Step` CRD for reusable step definitions
+- [ ] Multi-namespace flows
+- [ ] Helm chart
+- [ ] OperatorHub submission
+
+### Future
+
+- [ ] Plugin marketplace and integration catalog
+- [ ] Additional message brokers (NATS, RabbitMQ, ActiveMQ, Solace)
+- [ ] Web UI for flow monitoring
+- [ ] OpenLineage support
+- [ ] Multi-region HA support

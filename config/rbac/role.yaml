@@ -19,11 +19,6 @@ rules:
   - automation.kubezap.io
   resources:
   - flowruns
-  verbs:
-  - create
-- apiGroups:
-  - automation.kubezap.io
-  resources:
   - triggers
   verbs:
   - create
@@ -36,14 +31,24 @@ rules:
 - apiGroups:
   - automation.kubezap.io
   resources:
+  - flowruns/finalizers
   - triggers/finalizers
   verbs:
   - update
 - apiGroups:
   - automation.kubezap.io
   resources:
+  - flowruns/status
   - triggers/status
   verbs:
   - get
   - patch
   - update
+- apiGroups:
+  - automation.kubezap.io
+  resources:
+  - flows
+  verbs:
+  - get
+  - list
+  - watch

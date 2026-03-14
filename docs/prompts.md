@@ -369,7 +369,7 @@ execution, and data-passing between steps are follow-on tasks.
 
 ## 9. FlowRun GC: TTL-based cleanup
 
-**Status:** `[ ]`
+**Status:** `[x]`
 
 **Why:** Completed FlowRuns accumulate indefinitely without cleanup. The architecture defines
 TTL-based GC via `spec.ttlAfterFinished`, operator-level flags, and a `kubezap.io/retain=true`

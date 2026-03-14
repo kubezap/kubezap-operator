@@ -64,8 +64,8 @@
 - [x] Execute HTTP action steps
 - [ ] Step result passing and CEL expression evaluation
 - [x] FlowRun status conditions (Running, Succeeded, Failed)
-- [ ] FlowRun GC: `spec.ttlAfterFinished`, operator flags `--flowrun-ttl-succeeded` / `--flowrun-ttl-failed`
-- [ ] `kubezap.io/retain=true` annotation exempts FlowRun from GC
+- [x] FlowRun GC: `spec.ttlAfterFinished`, operator flags `--flowrun-ttl-succeeded` / `--flowrun-ttl-failed`
+- [x] `kubezap.io/retain=true` annotation exempts FlowRun from GC
 
 ---
 

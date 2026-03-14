@@ -7,6 +7,12 @@ rules:
 - apiGroups:
   - automation.kubezap.io
   resources:
+  - flowruns
+  verbs:
+  - create
+- apiGroups:
+  - automation.kubezap.io
+  resources:
   - triggers
   verbs:
   - create

@@ -32,19 +32,19 @@
 - [x] Sample CRs in `config/samples/` for each new CRD
 
 ### Webhook Gateway
-- [ ] HTTP server skeleton in `cmd/webhook-gateway/main.go`
-- [ ] Dynamic route registration from Trigger CRDs (watch + reconcile)
-- [ ] Route deregistration on Trigger delete/disable
-- [ ] FlowRun creation on incoming webhook request
-- [ ] FlowRun naming: `<trigger>-<timestamp>-<random>`
+- [x] HTTP server skeleton in `cmd/webhook-gateway/main.go`
+- [x] Dynamic route registration from Trigger CRDs (watch + reconcile)
+- [x] Route deregistration on Trigger delete/disable
+- [x] FlowRun creation on incoming webhook request
+- [x] FlowRun naming: `<trigger>-<timestamp>-<random>`
 - [ ] HMAC authentication support
 - [ ] Bearer token authentication support
 - [ ] OIDC/JWT authentication support
 - [ ] Basic auth, mTLS, API-key header, IP allowlist support
 - [ ] `/mock/*` path support for MockEndpoint CRDs
-- [ ] Structured JSON access logs (source IP in logs only, not Prometheus labels)
+- [x] Structured JSON access logs (source IP in logs only, not Prometheus labels)
 - [ ] HPA configuration for webhook gateway Deployment
-- [ ] Controller manages webhook gateway Deployment lifecycle (one per namespace)
+- [x] Controller manages webhook gateway Deployment lifecycle (one per namespace)
 
 ### Cron Trigger
 - [ ] Cron scheduler implementation in controller (e.g., using `robfig/cron`)

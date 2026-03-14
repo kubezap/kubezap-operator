@@ -1,0 +1,33 @@
+apiVersion: automation.kubezap.io/v1alpha1
+kind: Flow
+metadata:
+  name: handle-order
+spec:
+  params:
+  - name: orderId
+    description: Order identifier
+    required: true
+  steps:
+  - name: enrich-order
+    action:
+      type: http
+      http:
+        url: "https://orders.internal/api/orders/$(params.orderId)"
+        method: GET
+        timeoutSeconds: 30
+        resultMappings:
+          id: "$.id"
+          customerName: "$.customerName"
+  - name: notify-slack
+    runAfter:
+    - enrich-order
+    when:
+    - expression: "steps.enrich_order.status == \"Succeeded\""
+    action:
+      type: http
+      http:
+        url: "https://hooks.slack.com/services/REPLACE_ME"
+        method: POST
+        body: "{\"text\": \"Order $(steps.enrich_order.results.customerName) processed\"}"
+        headers:
+          Content-Type: "application/json"

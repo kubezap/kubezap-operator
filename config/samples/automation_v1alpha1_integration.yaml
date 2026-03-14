@@ -1,0 +1,17 @@
+apiVersion: automation.kubezap.io/v1alpha1
+kind: Integration
+metadata:
+  name: kafka-cluster
+spec:
+  type: kafka
+  kafka:
+    bootstrapServers:
+      - kafka.default.svc.cluster.local:9092
+    sasl:
+      mechanism: PLAIN
+      usernameSecretRef:
+        name: kafka-credentials
+        key: username
+      passwordSecretRef:
+        name: kafka-credentials
+        key: password

@@ -1,5 +1,9 @@
 # KubeZap — CLAUDE.md
 
+## Project Schedule
+
+See [`docs/schedule.md`](docs/schedule.md) for the current task checklist, prioritized by feature/module. Start here at the beginning of each session to know what has been done and what is next.
+
 ## Project Overview
 
 KubeZap is an enterprise-grade Kubernetes operator providing declarative workflow automation inspired by Zapier. Users define automations via CRDs instead of a web UI. Think "Zapier meets Camunda, but Kubernetes-native."

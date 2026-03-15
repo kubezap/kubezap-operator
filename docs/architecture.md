@@ -655,100 +655,95 @@ The trigger payload will include the full resource object, previous object (for 
 ## Multi-Region HA
 
 > **Status**: Backlog — not yet implemented. This section documents the target architecture
-> and the design constraints it imposes on current implementation decisions.
+> and the design constraints it imposes on current implementation decisions. Exact
+> topology details (CRD replication mechanism, failover detection) are to be decided later.
 
-### Goal
+### Target Model: Active-Passive Controller, Active-Active Gateway
 
-Support active-active or active-passive deployments across multiple Kubernetes clusters
-(or regions) with the following properties:
+The two components have different HA requirements and are treated separately:
 
-- No single point of failure for trigger reception or FlowRun execution
-- No duplicate FlowRun execution from the same trigger event
-- Consistent FlowRun state visible across regions
-- Graceful failover when a region becomes unavailable mid-FlowRun
+| Component | Model | Rationale |
+|---|---|---|
+| **Controller** (FlowRun execution, cron scheduling) | Active-passive | Cron must not fire twice; FlowRun execution must have a single owner. Cross-region leader election handles this. |
+| **Webhook / Kafka gateway** | Active-active | Stateless — trivial to run in multiple regions. Lower latency for geographically distributed senders. |
+
+```
+Region A (primary)              Region B (standby)
+──────────────────              ──────────────────
+Gateway ◄── global LB ──────►  Gateway
+   │                               │
+   └──► FlowRun CRDs ◄─────────────┘   (both regions write FlowRuns)
+              │
+         Controller ◄── leader election ──► Controller
+         (active)                            (standby — takes over on failure)
+```
+
+Both gateways create FlowRuns against the same (replicated) CRD API. Only the leader
+controller executes them. On primary failure the standby wins the lease, picks up any
+in-flight FlowRuns from their last persisted status, and resumes execution — no re-run
+from scratch.
 
 ---
 
 ### What is already designed for HA
 
-These decisions in the current implementation are intentionally HA-compatible:
-
 **CRD-as-state (not in-memory)**
 All execution state lives in CRD status (`FlowRun.status`). The controller holds no
-in-memory execution state between reconcile loops. If a controller pod dies, another
-picks up from the last persisted status. This is the most important HA property.
+in-memory execution state between reconcile loops. If the active controller fails, the
+standby picks up from the last persisted step status.
 
 **Idempotent reconcilers**
-All reconcilers are designed to be safe to re-run at any time. A FlowRun that is
-re-reconciled after a crash completes from the last persisted step, not from scratch.
-Steps that already have `Succeeded` status are skipped.
+All reconcilers are safe to re-run at any time. Steps that already have `Succeeded`
+status are skipped on re-reconciliation.
 
 **FlowRun dedup keys**
 FlowRun names encode the triggering event to prevent duplicates:
 - Kafka: `<trigger>-p<partition>-offset-<offset>` — exactly-once per message
-- Cron: `<trigger>-<scheduled-time>` — exactly-once per schedule tick
+- Cron: `<trigger>-<scheduled-time>` — exactly-once per schedule tick (enforced by leader election)
 - Webhook: `<trigger>-<timestamp>-<random>` — no dedup (webhooks are not idempotent by nature)
 
 **Leader election**
-The operator uses controller-runtime's built-in leader election (lease-based). Only one
-controller instance executes reconcile loops at a time within a cluster.
+controller-runtime's lease-based leader election ensures only one controller instance
+executes reconcile loops at a time, both within and (with cross-cluster lease) across regions.
 
 ---
 
 ### Gaps and future work
 
-**Cross-region cron dedup**
-In a multi-region setup, the cron scheduler on each region's controller will fire
-independently at the same scheduled time. Leader election prevents duplicates within a
-cluster, but not across clusters. Mitigation options (to be designed):
-- Global distributed lock (e.g., etcd across regions, or a CRD-based lock with a
-  well-known name and `resourceVersion`-based optimistic concurrency)
-- Designate a "primary region" for cron scheduling; other regions only execute FlowRuns
-  they receive via replication
+**CRD replication**
+Kubernetes CRDs are cluster-scoped and do not replicate automatically. The mechanism for
+making FlowRun CRDs accessible across regions is to be decided (options: managed
+Kubernetes with multi-region etcd, KubeFed, GitOps sync). This is the primary open
+design question for multi-region support.
 
-**FlowRun replication**
-Kubernetes CRDs are cluster-scoped — they do not replicate across clusters automatically.
-Multi-region FlowRun distribution requires either:
-- A federation layer (KubeFed, ArgoCD ApplicationSet, or custom sync controller)
-- Webhook gateways in each region creating FlowRuns locally (active-active ingress)
+**Cross-cluster leader election**
+controller-runtime leader election uses a Kubernetes Lease object. Extending this across
+clusters requires a shared API endpoint or a separate distributed lock. Exact mechanism TBD.
 
 **Step idempotency**
-HTTP steps are not idempotent by default. If a FlowRun is re-executed after a region
-failover, an HTTP step may fire twice. Downstream services must be prepared for this, or
-steps must implement idempotency keys (future: `step.idempotencyKey` field using
-`$(trigger.headers.X-Idempotency-Key)` or similar).
-
-**Gateway placement**
-Currently one webhook gateway Deployment per namespace. In multi-region:
-- Each region runs its own gateway (active-active ingress)
-- A global load balancer (e.g., AWS Route53, GCP Cloud DNS with geo routing) routes
-  webhook senders to the nearest region
-- FlowRuns created in each region execute locally — no cross-region RPC during execution
-
-**State convergence**
-If a region executes a FlowRun partially and then fails, a secondary region cannot
-resume it without access to the original FlowRun CRD. Resumption across regions requires
-either CRD replication or the FlowRun to be recreated in the secondary region.
+HTTP steps are not idempotent by default. If a FlowRun is resumed after failover, a step
+that was in-flight (started but not yet written to status) may fire twice. Downstream
+services should be prepared for at-least-once delivery, or a future `step.idempotencyKey`
+field can propagate a caller-supplied key (e.g., `$(trigger.headers.X-Idempotency-Key)`).
 
 ---
 
 ### Design constraints for current implementation
 
-These constraints must be respected NOW to avoid rework when HA is added:
+These must be respected now to avoid rework when HA is added:
 
 1. **Never store execution state in controller memory.** All step results, retry counts,
    and phase transitions must be written to `FlowRun.status` before the next reconcile.
-   (Already enforced by the current design.)
+   (Already enforced.)
 
 2. **FlowRun names must be deterministic from the trigger event** where possible (Kafka,
-   cron) to support cross-region dedup via `AlreadyExists` error handling.
+   cron) to support cross-region dedup via `AlreadyExists` error handling on the CRD API.
 
 3. **Avoid node-local resources.** Gateways must not write to local disk or use
    node-local sockets. All state goes through the Kubernetes API.
 
-4. **Trace context propagation via annotations** (see observability guide) must use
-   W3C `traceparent` — this is region-agnostic and works across process boundaries.
+4. **Trace context propagation via annotations** must use W3C `traceparent` — this is
+   region-agnostic and works across process boundaries (see observability guide).
 
-5. **RBAC must be namespace-scoped** (Role, not ClusterRole) where possible. This
-   supports future multi-cluster deployments where each cluster has its own namespace
-   scope. (Already enforced for gateway RBAC.)
+5. **RBAC must be namespace-scoped** (Role, not ClusterRole) where possible, supporting
+   future multi-cluster deployments. (Already enforced for gateway RBAC.)

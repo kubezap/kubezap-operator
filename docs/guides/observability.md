@@ -23,6 +23,12 @@ KubeZap exposes three complementary observability signals:
   - [Source IP Tracking](#source-ip-tracking)
   - [Log Configuration](#log-configuration)
 - [OpenTelemetry Traces](#opentelemetry-traces)
+  - [Status](#status)
+  - [Sampling Strategy](#sampling-strategy)
+  - [Configuration](#configuration-1)
+  - [Trace Structure](#trace-structure)
+  - [Trace Context Propagation](#trace-context-propagation)
+  - [ServiceMonitor for Trace Exporters](#servicemonitor-for-trace-exporters)
 - [Example Alerts](#example-alerts)
 - [Example Grafana Panels](#example-grafana-panels)
 - [Cardinality Guidance](#cardinality-guidance)
@@ -522,39 +528,112 @@ Access logging is enabled by default. Configure via operator environment variabl
 
 ## OpenTelemetry Traces
 
-Each webhook request creates an OTel trace that spans the full lifecycle from receipt to flow completion.
+### Status
 
-```
-webhook_request (root span)
-├── auth_verify (span)
-├── cooldown_check (span)
-├── payload_parse (span)
-└── flowrun_create (span)
-    └── [flow execution — separate trace, linked by trace ID]
-        ├── step: fetch-order (span)
-        │   └── http_call (span)
-        ├── step: transform (span)
-        └── step: notify-slack (span)
-            └── http_call (span)
-```
+Not yet implemented. Planned for a future release. This section documents the intended design so that the implementation can follow it directly.
 
-The `trace_id` in access logs matches the OTel trace ID, enabling log-to-trace correlation in tools like Grafana, Jaeger, or Honeycomb.
+---
+
+### Sampling Strategy
+
+KubeZap uses **head sampling** via OpenTelemetry's `ParentBased(TraceIDRatioBased)` sampler.
+
+- The sampling decision is made once, at the trace root — either at the webhook request (gateway) or at FlowRun start (cron trigger fired by the controller).
+- Child spans — step executions, publish calls to plugin endpoints — inherit the parent's decision. There are no partial traces where the root is sampled but a child is dropped, or vice versa.
+- Default sample rate: **10%** (`0.1`).
+
+This approach gives predictable, low overhead in production while still capturing a statistically representative sample for latency analysis and error rate monitoring. For debugging a specific workflow, raise the rate to `1.0` temporarily (see Configuration below).
+
+---
 
 ### Configuration
 
-Configure the OTel exporter via standard environment variables on the operator and gateway Deployments:
+| Flag | Env var | Default | Description |
+|------|---------|---------|-------------|
+| `--otel-sample-rate` | `OTEL_TRACES_SAMPLER_ARG` | `0.1` | Fraction of traces to sample (`0.0`–`1.0`). `0.0` disables sampling entirely; `1.0` samples every trace. |
+| `--otel-exporter-endpoint` | `OTEL_EXPORTER_OTLP_ENDPOINT` | `""` (disabled) | OTLP gRPC endpoint for the trace exporter, e.g. `otel-collector:4317`. When empty, tracing is a no-op with zero overhead. |
+
+When `--otel-exporter-endpoint` is empty (the default), tracing is completely disabled — the `TracerProvider` is a no-op implementation and no goroutines or connections are created. This is the recommended configuration for development clusters.
+
+**To enable full tracing for troubleshooting**, patch the operator or gateway Deployment:
 
 ```yaml
 env:
   - name: OTEL_EXPORTER_OTLP_ENDPOINT
-    value: "http://otel-collector.monitoring.svc:4318"
-  - name: OTEL_EXPORTER_OTLP_PROTOCOL
-    value: "http/protobuf"    # or "grpc"
-  - name: OTEL_SERVICE_NAME
-    value: "kubezap-webhook-gateway"
-  - name: OTEL_RESOURCE_ATTRIBUTES
-    value: "k8s.namespace=$(POD_NAMESPACE),k8s.pod.name=$(POD_NAME)"
+    value: "otel-collector.monitoring:4317"
+  - name: OTEL_TRACES_SAMPLER_ARG
+    value: "1.0"   # 100% — every FlowRun is traced
 ```
+
+A rolling restart picks up the new configuration. Revert the patch to restore normal sampling once troubleshooting is complete.
+
+---
+
+### Trace Structure
+
+The intended span hierarchy for a webhook-triggered flow:
+
+```
+webhook_request (root span — gateway process)
+├── auth_verify (span)
+├── cooldown_check (span)
+├── payload_parse (span)
+└── flowrun_create (span)
+
+flowrun_reconcile (child of webhook_request — controller process)
+├── step: fetch-order (span)
+│   └── http_call (span)
+├── step: transform (span)
+└── step: notify-slack (span)
+    └── publish_call (span)   # POST to plugin /publish endpoint
+```
+
+For cron-triggered flows, the root span is `cron_fire` emitted by the controller's cron scheduler. For Kafka-triggered flows, the root span is `kafka_message_received` emitted by the Kafka gateway.
+
+Key span attributes:
+
+| Attribute | Set on | Description |
+|-----------|--------|-------------|
+| `kubezap.trigger.name` | Root span | Name of the Trigger CRD |
+| `kubezap.trigger.type` | Root span | `webhook`, `cron`, `pubsub` |
+| `kubezap.flowrun.name` | `flowrun_reconcile` | Name of the FlowRun resource |
+| `kubezap.flow.name` | `flowrun_reconcile` | Name of the referenced Flow |
+| `kubezap.step.name` | Each step span | Step name within the Flow |
+| `kubezap.step.type` | Each step span | Step action type: `http`, `transform`, `publish`, etc. |
+| `kubezap.step.outcome` | Each step span | `Succeeded`, `Failed`, `Skipped` |
+| `http.url` | `http_call` | Target URL (auth tokens redacted) |
+| `http.status_code` | `http_call` | Response status code |
+| `net.peer.ip` | Root span (webhook) | Source IP — as a span attribute, not a Prometheus label |
+
+The `trace_id` in structured access logs matches the OTel trace ID, enabling log-to-trace correlation in Grafana, Jaeger, Honeycomb, or any OTLP-compatible backend.
+
+---
+
+### Trace Context Propagation
+
+The webhook gateway and the controller are separate processes. To continue the same trace across the process boundary without a direct gRPC call between them, KubeZap uses the FlowRun resource as the carrier for W3C trace context:
+
+1. **Gateway** — when creating a FlowRun, the gateway injects the current W3C `traceparent` value into the FlowRun annotation `kubezap.io/traceparent`.
+2. **Controller** — when picking up a FlowRun for execution, the controller reads the `kubezap.io/traceparent` annotation and uses it as the parent context for the `flowrun_reconcile` span. This continues the same trace ID started by the gateway.
+
+```yaml
+# FlowRun created by the webhook gateway
+metadata:
+  annotations:
+    kubezap.io/traceparent: "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
+```
+
+If the annotation is absent (e.g., the FlowRun was created manually or by a gateway without tracing configured), the controller starts a new root span.
+
+This design is intentional: it avoids tight coupling between the gateway and controller processes, works across pod restarts, and requires no additional sidecar or messaging infrastructure.
+
+---
+
+### ServiceMonitor for Trace Exporters
+
+KubeZap does **not** auto-create any resources for trace collection. Deploying and configuring an OpenTelemetry Collector (or a compatible backend such as Jaeger, Tempo, or a SaaS vendor) is the user's responsibility.
+
+The OTLP gRPC endpoint set via `OTEL_EXPORTER_OTLP_ENDPOINT` must be reachable from all KubeZap pods (controller and gateways). In a typical in-cluster setup, this is the Service address of an OpenTelemetry Collector Deployment, e.g. `otel-collector.monitoring.svc.cluster.local:4317`.
 
 ---
 

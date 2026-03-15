@@ -34,6 +34,7 @@ import (
 	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/trace"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -114,6 +115,13 @@ func (r *FlowRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		now := metav1.Now()
 		flowRun.Status.Phase = "Running"
 		flowRun.Status.StartTime = &now
+		setFlowRunCondition(&flowRun.Status, metav1.Condition{
+			Type:               "Running",
+			Status:             metav1.ConditionTrue,
+			Reason:             "FlowRunRunning",
+			Message:            "FlowRun is running",
+			LastTransitionTime: now,
+		})
 		if err := r.Status().Update(ctx, &flowRun); err != nil {
 			return ctrl.Result{}, err
 		}
@@ -233,6 +241,13 @@ func (r *FlowRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	now := metav1.Now()
 	flowRun.Status.Phase = "Succeeded"
 	flowRun.Status.CompletionTime = &now
+	setFlowRunCondition(&flowRun.Status, metav1.Condition{
+		Type:               "Succeeded",
+		Status:             metav1.ConditionTrue,
+		Reason:             "FlowRunSucceeded",
+		Message:            "FlowRun completed successfully",
+		LastTransitionTime: now,
+	})
 	if flowRun.Status.StartTime != nil {
 		duration := time.Since(flowRun.Status.StartTime.Time)
 		metrics.FlowRunDuration.WithLabelValues(
@@ -542,6 +557,13 @@ func (r *FlowRunReconciler) failFlowRun(ctx context.Context, flowRun *automation
 	flowRun.Status.Phase = "Failed"
 	flowRun.Status.CompletionTime = &now
 	flowRun.Status.Message = msg
+	setFlowRunCondition(&flowRun.Status, metav1.Condition{
+		Type:               "Failed",
+		Status:             metav1.ConditionTrue,
+		Reason:             "FlowRunFailed",
+		Message:            msg,
+		LastTransitionTime: now,
+	})
 	if flowRun.Status.StartTime != nil {
 		duration := time.Since(flowRun.Status.StartTime.Time)
 		metrics.FlowRunDuration.WithLabelValues(
@@ -550,6 +572,13 @@ func (r *FlowRunReconciler) failFlowRun(ctx context.Context, flowRun *automation
 	}
 	trace.SpanFromContext(ctx).SetStatus(otelcodes.Error, "FlowRun failed")
 	return r.Status().Update(ctx, flowRun)
+}
+
+func setFlowRunCondition(status *automationv1alpha1.FlowRunStatus, condition metav1.Condition) {
+	if condition.LastTransitionTime.IsZero() {
+		condition.LastTransitionTime = metav1.Now()
+	}
+	apimeta.SetStatusCondition(&status.Conditions, condition)
 }
 
 func (r *FlowRunReconciler) dependenciesMet(step automationv1alpha1.FlowStep, statuses []automationv1alpha1.StepRunStatus) bool {

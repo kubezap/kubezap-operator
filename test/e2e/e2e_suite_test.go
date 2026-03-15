@@ -21,6 +21,7 @@ import (
 	"os"
 	"os/exec"
 	"testing"
+	"time"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -58,11 +59,23 @@ var _ = BeforeSuite(func() {
 	_, err := utils.Run(cmd)
 	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to build the manager(Operator) image")
 
+	By("building the webhook gateway image")
+	cmd = exec.Command("docker", "build", "-t", "kubezap/webhook-gateway:latest", "-f", "cmd/webhook-gateway/Dockerfile", ".")
+	_, err = utils.Run(cmd)
+	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to build the webhook gateway image")
+
 	// TODO(user): If you want to change the e2e test vendor from Kind, ensure the image is
-	// built and available before running the tests. Also, remove the following block.
+	// built and available before running and also remove the following block.
+	By("setting the kind cluster name for image loading")
+	Expect(os.Setenv("KIND_CLUSTER", "kubezap-test-e2e")).To(Succeed())
+
 	By("loading the manager(Operator) image on Kind")
 	err = utils.LoadImageToKindClusterWithName(projectImage)
 	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to load the manager(Operator) image into Kind")
+
+	By("loading the webhook gateway image on Kind")
+	err = utils.LoadImageToKindClusterWithName("kubezap/webhook-gateway:latest")
+	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to load the webhook gateway image into Kind")
 
 	// The tests-e2e are intended to run on a temporary cluster that is created and destroyed for testing.
 	// To prevent errors when tests run in environments with CertManager already installed,
@@ -78,9 +91,50 @@ var _ = BeforeSuite(func() {
 			_, _ = fmt.Fprintf(GinkgoWriter, "WARNING: CertManager is already installed. Skipping installation...\n")
 		}
 	}
+
+	By("installing KubeZap CRDs")
+	cmd = exec.Command("make", "install")
+	_, err = utils.Run(cmd)
+	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to install CRDs")
+
+	By("waiting for KubeZap CRDs to be established")
+	for _, crd := range []string{
+		"flows.automation.kubezap.io",
+		"flowruns.automation.kubezap.io",
+		"integrations.automation.kubezap.io",
+		"mockendpoints.automation.kubezap.io",
+		"triggers.automation.kubezap.io",
+	} {
+		cmd = exec.Command("kubectl", "wait", "crd/"+crd,
+			"--for=condition=Established", "--timeout=2m")
+		_, err = utils.Run(cmd)
+		ExpectWithOffset(1, err).NotTo(HaveOccurred(), "CRD %s not established", crd)
+	}
+
+	By("deploying controller manager")
+	cmd = exec.Command("make", "deploy", fmt.Sprintf("IMG=%s", projectImage))
+	_, err = utils.Run(cmd)
+	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to deploy controller manager")
+
+	By("waiting for controller manager to be running")
+	Eventually(func(g Gomega) {
+		podPhase, err := utils.Run(exec.Command("kubectl", "get", "pods", "-n", "kubezap-system",
+			"-l", "control-plane=controller-manager", "-o", "jsonpath={.items[0].status.phase}"))
+		g.Expect(err).NotTo(HaveOccurred())
+		g.Expect(podPhase).To(Equal("Running"))
+	}, 3*time.Minute, 5*time.Second).Should(Succeed())
 })
 
 var _ = AfterSuite(func() {
+	// Teardown controller manager and CRDs
+	By("undeploying controller manager")
+	cmd := exec.Command("make", "undeploy")
+	_, _ = utils.Run(cmd)
+
+	By("uninstalling KubeZap CRDs")
+	cmd = exec.Command("make", "uninstall")
+	_, _ = utils.Run(cmd)
+
 	// Teardown CertManager after the suite if not skipped and if it was not already installed
 	if !skipCertManagerInstall && !isCertManagerAlreadyInstalled {
 		_, _ = fmt.Fprintf(GinkgoWriter, "Uninstalling CertManager...\n")

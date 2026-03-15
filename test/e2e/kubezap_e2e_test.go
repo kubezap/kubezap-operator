@@ -143,7 +143,7 @@ var _ = Describe("KubeZap functional E2E", Ordered, func() {
 								"allowPrivilegeEscalation": false,
 								"capabilities": {"drop": ["ALL"]},
 								"runAsNonRoot": true,
-								"runAsUser": 1000,
+								"runAsUser": 65532,
 								"seccompProfile": {"type": "RuntimeDefault"}
 							}
 						}],

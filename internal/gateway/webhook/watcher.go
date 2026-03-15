@@ -3,13 +3,13 @@ package webhook
 import (
 	"context"
 	"fmt"
-	"net/http"
 	"strings"
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/rest"
 	toolscache "k8s.io/client-go/tools/cache"
 	ctrl "sigs.k8s.io/controller-runtime"
 	crcache "sigs.k8s.io/controller-runtime/pkg/cache"
@@ -38,7 +38,13 @@ type TriggerWatcher struct {
 // NewTriggerWatcher creates a new TriggerWatcher with an informer cache.
 func NewTriggerWatcher(k8sClient client.Client, registry *RouteRegistry, mockRegistry *MockRegistry, namespace string, log logr.Logger) (*TriggerWatcher, error) {
 	cfg := ctrl.GetConfigOrDie()
-	mapper, err := apiutil.NewDynamicRESTMapper(cfg, http.DefaultClient)
+
+	httpClient, err := rest.HTTPClientFor(cfg)
+	if err != nil {
+		return nil, fmt.Errorf("unable to create HTTP client for REST config: %w", err)
+	}
+
+	mapper, err := apiutil.NewDynamicRESTMapper(cfg, httpClient)
 	if err != nil {
 		return nil, fmt.Errorf("unable to create REST mapper: %w", err)
 	}
@@ -149,8 +155,15 @@ func entryRoutePath(trigger *automationv1alpha1.Trigger) string {
 	}
 
 	path := strings.TrimSpace(trigger.Spec.Webhook.Path)
-	path = strings.TrimPrefix(path, "/")
-	return "/hooks/" + path
+	if path == "" {
+		return ""
+	}
+
+	if !strings.HasPrefix(path, "/") {
+		path = "/" + path
+	}
+
+	return path
 }
 
 // buildRouteEntry constructs a RouteEntry from a Trigger, loading auth secrets as needed.

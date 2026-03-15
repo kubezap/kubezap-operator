@@ -28,7 +28,7 @@ import (
 
 const (
 	webhookGatewayDeploymentName = "kubezap-webhook-gateway"
-	webhookGatewayImage          = "kubezap/webhook-gateway"
+	webhookGatewayImage          = "kubezap/webhook-gateway:latest"
 	webhookGatewayPort           = int32(8080)
 )
 
@@ -138,6 +138,32 @@ func desiredWebhookGatewayHPA(namespace string) *autoscalingv2.HorizontalPodAuto
 	}
 }
 
+// desiredWebhookGatewayService returns the desired ClusterIP service for the webhook gateway.
+func desiredWebhookGatewayService(namespace string) *corev1.Service {
+	labels := map[string]string{
+		"kubezap.io/component": "webhook-gateway",
+		"kubezap.io/namespace": namespace,
+	}
+	return &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      webhookGatewayDeploymentName,
+			Namespace: namespace,
+			Labels:    labels,
+		},
+		Spec: corev1.ServiceSpec{
+			Selector: labels,
+			Ports: []corev1.ServicePort{
+				{
+					Name:       "http",
+					Protocol:   corev1.ProtocolTCP,
+					Port:       webhookGatewayPort,
+					TargetPort: intstr.FromInt32(webhookGatewayPort),
+				},
+			},
+		},
+	}
+}
+
 // desiredWebhookGatewayDeployment returns the desired state of the webhook gateway
 // Deployment for the given namespace. The caller is responsible for setting owner
 // references and calling CreateOrUpdate.
@@ -162,12 +188,14 @@ func desiredWebhookGatewayDeployment(namespace string) *appsv1.Deployment {
 				Spec: corev1.PodSpec{
 					ServiceAccountName: "kubezap-webhook-gateway",
 					SecurityContext: &corev1.PodSecurityContext{
-						RunAsNonRoot: ptr.To(true),
+						RunAsNonRoot:   ptr.To(true),
+						SeccompProfile: &corev1.SeccompProfile{Type: corev1.SeccompProfileTypeRuntimeDefault},
 					},
 					Containers: []corev1.Container{
 						{
-							Name:  "webhook-gateway",
-							Image: webhookGatewayImage,
+							Name:            "webhook-gateway",
+							Image:           webhookGatewayImage,
+							ImagePullPolicy: corev1.PullIfNotPresent,
 							Args: []string{
 								"--port=8080",
 								"--namespace=" + namespace,
@@ -179,6 +207,10 @@ func desiredWebhookGatewayDeployment(namespace string) *appsv1.Deployment {
 								RunAsNonRoot:             ptr.To(true),
 								ReadOnlyRootFilesystem:   ptr.To(true),
 								AllowPrivilegeEscalation: ptr.To(false),
+								Capabilities: &corev1.Capabilities{
+									Drop: []corev1.Capability{"ALL"},
+								},
+								SeccompProfile: &corev1.SeccompProfile{Type: corev1.SeccompProfileTypeRuntimeDefault},
 							},
 							LivenessProbe: &corev1.Probe{
 								ProbeHandler: corev1.ProbeHandler{

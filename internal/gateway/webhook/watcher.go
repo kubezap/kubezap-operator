@@ -25,7 +25,7 @@ func init() {
 
 // TriggerWatcher watches Trigger resources and updates the RouteRegistry.
 type TriggerWatcher struct {
-	client    client.Client
+	k8sClient client.Client
 	cache     crcache.Cache
 	registry  *RouteRegistry
 	namespace string
@@ -33,7 +33,7 @@ type TriggerWatcher struct {
 }
 
 // NewTriggerWatcher creates a new TriggerWatcher with an informer cache.
-func NewTriggerWatcher(client client.Client, registry *RouteRegistry, namespace string, log logr.Logger) (*TriggerWatcher, error) {
+func NewTriggerWatcher(k8sClient client.Client, registry *RouteRegistry, namespace string, log logr.Logger) (*TriggerWatcher, error) {
 	cfg := ctrl.GetConfigOrDie()
 	mapper, err := apiutil.NewDynamicRESTMapper(cfg, http.DefaultClient)
 	if err != nil {
@@ -50,7 +50,7 @@ func NewTriggerWatcher(client client.Client, registry *RouteRegistry, namespace 
 		return nil, fmt.Errorf("unable to create cache: %w", err)
 	}
 
-	return &TriggerWatcher{client: client, cache: watchCache, registry: registry, namespace: namespace, log: log}, nil
+	return &TriggerWatcher{k8sClient: k8sClient, cache: watchCache, registry: registry, namespace: namespace, log: log}, nil
 }
 
 // Start launches the cache and informer and stays running until ctx is cancelled.
@@ -60,11 +60,15 @@ func (w *TriggerWatcher) Start(ctx context.Context) error {
 		return fmt.Errorf("unable to get trigger informer: %w", err)
 	}
 
-	triggerInformer.AddEventHandler(toolscache.ResourceEventHandlerFuncs{
+	registration, err := triggerInformer.AddEventHandler(toolscache.ResourceEventHandlerFuncs{
 		AddFunc:    func(obj interface{}) { w.handleTrigger(obj) },
 		UpdateFunc: func(oldObj, newObj interface{}) { w.handleTrigger(newObj) },
 		DeleteFunc: func(obj interface{}) { w.handleDelete(obj) },
 	})
+	if err != nil {
+		return fmt.Errorf("adding trigger event handler: %w", err)
+	}
+	_ = registration
 
 	go func() {
 		if err := w.cache.Start(ctx); err != nil && err != context.Canceled {

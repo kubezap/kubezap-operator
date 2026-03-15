@@ -24,13 +24,13 @@ import (
 // +kubebuilder:rbac:groups=automation.kubezap.io,resources=flowruns,verbs=create
 
 type WebhookHandler struct {
-	client   client.Client
-	registry *RouteRegistry
-	log      logr.Logger
+	k8sClient client.Client
+	registry  *RouteRegistry
+	log       logr.Logger
 }
 
-func NewWebhookHandler(client client.Client, registry *RouteRegistry, log logr.Logger) *WebhookHandler {
-	return &WebhookHandler{client: client, registry: registry, log: log}
+func NewWebhookHandler(k8sClient client.Client, registry *RouteRegistry, log logr.Logger) *WebhookHandler {
+	return &WebhookHandler{k8sClient: k8sClient, registry: registry, log: log}
 }
 
 func randomHex(length int) string {
@@ -161,12 +161,9 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		},
 	}
 
-	if entry.FlowNamespace != "" && entry.FlowNamespace != entry.TriggerNamespace {
-		// FlowRef in FlowRunSpec is LocalObjectReference and does not support namespace
-		// in this scheme. Namespace is implied by FlowRun namespace and Flow controller should resolve.
-	}
-
-	err = h.client.Create(context.Background(), flowRun)
+	// FlowRef in FlowRunSpec is LocalObjectReference and does not support namespace
+	// in this scheme. Namespace is implied by FlowRun namespace and Flow controller should resolve.
+	err = h.k8sClient.Create(context.Background(), flowRun)
 	if err != nil {
 		if apierrors.IsAlreadyExists(err) {
 			status = http.StatusAccepted

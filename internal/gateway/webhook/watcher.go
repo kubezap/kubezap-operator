@@ -7,7 +7,9 @@ import (
 	"strings"
 
 	"github.com/go-logr/logr"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	toolscache "k8s.io/client-go/tools/cache"
 	ctrl "sigs.k8s.io/controller-runtime"
 	crcache "sigs.k8s.io/controller-runtime/pkg/cache"
@@ -96,7 +98,11 @@ func (w *TriggerWatcher) handleTrigger(obj interface{}) {
 	}
 
 	if trigger.Spec.Type == "webhook" && trigger.Spec.Enabled && trigger.Spec.Webhook != nil {
-		entry := triggerToRouteEntry(trigger)
+		entry, err := w.buildRouteEntry(context.Background(), trigger)
+		if err != nil {
+			w.log.Error(err, "failed to build route entry; route not registered", "trigger", trigger.Name, "namespace", trigger.Namespace)
+			return
+		}
 		w.registry.Register(entryRoutePath(trigger), entry)
 		return
 	}
@@ -131,7 +137,9 @@ func entryRoutePath(trigger *automationv1alpha1.Trigger) string {
 	return "/hooks/" + path
 }
 
-func triggerToRouteEntry(trigger *automationv1alpha1.Trigger) RouteEntry {
+// buildRouteEntry constructs a RouteEntry from a Trigger, loading auth secrets as needed.
+// Returns an error if a required secret cannot be fetched; in that case the route must NOT be registered.
+func (w *TriggerWatcher) buildRouteEntry(ctx context.Context, trigger *automationv1alpha1.Trigger) (RouteEntry, error) {
 	flowNamespace := trigger.Namespace
 	if trigger.Spec.FlowRef != nil && trigger.Spec.FlowRef.Namespace != "" {
 		flowNamespace = trigger.Spec.FlowRef.Namespace
@@ -147,11 +155,73 @@ func triggerToRouteEntry(trigger *automationv1alpha1.Trigger) RouteEntry {
 		flowRef = trigger.Spec.FlowRef.Name
 	}
 
-	return RouteEntry{
+	entry := RouteEntry{
 		TriggerName:      trigger.Name,
 		TriggerNamespace: trigger.Namespace,
 		FlowRef:          flowRef,
 		FlowNamespace:    flowNamespace,
 		AllowedMethod:    method,
 	}
+
+	auth := trigger.Spec.Webhook.Auth
+	if auth == nil || auth.Type == "" {
+		entry.AuthType = ""
+		return entry, nil
+	}
+
+	entry.AuthType = auth.Type
+
+	switch auth.Type {
+	case "hmac":
+		if auth.HMACSecretRef == nil {
+			return RouteEntry{}, fmt.Errorf("hmac auth requires hmacSecretRef")
+		}
+		val, err := w.readSecretKey(ctx, trigger.Namespace, auth.HMACSecretRef.Name, auth.HMACSecretRef.Key)
+		if err != nil {
+			return RouteEntry{}, fmt.Errorf("reading HMAC secret: %w", err)
+		}
+		entry.HMACSecret = val
+
+	case "bearer":
+		if auth.BearerTokenSecretRef == nil {
+			return RouteEntry{}, fmt.Errorf("bearer auth requires bearerTokenSecretRef")
+		}
+		val, err := w.readSecretKey(ctx, trigger.Namespace, auth.BearerTokenSecretRef.Name, auth.BearerTokenSecretRef.Key)
+		if err != nil {
+			return RouteEntry{}, fmt.Errorf("reading bearer token secret: %w", err)
+		}
+		entry.BearerToken = val
+
+	case "apiKey":
+		if auth.APIKeySecretRef == nil {
+			return RouteEntry{}, fmt.Errorf("apiKey auth requires apiKeySecretRef")
+		}
+		val, err := w.readSecretKey(ctx, trigger.Namespace, auth.APIKeySecretRef.Name, auth.APIKeySecretRef.Key)
+		if err != nil {
+			return RouteEntry{}, fmt.Errorf("reading API key secret: %w", err)
+		}
+		entry.APIKey = val
+		entry.APIKeyHeader = auth.APIKeyHeader
+		if entry.APIKeyHeader == "" {
+			entry.APIKeyHeader = "X-Api-Key"
+		}
+
+	case "ipAllowlist":
+		entry.IPAllowlist = append([]string(nil), auth.IPAllowlist...)
+	}
+
+	return entry, nil
+}
+
+// readSecretKey fetches a Kubernetes Secret and returns the value for the given key.
+func (w *TriggerWatcher) readSecretKey(ctx context.Context, namespace, name, key string) (string, error) {
+	secret := &corev1.Secret{}
+	if err := w.k8sClient.Get(ctx, types.NamespacedName{Namespace: namespace, Name: name}, secret); err != nil {
+		return "", fmt.Errorf("get secret %s/%s: %w", namespace, name, err)
+	}
+	val, ok := secret.Data[key]
+	if !ok {
+		return "", fmt.Errorf("secret %s/%s does not contain key %q", namespace, name, key)
+	}
+	return string(val), nil
 }

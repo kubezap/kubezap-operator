@@ -25,17 +25,18 @@ func init() {
 	_ = automationv1alpha1.AddToScheme(controllerScheme)
 }
 
-// TriggerWatcher watches Trigger resources and updates the RouteRegistry.
+// TriggerWatcher watches Trigger and MockEndpoint resources and updates the registries.
 type TriggerWatcher struct {
-	k8sClient client.Client
-	cache     crcache.Cache
-	registry  *RouteRegistry
-	namespace string
-	log       logr.Logger
+	k8sClient    client.Client
+	cache        crcache.Cache
+	registry     *RouteRegistry
+	mockRegistry *MockRegistry
+	namespace    string
+	log          logr.Logger
 }
 
 // NewTriggerWatcher creates a new TriggerWatcher with an informer cache.
-func NewTriggerWatcher(k8sClient client.Client, registry *RouteRegistry, namespace string, log logr.Logger) (*TriggerWatcher, error) {
+func NewTriggerWatcher(k8sClient client.Client, registry *RouteRegistry, mockRegistry *MockRegistry, namespace string, log logr.Logger) (*TriggerWatcher, error) {
 	cfg := ctrl.GetConfigOrDie()
 	mapper, err := apiutil.NewDynamicRESTMapper(cfg, http.DefaultClient)
 	if err != nil {
@@ -52,7 +53,7 @@ func NewTriggerWatcher(k8sClient client.Client, registry *RouteRegistry, namespa
 		return nil, fmt.Errorf("unable to create cache: %w", err)
 	}
 
-	return &TriggerWatcher{k8sClient: k8sClient, cache: watchCache, registry: registry, namespace: namespace, log: log}, nil
+	return &TriggerWatcher{k8sClient: k8sClient, cache: watchCache, registry: registry, mockRegistry: mockRegistry, namespace: namespace, log: log}, nil
 }
 
 // Start launches the cache and informer and stays running until ctx is cancelled.
@@ -71,6 +72,21 @@ func (w *TriggerWatcher) Start(ctx context.Context) error {
 		return fmt.Errorf("adding trigger event handler: %w", err)
 	}
 	_ = registration
+
+	if w.mockRegistry != nil {
+		mockInformer, err := w.cache.GetInformer(ctx, &automationv1alpha1.MockEndpoint{})
+		if err != nil {
+			return fmt.Errorf("unable to get mock endpoint informer: %w", err)
+		}
+		_, err = mockInformer.AddEventHandler(toolscache.ResourceEventHandlerFuncs{
+			AddFunc:    func(obj interface{}) { w.handleMockEndpoint(obj) },
+			UpdateFunc: func(_, newObj interface{}) { w.handleMockEndpoint(newObj) },
+			DeleteFunc: func(obj interface{}) { w.handleMockEndpointDelete(obj) },
+		})
+		if err != nil {
+			return fmt.Errorf("unable to add mock endpoint event handler: %w", err)
+		}
+	}
 
 	go func() {
 		if err := w.cache.Start(ctx); err != nil && err != context.Canceled {
@@ -224,4 +240,53 @@ func (w *TriggerWatcher) readSecretKey(ctx context.Context, namespace, name, key
 		return "", fmt.Errorf("secret %s/%s does not contain key %q", namespace, name, key)
 	}
 	return string(val), nil
+}
+
+func (w *TriggerWatcher) handleMockEndpoint(obj interface{}) {
+	me, ok := obj.(*automationv1alpha1.MockEndpoint)
+	if !ok {
+		w.log.Error(fmt.Errorf("wrong object type"), "expected MockEndpoint")
+		return
+	}
+
+	path := strings.TrimSpace(me.Spec.Path)
+	if path == "" {
+		w.log.Info("MockEndpoint has empty path, skipping registration", "name", me.Name)
+		return
+	}
+	mockPath := "/mock/" + strings.TrimPrefix(path, "/")
+
+	entry := MockEntry{
+		Name:             me.Name,
+		Namespace:        me.Namespace,
+		Response:         me.Spec.Response,
+		ResponseSequence: me.Spec.ResponseSequence,
+		MaxHistory:       me.Spec.MaxRequestHistory,
+	}
+	w.mockRegistry.Register(mockPath, entry)
+	w.log.Info("registered mock route", "path", mockPath, "name", me.Name)
+}
+
+func (w *TriggerWatcher) handleMockEndpointDelete(obj interface{}) {
+	me, ok := obj.(*automationv1alpha1.MockEndpoint)
+	if !ok {
+		tombstone, ok := obj.(toolscache.DeletedFinalStateUnknown)
+		if !ok {
+			w.log.Error(fmt.Errorf("unexpected delete object type"), "obj", obj)
+			return
+		}
+		me, ok = tombstone.Obj.(*automationv1alpha1.MockEndpoint)
+		if !ok {
+			w.log.Error(fmt.Errorf("unexpected tombstone object type"), "obj", tombstone.Obj)
+			return
+		}
+	}
+
+	path := strings.TrimSpace(me.Spec.Path)
+	if path == "" {
+		return
+	}
+	mockPath := "/mock/" + strings.TrimPrefix(path, "/")
+	w.mockRegistry.Deregister(mockPath)
+	w.log.Info("deregistered mock route", "path", mockPath, "name", me.Name)
 }

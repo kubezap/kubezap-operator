@@ -433,12 +433,330 @@ Run make test to verify. Commit:
 
 ---
 
+---
+
+## 23. Gateway ServiceAccount, Role, and RoleBinding
+
+**Status:** `[ ]`
+
+**Why:** The webhook gateway Deployment already sets `serviceAccountName: kubezap-webhook-gateway`
+but the controller never creates that ServiceAccount, Role, or RoleBinding. Nothing in the
+gateway can work without this — it is the top deploy blocker.
+See `docs/architecture.md#gateway-serviceaccount-and-rbac` for the full design.
+
+**Files to change:** `internal/controller/gateway_deployment.go`, `internal/controller/trigger_controller.go`
+
+```
+Extend the webhook gateway Deployment reconciliation to also create the ServiceAccount,
+Role, and RoleBinding that the gateway pod runs under.
+
+--- Part A: gateway_deployment.go ---
+
+Add three new helper functions alongside desiredWebhookGatewayDeployment:
+
+1. desiredWebhookGatewayServiceAccount(namespace string) *corev1.ServiceAccount
+   Name: "kubezap-webhook-gateway", Namespace: namespace
+   Labels: same as Deployment labels
+
+2. desiredWebhookGatewayRole(namespace string) *rbacv1.Role
+   Name: "kubezap-webhook-gateway", Namespace: namespace
+   Rules:
+     - apiGroups: ["automation.kubezap.io"]
+       resources: ["triggers"]
+       verbs: ["get", "list", "watch"]
+     - apiGroups: ["automation.kubezap.io"]
+       resources: ["flowruns"]
+       verbs: ["create"]
+     - apiGroups: ["automation.kubezap.io"]
+       resources: ["mockendpoints"]
+       verbs: ["get", "list", "watch"]
+     - apiGroups: ["automation.kubezap.io"]
+       resources: ["mockendpoints/status"]
+       verbs: ["get", "update", "patch"]
+
+3. desiredWebhookGatewayRoleBinding(namespace string) *rbacv1.RoleBinding
+   Name: "kubezap-webhook-gateway", Namespace: namespace
+   RoleRef: Kind=Role, Name="kubezap-webhook-gateway", APIGroup=rbac.authorization.k8s.io
+   Subjects: [{Kind: ServiceAccount, Name: "kubezap-webhook-gateway", Namespace: namespace}]
+
+Add imports: corev1 "k8s.io/api/core/v1", rbacv1 "k8s.io/api/rbac/v1"
+
+--- Part B: trigger_controller.go ---
+
+In reconcileWebhookGatewayDeployment, before the Deployment create-or-update block,
+add create-or-update calls for the ServiceAccount, Role, and RoleBinding using the
+same sigs.k8s.io/controller-runtime/pkg/controller/controllerutil.CreateOrUpdate
+pattern. Use client.MergeFrom for patching. Idempotent — safe to call on every reconcile.
+
+Add RBAC markers to the TriggerReconciler:
+  // +kubebuilder:rbac:groups="",resources=serviceaccounts,verbs=get;list;watch;create;update;patch
+  // +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=roles,verbs=get;list;watch;create;update;patch
+  // +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=rolebindings,verbs=get;list;watch;create;update;patch
+
+Run make manifests. Commit:
+"Gateway: create ServiceAccount, Role, and RoleBinding for webhook gateway Deployment"
+```
+
+---
+
+## 24. CEL `when` evaluation and `Skipped` step phase
+
+**Status:** `[ ]`
+
+**Why:** The `when` field in FlowStep is defined but never evaluated. Without it there is
+no conditional branching — the core differentiating feature of the flow engine.
+`github.com/google/cel-go` is already an indirect dependency; no new dep needed.
+Design: `docs/api/flow.md#conditions-and-cel` and `docs/api/flow.md#skipped-steps-and-dependency-cascading`
+
+**Files to change:** `internal/controller/flowrun_controller.go`
+
+```
+Implement CEL when-expression evaluation and Skipped step phase in the FlowRun reconciler.
+
+--- Part A: CEL evaluation helper ---
+
+Add a package-level function:
+
+  func evaluateWhen(when []automationv1alpha1.WhenExpression,
+      stepResults map[string]map[string]string,
+      triggerData *automationv1alpha1.TriggerData) (bool, error)
+
+Using github.com/google/cel-go/cel:
+
+1. Create a CEL environment with the following variable declarations:
+     cel.Variable("trigger", cel.MapType(cel.StringType, cel.DynType))
+     cel.Variable("steps",   cel.MapType(cel.StringType, cel.DynType))
+
+2. Build the activation (input map):
+   - "trigger": a map containing:
+       "body":          triggerData.Body (or "" if nil)
+       "topic":         triggerData.Topic
+       "partition":     fmt.Sprintf("%d", triggerData.Partition)
+       "offset":        fmt.Sprintf("%d", triggerData.Offset)
+       "scheduledTime": triggerData.ScheduledTime
+       "headers":       map of header name → first value
+   - "steps": a map from step name (hyphens replaced by underscores) to:
+       "status":  stepStatuses[name].Phase (or "")
+       "results": stepResults[name] (or empty map)
+
+3. For each WhenExpression:
+   a. Compile the expression using env.Compile(expr.Expression)
+   b. Create a program with prog, err := env.Program(ast)
+   c. Evaluate: out, _, err := prog.Eval(activation)
+   d. Assert the result is a bool. If not bool or if err: return false, error.
+   e. If the result is false: return false, nil immediately (short-circuit).
+
+4. If all expressions are true (or when is empty): return true, nil.
+
+Import: "github.com/google/cel-go/cel"
+
+--- Part B: Integrate into the step execution loop ---
+
+In the Reconcile method's step execution loop, after checking dependenciesMet and
+BEFORE calling executeStep, add a when-evaluation block:
+
+  if len(step.When) > 0 {
+      run, err := evaluateWhen(step.When, stepResults, flowRun.Spec.TriggerData)
+      if err != nil {
+          // CEL compile/eval error → fail the step, not the whole FlowRun
+          completionTime := metav1.Now()
+          status := automationv1alpha1.StepStatus{
+              Name: step.Name, Phase: "Failed",
+              Message: fmt.Sprintf("when expression error: %v", err),
+              CompletionTime: &completionTime,
+          }
+          upsertStepStatus(&flowRun, status)
+          // continue to next step (or fail flow depending on failurePolicy)
+          continue
+      }
+      if !run {
+          completionTime := metav1.Now()
+          status := automationv1alpha1.StepStatus{
+              Name: step.Name, Phase: "Skipped",
+              Message: "when condition evaluated to false",
+              CompletionTime: &completionTime,
+          }
+          upsertStepStatus(&flowRun, status)
+          if err := r.Status().Update(ctx, &flowRun); err != nil {
+              return ctrl.Result{}, err
+          }
+          continue
+      }
+  }
+
+--- Part C: Cascade skip in dependenciesMet ---
+
+Update the dependenciesMet function (or the loop that calls it) to implement cascade skipping:
+
+A step is "cascade-skipped" if ALL of its runAfter dependencies are Skipped.
+In that case, treat it as Skipped (not as a blocker).
+
+Update dependenciesMet signature or add a helper allDepsSkipped:
+
+  func allDepsSkipped(step automationv1alpha1.FlowStep, flowRun *automationv1alpha1.FlowRun) bool {
+      if len(step.RunAfter) == 0 {
+          return false
+      }
+      for _, dep := range step.RunAfter {
+          s := findStepStatus(flowRun.Status.Steps, dep)
+          if s == nil || s.Phase != "Skipped" {
+              return false
+          }
+      }
+      return true
+  }
+
+In the step loop, before dependenciesMet check, check allDepsSkipped first:
+  if allDepsSkipped(step, &flowRun) {
+      // cascade skip — same pattern as explicit skip above
+      continue
+  }
+
+Run go build ./... Commit:
+"FlowRun: CEL when-expression evaluation and Skipped step phase with cascade"
+```
+
+---
+
+## 25. Demo sample CRs
+
+**Status:** `[ ]`
+
+**Why:** There are no runnable sample CRs for the getting-started demo scenario.
+Having them in `config/samples/demo/` lets anyone `kubectl apply` them after deploying
+the operator and immediately see a working end-to-end flow.
+Reference: `docs/guides/getting-started.md`
+
+**Files to create:** `config/samples/demo/` (new directory, no conflicts with anything)
+
+```
+Create the demo sample CRs described in docs/guides/getting-started.md.
+Read that file first for context on the full scenario.
+
+Directory: config/samples/demo/
+
+File 1: mockendpoints.yaml — three MockEndpoints:
+  - name: enrich-order, path: enrich-order, responseSequence cycling express/standard
+  - name: notify-express, path: notify-express, single response {notified:true,tier:express}
+  - name: notify-standard, path: notify-standard, single response {notified:true,tier:standard}
+
+File 2: flow.yaml — Flow named "order-router" with steps:
+  - extract-type: transform step, mappings: {orderType: "$(trigger.body)"}
+    (NOTE: this is a placeholder until full JSON path extraction is implemented;
+    the demo can be adjusted to pass orderType directly in a header)
+  - enrich-order: http POST to the enrich-order mock endpoint
+      url: http://kubezap-webhook-gateway.default.svc.cluster.local:8080/mock/enrich-order
+      resultMappings: {customerId: "$.customerId", tier: "$.tier"}
+  - notify-express: http POST to notify-express mock, runAfter enrich-order,
+      when: 'steps.enrich_order.results.tier == "express"'
+      body references $(steps.enrich_order.results.customerId)
+  - notify-standard: http POST to notify-standard mock, runAfter enrich-order,
+      when: 'steps.enrich_order.results.tier == "standard"'
+      body references $(steps.enrich_order.results.customerId)
+
+File 3: trigger.yaml — Trigger named "order-placed":
+  type: webhook, path: /hooks/order-placed, method: POST
+  flowRef: order-router
+
+File 4: kustomization.yaml — lists all three files for kubectl apply -k
+
+Also update config/samples/demo/README.md with a one-paragraph description and
+the curl commands from the getting-started guide.
+
+Commit: "Demo: sample CRs for order-router getting-started scenario"
+Push: git push -u origin claude/review-docs-schedule-LlDeD
+```
+
+---
+
+## 26. Ginkgo unit tests — Integration reconciler
+
+**Status:** `[ ]`
+
+**Why:** The Integration reconciler has no tests.
+
+**Files to create:** `internal/controller/integration_controller_test.go`
+
+```
+Write Ginkgo v2 unit tests for the IntegrationReconciler using the existing envtest suite.
+
+Read internal/controller/integration_controller.go fully before writing tests.
+Use the same package and suite setup as the existing controller tests.
+
+Test cases:
+
+Describe("IntegrationReconciler"):
+
+  Context("when type=kafka and bootstrapServers is empty"):
+    It("sets Ready=False, reason=InvalidSpec")
+
+  Context("when type=kafka and bootstrapServers is non-empty"):
+    It("sets Ready=True, reason=IntegrationReady")
+
+  Context("when type=plugin and image is empty"):
+    It("sets Ready=False, reason=InvalidSpec")
+
+  Context("when type=plugin with a valid image"):
+    It("sets Ready=True")
+    It("creates a Deployment named kubezap-plugin-<name>")
+    It("the Deployment has the correct image and env vars injected")
+
+  Context("when type is unknown"):
+    It("sets Ready=False, reason=InvalidSpec")
+
+For plugin tests, after reconciling fetch the Deployment and assert on
+deploy.Spec.Template.Spec.Containers[0].Image and the injected env var names.
+
+Clean up all created resources in DeferCleanup.
+
+Commit: "Tests: Ginkgo unit tests for Integration reconciler"
+Push: git push -u origin claude/review-docs-schedule-LlDeD
+```
+
+---
+
+## 27. Ginkgo unit tests — MockEndpoint reconciler
+
+**Status:** `[ ]`
+
+**Why:** The MockEndpoint reconciler has no tests.
+
+**Files to create:** `internal/controller/mockendpoint_controller_test.go`
+
+```
+Write Ginkgo v2 unit tests for the MockEndpointReconciler using the existing envtest suite.
+
+Read internal/controller/mockendpoint_controller.go fully before writing tests.
+
+Test cases:
+
+Describe("MockEndpointReconciler"):
+
+  Context("when spec.path is empty"):
+    It("sets Ready=False, reason=InvalidSpec")
+
+  Context("when spec.path is non-empty"):
+    It("sets Ready=True")
+    It("sets status.url to contain the path")
+
+  Context("when KUBEZAP_GATEWAY_BASE_URL is set"):
+    Setup: os.Setenv("KUBEZAP_GATEWAY_BASE_URL", "http://gateway.example.com")
+    It("status.url is prefixed with the base URL")
+    Cleanup: os.Unsetenv
+
+  Context("when the MockEndpoint is deleted"):
+    It("reconciles without error")
+
+Commit: "Tests: Ginkgo unit tests for MockEndpoint reconciler"
+Push: git push -u origin claude/review-docs-schedule-LlDeD
+```
+
+---
+
 ## Notes
 
 - All Go types in `api/v1alpha1/` require `make generate && make manifests` after changes.
 - Module path is `github.com/yourname/kubezap` (placeholder — rename before OperatorHub submission).
 - Run `make lint` before committing to catch golangci-lint issues early.
 - See `docs/api/` for full CRD specs and `docs/architecture.md` for runtime design context.
-- Prompts 16–19 are safe to implement in parallel (no file conflicts).
-- Prompts 20–22 depend on 16–19 being merged first (20 touches cron_scheduler.go and
-  flowrun_controller.go which 16 and 17 also modify; 21–22 can run in parallel with 20).
+- Prompts 23–27 are all safe to run in parallel (no file conflicts between them).

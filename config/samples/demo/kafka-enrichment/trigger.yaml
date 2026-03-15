@@ -1,0 +1,16 @@
+apiVersion: automation.kubezap.io/v1alpha1
+kind: Trigger
+metadata:
+  name: customer-events
+  namespace: default
+spec:
+  type: pubsub
+  enabled: true
+  pubsub:
+    type: kafka
+    integrationRef:
+      name: customer-kafka
+    topic: customer-events
+    consumerGroup: kubezap-enrichment
+  flowRef:
+    name: enrich-customer-event

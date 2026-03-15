@@ -1,0 +1,138 @@
+apiVersion: automation.kubezap.io/v1alpha1
+kind: Flow
+metadata:
+  name: enrich-customer-event
+  namespace: default
+spec:
+  timeout: 60s
+  steps:
+    # ── Step 1 ─────────────────────────────────────────────────────────────────
+    # Extract the customerId from the incoming Kafka message body.
+    # The Kafka gateway sets trigger.body to the message value (JSON).
+    - name: extract-customer
+      action:
+        type: transform
+        transform:
+          mappings:
+            customerId: "$(trigger.body.customerId)"
+            eventType:  "$(trigger.body.eventType)"
+            payload:    "$(trigger.body)"
+
+    # ── Step 2 ─────────────────────────────────────────────────────────────────
+    # Enrich: call the customer profile API to retrieve the account tier.
+    # In production this points at your CRM or account service.
+    # In this demo it points at the mock endpoint above.
+    - name: enrich-profile
+      runAfter:
+        - extract-customer
+      retryPolicy:
+        maxRetries: 3
+        backoffType: Exponential
+        initialDelay: 500ms
+        maxDelay: 10s
+      action:
+        type: http
+        http:
+          url: >-
+            http://kubezap-webhook-gateway.default.svc.cluster.local:8080/mock/customer-profile
+          method: POST
+          headers:
+            Content-Type: application/json
+          body: '{"customerId":"$(steps.extract_customer.results.customerId)"}'
+          timeoutSeconds: 10
+          resultMappings:
+            tier:           "$.tier"
+            region:         "$.region"
+            accountManager: "$.accountManager"
+
+    # ── Step 3a ────────────────────────────────────────────────────────────────
+    # Enterprise path: high-touch notification sink.
+    - name: route-enterprise
+      runAfter:
+        - enrich-profile
+      when:
+        - expression: 'steps.enrich_profile.results.tier == "enterprise"'
+      action:
+        type: http
+        http:
+          url: >-
+            http://kubezap-webhook-gateway.default.svc.cluster.local:8080/mock/enterprise-sink
+          method: POST
+          headers:
+            Content-Type: application/json
+          body: >-
+            {
+              "customerId": "$(steps.extract_customer.results.customerId)",
+              "eventType":  "$(steps.extract_customer.results.eventType)",
+              "accountManager": "$(steps.enrich_profile.results.accountManager)",
+              "region": "$(steps.enrich_profile.results.region)"
+            }
+
+    # ── Step 3b ────────────────────────────────────────────────────────────────
+    # Standard path: normal processing queue.
+    - name: route-standard
+      runAfter:
+        - enrich-profile
+      when:
+        - expression: 'steps.enrich_profile.results.tier == "standard"'
+      action:
+        type: http
+        http:
+          url: >-
+            http://kubezap-webhook-gateway.default.svc.cluster.local:8080/mock/standard-sink
+          method: POST
+          headers:
+            Content-Type: application/json
+          body: >-
+            {
+              "customerId": "$(steps.extract_customer.results.customerId)",
+              "eventType":  "$(steps.extract_customer.results.eventType)"
+            }
+
+    # ── Step 3c ────────────────────────────────────────────────────────────────
+    # Trial path: route to nurture/activation sequence.
+    - name: route-trial
+      runAfter:
+        - enrich-profile
+      when:
+        - expression: 'steps.enrich_profile.results.tier == "trial"'
+      action:
+        type: http
+        http:
+          url: >-
+            http://kubezap-webhook-gateway.default.svc.cluster.local:8080/mock/trial-sink
+          method: POST
+          headers:
+            Content-Type: application/json
+          body: >-
+            {
+              "customerId": "$(steps.extract_customer.results.customerId)",
+              "eventType":  "$(steps.extract_customer.results.eventType)"
+            }
+
+    # ── Step 4 ─────────────────────────────────────────────────────────────────
+    # Publish the enriched event to the output topic regardless of tier.
+    # Downstream consumers get a guaranteed-enriched event with tier + region
+    # without needing to call the profile API themselves.
+    - name: publish-enriched
+      runAfter:
+        - route-enterprise
+        - route-standard
+        - route-trial
+      action:
+        type: publish
+        publish:
+          integrationRef:
+            name: customer-kafka
+          topic: customer-events-enriched
+          headers:
+            X-Event-Type:   "$(steps.extract_customer.results.eventType)"
+            X-Customer-Tier: "$(steps.enrich_profile.results.tier)"
+          body: >-
+            {
+              "customerId":     "$(steps.extract_customer.results.customerId)",
+              "eventType":      "$(steps.extract_customer.results.eventType)",
+              "tier":           "$(steps.enrich_profile.results.tier)",
+              "region":         "$(steps.enrich_profile.results.region)",
+              "accountManager": "$(steps.enrich_profile.results.accountManager)"
+            }

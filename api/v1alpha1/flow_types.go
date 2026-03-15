@@ -102,7 +102,7 @@ type WhenExpression struct {
 // StepAction describes one of the supported step action types.
 type StepAction struct {
 	// Type of step action.
-	// +kubebuilder:validation:Enum=http;transform;publish
+	// +kubebuilder:validation:Enum=http;transform;publish;wait
 	Type string `json:"type"`
 
 	// HTTP action details.
@@ -113,6 +113,9 @@ type StepAction struct {
 
 	// Publish action details.
 	Publish *PublishAction `json:"publish,omitempty"`
+
+	// Wait action details.
+	Wait *WaitAction `json:"wait,omitempty"`
 }
 
 // HTTPAction represents an HTTP call to be made as a step.
@@ -160,6 +163,13 @@ type PublishAction struct {
 
 	// Optional publish headers.
 	Headers map[string]string `json:"headers,omitempty"`
+}
+
+// WaitAction pauses the FlowRun for a fixed duration before continuing.
+type WaitAction struct {
+	// Duration is the amount of time to wait, as a Go duration string (e.g. "10m", "30s", "1h").
+	// +kubebuilder:validation:Pattern=`^[0-9]+(ns|us|µs|ms|s|m|h)$`
+	Duration string `json:"duration"`
 }
 
 // ResultDeclaration declares what a step result will expose.

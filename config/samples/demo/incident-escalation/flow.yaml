@@ -1,0 +1,92 @@
+apiVersion: automation.kubezap.io/v1alpha1
+kind: Flow
+metadata:
+  name: incident-escalation
+  namespace: default
+spec:
+  description: "Page on-call, trigger mitigation, wait, then escalate if still unhealthy"
+  timeout: "10m"
+  steps:
+    # ── Step 1 ─────────────────────────────────────────────────────────────────
+    # Notify the on-call responder immediately when an alert fires.
+    # In production: replace with your Slack or PagerDuty webhook URL.
+    - name: page-oncall
+      description: "Post an alert notification to the on-call channel"
+      action:
+        type: http
+        http:
+          url: "https://httpbin.org/post"
+          method: POST
+          headers:
+            Content-Type: application/json
+          body: '{"text":"ALERT: $(trigger.payload.alertname) is firing on $(trigger.payload.service)"}'
+          timeoutSeconds: 10
+
+    # ── Step 2 ─────────────────────────────────────────────────────────────────
+    # Fire automated remediation in parallel with page-oncall.
+    # Both steps have no runAfter, so they run concurrently from the start.
+    # In production: replace with your auto-remediation webhook
+    - name: trigger-mitigation
+      description: "Trigger automated service restart — fire-and-forget, expects 202 Accepted"
+      action:
+        type: http
+        http:
+          url: "https://httpbin.org/post"
+          method: POST
+          headers:
+            Content-Type: application/json
+          body: '{"action":"restart","service":"$(trigger.payload.service)"}'
+          timeoutSeconds: 10
+
+    # ── Step 3 ─────────────────────────────────────────────────────────────────
+    # Block the flow until both parallel steps complete, then wait for the
+    # remediation to take effect.
+    # In production: use 10m–1h depending on your SLA
+    - name: wait-for-resolution
+      description: "Pause 2 minutes to allow auto-remediation to take effect"
+      runAfter:
+        - page-oncall
+        - trigger-mitigation
+      action:
+        type: wait
+        wait:
+          duration: "2m"
+
+    # ── Step 4 ─────────────────────────────────────────────────────────────────
+    # Verify the service has recovered after the wait period.
+    # httpbin always returns 200 with the request URL in $.url — used here to
+    # simulate a healthy response.
+    # In production: replace with your actual health check endpoint
+    - name: check-health
+      description: "Verify the service has recovered"
+      runAfter:
+        - wait-for-resolution
+      action:
+        type: http
+        http:
+          url: "https://httpbin.org/get"
+          method: GET
+          timeoutSeconds: 15
+          resultMappings:
+            status: "$.url"
+
+    # ── Step 5 ─────────────────────────────────────────────────────────────────
+    # Escalate to the next on-call tier if the service is still unhealthy.
+    # The when condition below is always false in this demo so the step is always
+    # Skipped — demonstrating the conditional escalation path without real infra.
+    # In production: use: steps.check-health.results.status != "healthy"
+    - name: escalate
+      description: "Page next tier if auto-remediation did not resolve the incident"
+      runAfter:
+        - check-health
+      when:
+        - expression: '"true" == "false"'
+      action:
+        type: http
+        http:
+          url: "https://httpbin.org/post"
+          method: POST
+          headers:
+            Content-Type: application/json
+          body: '{"text":"ESCALATING: $(trigger.payload.alertname) still firing after 2m — paging next tier"}'
+          timeoutSeconds: 10

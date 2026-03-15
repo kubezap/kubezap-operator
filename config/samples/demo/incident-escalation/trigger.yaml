@@ -1,0 +1,13 @@
+apiVersion: automation.kubezap.io/v1alpha1
+kind: Trigger
+metadata:
+  name: incident-escalation
+  namespace: default
+spec:
+  type: webhook
+  enabled: true
+  webhook:
+    path: /hooks/alert
+    method: POST
+  flowRef:
+    name: incident-escalation

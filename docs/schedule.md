@@ -116,16 +116,14 @@ Additional demonstration scenarios targeting acquisition/enterprise stakeholders
 - [x] Guide at `docs/guides/kafka-enrichment.md` (setup, produce messages, inspect FlowRuns, retry demo)
 - [x] `type: publish` PublishAction documented in `docs/api/flow.md`
 
-### Demo 2 — GitOps Deployment Gate
-- [ ] Design `type: kubernetes` step action spec in `docs/api/flow.md` (apply manifest, wait for rollout)
-- [ ] Sample CRs in `config/samples/demo/gitops-deploy-gate/`
-- [ ] Guide at `docs/guides/gitops-deploy-gate.md`
-- [ ] Implement `type: kubernetes` step executor in FlowRun controller
-
 ### Demo 3 — Incident Response Escalation
-- [ ] Design wait/requeue primitive (delayed step re-evaluation without blocking)
-- [ ] Sample CRs in `config/samples/demo/incident-escalation/`
-- [ ] Guide at `docs/guides/incident-escalation.md`
+- [x] Design wait/requeue primitive (delayed step re-evaluation without blocking)
+- [x] Sample CRs in `config/samples/demo/incident-escalation/`
+- [x] Guide at `docs/guides/incident-escalation.md`
+
+### Demo Validation
+- [x] Manual walkthrough checklist for Demo 1 (Kafka Event Enrichment Pipeline) — step-by-step kubectl commands to apply CRs, produce a Kafka message, inspect FlowRun, verify results
+- [x] Manual walkthrough checklist for Demo 3 (Incident Response Escalation) — step-by-step kubectl commands to apply CRs, send alert webhook, observe Waiting phase, verify escalation step skipped
 
 ---
 

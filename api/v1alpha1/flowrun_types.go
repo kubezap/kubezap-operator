@@ -75,7 +75,7 @@ type ResultValue struct {
 type StepRunStatus struct {
 	Name string `json:"name"`
 
-	// +kubebuilder:validation:Enum=Pending;Running;Succeeded;Failed;Skipped
+	// +kubebuilder:validation:Enum=Pending;Running;Succeeded;Failed;Skipped;Waiting
 	Phase string `json:"phase,omitempty"`
 
 	StartTime      *metav1.Time  `json:"startTime,omitempty"`
@@ -83,6 +83,11 @@ type StepRunStatus struct {
 	Attempts       int32         `json:"attempts,omitempty"`
 	Message        string        `json:"message,omitempty"`
 	Results        []ResultValue `json:"results,omitempty"`
+
+	// ResumeAfter is set by the wait step executor and records when the step should resume.
+	// The controller requeues the FlowRun until this time has elapsed.
+	// +optional
+	ResumeAfter *metav1.Time `json:"resumeAfter,omitempty"`
 }
 
 // FlowRunStatus defines the observed state of FlowRun.

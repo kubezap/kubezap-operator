@@ -208,6 +208,47 @@ func (r *FlowRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 			}
 		}
 
+		// Handle wait steps specially: they may need to requeue rather than complete immediately.
+		if step.Action.Type == "wait" {
+			now := metav1.Now()
+			ss := automationv1alpha1.StepRunStatus{
+				Name:      step.Name,
+				StartTime: &now,
+				Attempts:  1,
+			}
+			requeueAfter, err := r.executeWaitStep(ctx, log, &flowRun, step, &ss)
+			if err != nil {
+				completionTime := metav1.Now()
+				ss.Phase = "Failed"
+				ss.Message = err.Error()
+				ss.CompletionTime = &completionTime
+				flowRun.Status.Steps = upsertStepStatus(flowRun.Status.Steps, ss)
+				if err2 := r.Status().Update(ctx, &flowRun); err2 != nil {
+					return ctrl.Result{}, err2
+				}
+				if step.OnFailure == "Continue" || flow.Spec.FailurePolicy == "Continue" {
+					continue
+				}
+				return ctrl.Result{}, r.failFlowRun(ctx, &flowRun, fmt.Sprintf("step %q failed: %s", step.Name, ss.Message))
+			}
+			if requeueAfter > 0 {
+				flowRun.Status.Steps = upsertStepStatus(flowRun.Status.Steps, ss)
+				if err2 := r.Status().Update(ctx, &flowRun); err2 != nil {
+					return ctrl.Result{}, err2
+				}
+				return ctrl.Result{RequeueAfter: requeueAfter}, nil
+			}
+			// Wait elapsed — mark Succeeded and continue.
+			completionTime := metav1.Now()
+			ss.Phase = "Succeeded"
+			ss.CompletionTime = &completionTime
+			flowRun.Status.Steps = upsertStepStatus(flowRun.Status.Steps, ss)
+			if err2 := r.Status().Update(ctx, &flowRun); err2 != nil {
+				return ctrl.Result{}, err2
+			}
+			continue
+		}
+
 		// Execute the step.
 		stepStart := time.Now()
 		stepStatus, err := r.executeStep(execCtx, log, &step, &flow, &flowRun, stepResults, flowRun.Spec.TriggerData)
@@ -521,6 +562,45 @@ func (r *FlowRunReconciler) executePublishStep(
 	}
 
 	return map[string]string{}, nil
+}
+
+func (r *FlowRunReconciler) executeWaitStep(
+	ctx context.Context,
+	log logr.Logger,
+	flowRun *automationv1alpha1.FlowRun,
+	step automationv1alpha1.FlowStep,
+	stepStatus *automationv1alpha1.StepRunStatus,
+) (time.Duration, error) {
+	_ = ctx // reserved for future use
+
+	if step.Action.Wait == nil {
+		return 0, fmt.Errorf("wait step %q has no wait config", step.Name)
+	}
+	duration, err := time.ParseDuration(step.Action.Wait.Duration)
+	if err != nil {
+		return 0, fmt.Errorf("wait step %q: invalid duration %q: %w", step.Name, step.Action.Wait.Duration, err)
+	}
+
+	// Check if ResumeAfter is already set (controller restart or requeue).
+	existing := findStepStatus(flowRun.Status.Steps, step.Name)
+	if existing != nil && existing.ResumeAfter != nil {
+		if time.Now().Before(existing.ResumeAfter.Time) {
+			stepStatus.ResumeAfter = existing.ResumeAfter
+			stepStatus.Phase = "Waiting"
+			remaining := time.Until(existing.ResumeAfter.Time)
+			log.Info("wait step still sleeping", "step", step.Name, "remaining", remaining)
+			return remaining, nil
+		}
+		// Time has elapsed — fall through, caller marks Succeeded.
+		return 0, nil
+	}
+
+	// First time reaching this step — set ResumeAfter and return duration.
+	resumeAt := metav1.NewTime(time.Now().Add(duration))
+	stepStatus.ResumeAfter = &resumeAt
+	stepStatus.Phase = "Waiting"
+	log.Info("wait step sleeping", "step", step.Name, "duration", duration, "resumeAfter", resumeAt)
+	return duration, nil
 }
 
 func (r *FlowRunReconciler) retryDelay(policy *automationv1alpha1.RetryPolicy, attempt int) time.Duration {

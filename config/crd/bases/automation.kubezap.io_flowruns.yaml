@@ -239,6 +239,7 @@ spec:
                       - Succeeded
                       - Failed
                       - Skipped
+                      - Waiting
                       type: string
                     results:
                       items:
@@ -253,6 +254,12 @@ spec:
                         - value
                         type: object
                       type: array
+                    resumeAfter:
+                      description: |-
+                        ResumeAfter is set by the wait step executor and records when the step should resume.
+                        The controller requeues the FlowRun until this time has elapsed.
+                      format: date-time
+                      type: string
                     startTime:
                       format: date-time
                       type: string

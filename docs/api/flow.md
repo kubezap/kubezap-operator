@@ -2,7 +2,7 @@
 
 A `Flow` defines the sequence of steps to execute when a `Trigger` fires. It is a reusable template — the same `Flow` can be referenced by multiple `Trigger` resources and executed concurrently.
 
-Flows support HTTP actions, data transformations, conditional step execution, retry policies, and chaining data between steps.
+Flows support HTTP actions, data transformations, timed waits, conditional step execution, retry policies, and chaining data between steps.
 
 ---
 
@@ -22,6 +22,7 @@ Flows support HTTP actions, data transformations, conditional step execution, re
   - [Retry and Error Handling](#example-4-retry-and-error-handling)
   - [Data Transformation](#example-5-data-transformation)
   - [XML Payload Processing](#example-6-xml-payload-processing)
+  - [Incident Escalation with Wait](#example-7-incident-escalation-with-wait)
 - [Step Action Types](#step-action-types)
 - [Expression Reference](#expression-reference)
 - [Limitations](#limitations)
@@ -323,10 +324,11 @@ Declares an input parameter the flow accepts. Parameters are populated from the 
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `type` | enum | **Yes** | Action type: `http`, `transform`, or `publish` |
+| `type` | enum | **Yes** | Action type: `http`, `transform`, `publish`, or `wait` |
 | `http` | HTTPAction | Conditional | Required when `type: http` |
 | `transform` | TransformAction | Conditional | Required when `type: transform` |
 | `publish` | PublishAction | Conditional | Required when `type: publish` |
+| `wait` | WaitAction | Conditional | Required when `type: wait` |
 
 ### HTTPAction
 
@@ -380,6 +382,40 @@ serialisation, authentication, and delivery.
           "customerId": "$(steps.extract_customer.results.customerId)",
           "tier":       "$(steps.enrich_profile.results.tier)"
         }
+```
+
+### WaitAction
+
+Pauses the FlowRun for a fixed duration before continuing. When the step is
+reached, the controller records the resume time in the FlowRun status and
+stops executing until that time is reached. The wait survives controller
+restarts.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `duration` | duration string | **Yes** | How long to pause. Accepts any Go duration string: `30s`, `10m`, `1h`, `2h30m`. |
+
+**Behavior:**
+
+- The step enters a `Waiting` phase visible in `status.steps[*].phase` on the FlowRun.
+- The flow is fully blocked during the wait — no other steps execute while the wait is active.
+- The resume timestamp is persisted in `status.steps[*].resumeAfter` on the FlowRun so the wait survives controller restarts.
+- The wait step produces no results (empty results map).
+- Downstream steps run normally once the duration elapses.
+
+> **Note — full-block model:** Because KubeZap uses a linear execution model, steps with no `runAfter` dependency on the wait step are also blocked while the wait is active. For fire-and-forget parallel actions (for example, triggering mitigation via a webhook), model them as `http` steps that return immediately (202 Accepted) so they complete *before* the wait step begins. See [Example 7](#example-7-incident-escalation-with-wait) for the recommended pattern.
+
+**Example:**
+
+```yaml
+- name: cool-down
+  description: "Wait 10 minutes before checking system health"
+  runAfter:
+    - trigger-remediation
+  action:
+    type: wait
+    wait:
+      duration: "10m"
 ```
 
 ### ResultDeclaration
@@ -789,12 +825,128 @@ steps:
 
 ---
 
+### Example 7: Incident Escalation with Wait
+
+Page on-call and trigger automated mitigation in parallel, wait 10 minutes for
+the issue to resolve, then check system health and escalate to PagerDuty only
+if the system is still unhealthy.
+
+`trigger-mitigation` has no `runAfter` dependency, so it runs in parallel with
+`page-oncall`. Both steps make fire-and-forget HTTP calls (expecting a 202
+Accepted) and complete before `wait-for-resolution` begins. This is the
+recommended pattern when you need parallel side effects ahead of a wait — see
+the [WaitAction note](#waitaction) for details.
+
+```yaml
+apiVersion: automation.kubezap.io/v1alpha1
+kind: Flow
+metadata:
+  name: incident-escalation
+  namespace: ops
+spec:
+  description: "Page on-call, trigger mitigation, wait, then escalate if still unhealthy"
+  timeout: "30m"
+  steps:
+    - name: page-oncall
+      description: "Post an alert to the on-call Slack channel"
+      action:
+        type: http
+        http:
+          url: "https://hooks.slack.com/services/$(secrets.slack-webhook.path)"
+          method: POST
+          headers:
+            Content-Type: "application/json"
+          body: |
+            {
+              "text": ":fire: Incident detected: $(trigger.payload.alert.name) in $(trigger.payload.alert.environment)"
+            }
+          timeoutSeconds: 10
+
+    - name: trigger-mitigation
+      description: "Fire auto-remediation — fire-and-forget, expects 202 Accepted"
+      action:
+        type: http
+        http:
+          url: "https://remediation.internal/api/trigger"
+          method: POST
+          headers:
+            Content-Type: "application/json"
+            Authorization: "Bearer $(secrets.remediation-api.token)"
+          body: |
+            {
+              "alert": "$(trigger.payload.alert.name)",
+              "environment": "$(trigger.payload.alert.environment)"
+            }
+          timeoutSeconds: 10
+
+    - name: wait-for-resolution
+      description: "Pause 10 minutes to allow auto-remediation to take effect"
+      runAfter:
+        - page-oncall
+        - trigger-mitigation
+      action:
+        type: wait
+        wait:
+          duration: "10m"
+
+    - name: check-health
+      description: "Verify the service has recovered"
+      runAfter:
+        - wait-for-resolution
+      action:
+        type: http
+        http:
+          url: "https://healthcheck.internal/api/services/$(trigger.payload.alert.service)"
+          method: GET
+          headers:
+            Authorization: "Bearer $(secrets.healthcheck-api.token)"
+          resultMappings:
+            status: "$.status"
+          timeoutSeconds: 15
+      results:
+        - name: status
+          description: "Service health status: healthy or degraded"
+
+    - name: escalate
+      description: "Create a PagerDuty incident if the service is still unhealthy"
+      runAfter:
+        - check-health
+      when:
+        - expression: 'steps.check_health.results.status != "healthy"'
+      action:
+        type: http
+        http:
+          url: "https://events.pagerduty.com/v2/enqueue"
+          method: POST
+          headers:
+            Content-Type: "application/json"
+            Authorization: "Token token=$(secrets.pagerduty-api.token)"
+          body: |
+            {
+              "routing_key": "$(secrets.pagerduty-api.routingKey)",
+              "event_action": "trigger",
+              "payload": {
+                "summary": "Auto-remediation failed: $(trigger.payload.alert.name)",
+                "severity": "critical",
+                "source": "$(trigger.payload.alert.environment)",
+                "custom_details": {
+                  "health_status": "$(steps.check_health.results.status)",
+                  "alert": "$(trigger.payload.alert.name)"
+                }
+              }
+            }
+          timeoutSeconds: 10
+```
+
+---
+
 ## Step Action Types
 
 | Type | Description | Status |
 |---|---|---|
 | `http` | Make an HTTP/HTTPS request to any URL | Available |
 | `transform` | Reshape data between steps using CEL expressions | Available |
+| `wait` | Pause the FlowRun for a fixed duration before continuing | Available |
 | `kubernetes-job` | Run a Kubernetes Job and wait for completion | Planned |
 | `plugin` | Call an external KubeZap plugin service via webhook | Planned |
 

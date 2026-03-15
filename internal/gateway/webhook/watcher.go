@@ -224,6 +224,12 @@ func (w *TriggerWatcher) buildRouteEntry(ctx context.Context, trigger *automatio
 
 	case "ipAllowlist":
 		entry.IPAllowlist = append([]string(nil), auth.IPAllowlist...)
+
+	case "oidc":
+		// OIDCAudience is optional; OIDCIssuer is optional but recommended.
+		// JWKS URL is derived from the issuer using the standard well-known path.
+		jwksURL := auth.OIDCIssuer + "/.well-known/jwks.json"
+		entry.OIDCValidator = newOIDCValidator(jwksURL, auth.OIDCIssuer, auth.OIDCAudience)
 	}
 
 	return entry, nil

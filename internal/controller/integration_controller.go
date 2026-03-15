@@ -22,6 +22,7 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	rbacv1 "k8s.io/api/rbac/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -38,6 +39,8 @@ import (
 // +kubebuilder:rbac:groups=automation.kubezap.io,resources=integrations,verbs=get;list;watch;update;patch
 // +kubebuilder:rbac:groups=automation.kubezap.io,resources=integrations/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch;create;update;patch
+// +kubebuilder:rbac:groups="",resources=serviceaccounts,verbs=get;list;watch;create;update;patch
+// +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=roles;rolebindings,verbs=get;list;watch;create;update;patch
 
 // IntegrationReconciler reconciles an Integration object.
 type IntegrationReconciler struct {
@@ -74,6 +77,9 @@ func (r *IntegrationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	switch integration.Spec.Type {
 	case "plugin":
 		deploymentName := "kubezap-plugin-" + integration.Name
+		if err := r.reconcilePluginRBAC(ctx, &integration); err != nil {
+			return ctrl.Result{}, fmt.Errorf("reconciling plugin RBAC: %w", err)
+		}
 		if err := r.reconcilePluginDeployment(ctx, &integration); err != nil {
 			return ctrl.Result{}, fmt.Errorf("reconciling plugin deployment: %w", err)
 		}
@@ -121,6 +127,103 @@ func validateIntegrationSpec(spec automationv1alpha1.IntegrationSpec) error {
 	default:
 		return fmt.Errorf("unknown integration type %q", spec.Type)
 	}
+	return nil
+}
+
+// reconcilePluginRBAC ensures a ServiceAccount, Role, and RoleBinding exist for a plugin Integration.
+// All three resources are owner-referenced to the Integration so they are garbage-collected when
+// the Integration is deleted.
+func (r *IntegrationReconciler) reconcilePluginRBAC(ctx context.Context, integration *automationv1alpha1.Integration) error {
+	log := logf.FromContext(ctx)
+	resourceName := "kubezap-plugin-" + integration.Name
+
+	// --- ServiceAccount ---
+	sa := &corev1.ServiceAccount{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      resourceName,
+			Namespace: integration.Namespace,
+		},
+	}
+	if err := ctrl.SetControllerReference(integration, sa, r.Scheme); err != nil {
+		return fmt.Errorf("setting owner reference on ServiceAccount: %w", err)
+	}
+	existingSA := &corev1.ServiceAccount{}
+	if err := r.Get(ctx, client.ObjectKeyFromObject(sa), existingSA); err != nil {
+		if !apierrors.IsNotFound(err) {
+			return err
+		}
+		if err := r.Create(ctx, sa); err != nil && !apierrors.IsAlreadyExists(err) {
+			return err
+		}
+		log.Info("created plugin ServiceAccount", "name", resourceName, "namespace", integration.Namespace)
+	}
+
+	// --- Role ---
+	role := &rbacv1.Role{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      resourceName,
+			Namespace: integration.Namespace,
+		},
+		Rules: []rbacv1.PolicyRule{
+			{
+				APIGroups: []string{"automation.kubezap.io"},
+				Resources: []string{"triggers"},
+				Verbs:     []string{"get", "list", "watch"},
+			},
+			{
+				APIGroups: []string{"automation.kubezap.io"},
+				Resources: []string{"flowruns"},
+				Verbs:     []string{"get", "list", "create", "update", "patch"},
+			},
+		},
+	}
+	if err := ctrl.SetControllerReference(integration, role, r.Scheme); err != nil {
+		return fmt.Errorf("setting owner reference on Role: %w", err)
+	}
+	existingRole := &rbacv1.Role{}
+	if err := r.Get(ctx, client.ObjectKeyFromObject(role), existingRole); err != nil {
+		if !apierrors.IsNotFound(err) {
+			return err
+		}
+		if err := r.Create(ctx, role); err != nil && !apierrors.IsAlreadyExists(err) {
+			return err
+		}
+		log.Info("created plugin Role", "name", resourceName, "namespace", integration.Namespace)
+	}
+
+	// --- RoleBinding ---
+	rb := &rbacv1.RoleBinding{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      resourceName,
+			Namespace: integration.Namespace,
+		},
+		RoleRef: rbacv1.RoleRef{
+			APIGroup: "rbac.authorization.k8s.io",
+			Kind:     "Role",
+			Name:     resourceName,
+		},
+		Subjects: []rbacv1.Subject{
+			{
+				Kind:      "ServiceAccount",
+				Name:      resourceName,
+				Namespace: integration.Namespace,
+			},
+		},
+	}
+	if err := ctrl.SetControllerReference(integration, rb, r.Scheme); err != nil {
+		return fmt.Errorf("setting owner reference on RoleBinding: %w", err)
+	}
+	existingRB := &rbacv1.RoleBinding{}
+	if err := r.Get(ctx, client.ObjectKeyFromObject(rb), existingRB); err != nil {
+		if !apierrors.IsNotFound(err) {
+			return err
+		}
+		if err := r.Create(ctx, rb); err != nil && !apierrors.IsAlreadyExists(err) {
+			return err
+		}
+		log.Info("created plugin RoleBinding", "name", resourceName, "namespace", integration.Namespace)
+	}
+
 	return nil
 }
 
@@ -210,6 +313,7 @@ func desiredPluginDeployment(integration *automationv1alpha1.Integration) *appsv
 			Template: corev1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{Labels: labels},
 				Spec: corev1.PodSpec{
+					ServiceAccountName: deploymentName,
 					SecurityContext: &corev1.PodSecurityContext{
 						RunAsNonRoot: ptr.To(true),
 					},

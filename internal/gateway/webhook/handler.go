@@ -105,6 +105,16 @@ func authenticateRequest(r *http.Request, body []byte, entry RouteEntry) (int, s
 			return http.StatusUnauthorized, "invalid API key"
 		}
 
+	case "oidc":
+		authHeader := r.Header.Get("Authorization")
+		if authHeader == "" || !strings.HasPrefix(authHeader, "Bearer ") {
+			return http.StatusUnauthorized, `{"error":"unauthorized","reason":"missing Bearer token"}`
+		}
+		token := strings.TrimPrefix(authHeader, "Bearer ")
+		if err := entry.OIDCValidator.validate(r.Context(), token); err != nil {
+			return http.StatusUnauthorized, fmt.Sprintf(`{"error":"unauthorized","reason":"%s"}`, err.Error())
+		}
+
 	case "ipAllowlist":
 		remoteIP, _, err := net.SplitHostPort(r.RemoteAddr)
 		if err != nil {

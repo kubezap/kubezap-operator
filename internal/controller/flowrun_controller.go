@@ -32,6 +32,11 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	otelcodes "go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/propagation"
+	"go.opentelemetry.io/otel/trace"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
@@ -64,6 +69,17 @@ func (r *FlowRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	if err := r.Get(ctx, req.NamespacedName, &flowRun); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
+
+	// Tracing: extract W3C traceparent from FlowRun annotation if present,
+	// then start a root span for this reconciliation loop.
+	tracer := otel.Tracer("kubezap.io/flowrun")
+	ctx = extractTraceContext(ctx, flowRun.Annotations)
+	ctx, span := tracer.Start(ctx, "flowrun.reconcile",
+		trace.WithAttributes(
+			attribute.String("flowrun.name", flowRun.Name),
+			attribute.String("flowrun.namespace", flowRun.Namespace),
+		))
+	defer span.End()
 
 	// GC: handle terminal FlowRuns (TTL expiry + maxFlowRuns cap).
 	if flowRun.Status.Phase == "Succeeded" || flowRun.Status.Phase == "Failed" {
@@ -223,6 +239,7 @@ func (r *FlowRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 			flowRun.Namespace, flowRun.Spec.FlowRef.Name, "Succeeded",
 		).Observe(duration.Seconds())
 	}
+	span.SetStatus(otelcodes.Ok, "")
 	return ctrl.Result{}, r.Status().Update(ctx, &flowRun)
 }
 
@@ -236,6 +253,15 @@ func (r *FlowRunReconciler) executeStep(
 	triggerData *automationv1alpha1.TriggerData,
 ) (*automationv1alpha1.StepRunStatus, error) {
 	_ = flow // reserved for future param resolution
+
+	// Start a child span for this step execution.
+	ctx, stepSpan := otel.Tracer("kubezap.io/flowrun").Start(ctx, "flowrun.step",
+		trace.WithAttributes(
+			attribute.String("step.name", step.Name),
+			attribute.String("step.type", string(step.Action.Type)),
+		))
+	defer stepSpan.End()
+
 	now := metav1.Now()
 	status := &automationv1alpha1.StepRunStatus{
 		Name:      step.Name,
@@ -522,6 +548,7 @@ func (r *FlowRunReconciler) failFlowRun(ctx context.Context, flowRun *automation
 			flowRun.Namespace, flowRun.Spec.FlowRef.Name, "Failed",
 		).Observe(duration.Seconds())
 	}
+	trace.SpanFromContext(ctx).SetStatus(otelcodes.Error, "FlowRun failed")
 	return r.Status().Update(ctx, flowRun)
 }
 
@@ -805,6 +832,20 @@ func truncate(s string, n int) string {
 		return s
 	}
 	return s[:n] + "..."
+}
+
+// extractTraceContext reads the kubezap.io/traceparent annotation from a
+// FlowRun and, if present, extracts W3C trace context into the returned
+// context so that the reconciler span is a child of the originating trace.
+func extractTraceContext(ctx context.Context, annotations map[string]string) context.Context {
+	if annotations == nil {
+		return ctx
+	}
+	val, ok := annotations["kubezap.io/traceparent"]
+	if !ok || val == "" {
+		return ctx
+	}
+	return otel.GetTextMapPropagator().Extract(ctx, propagation.MapCarrier{"traceparent": val})
 }
 
 // substituteVars replaces template placeholders in s with values from stepResults and triggerData.

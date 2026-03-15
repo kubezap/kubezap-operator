@@ -40,6 +40,7 @@ import (
 
 	automationv1alpha1 "github.com/yourname/kubezap/api/v1alpha1"
 	"github.com/yourname/kubezap/internal/controller"
+	"github.com/yourname/kubezap/internal/telemetry"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -93,6 +94,15 @@ func main() {
 	flag.Parse()
 
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
+
+	ctx := ctrl.SetupSignalHandler()
+
+	shutdownTracing, err := telemetry.InitTracerProvider(ctx, "kubezap-controller")
+	if err != nil {
+		setupLog.Error(err, "failed to initialize tracing")
+		os.Exit(1)
+	}
+	defer shutdownTracing()
 
 	// if the enable-http2 flag is false (the default), http/2 should be disabled
 	// due to its vulnerabilities. More specifically, disabling http/2 will
@@ -276,7 +286,7 @@ func main() {
 	}
 
 	setupLog.Info("starting manager")
-	if err := mgr.Start(ctrl.SetupSignalHandler()); err != nil {
+	if err := mgr.Start(ctx); err != nil {
 		setupLog.Error(err, "problem running manager")
 		os.Exit(1)
 	}

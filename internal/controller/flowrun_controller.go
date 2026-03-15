@@ -23,6 +23,7 @@ import (
 	"io"
 	"net/http"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -125,7 +126,7 @@ func (r *FlowRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		}
 
 		// Execute the step.
-		stepStatus, err := r.executeStep(ctx, log, &step, &flow, stepResults)
+		stepStatus, err := r.executeStep(ctx, log, &step, &flow, stepResults, flowRun.Spec.TriggerData)
 		if err != nil {
 			return ctrl.Result{}, err
 		}
@@ -160,7 +161,8 @@ func (r *FlowRunReconciler) executeStep(
 	log logr.Logger,
 	step *automationv1alpha1.FlowStep,
 	flow *automationv1alpha1.Flow,
-	_ map[string]map[string]string,
+	stepResults map[string]map[string]string,
+	triggerData *automationv1alpha1.TriggerData,
 ) (*automationv1alpha1.StepRunStatus, error) {
 	_ = flow // reserved for future param resolution
 	now := metav1.Now()
@@ -173,7 +175,7 @@ func (r *FlowRunReconciler) executeStep(
 
 	switch step.Action.Type {
 	case "http":
-		results, msg, err := r.executeHTTPStep(ctx, log, step)
+		results, msg, err := r.executeHTTPStep(ctx, log, step, stepResults, triggerData)
 		completionTime := metav1.Now()
 		status.CompletionTime = &completionTime
 		if err != nil {
@@ -184,7 +186,21 @@ func (r *FlowRunReconciler) executeStep(
 			status.Message = msg
 			status.Results = mapsToResults(results)
 		}
-	case "transform", "publish":
+	case "transform":
+		completionTime := metav1.Now()
+		status.CompletionTime = &completionTime
+		if step.Action.Transform == nil {
+			status.Phase = "Failed"
+			status.Message = fmt.Sprintf("step %q has type=transform but no transform spec", step.Name)
+		} else {
+			substituted := make(map[string]string, len(step.Action.Transform.Mappings))
+			for k, v := range step.Action.Transform.Mappings {
+				substituted[k] = substituteVars(v, stepResults, triggerData)
+			}
+			status.Phase = "Succeeded"
+			status.Results = mapsToResults(substituted)
+		}
+	case "publish":
 		// Placeholder — mark succeeded immediately.
 		completionTime := metav1.Now()
 		status.Phase = "Succeeded"
@@ -204,12 +220,21 @@ func (r *FlowRunReconciler) executeHTTPStep(
 	ctx context.Context,
 	log logr.Logger,
 	step *automationv1alpha1.FlowStep,
+	stepResults map[string]map[string]string,
+	triggerData *automationv1alpha1.TriggerData,
 ) (map[string]string, string, error) {
 	if step.Action.HTTP == nil {
 		return nil, "", fmt.Errorf("step %q has type=http but no http spec", step.Name)
 	}
 
 	h := step.Action.HTTP
+	url := substituteVars(h.URL, stepResults, triggerData)
+	body := substituteVars(h.Body, stepResults, triggerData)
+	headers := make(map[string]string, len(h.Headers))
+	for k, v := range h.Headers {
+		headers[k] = substituteVars(v, stepResults, triggerData)
+	}
+
 	method := h.Method
 	if method == "" {
 		method = "POST"
@@ -244,15 +269,15 @@ func (r *FlowRunReconciler) executeHTTPStep(
 		}
 
 		var bodyReader io.Reader
-		if h.Body != "" {
-			bodyReader = bytes.NewBufferString(h.Body)
+		if body != "" {
+			bodyReader = bytes.NewBufferString(body)
 		}
 
-		req, err := http.NewRequestWithContext(stepCtx, method, h.URL, bodyReader)
+		req, err := http.NewRequestWithContext(stepCtx, method, url, bodyReader)
 		if err != nil {
 			return nil, "", fmt.Errorf("building HTTP request: %w", err)
 		}
-		for k, v := range h.Headers {
+		for k, v := range headers {
 			req.Header.Set(k, v)
 		}
 
@@ -490,4 +515,58 @@ func truncate(s string, n int) string {
 		return s
 	}
 	return s[:n] + "..."
+}
+
+// substituteVars replaces template placeholders in s with values from stepResults and triggerData.
+// Supported syntax:
+//   - $(steps.<name>.results.<key>) — step output value
+//   - $(trigger.body) — raw trigger request body
+//   - $(trigger.headers.<name>) — trigger request header value (case-insensitive)
+//   - $(trigger.topic), $(trigger.partition), $(trigger.offset), $(trigger.scheduledTime)
+func substituteVars(s string, stepResults map[string]map[string]string, triggerData *automationv1alpha1.TriggerData) string {
+	// Substitute step results: $(steps.<name>.results.<key>)
+	for stepName, results := range stepResults {
+		for key, value := range results {
+			placeholder := fmt.Sprintf("$(steps.%s.results.%s)", stepName, key)
+			s = strings.ReplaceAll(s, placeholder, value)
+		}
+	}
+
+	// Substitute trigger fields.
+	if triggerData != nil {
+		s = strings.ReplaceAll(s, "$(trigger.body)", triggerData.Body)
+		s = strings.ReplaceAll(s, "$(trigger.topic)", triggerData.Topic)
+		s = strings.ReplaceAll(s, "$(trigger.partition)", fmt.Sprintf("%d", triggerData.Partition))
+		s = strings.ReplaceAll(s, "$(trigger.offset)", fmt.Sprintf("%d", triggerData.Offset))
+		if triggerData.ScheduledTime != nil {
+			s = strings.ReplaceAll(s, "$(trigger.scheduledTime)", triggerData.ScheduledTime.UTC().Format(time.RFC3339))
+		} else {
+			s = strings.ReplaceAll(s, "$(trigger.scheduledTime)", "")
+		}
+		// Substitute trigger headers: $(trigger.headers.<name>) — case-insensitive lookup.
+		// Build a lowercase key map once.
+		lowerHeaders := make(map[string]string, len(triggerData.Headers))
+		for k, v := range triggerData.Headers {
+			lowerHeaders[strings.ToLower(k)] = v
+		}
+		// Scan for $(trigger.headers.*) placeholders.
+		const headerPrefix = "$(trigger.headers."
+		for {
+			idx := strings.Index(s, headerPrefix)
+			if idx < 0 {
+				break
+			}
+			end := strings.Index(s[idx:], ")")
+			if end < 0 {
+				break
+			}
+			end += idx
+			placeholder := s[idx : end+1]
+			headerName := s[idx+len(headerPrefix) : end]
+			value := lowerHeaders[strings.ToLower(headerName)]
+			s = strings.ReplaceAll(s, placeholder, value)
+		}
+	}
+
+	return s
 }

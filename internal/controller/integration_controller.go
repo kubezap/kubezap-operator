@@ -294,7 +294,7 @@ func desiredPluginDeployment(integration *automationv1alpha1.Integration) *appsv
 				ValueFrom: &corev1.EnvVarSource{
 					SecretKeyRef: &corev1.SecretKeySelector{
 						LocalObjectReference: corev1.LocalObjectReference{Name: secretRef.SecretName},
-						Key:                 secretKey,
+						Key:                  secretKey,
 					},
 				},
 			})

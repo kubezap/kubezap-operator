@@ -49,14 +49,9 @@ func generateTestKeyPair(t *testing.T) testKeyPair {
 	return testKeyPair{privateKey: privKey, jwks: set}
 }
 
-// signToken creates a signed RS256 JWT with the given claims using the test private key.
-func signToken(t *testing.T, kp testKeyPair, builder jwt.Builder) string {
+// signToken creates a signed RS256 JWT from an already-built jwt.Token using the test private key.
+func signToken(t *testing.T, kp testKeyPair, tok jwt.Token) string {
 	t.Helper()
-
-	tok, err := builder.Build()
-	if err != nil {
-		t.Fatalf("building token: %v", err)
-	}
 
 	privJWK, err := jwk.FromRaw(kp.privateKey)
 	if err != nil {
@@ -71,6 +66,17 @@ func signToken(t *testing.T, kp testKeyPair, builder jwt.Builder) string {
 		t.Fatalf("signing token: %v", err)
 	}
 	return string(signed)
+}
+
+// buildToken is a convenience wrapper that builds a jwt.Token from a builder pointer,
+// failing the test immediately on any error.
+func buildToken(t *testing.T, b *jwt.Builder) jwt.Token {
+	t.Helper()
+	tok, err := b.Build()
+	if err != nil {
+		t.Fatalf("building token: %v", err)
+	}
+	return tok
 }
 
 // newJWKSServer starts an httptest server that serves the given JWKS as JSON.
@@ -99,12 +105,13 @@ func TestOIDCValidToken(t *testing.T) {
 
 	v := newOIDCValidator(srv.URL, issuer, audience)
 
-	tokenStr := signToken(t, kp, jwt.NewBuilder().
+	tok := buildToken(t, jwt.NewBuilder().
 		Issuer(issuer).
 		Audience([]string{audience}).
 		Subject("user-123").
-		Expiration(time.Now().Add(time.Hour)),
-	)
+		Expiration(time.Now().Add(time.Hour)))
+
+	tokenStr := signToken(t, kp, tok)
 
 	if err := v.validate(t.Context(), tokenStr); err != nil {
 		t.Errorf("expected valid token to pass, got error: %v", err)
@@ -122,12 +129,13 @@ func TestOIDCExpiredToken(t *testing.T) {
 
 	v := newOIDCValidator(srv.URL, issuer, audience)
 
-	tokenStr := signToken(t, kp, jwt.NewBuilder().
+	tok := buildToken(t, jwt.NewBuilder().
 		Issuer(issuer).
 		Audience([]string{audience}).
 		Subject("user-123").
-		Expiration(time.Now().Add(-time.Hour)), // expired 1 hour ago
-	)
+		Expiration(time.Now().Add(-time.Hour))) // expired 1 hour ago
+
+	tokenStr := signToken(t, kp, tok)
 
 	err := v.validate(t.Context(), tokenStr)
 	if err == nil {
@@ -143,12 +151,13 @@ func TestOIDCWrongIssuer(t *testing.T) {
 
 	v := newOIDCValidator(srv.URL, "https://expected-issuer.example.com", "kubezap")
 
-	tokenStr := signToken(t, kp, jwt.NewBuilder().
+	tok := buildToken(t, jwt.NewBuilder().
 		Issuer("https://wrong-issuer.example.com").
 		Audience([]string{"kubezap"}).
 		Subject("user-123").
-		Expiration(time.Now().Add(time.Hour)),
-	)
+		Expiration(time.Now().Add(time.Hour)))
+
+	tokenStr := signToken(t, kp, tok)
 
 	if err := v.validate(t.Context(), tokenStr); err == nil {
 		t.Error("expected wrong issuer to be rejected, got nil error")
@@ -163,12 +172,13 @@ func TestOIDCWrongAudience(t *testing.T) {
 
 	v := newOIDCValidator(srv.URL, "https://issuer.example.com", "expected-audience")
 
-	tokenStr := signToken(t, kp, jwt.NewBuilder().
+	tok := buildToken(t, jwt.NewBuilder().
 		Issuer("https://issuer.example.com").
 		Audience([]string{"wrong-audience"}).
 		Subject("user-123").
-		Expiration(time.Now().Add(time.Hour)),
-	)
+		Expiration(time.Now().Add(time.Hour)))
+
+	tokenStr := signToken(t, kp, tok)
 
 	if err := v.validate(t.Context(), tokenStr); err == nil {
 		t.Error("expected wrong audience to be rejected, got nil error")
@@ -188,12 +198,13 @@ func TestOIDCInvalidSignature(t *testing.T) {
 	v := newOIDCValidator(srv.URL, issuer, audience)
 
 	// Sign with the key that is NOT in the JWKS served by the mock server.
-	tokenStr := signToken(t, differentKP, jwt.NewBuilder().
+	tok := buildToken(t, jwt.NewBuilder().
 		Issuer(issuer).
 		Audience([]string{audience}).
 		Subject("user-123").
-		Expiration(time.Now().Add(time.Hour)),
-	)
+		Expiration(time.Now().Add(time.Hour)))
+
+	tokenStr := signToken(t, differentKP, tok)
 
 	if err := v.validate(t.Context(), tokenStr); err == nil {
 		t.Error("expected invalid signature to be rejected, got nil error")

@@ -257,7 +257,18 @@ func (w *Watcher) startSubscription(ctx context.Context, trigger *automationv1al
 	key := types.NamespacedName{Name: trigger.Name, Namespace: trigger.Namespace}
 	w.subscriptions.Store(key, sub)
 
-	handler := &MessageHandler{}
+	handler := &MessageHandler{
+		client:           w.client,
+		log:              w.log,
+		triggerName:      trigger.Name,
+		triggerNamespace: trigger.Namespace,
+		flowRefName: func() string {
+			if trigger.Spec.FlowRef != nil {
+				return trigger.Spec.FlowRef.Name
+			}
+			return ""
+		}(),
+	}
 
 	go func() {
 		w.log.Info("kafka subscription started",

@@ -36,6 +36,7 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	automationv1alpha1 "github.com/yourname/kubezap/api/v1alpha1"
+	"github.com/yourname/kubezap/internal/metrics"
 )
 
 const retainAnnotation = "kubezap.io/retain"
@@ -134,10 +135,15 @@ func (r *FlowRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		}
 
 		// Execute the step.
+		stepStart := time.Now()
 		stepStatus, err := r.executeStep(execCtx, log, &step, &flow, &flowRun, stepResults, flowRun.Spec.TriggerData)
 		if err != nil {
 			return ctrl.Result{}, err
 		}
+		metrics.StepDuration.WithLabelValues(
+			flowRun.Namespace, flowRun.Spec.FlowRef.Name,
+			step.Action.Type, string(stepStatus.Phase),
+		).Observe(time.Since(stepStart).Seconds())
 
 		// Merge step status into FlowRun.
 		flowRun.Status.Steps = upsertStepStatus(flowRun.Status.Steps, *stepStatus)
@@ -161,6 +167,12 @@ func (r *FlowRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	now := metav1.Now()
 	flowRun.Status.Phase = "Succeeded"
 	flowRun.Status.CompletionTime = &now
+	if flowRun.Status.StartTime != nil {
+		duration := time.Since(flowRun.Status.StartTime.Time)
+		metrics.FlowRunDuration.WithLabelValues(
+			flowRun.Namespace, flowRun.Spec.FlowRef.Name, "Succeeded",
+		).Observe(duration.Seconds())
+	}
 	return ctrl.Result{}, r.Status().Update(ctx, &flowRun)
 }
 
@@ -454,6 +466,12 @@ func (r *FlowRunReconciler) failFlowRun(ctx context.Context, flowRun *automation
 	flowRun.Status.Phase = "Failed"
 	flowRun.Status.CompletionTime = &now
 	flowRun.Status.Message = msg
+	if flowRun.Status.StartTime != nil {
+		duration := time.Since(flowRun.Status.StartTime.Time)
+		metrics.FlowRunDuration.WithLabelValues(
+			flowRun.Namespace, flowRun.Spec.FlowRef.Name, "Failed",
+		).Observe(duration.Seconds())
+	}
 	return r.Status().Update(ctx, flowRun)
 }
 

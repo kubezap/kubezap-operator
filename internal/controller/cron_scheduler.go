@@ -31,6 +31,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	automationv1alpha1 "github.com/yourname/kubezap/api/v1alpha1"
+	"github.com/yourname/kubezap/internal/metrics"
 )
 
 // +kubebuilder:rbac:groups=automation.kubezap.io,resources=flowruns,verbs=create
@@ -175,11 +176,13 @@ func (s *CronScheduler) Register(trigger *automationv1alpha1.Trigger) error {
 			if !apierrors.IsAlreadyExists(err) {
 				s.log.Error(err, "failed to create FlowRun for cron trigger",
 					"trigger", name, "namespace", ns, "flowRun", flowRunName)
+				metrics.TriggerFirings.WithLabelValues(ns, name, "cron", "error").Inc()
 			}
 			return
 		}
 		s.log.Info("created FlowRun for cron trigger",
 			"trigger", name, "namespace", ns, "flowRun", flowRunName)
+		metrics.TriggerFirings.WithLabelValues(ns, name, "cron", "success").Inc()
 
 		// Step 4: Update trigger status after successful FlowRun creation.
 		base := trigger.DeepCopy()

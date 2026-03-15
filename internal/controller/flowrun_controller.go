@@ -101,6 +101,14 @@ func (r *FlowRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		}
 	}
 
+	// Derive execution context with flow-level timeout.
+	execCtx := ctx
+	if flow.Spec.Timeout != nil && flow.Spec.Timeout.Duration > 0 {
+		var cancel context.CancelFunc
+		execCtx, cancel = context.WithTimeout(ctx, flow.Spec.Timeout.Duration)
+		defer cancel()
+	}
+
 	// Execute steps in order.
 	stepResults := make(map[string]map[string]string) // stepName → resultName → value
 
@@ -126,7 +134,7 @@ func (r *FlowRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		}
 
 		// Execute the step.
-		stepStatus, err := r.executeStep(ctx, log, &step, &flow, stepResults, flowRun.Spec.TriggerData)
+		stepStatus, err := r.executeStep(execCtx, log, &step, &flow, &flowRun, stepResults, flowRun.Spec.TriggerData)
 		if err != nil {
 			return ctrl.Result{}, err
 		}
@@ -161,6 +169,7 @@ func (r *FlowRunReconciler) executeStep(
 	log logr.Logger,
 	step *automationv1alpha1.FlowStep,
 	flow *automationv1alpha1.Flow,
+	flowRun *automationv1alpha1.FlowRun,
 	stepResults map[string]map[string]string,
 	triggerData *automationv1alpha1.TriggerData,
 ) (*automationv1alpha1.StepRunStatus, error) {
@@ -201,11 +210,16 @@ func (r *FlowRunReconciler) executeStep(
 			status.Results = mapsToResults(substituted)
 		}
 	case "publish":
-		// Placeholder — mark succeeded immediately.
+		result, err := r.executePublishStep(ctx, flowRun, step, triggerData, stepResults)
 		completionTime := metav1.Now()
-		status.Phase = "Succeeded"
 		status.CompletionTime = &completionTime
-		log.Info("step type not yet implemented, marking succeeded", "type", step.Action.Type, "step", step.Name)
+		if err != nil {
+			status.Phase = "Failed"
+			status.Message = err.Error()
+		} else {
+			status.Phase = "Succeeded"
+			status.Results = mapsToResults(result)
+		}
 	default:
 		completionTime := metav1.Now()
 		status.Phase = "Failed"
@@ -227,6 +241,13 @@ func (r *FlowRunReconciler) executeHTTPStep(
 		return nil, "", fmt.Errorf("step %q has type=http but no http spec", step.Name)
 	}
 
+	// Apply per-step timeout from FlowStep.Timeout if set; otherwise fall back to HTTPAction.TimeoutSeconds.
+	if step.Timeout != nil && step.Timeout.Duration > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, step.Timeout.Duration)
+		defer cancel()
+	}
+
 	h := step.Action.HTTP
 	url := substituteVars(h.URL, stepResults, triggerData)
 	body := substituteVars(h.Body, stepResults, triggerData)
@@ -245,9 +266,13 @@ func (r *FlowRunReconciler) executeHTTPStep(
 		timeoutSec = 30
 	}
 
-	// Apply per-step timeout.
-	stepCtx, cancel := context.WithTimeout(ctx, time.Duration(timeoutSec)*time.Second)
-	defer cancel()
+	// Apply per-action timeout (only when FlowStep.Timeout is not already applied).
+	stepCtx := ctx
+	if step.Timeout == nil || step.Timeout.Duration == 0 {
+		var cancel context.CancelFunc
+		stepCtx, cancel = context.WithTimeout(ctx, time.Duration(timeoutSec)*time.Second)
+		defer cancel()
+	}
 
 	// Retry logic.
 	maxAttempts := 1
@@ -310,6 +335,89 @@ func (r *FlowRunReconciler) executeHTTPStep(
 	}
 
 	return nil, "", lastErr
+}
+
+func (r *FlowRunReconciler) executePublishStep(
+	ctx context.Context,
+	flowRun *automationv1alpha1.FlowRun,
+	step *automationv1alpha1.FlowStep,
+	triggerData *automationv1alpha1.TriggerData,
+	stepResults map[string]map[string]string,
+) (map[string]string, error) {
+	if step.Action.Publish == nil || step.Action.Publish.IntegrationRef.Name == "" {
+		return nil, fmt.Errorf("step %q has type=publish but no integrationRef.name", step.Name)
+	}
+
+	// Fetch the Integration.
+	var integration automationv1alpha1.Integration
+	if err := r.Get(ctx, types.NamespacedName{
+		Name:      step.Action.Publish.IntegrationRef.Name,
+		Namespace: flowRun.Namespace,
+	}, &integration); err != nil {
+		return nil, fmt.Errorf("fetching integration %q: %w", step.Action.Publish.IntegrationRef.Name, err)
+	}
+
+	if integration.Spec.Plugin == nil {
+		return nil, fmt.Errorf("integration %q is not a plugin type", integration.Name)
+	}
+
+	port := integration.Spec.Plugin.PublisherPort
+	if port == 0 {
+		port = 8090
+	}
+
+	pluginURL := fmt.Sprintf("http://kubezap-plugin-%s.%s.svc.cluster.local:%d/publish",
+		integration.Name, flowRun.Namespace, port)
+
+	body := substituteVars(step.Action.Publish.Body, stepResults, triggerData)
+	headers := make(map[string]string, len(step.Action.Publish.Headers))
+	for k, v := range step.Action.Publish.Headers {
+		headers[k] = substituteVars(v, stepResults, triggerData)
+	}
+
+	// Wrap ctx with a 30s timeout unless ctx already has a shorter deadline.
+	publishCtx := ctx
+	const publishTimeout = 30 * time.Second
+	if deadline, ok := ctx.Deadline(); !ok || time.Until(deadline) > publishTimeout {
+		var cancel context.CancelFunc
+		publishCtx, cancel = context.WithTimeout(ctx, publishTimeout)
+		defer cancel()
+	}
+
+	var bodyReader io.Reader
+	if body != "" {
+		bodyReader = bytes.NewBufferString(body)
+	}
+
+	req, err := http.NewRequestWithContext(publishCtx, http.MethodPost, pluginURL, bodyReader)
+	if err != nil {
+		return nil, fmt.Errorf("building publish request: %w", err)
+	}
+
+	// Set Content-Type default; allow step headers to override.
+	if _, ok := headers["Content-Type"]; !ok {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	for k, v := range headers {
+		req.Header.Set(k, v)
+	}
+
+	httpClient := r.HTTPClient
+	if httpClient == nil {
+		httpClient = http.DefaultClient
+	}
+
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("publish request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		return nil, fmt.Errorf("publish endpoint returned status %d", resp.StatusCode)
+	}
+
+	return map[string]string{}, nil
 }
 
 func (r *FlowRunReconciler) retryDelay(policy *automationv1alpha1.RetryPolicy, attempt int) time.Duration {

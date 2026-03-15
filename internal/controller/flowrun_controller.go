@@ -27,6 +27,7 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
+	"github.com/google/cel-go/cel"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -36,6 +37,7 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	automationv1alpha1 "github.com/yourname/kubezap/api/v1alpha1"
+	"github.com/yourname/kubezap/internal/metrics"
 )
 
 const retainAnnotation = "kubezap.io/retain"
@@ -101,6 +103,14 @@ func (r *FlowRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		}
 	}
 
+	// Derive execution context with flow-level timeout.
+	execCtx := ctx
+	if flow.Spec.Timeout != nil && flow.Spec.Timeout.Duration > 0 {
+		var cancel context.CancelFunc
+		execCtx, cancel = context.WithTimeout(ctx, flow.Spec.Timeout.Duration)
+		defer cancel()
+	}
+
 	// Execute steps in order.
 	stepResults := make(map[string]map[string]string) // stepName → resultName → value
 
@@ -125,11 +135,65 @@ func (r *FlowRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 			return ctrl.Result{}, r.failFlowRun(ctx, &flowRun, fmt.Sprintf("step %q failed", step.Name))
 		}
 
+		// Cascade-skip: if all runAfter deps were skipped, skip this step too.
+		if allDepsSkipped(step, &flowRun) {
+			now := metav1.Now()
+			flowRun.Status.Steps = upsertStepStatus(flowRun.Status.Steps, automationv1alpha1.StepRunStatus{
+				Name:           step.Name,
+				Phase:          "Skipped",
+				Message:        "all runAfter dependencies were skipped",
+				CompletionTime: &now,
+			})
+			if err := r.Status().Update(ctx, &flowRun); err != nil {
+				return ctrl.Result{}, err
+			}
+			continue
+		}
+
+		// Evaluate when conditions.
+		if len(step.When) > 0 {
+			run, err := evaluateWhen(step.When, stepResults, flowRun.Status.Steps, flowRun.Spec.TriggerData)
+			if err != nil {
+				now := metav1.Now()
+				flowRun.Status.Steps = upsertStepStatus(flowRun.Status.Steps, automationv1alpha1.StepRunStatus{
+					Name:           step.Name,
+					Phase:          "Failed",
+					Message:        fmt.Sprintf("when expression error: %v", err),
+					CompletionTime: &now,
+				})
+				if err2 := r.Status().Update(ctx, &flowRun); err2 != nil {
+					return ctrl.Result{}, err2
+				}
+				if step.OnFailure == "Continue" || flow.Spec.FailurePolicy == "Continue" {
+					continue
+				}
+				return ctrl.Result{}, r.failFlowRun(ctx, &flowRun, fmt.Sprintf("step %q when expression error: %v", step.Name, err))
+			}
+			if !run {
+				now := metav1.Now()
+				flowRun.Status.Steps = upsertStepStatus(flowRun.Status.Steps, automationv1alpha1.StepRunStatus{
+					Name:           step.Name,
+					Phase:          "Skipped",
+					Message:        "when condition evaluated to false",
+					CompletionTime: &now,
+				})
+				if err := r.Status().Update(ctx, &flowRun); err != nil {
+					return ctrl.Result{}, err
+				}
+				continue
+			}
+		}
+
 		// Execute the step.
-		stepStatus, err := r.executeStep(ctx, log, &step, &flow, stepResults, flowRun.Spec.TriggerData)
+		stepStart := time.Now()
+		stepStatus, err := r.executeStep(execCtx, log, &step, &flow, &flowRun, stepResults, flowRun.Spec.TriggerData)
 		if err != nil {
 			return ctrl.Result{}, err
 		}
+		metrics.StepDuration.WithLabelValues(
+			flowRun.Namespace, flowRun.Spec.FlowRef.Name,
+			step.Action.Type, string(stepStatus.Phase),
+		).Observe(time.Since(stepStart).Seconds())
 
 		// Merge step status into FlowRun.
 		flowRun.Status.Steps = upsertStepStatus(flowRun.Status.Steps, *stepStatus)
@@ -153,6 +217,12 @@ func (r *FlowRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	now := metav1.Now()
 	flowRun.Status.Phase = "Succeeded"
 	flowRun.Status.CompletionTime = &now
+	if flowRun.Status.StartTime != nil {
+		duration := time.Since(flowRun.Status.StartTime.Time)
+		metrics.FlowRunDuration.WithLabelValues(
+			flowRun.Namespace, flowRun.Spec.FlowRef.Name, "Succeeded",
+		).Observe(duration.Seconds())
+	}
 	return ctrl.Result{}, r.Status().Update(ctx, &flowRun)
 }
 
@@ -161,6 +231,7 @@ func (r *FlowRunReconciler) executeStep(
 	log logr.Logger,
 	step *automationv1alpha1.FlowStep,
 	flow *automationv1alpha1.Flow,
+	flowRun *automationv1alpha1.FlowRun,
 	stepResults map[string]map[string]string,
 	triggerData *automationv1alpha1.TriggerData,
 ) (*automationv1alpha1.StepRunStatus, error) {
@@ -201,11 +272,16 @@ func (r *FlowRunReconciler) executeStep(
 			status.Results = mapsToResults(substituted)
 		}
 	case "publish":
-		// Placeholder — mark succeeded immediately.
+		result, err := r.executePublishStep(ctx, flowRun, step, triggerData, stepResults)
 		completionTime := metav1.Now()
-		status.Phase = "Succeeded"
 		status.CompletionTime = &completionTime
-		log.Info("step type not yet implemented, marking succeeded", "type", step.Action.Type, "step", step.Name)
+		if err != nil {
+			status.Phase = "Failed"
+			status.Message = err.Error()
+		} else {
+			status.Phase = "Succeeded"
+			status.Results = mapsToResults(result)
+		}
 	default:
 		completionTime := metav1.Now()
 		status.Phase = "Failed"
@@ -227,6 +303,13 @@ func (r *FlowRunReconciler) executeHTTPStep(
 		return nil, "", fmt.Errorf("step %q has type=http but no http spec", step.Name)
 	}
 
+	// Apply per-step timeout from FlowStep.Timeout if set; otherwise fall back to HTTPAction.TimeoutSeconds.
+	if step.Timeout != nil && step.Timeout.Duration > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, step.Timeout.Duration)
+		defer cancel()
+	}
+
 	h := step.Action.HTTP
 	url := substituteVars(h.URL, stepResults, triggerData)
 	body := substituteVars(h.Body, stepResults, triggerData)
@@ -245,9 +328,13 @@ func (r *FlowRunReconciler) executeHTTPStep(
 		timeoutSec = 30
 	}
 
-	// Apply per-step timeout.
-	stepCtx, cancel := context.WithTimeout(ctx, time.Duration(timeoutSec)*time.Second)
-	defer cancel()
+	// Apply per-action timeout (only when FlowStep.Timeout is not already applied).
+	stepCtx := ctx
+	if step.Timeout == nil || step.Timeout.Duration == 0 {
+		var cancel context.CancelFunc
+		stepCtx, cancel = context.WithTimeout(ctx, time.Duration(timeoutSec)*time.Second)
+		defer cancel()
+	}
 
 	// Retry logic.
 	maxAttempts := 1
@@ -312,6 +399,89 @@ func (r *FlowRunReconciler) executeHTTPStep(
 	return nil, "", lastErr
 }
 
+func (r *FlowRunReconciler) executePublishStep(
+	ctx context.Context,
+	flowRun *automationv1alpha1.FlowRun,
+	step *automationv1alpha1.FlowStep,
+	triggerData *automationv1alpha1.TriggerData,
+	stepResults map[string]map[string]string,
+) (map[string]string, error) {
+	if step.Action.Publish == nil || step.Action.Publish.IntegrationRef.Name == "" {
+		return nil, fmt.Errorf("step %q has type=publish but no integrationRef.name", step.Name)
+	}
+
+	// Fetch the Integration.
+	var integration automationv1alpha1.Integration
+	if err := r.Get(ctx, types.NamespacedName{
+		Name:      step.Action.Publish.IntegrationRef.Name,
+		Namespace: flowRun.Namespace,
+	}, &integration); err != nil {
+		return nil, fmt.Errorf("fetching integration %q: %w", step.Action.Publish.IntegrationRef.Name, err)
+	}
+
+	if integration.Spec.Plugin == nil {
+		return nil, fmt.Errorf("integration %q is not a plugin type", integration.Name)
+	}
+
+	port := integration.Spec.Plugin.PublisherPort
+	if port == 0 {
+		port = 8090
+	}
+
+	pluginURL := fmt.Sprintf("http://kubezap-plugin-%s.%s.svc.cluster.local:%d/publish",
+		integration.Name, flowRun.Namespace, port)
+
+	body := substituteVars(step.Action.Publish.Body, stepResults, triggerData)
+	headers := make(map[string]string, len(step.Action.Publish.Headers))
+	for k, v := range step.Action.Publish.Headers {
+		headers[k] = substituteVars(v, stepResults, triggerData)
+	}
+
+	// Wrap ctx with a 30s timeout unless ctx already has a shorter deadline.
+	publishCtx := ctx
+	const publishTimeout = 30 * time.Second
+	if deadline, ok := ctx.Deadline(); !ok || time.Until(deadline) > publishTimeout {
+		var cancel context.CancelFunc
+		publishCtx, cancel = context.WithTimeout(ctx, publishTimeout)
+		defer cancel()
+	}
+
+	var bodyReader io.Reader
+	if body != "" {
+		bodyReader = bytes.NewBufferString(body)
+	}
+
+	req, err := http.NewRequestWithContext(publishCtx, http.MethodPost, pluginURL, bodyReader)
+	if err != nil {
+		return nil, fmt.Errorf("building publish request: %w", err)
+	}
+
+	// Set Content-Type default; allow step headers to override.
+	if _, ok := headers["Content-Type"]; !ok {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	for k, v := range headers {
+		req.Header.Set(k, v)
+	}
+
+	httpClient := r.HTTPClient
+	if httpClient == nil {
+		httpClient = http.DefaultClient
+	}
+
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("publish request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		return nil, fmt.Errorf("publish endpoint returned status %d", resp.StatusCode)
+	}
+
+	return map[string]string{}, nil
+}
+
 func (r *FlowRunReconciler) retryDelay(policy *automationv1alpha1.RetryPolicy, attempt int) time.Duration {
 	if policy == nil {
 		return time.Second
@@ -346,6 +516,12 @@ func (r *FlowRunReconciler) failFlowRun(ctx context.Context, flowRun *automation
 	flowRun.Status.Phase = "Failed"
 	flowRun.Status.CompletionTime = &now
 	flowRun.Status.Message = msg
+	if flowRun.Status.StartTime != nil {
+		duration := time.Since(flowRun.Status.StartTime.Time)
+		metrics.FlowRunDuration.WithLabelValues(
+			flowRun.Namespace, flowRun.Spec.FlowRef.Name, "Failed",
+		).Observe(duration.Seconds())
+	}
 	return r.Status().Update(ctx, flowRun)
 }
 
@@ -474,6 +650,120 @@ func (r *FlowRunReconciler) SetupWithManager(mgr ctrl.Manager) error {
 }
 
 // --- helpers ---
+
+// evaluateWhen evaluates all WhenExpression conditions using CEL.
+// Returns true if all conditions pass (or the list is empty), false if any fail.
+func evaluateWhen(
+	when []automationv1alpha1.WhenExpression,
+	stepResults map[string]map[string]string,
+	stepStatuses []automationv1alpha1.StepRunStatus,
+	triggerData *automationv1alpha1.TriggerData,
+) (bool, error) {
+	if len(when) == 0 {
+		return true, nil
+	}
+
+	env, err := cel.NewEnv(
+		cel.Variable("trigger", cel.MapType(cel.StringType, cel.DynType)),
+		cel.Variable("steps", cel.MapType(cel.StringType, cel.DynType)),
+	)
+	if err != nil {
+		return false, err
+	}
+
+	// Build trigger activation map.
+	triggerMap := map[string]interface{}{
+		"body":          "",
+		"topic":         "",
+		"partition":     "0",
+		"offset":        "0",
+		"scheduledTime": "",
+		"headers":       map[string]interface{}{},
+	}
+	if triggerData != nil {
+		triggerMap["body"] = triggerData.Body
+		triggerMap["topic"] = triggerData.Topic
+		triggerMap["partition"] = fmt.Sprintf("%d", triggerData.Partition)
+		triggerMap["offset"] = fmt.Sprintf("%d", triggerData.Offset)
+		if triggerData.ScheduledTime != nil {
+			triggerMap["scheduledTime"] = triggerData.ScheduledTime.UTC().Format(time.RFC3339)
+		}
+		// Convert headers to map[string]interface{} for CEL.
+		headers := make(map[string]interface{}, len(triggerData.Headers))
+		for k, v := range triggerData.Headers {
+			headers[k] = v
+		}
+		triggerMap["headers"] = headers
+	}
+
+	// Build steps activation map — hyphens to underscores in step names.
+	stepsMap := map[string]interface{}{}
+	for name, results := range stepResults {
+		underscoreName := strings.ReplaceAll(name, "-", "_")
+		resultsIface := make(map[string]interface{}, len(results))
+		for k, v := range results {
+			resultsIface[k] = v
+		}
+		stepsMap[underscoreName] = map[string]interface{}{
+			"results": resultsIface,
+			"status":  "",
+		}
+	}
+	for _, ss := range stepStatuses {
+		underscoreName := strings.ReplaceAll(ss.Name, "-", "_")
+		if existing, ok := stepsMap[underscoreName]; ok {
+			existingMap := existing.(map[string]interface{})
+			existingMap["status"] = ss.Phase
+		} else {
+			stepsMap[underscoreName] = map[string]interface{}{
+				"results": map[string]interface{}{},
+				"status":  ss.Phase,
+			}
+		}
+	}
+
+	activation := map[string]interface{}{
+		"trigger": triggerMap,
+		"steps":   stepsMap,
+	}
+
+	for _, expr := range when {
+		ast, iss := env.Compile(expr.Expression)
+		if iss != nil && iss.Err() != nil {
+			return false, fmt.Errorf("CEL compile error: %w", iss.Err())
+		}
+		prog, err := env.Program(ast)
+		if err != nil {
+			return false, fmt.Errorf("CEL program error: %w", err)
+		}
+		out, _, err := prog.Eval(activation)
+		if err != nil {
+			return false, fmt.Errorf("CEL eval error: %w", err)
+		}
+		result, ok := out.Value().(bool)
+		if !ok {
+			return false, fmt.Errorf("CEL expression did not return bool: %v", out.Value())
+		}
+		if !result {
+			return false, nil
+		}
+	}
+	return true, nil
+}
+
+// allDepsSkipped returns true if the step has runAfter dependencies and ALL of them are in Skipped phase.
+func allDepsSkipped(step automationv1alpha1.FlowStep, flowRun *automationv1alpha1.FlowRun) bool {
+	if len(step.RunAfter) == 0 {
+		return false
+	}
+	for _, dep := range step.RunAfter {
+		s := findStepStatus(flowRun.Status.Steps, dep)
+		if s == nil || s.Phase != "Skipped" {
+			return false
+		}
+	}
+	return true
+}
 
 func findStepStatus(statuses []automationv1alpha1.StepRunStatus, name string) *automationv1alpha1.StepRunStatus {
 	for i := range statuses {

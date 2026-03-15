@@ -1,0 +1,4 @@
+resources:
+  - mockendpoints.yaml
+  - flow.yaml
+  - trigger.yaml

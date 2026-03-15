@@ -1,44 +1,31 @@
 package webhook
 
 import (
+	"context"
 	"io"
 	"net/http"
 	"time"
 
 	"github.com/go-logr/logr"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	automationv1alpha1 "github.com/yourname/kubezap/api/v1alpha1"
 )
 
-const mockBodyLimit = 64 * 1024 // 64 KB
-
-// CapturedRequestEvent carries the details of a request received by a mock endpoint.
-type CapturedRequestEvent struct {
-	Namespace string
-	Name      string
-	Method    string
-	Path      string
-	Headers   map[string]string
-	Body      string
-}
+const mockBodyLimit = 4 * 1024 // 4 KB
 
 // MockHandler is an http.Handler that serves /mock/* routes.
 type MockHandler struct {
-	registry *MockRegistry
-	log      logr.Logger
-	events   chan CapturedRequestEvent
+	registry  *MockRegistry
+	k8sClient client.Client
+	log       logr.Logger
 }
 
 // NewMockHandler creates a MockHandler backed by the given registry.
-func NewMockHandler(registry *MockRegistry, log logr.Logger) *MockHandler {
-	return &MockHandler{
-		registry: registry,
-		log:      log,
-		events:   make(chan CapturedRequestEvent, 100),
-	}
-}
-
-// Events returns the read-only channel of captured request events.
-func (h *MockHandler) Events() <-chan CapturedRequestEvent {
-	return h.events
+func NewMockHandler(registry *MockRegistry, k8sClient client.Client, log logr.Logger) *MockHandler {
+	return &MockHandler{registry: registry, k8sClient: k8sClient, log: log}
 }
 
 func (h *MockHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -77,25 +64,46 @@ func (h *MockHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Capture request details.
-	bodyBytes, _ := io.ReadAll(io.LimitReader(r.Body, mockBodyLimit))
-	headers := make(map[string]string, len(r.Header))
+	capturedHeaders := make(map[string]string, len(r.Header))
 	for k, v := range r.Header {
-		headers[k] = redactHeader(k, v)
+		capturedHeaders[k] = redactHeader(k, v)
 	}
 
-	event := CapturedRequestEvent{
-		Namespace: entry.Namespace,
-		Name:      entry.Name,
-		Method:    r.Method,
-		Path:      r.URL.Path,
-		Headers:   headers,
-		Body:      string(bodyBytes),
+	limitedReader := io.LimitReader(r.Body, mockBodyLimit+1)
+	bodyBytes, _ := io.ReadAll(limitedReader)
+	bodyTruncated := false
+	capturedBody := string(bodyBytes)
+	if len(bodyBytes) > mockBodyLimit {
+		capturedBody = string(bodyBytes[:mockBodyLimit])
+		bodyTruncated = true
 	}
 
-	// Non-blocking send — drop if channel is full.
-	select {
-	case h.events <- event:
-	default:
-		h.log.Info("mock event channel full, dropping captured request", "path", path)
+	go h.updateCapturedRequest(context.Background(), entry.Namespace, entry.Name, automationv1alpha1.CapturedRequest{
+		Timestamp:          metav1.Now(),
+		Method:             r.Method,
+		Path:               r.URL.Path,
+		Headers:            capturedHeaders,
+		Body:               capturedBody,
+		BodyTruncated:      bodyTruncated,
+		ResponseStatusCode: int32(statusCode),
+	}, entry.MaxHistory)
+}
+
+func (h *MockHandler) updateCapturedRequest(ctx context.Context, namespace, name string,
+	captured automationv1alpha1.CapturedRequest, maxHistory int32) {
+
+	me := &automationv1alpha1.MockEndpoint{}
+	if err := h.k8sClient.Get(ctx, types.NamespacedName{Namespace: namespace, Name: name}, me); err != nil {
+		h.log.Error(err, "failed to fetch MockEndpoint for status update", "name", name)
+		return
+	}
+	base := me.DeepCopy()
+	me.Status.RecentRequests = append(me.Status.RecentRequests, captured)
+	if maxHistory > 0 && int32(len(me.Status.RecentRequests)) > maxHistory {
+		me.Status.RecentRequests = me.Status.RecentRequests[int32(len(me.Status.RecentRequests))-maxHistory:]
+	}
+	me.Status.RequestCount++
+	if err := h.k8sClient.Status().Patch(ctx, me, client.MergeFrom(base)); err != nil {
+		h.log.Error(err, "failed to update MockEndpoint status", "name", name)
 	}
 }

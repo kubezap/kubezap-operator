@@ -45,18 +45,17 @@
 - [x] HMAC authentication support
 - [x] Bearer token authentication support
 - [ ] OIDC/JWT authentication support
-- [x] Basic auth (not implemented), mTLS (not implemented), API-key header, IP allowlist support
+- [x] API-key header and IP allowlist authentication support
 - [x] `/mock/*` path support for MockEndpoint CRDs
 - [x] Structured JSON access logs (source IP in logs only, not Prometheus labels)
-- [x] Fix: add source IP (`RemoteAddr`) to access log in `internal/gateway/webhook/handler.go`
-- [x] Fix: remove dead `RouteRegistry.ServeHTTP` method from `internal/gateway/webhook/registry.go`
 - [ ] HPA configuration for webhook gateway Deployment
 - [x] Controller manages webhook gateway Deployment lifecycle (one per namespace)
+- [x] **Gateway ServiceAccount + Role + RoleBinding** created by controller alongside Deployment (deploy blocker — see `docs/architecture.md#gateway-serviceaccount-and-rbac`)
 
 ### Cron Trigger
 - [x] Cron scheduler implementation in controller (`robfig/cron v3`)
 - [x] FlowRun creation on schedule fire: `<trigger>-<scheduled-time>` naming
-- [ ] Cooldown enforcement for cron triggers
+- [x] Cooldown enforcement for cron triggers
 
 ### Controller: FlowRun Execution
 - [x] `FlowRun` reconciler in `internal/controller/flowrun_controller.go`
@@ -73,11 +72,12 @@
 
 ### Flow Reconciler
 - [x] `Flow` reconciler validates spec and sets Ready condition
-- [ ] Conditional step execution via CEL expressions (`when` field)
+- [x] **CEL `when` expression evaluation** — use `google/cel-go`; variables: `trigger.*`, `steps.<name>.status`, `steps.<name>.results.*`; see `docs/api/flow.md#conditions-and-cel`
+- [x] **`Skipped` step phase** — when `when` is false; cascade skip downstream when entire `runAfter` set is skipped; see `docs/api/flow.md#skipped-steps-and-dependency-cascading`
 - [x] Step input/output data passing between steps (`$(steps.<name>.results.<key>)` substitution)
-- [x] Data transformation step type (`type: transform`) (implemented in FlowRun reconciler — substituteVars applied to mappings)
-- [x] Retry policies with exponential backoff per step (implemented in FlowRun reconciler)
-- [ ] Flow-level timeout enforcement (enforce `flow.Spec.Timeout` across all steps)
+- [x] Data transformation step type (`type: transform`)
+- [x] Retry policies with exponential backoff per step
+- [x] Flow-level and per-step timeout enforcement
 
 ### Integration CRD & Kafka Gateway
 - [x] `Integration` reconciler in `internal/controller/integration_controller.go`
@@ -86,11 +86,24 @@
 - [ ] FlowRun creation per Kafka message: `<trigger>-p<partition>-offset-<offset>` (dedup key)
 - [ ] KEDA ScaledObject for Kafka gateway (partition-bounded scaling)
 - [ ] Controller manages Kafka gateway Deployment lifecycle (one per namespace × Kafka cluster)
-- [ ] `type: publish` step action — controller calls plugin `/publish` endpoint
+- [x] `type: publish` step action — controller calls plugin `/publish` endpoint
 
 ### MockEndpoint CRD
 - [x] MockEndpoint reconciler — registers routes on webhook gateway
-- [ ] Captured request storage in CRD status (events sent via channel; controller does not yet persist to status)
+- [x] Captured request storage in CRD status (gateway writes directly to MockEndpoint status via k8sClient)
+
+---
+
+## MVP Demo Milestone
+
+These items are needed to demonstrate a working end-to-end flow to stakeholders.
+Target: webhook → transform → conditional mock notify with two branches.
+
+- [x] **Gateway ServiceAccount + Role + RoleBinding** — controller must create these alongside the webhook gateway Deployment. Required for the gateway to create FlowRuns and write MockEndpoint status. See `docs/architecture.md#gateway-serviceaccount-and-rbac` for the required permissions.
+- [x] **CEL `when` evaluation** — required for conditional step branching (see Flow Reconciler section above)
+- [x] **`Skipped` step phase** — required for `when` to be observable (see Flow Reconciler section above)
+- [x] **Demo sample CRs** — `config/samples/demo/` — the order-router scenario from `docs/guides/getting-started.md`; must `kubectl apply` cleanly and produce a working FlowRun
+- [x] **`docs/guides/getting-started.md`** complete and validated against actual behavior ✅
 
 ---
 
@@ -100,16 +113,16 @@
 - [x] Operator creates plugin Deployment for `type: plugin` Integrations
 - [ ] Namespace-scoped RBAC granted to plugin Deployment
 - [x] Env injection: `KUBEZAP_NAMESPACE`, `KUBEZAP_INTEGRATION_NAME`, `KUBEZAP_PUBLISHER_PORT`, `KUBEZAP_LOG_LEVEL`
-- [ ] Secret injection via `spec.plugin.secretRefs` + `envVarMappings`
+- [x] Secret injection via `spec.plugin.secretRefs` + `envVarMappings`
 - [x] Readiness probe: `GET /healthz` → 200
-- [ ] Controller routes `type: publish` step calls to plugin `/publish` endpoint
+- [x] Controller routes `type: publish` step calls to plugin `/publish` endpoint
 - [ ] Plugin trust model documented as a security consideration
 
 ---
 
 ## 4. Observability
 
-- [ ] Prometheus metrics: trigger firings, FlowRun durations, step outcomes
+- [x] Prometheus metrics: trigger firings, FlowRun durations, step outcomes
 - [ ] OpenTelemetry traces for FlowRun execution and step calls
 - [ ] Structured JSON access logs on webhook gateway (source IP, path, status, duration)
 - [ ] Source IP cardinality guard: `/24`-bucketed `source_range` on `ip_blocked` metric only
@@ -128,10 +141,10 @@
 
 ## 6. Testing
 
-- [ ] Ginkgo unit tests for Flow reconciler
-- [ ] Ginkgo unit tests for FlowRun reconciler
-- [ ] Ginkgo unit tests for Integration reconciler
-- [ ] Ginkgo unit tests for MockEndpoint reconciler
+- [x] Ginkgo unit tests for Flow reconciler
+- [x] Ginkgo unit tests for FlowRun reconciler
+- [x] Ginkgo unit tests for Integration reconciler
+- [x] Ginkgo unit tests for MockEndpoint reconciler
 - [ ] E2E tests: webhook trigger → FlowRun creation → step execution
 - [ ] E2E tests: cron trigger fires on schedule
 - [ ] E2E tests: Kafka trigger → FlowRun with dedup key

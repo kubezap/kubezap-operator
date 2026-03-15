@@ -99,7 +99,7 @@ func main() {
 	mux := http.NewServeMux()
 	handler := webhook.NewWebhookHandler(k8sClient, registry, log.WithName("webhook-handler"))
 	mux.Handle("/hooks/", handler)
-	mockHandler := webhook.NewMockHandler(mockRegistry, log.WithName("mock-handler"))
+	mockHandler := webhook.NewMockHandler(mockRegistry, k8sClient, log.WithName("mock-handler"))
 	mux.Handle("/mock/", mockHandler)
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)

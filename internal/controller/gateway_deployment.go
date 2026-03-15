@@ -19,6 +19,7 @@ package controller
 import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	rbacv1 "k8s.io/api/rbac/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/utils/ptr"
@@ -29,6 +30,71 @@ const (
 	webhookGatewayImage          = "kubezap/webhook-gateway"
 	webhookGatewayPort           = int32(8080)
 )
+
+// desiredWebhookGatewayServiceAccount returns the desired ServiceAccount for the webhook gateway.
+func desiredWebhookGatewayServiceAccount(namespace string) *corev1.ServiceAccount {
+	return &corev1.ServiceAccount{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "kubezap-webhook-gateway",
+			Namespace: namespace,
+			Labels:    map[string]string{"app": "kubezap-webhook-gateway"},
+		},
+	}
+}
+
+// desiredWebhookGatewayRole returns the desired Role for the webhook gateway.
+func desiredWebhookGatewayRole(namespace string) *rbacv1.Role {
+	return &rbacv1.Role{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "kubezap-webhook-gateway",
+			Namespace: namespace,
+		},
+		Rules: []rbacv1.PolicyRule{
+			{
+				APIGroups: []string{"automation.kubezap.io"},
+				Resources: []string{"triggers"},
+				Verbs:     []string{"get", "list", "watch"},
+			},
+			{
+				APIGroups: []string{"automation.kubezap.io"},
+				Resources: []string{"flowruns"},
+				Verbs:     []string{"create"},
+			},
+			{
+				APIGroups: []string{"automation.kubezap.io"},
+				Resources: []string{"mockendpoints"},
+				Verbs:     []string{"get", "list", "watch"},
+			},
+			{
+				APIGroups: []string{"automation.kubezap.io"},
+				Resources: []string{"mockendpoints/status"},
+				Verbs:     []string{"get", "update", "patch"},
+			},
+		},
+	}
+}
+
+// desiredWebhookGatewayRoleBinding returns the desired RoleBinding for the webhook gateway.
+func desiredWebhookGatewayRoleBinding(namespace string) *rbacv1.RoleBinding {
+	return &rbacv1.RoleBinding{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "kubezap-webhook-gateway",
+			Namespace: namespace,
+		},
+		RoleRef: rbacv1.RoleRef{
+			APIGroup: "rbac.authorization.k8s.io",
+			Kind:     "Role",
+			Name:     "kubezap-webhook-gateway",
+		},
+		Subjects: []rbacv1.Subject{
+			{
+				Kind:      "ServiceAccount",
+				Name:      "kubezap-webhook-gateway",
+				Namespace: namespace,
+			},
+		},
+	}
+}
 
 // desiredWebhookGatewayDeployment returns the desired state of the webhook gateway
 // Deployment for the given namespace. The caller is responsible for setting owner

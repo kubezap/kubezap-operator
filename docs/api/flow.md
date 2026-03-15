@@ -229,6 +229,41 @@ when:
 
 > CEL is sandboxed and cannot access external systems, make network calls, or execute arbitrary code. It is safe to use with user-provided expressions.
 
+### Skipped Steps and Dependency Cascading
+
+When a step's `when` condition evaluates to `false`, the step is set to `Skipped`. The
+behavior of dependent steps (steps that list it in `runAfter`) follows this rule:
+
+**A step whose _entire_ `runAfter` set consists of skipped steps is itself skipped.**
+
+This means a skip cascades naturally down the dependency graph. For example:
+
+```
+enrich-order → notify-express (when: tier == "express")
+             → notify-express-sms (runAfter: notify-express)
+```
+
+If `notify-express` is skipped, `notify-express-sms` is also skipped automatically —
+you don't need a `when` condition on every downstream step.
+
+**If a step has multiple `runAfter` dependencies and only some are skipped**, it still
+runs — the skipped steps are treated as satisfied (they did not fail, so they do not
+block the flow). This allows fan-out patterns where some branches complete and some skip:
+
+```
+enrich → [notify-express (skipped), notify-standard (succeeded)] → summary-step (runs)
+```
+
+The `summary-step` runs because at least one `runAfter` dependency succeeded. Steps in
+the `when` expression can check `steps.<name>.status == "Skipped"` to react to this.
+
+**In CEL, skipped upstream results are accessible:**
+
+```yaml
+when:
+  - expression: 'steps.notify_express.status == "Succeeded" || steps.notify_standard.status == "Succeeded"'
+```
+
 ---
 
 ## Spec Reference

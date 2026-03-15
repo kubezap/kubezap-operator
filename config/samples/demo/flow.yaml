@@ -1,0 +1,58 @@
+apiVersion: automation.kubezap.io/v1alpha1
+kind: Flow
+metadata:
+  name: order-router
+  namespace: default
+spec:
+  timeout: 30s
+  steps:
+    - name: extract-type
+      action:
+        type: transform
+        transform:
+          mappings:
+            orderType: "$(trigger.body)"
+
+    - name: enrich-order
+      runAfter:
+        - extract-type
+      action:
+        type: http
+        http:
+          url: "http://kubezap-webhook-gateway.default.svc.cluster.local:8080/mock/enrich-order"
+          method: POST
+          body: '{"orderId":"$(trigger.headers.X-Order-Id)"}'
+          headers:
+            Content-Type: application/json
+          timeoutSeconds: 10
+          resultMappings:
+            customerId: "$.customerId"
+            tier: "$.tier"
+
+    - name: notify-express
+      runAfter:
+        - enrich-order
+      when:
+        - expression: 'steps.enrich_order.results.tier == "express"'
+      action:
+        type: http
+        http:
+          url: "http://kubezap-webhook-gateway.default.svc.cluster.local:8080/mock/notify-express"
+          method: POST
+          body: '{"customerId":"$(steps.enrich_order.results.customerId)","message":"Express order dispatched"}'
+          headers:
+            Content-Type: application/json
+
+    - name: notify-standard
+      runAfter:
+        - enrich-order
+      when:
+        - expression: 'steps.enrich_order.results.tier == "standard"'
+      action:
+        type: http
+        http:
+          url: "http://kubezap-webhook-gateway.default.svc.cluster.local:8080/mock/notify-standard"
+          method: POST
+          body: '{"customerId":"$(steps.enrich_order.results.customerId)","message":"Standard order queued"}'
+          headers:
+            Content-Type: application/json

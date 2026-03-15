@@ -20,18 +20,21 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/go-logr/logr"
 	"github.com/robfig/cron/v3"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	automationv1alpha1 "github.com/yourname/kubezap/api/v1alpha1"
 )
 
 // +kubebuilder:rbac:groups=automation.kubezap.io,resources=flowruns,verbs=create
+// +kubebuilder:rbac:groups=automation.kubezap.io,resources=triggers/status,verbs=get;update;patch
 
 // CronScheduler manages cron jobs for Trigger resources with type=cron.
 // It maintains one cron entry per Trigger and creates a FlowRun on each fire.
@@ -82,7 +85,68 @@ func (s *CronScheduler) Register(trigger *automationv1alpha1.Trigger) error {
 	}
 
 	id, err := s.cron.AddFunc(schedule, func() {
-		scheduledTime := metav1.Now()
+		ctx := context.Background()
+		now := time.Now()
+		scheduledTime := metav1.Time{Time: now}
+
+		// Step 1: Fetch the current Trigger to check cooldown state.
+		trigger := &automationv1alpha1.Trigger{}
+		if err := s.client.Get(ctx, types.NamespacedName{Namespace: ns, Name: name}, trigger); err != nil { //nolint:govet
+			if apierrors.IsNotFound(err) {
+				s.log.Info("cron trigger not found, skipping FlowRun creation", "trigger", name, "namespace", ns)
+			} else {
+				s.log.Error(err, "failed to fetch trigger for cron job", "trigger", name, "namespace", ns)
+			}
+			return
+		}
+
+		// Step 2: Check cooldown policy.
+		if trigger.Spec.Cooldown != nil && trigger.Spec.Cooldown.MaxInvocations > 0 {
+			windowDuration := 60 * time.Second
+			if trigger.Spec.Cooldown.Window != nil {
+				windowDuration = trigger.Spec.Cooldown.Window.Duration
+			}
+
+			if trigger.Status.LastTriggeredTime != nil {
+				windowStart := trigger.Status.LastTriggeredTime.Time
+				windowEnd := windowStart.Add(windowDuration)
+
+				if now.Before(windowEnd) {
+					// Within the current window.
+					if trigger.Status.CurrentInvocationCount >= trigger.Spec.Cooldown.MaxInvocations {
+						// Rate limit reached — patch status and skip FlowRun creation.
+						base := trigger.DeepCopy()
+						trigger.Status.LastResult = "RateLimited"
+						if patchErr := s.client.Status().Patch(ctx, trigger, client.MergeFrom(base)); patchErr != nil {
+							s.log.Error(patchErr, "failed to patch trigger status for rate limit", "trigger", name, "namespace", ns)
+						}
+						s.log.Info("cron trigger rate limited by cooldown policy", "trigger", name, "namespace", ns,
+							"currentInvocationCount", trigger.Status.CurrentInvocationCount,
+							"maxInvocations", trigger.Spec.Cooldown.MaxInvocations)
+						return
+					}
+					// Within window and under limit — increment count.
+					base := trigger.DeepCopy()
+					trigger.Status.CurrentInvocationCount++
+					if patchErr := s.client.Status().Patch(ctx, trigger, client.MergeFrom(base)); patchErr != nil {
+						s.log.Error(patchErr, "failed to patch trigger invocation count", "trigger", name, "namespace", ns)
+					}
+				} else {
+					// Window has expired — start a new window.
+					base := trigger.DeepCopy()
+					trigger.Status.CurrentInvocationCount = 1
+					trigger.Status.LastTriggeredTime = &metav1.Time{Time: now}
+					if patchErr := s.client.Status().Patch(ctx, trigger, client.MergeFrom(base)); patchErr != nil {
+						s.log.Error(patchErr, "failed to reset trigger cooldown window", "trigger", name, "namespace", ns)
+					}
+				}
+				// Refresh local trigger state after patch so Step 4 uses the updated object.
+				trigger.Status.LastTriggeredTime = &metav1.Time{Time: now}
+			}
+			// If LastTriggeredTime is nil, no window has started — allow firing (fall through to Step 3).
+		}
+
+		// Step 3: Create the FlowRun.
 		flowRunName := fmt.Sprintf("%s-%d", name, scheduledTime.Unix())
 
 		flowRun := &automationv1alpha1.FlowRun{
@@ -107,14 +171,22 @@ func (s *CronScheduler) Register(trigger *automationv1alpha1.Trigger) error {
 			},
 		}
 
-		if err := s.client.Create(context.Background(), flowRun); err != nil { //nolint:govet
+		if err := s.client.Create(ctx, flowRun); err != nil { //nolint:govet
 			if !apierrors.IsAlreadyExists(err) {
 				s.log.Error(err, "failed to create FlowRun for cron trigger",
 					"trigger", name, "namespace", ns, "flowRun", flowRunName)
 			}
-		} else {
-			s.log.Info("created FlowRun for cron trigger",
-				"trigger", name, "namespace", ns, "flowRun", flowRunName)
+			return
+		}
+		s.log.Info("created FlowRun for cron trigger",
+			"trigger", name, "namespace", ns, "flowRun", flowRunName)
+
+		// Step 4: Update trigger status after successful FlowRun creation.
+		base := trigger.DeepCopy()
+		trigger.Status.LastTriggeredTime = &metav1.Time{Time: now}
+		trigger.Status.LastResult = "Success"
+		if patchErr := s.client.Status().Patch(ctx, trigger, client.MergeFrom(base)); patchErr != nil {
+			s.log.Error(patchErr, "failed to patch trigger status after FlowRun creation", "trigger", name, "namespace", ns)
 		}
 	})
 	if err != nil {

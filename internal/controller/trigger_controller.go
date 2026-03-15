@@ -203,8 +203,8 @@ func ensureWebhookGateway(ctx context.Context, c client.Client, namespace string
 		return nil
 	}
 	if len(existing.Spec.Template.Spec.Containers) > 0 {
-		if existing.Spec.Template.Spec.Containers[0].Image != webhookGatewayImage {
-			existing.Spec.Template.Spec.Containers[0].Image = webhookGatewayImage
+		if existing.Spec.Template.Spec.Containers[0].Image != webhookGatewayImage() {
+			existing.Spec.Template.Spec.Containers[0].Image = webhookGatewayImage()
 			if err := c.Update(ctx, existing); err != nil {
 				return err
 			}

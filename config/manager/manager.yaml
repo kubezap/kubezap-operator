@@ -63,6 +63,11 @@ spec:
         args:
           - --leader-elect
           - --health-probe-bind-address=:8081
+        env:
+          - name: WEBHOOK_GATEWAY_IMAGE
+            value: "kubezap/webhook-gateway:latest"
+          - name: KAFKA_GATEWAY_IMAGE
+            value: "kubezap/kafka-gateway:latest"
         image: controller:latest
         imagePullPolicy: IfNotPresent
         name: manager

@@ -50,30 +50,23 @@ Use a git SHA tag instead of `:latest` — with `imagePullPolicy: IfNotPresent`,
 # 1. Set a tag based on the current git commit
 TAG=$(git rev-parse --short HEAD)
 
-# 2. Build both images
+# 2. Build all three images
 make docker-build IMG=kubezap/controller:$TAG
 docker build -t kubezap/webhook-gateway:$TAG -f cmd/webhook-gateway/Dockerfile .
+docker build -t kubezap/kafka-gateway:$TAG   -f cmd/kafka-gateway/Dockerfile .
 
 # 3. Import them into k3s containerd
 docker save kubezap/controller:$TAG      | sudo k3s ctr images import -
 docker save kubezap/webhook-gateway:$TAG | sudo k3s ctr images import -
+docker save kubezap/kafka-gateway:$TAG   | sudo k3s ctr images import -
 
-# 4. Deploy (kustomize patches the manager image to $TAG)
-make deploy IMG=kubezap/controller:$TAG
+# 4. Deploy — gateway image tags are passed as env vars to the controller
+make deploy IMG=kubezap/controller:$TAG \
+  WEBHOOK_GATEWAY_IMAGE=kubezap/webhook-gateway:$TAG \
+  KAFKA_GATEWAY_IMAGE=kubezap/kafka-gateway:$TAG
 ```
 
-The webhook gateway image tag is hardcoded in `internal/controller/gateway_deployment.go`. Update `webhookGatewayImage` to match `$TAG` before running `make deploy`, or override it:
-
-```bash
-# One-liner: build, import, and deploy in one go
-TAG=$(git rev-parse --short HEAD) && \
-  make docker-build IMG=kubezap/controller:$TAG && \
-  docker build -t kubezap/webhook-gateway:$TAG -f cmd/webhook-gateway/Dockerfile . && \
-  docker save kubezap/controller:$TAG      | sudo k3s ctr images import - && \
-  docker save kubezap/webhook-gateway:$TAG | sudo k3s ctr images import - && \
-  sed -i "s|webhookGatewayImage.*=.*|webhookGatewayImage = \"kubezap/webhook-gateway:$TAG\"|" internal/controller/gateway_deployment.go && \
-  make deploy IMG=kubezap/controller:$TAG
-```
+> The controller reads `WEBHOOK_GATEWAY_IMAGE` and `KAFKA_GATEWAY_IMAGE` at runtime to know which image to use when creating gateway Deployments. `make deploy` patches these into the manager Deployment via kustomize.
 
 ---
 

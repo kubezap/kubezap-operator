@@ -17,6 +17,8 @@ limitations under the License.
 package controller
 
 import (
+	"os"
+
 	appsv1 "k8s.io/api/apps/v1"
 	autoscalingv2 "k8s.io/api/autoscaling/v2"
 	corev1 "k8s.io/api/core/v1"
@@ -28,9 +30,15 @@ import (
 
 const (
 	webhookGatewayDeploymentName = "kubezap-webhook-gateway"
-	webhookGatewayImage          = "kubezap/webhook-gateway:latest"
 	webhookGatewayPort           = int32(8080)
 )
+
+func webhookGatewayImage() string {
+	if img := os.Getenv("WEBHOOK_GATEWAY_IMAGE"); img != "" {
+		return img
+	}
+	return "kubezap/webhook-gateway:latest"
+}
 
 // desiredWebhookGatewayServiceAccount returns the desired ServiceAccount for the webhook gateway.
 func desiredWebhookGatewayServiceAccount(namespace string) *corev1.ServiceAccount {
@@ -194,7 +202,7 @@ func desiredWebhookGatewayDeployment(namespace string) *appsv1.Deployment {
 					Containers: []corev1.Container{
 						{
 							Name:            "webhook-gateway",
-							Image:           webhookGatewayImage,
+							Image:           webhookGatewayImage(),
 							ImagePullPolicy: corev1.PullIfNotPresent,
 							Args: []string{
 								"--port=8080",

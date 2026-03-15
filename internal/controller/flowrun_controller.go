@@ -27,6 +27,7 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
+	"github.com/google/cel-go/cel"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -132,6 +133,55 @@ func (r *FlowRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 				continue
 			}
 			return ctrl.Result{}, r.failFlowRun(ctx, &flowRun, fmt.Sprintf("step %q failed", step.Name))
+		}
+
+		// Cascade-skip: if all runAfter deps were skipped, skip this step too.
+		if allDepsSkipped(step, &flowRun) {
+			now := metav1.Now()
+			flowRun.Status.Steps = upsertStepStatus(flowRun.Status.Steps, automationv1alpha1.StepRunStatus{
+				Name:           step.Name,
+				Phase:          "Skipped",
+				Message:        "all runAfter dependencies were skipped",
+				CompletionTime: &now,
+			})
+			if err := r.Status().Update(ctx, &flowRun); err != nil {
+				return ctrl.Result{}, err
+			}
+			continue
+		}
+
+		// Evaluate when conditions.
+		if len(step.When) > 0 {
+			run, err := evaluateWhen(step.When, stepResults, flowRun.Status.Steps, flowRun.Spec.TriggerData)
+			if err != nil {
+				now := metav1.Now()
+				flowRun.Status.Steps = upsertStepStatus(flowRun.Status.Steps, automationv1alpha1.StepRunStatus{
+					Name:           step.Name,
+					Phase:          "Failed",
+					Message:        fmt.Sprintf("when expression error: %v", err),
+					CompletionTime: &now,
+				})
+				if err2 := r.Status().Update(ctx, &flowRun); err2 != nil {
+					return ctrl.Result{}, err2
+				}
+				if step.OnFailure == "Continue" || flow.Spec.FailurePolicy == "Continue" {
+					continue
+				}
+				return ctrl.Result{}, r.failFlowRun(ctx, &flowRun, fmt.Sprintf("step %q when expression error: %v", step.Name, err))
+			}
+			if !run {
+				now := metav1.Now()
+				flowRun.Status.Steps = upsertStepStatus(flowRun.Status.Steps, automationv1alpha1.StepRunStatus{
+					Name:           step.Name,
+					Phase:          "Skipped",
+					Message:        "when condition evaluated to false",
+					CompletionTime: &now,
+				})
+				if err := r.Status().Update(ctx, &flowRun); err != nil {
+					return ctrl.Result{}, err
+				}
+				continue
+			}
 		}
 
 		// Execute the step.
@@ -600,6 +650,120 @@ func (r *FlowRunReconciler) SetupWithManager(mgr ctrl.Manager) error {
 }
 
 // --- helpers ---
+
+// evaluateWhen evaluates all WhenExpression conditions using CEL.
+// Returns true if all conditions pass (or the list is empty), false if any fail.
+func evaluateWhen(
+	when []automationv1alpha1.WhenExpression,
+	stepResults map[string]map[string]string,
+	stepStatuses []automationv1alpha1.StepRunStatus,
+	triggerData *automationv1alpha1.TriggerData,
+) (bool, error) {
+	if len(when) == 0 {
+		return true, nil
+	}
+
+	env, err := cel.NewEnv(
+		cel.Variable("trigger", cel.MapType(cel.StringType, cel.DynType)),
+		cel.Variable("steps", cel.MapType(cel.StringType, cel.DynType)),
+	)
+	if err != nil {
+		return false, err
+	}
+
+	// Build trigger activation map.
+	triggerMap := map[string]interface{}{
+		"body":          "",
+		"topic":         "",
+		"partition":     "0",
+		"offset":        "0",
+		"scheduledTime": "",
+		"headers":       map[string]interface{}{},
+	}
+	if triggerData != nil {
+		triggerMap["body"] = triggerData.Body
+		triggerMap["topic"] = triggerData.Topic
+		triggerMap["partition"] = fmt.Sprintf("%d", triggerData.Partition)
+		triggerMap["offset"] = fmt.Sprintf("%d", triggerData.Offset)
+		if triggerData.ScheduledTime != nil {
+			triggerMap["scheduledTime"] = triggerData.ScheduledTime.UTC().Format(time.RFC3339)
+		}
+		// Convert headers to map[string]interface{} for CEL.
+		headers := make(map[string]interface{}, len(triggerData.Headers))
+		for k, v := range triggerData.Headers {
+			headers[k] = v
+		}
+		triggerMap["headers"] = headers
+	}
+
+	// Build steps activation map — hyphens to underscores in step names.
+	stepsMap := map[string]interface{}{}
+	for name, results := range stepResults {
+		underscoreName := strings.ReplaceAll(name, "-", "_")
+		resultsIface := make(map[string]interface{}, len(results))
+		for k, v := range results {
+			resultsIface[k] = v
+		}
+		stepsMap[underscoreName] = map[string]interface{}{
+			"results": resultsIface,
+			"status":  "",
+		}
+	}
+	for _, ss := range stepStatuses {
+		underscoreName := strings.ReplaceAll(ss.Name, "-", "_")
+		if existing, ok := stepsMap[underscoreName]; ok {
+			existingMap := existing.(map[string]interface{})
+			existingMap["status"] = ss.Phase
+		} else {
+			stepsMap[underscoreName] = map[string]interface{}{
+				"results": map[string]interface{}{},
+				"status":  ss.Phase,
+			}
+		}
+	}
+
+	activation := map[string]interface{}{
+		"trigger": triggerMap,
+		"steps":   stepsMap,
+	}
+
+	for _, expr := range when {
+		ast, iss := env.Compile(expr.Expression)
+		if iss != nil && iss.Err() != nil {
+			return false, fmt.Errorf("CEL compile error: %w", iss.Err())
+		}
+		prog, err := env.Program(ast)
+		if err != nil {
+			return false, fmt.Errorf("CEL program error: %w", err)
+		}
+		out, _, err := prog.Eval(activation)
+		if err != nil {
+			return false, fmt.Errorf("CEL eval error: %w", err)
+		}
+		result, ok := out.Value().(bool)
+		if !ok {
+			return false, fmt.Errorf("CEL expression did not return bool: %v", out.Value())
+		}
+		if !result {
+			return false, nil
+		}
+	}
+	return true, nil
+}
+
+// allDepsSkipped returns true if the step has runAfter dependencies and ALL of them are in Skipped phase.
+func allDepsSkipped(step automationv1alpha1.FlowStep, flowRun *automationv1alpha1.FlowRun) bool {
+	if len(step.RunAfter) == 0 {
+		return false
+	}
+	for _, dep := range step.RunAfter {
+		s := findStepStatus(flowRun.Status.Steps, dep)
+		if s == nil || s.Phase != "Skipped" {
+			return false
+		}
+	}
+	return true
+}
 
 func findStepStatus(statuses []automationv1alpha1.StepRunStatus, name string) *automationv1alpha1.StepRunStatus {
 	for i := range statuses {

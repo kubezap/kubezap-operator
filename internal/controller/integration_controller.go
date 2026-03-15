@@ -19,12 +19,14 @@ package controller
 import (
 	"context"
 	"fmt"
+	"os"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/intstr"
@@ -38,7 +40,7 @@ import (
 
 // +kubebuilder:rbac:groups=automation.kubezap.io,resources=integrations,verbs=get;list;watch;update;patch
 // +kubebuilder:rbac:groups=automation.kubezap.io,resources=integrations/status,verbs=get;update;patch
-// +kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch;create;update;patch
+// +kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups="",resources=serviceaccounts,verbs=get;list;watch;create;update;patch
 // +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=roles;rolebindings,verbs=get;list;watch;create;update;patch
 
@@ -85,7 +87,34 @@ func (r *IntegrationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		}
 		integration.Status.GatewayDeploymentName = deploymentName
 	case "kafka":
-		// No Deployment to manage for kafka integrations.
+		deploymentName, err := r.reconcileKafkaGateway(ctx, &integration)
+		if err != nil {
+			return ctrl.Result{}, fmt.Errorf("reconciling kafka gateway: %w", err)
+		}
+		integration.Status.GatewayDeploymentName = deploymentName
+
+		// Set GatewayAvailable condition based on Deployment available replicas.
+		existingDep := &appsv1.Deployment{}
+		depKey := client.ObjectKey{Name: deploymentName, Namespace: integration.Namespace}
+		var gatewayAvailCond metav1.Condition
+		if err := r.Get(ctx, depKey, existingDep); err == nil && existingDep.Status.AvailableReplicas > 0 {
+			gatewayAvailCond = metav1.Condition{
+				Type:               "GatewayAvailable",
+				Status:             metav1.ConditionTrue,
+				Reason:             "DeploymentAvailable",
+				Message:            "Kafka gateway Deployment has available replicas",
+				ObservedGeneration: integration.Generation,
+			}
+		} else {
+			gatewayAvailCond = metav1.Condition{
+				Type:               "GatewayAvailable",
+				Status:             metav1.ConditionFalse,
+				Reason:             "DeploymentUnavailable",
+				Message:            "Kafka gateway Deployment has no available replicas yet",
+				ObservedGeneration: integration.Generation,
+			}
+		}
+		apimeta.SetStatusCondition(&integration.Status.Conditions, gatewayAvailCond)
 	}
 
 	// Set Ready=True after successful reconcile.
@@ -339,6 +368,108 @@ func desiredPluginDeployment(integration *automationv1alpha1.Integration) *appsv
 								},
 								InitialDelaySeconds: 5,
 								PeriodSeconds:       10,
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+}
+
+// reconcileKafkaGateway ensures the Kafka gateway Deployment exists and is up to date.
+// It returns the Deployment name.
+func (r *IntegrationReconciler) reconcileKafkaGateway(ctx context.Context, integration *automationv1alpha1.Integration) (string, error) {
+	log := logf.FromContext(ctx)
+	desired := desiredKafkaGatewayDeployment(integration)
+
+	if err := ctrl.SetControllerReference(integration, desired, r.Scheme); err != nil {
+		return "", fmt.Errorf("setting owner reference on kafka gateway Deployment: %w", err)
+	}
+
+	existing := &appsv1.Deployment{}
+	err := r.Get(ctx, client.ObjectKeyFromObject(desired), existing)
+	if err != nil {
+		if !apierrors.IsNotFound(err) {
+			return "", err
+		}
+		if err := r.Create(ctx, desired); err != nil && !apierrors.IsAlreadyExists(err) {
+			return "", err
+		}
+		log.Info("created kafka gateway deployment", "deployment", desired.Name, "namespace", integration.Namespace)
+		return desired.Name, nil
+	}
+
+	// Update image if it has drifted from the desired value.
+	desiredImage := desired.Spec.Template.Spec.Containers[0].Image
+	if len(existing.Spec.Template.Spec.Containers) > 0 {
+		c := &existing.Spec.Template.Spec.Containers[0]
+		if c.Image != desiredImage {
+			c.Image = desiredImage
+			if err := r.Update(ctx, existing); err != nil {
+				return "", err
+			}
+			log.Info("updated kafka gateway deployment image", "deployment", desired.Name, "namespace", integration.Namespace)
+		}
+	}
+	return desired.Name, nil
+}
+
+// desiredKafkaGatewayDeployment returns the desired Deployment for a kafka Integration.
+func desiredKafkaGatewayDeployment(integration *automationv1alpha1.Integration) *appsv1.Deployment {
+	image := os.Getenv("KAFKA_GATEWAY_IMAGE")
+	if image == "" {
+		image = "kubezap/kafka-gateway:latest"
+	}
+
+	deploymentName := "kubezap-kafka-gateway-" + integration.Name
+	labels := map[string]string{
+		"app":                  deploymentName,
+		"kubezap.io/component": "kafka-gateway",
+	}
+
+	envVars := []corev1.EnvVar{
+		{Name: "WATCH_NAMESPACES", Value: os.Getenv("WATCH_NAMESPACES")},
+		{Name: "KUBEZAP_NAMESPACE", Value: integration.Namespace},
+		{Name: "KUBEZAP_INTEGRATION_NAME", Value: integration.Name},
+		{Name: "LOG_LEVEL", Value: "info"},
+	}
+
+	return &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      deploymentName,
+			Namespace: integration.Namespace,
+			Labels:    labels,
+		},
+		Spec: appsv1.DeploymentSpec{
+			Replicas: ptr.To(int32(1)),
+			Selector: &metav1.LabelSelector{MatchLabels: labels},
+			Template: corev1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{Labels: labels},
+				Spec: corev1.PodSpec{
+					ServiceAccountName: "kubezap-gateway",
+					SecurityContext: &corev1.PodSecurityContext{
+						RunAsNonRoot: ptr.To(true),
+					},
+					Containers: []corev1.Container{
+						{
+							Name:  "kafka-gateway",
+							Image: image,
+							Env:   envVars,
+							SecurityContext: &corev1.SecurityContext{
+								RunAsNonRoot:             ptr.To(true),
+								ReadOnlyRootFilesystem:   ptr.To(true),
+								AllowPrivilegeEscalation: ptr.To(false),
+							},
+							Resources: corev1.ResourceRequirements{
+								Requests: corev1.ResourceList{
+									corev1.ResourceCPU:    resource.MustParse("50m"),
+									corev1.ResourceMemory: resource.MustParse("64Mi"),
+								},
+								Limits: corev1.ResourceList{
+									corev1.ResourceCPU:    resource.MustParse("200m"),
+									corev1.ResourceMemory: resource.MustParse("128Mi"),
+								},
 							},
 						},
 					},

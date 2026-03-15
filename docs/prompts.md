@@ -411,7 +411,7 @@ Do not delete Running or Pending FlowRuns.
 
 ## 10. Lint cleanup — fix pre-existing issues
 
-**Status:** `[ ]`
+**Status:** `[x]`
 
 **Why:** Four pre-existing lint issues have been reported on every lint run since early in the project. Fixing them now keeps `make lint` clean so new issues are immediately visible.
 
@@ -473,7 +473,7 @@ Commit with message: "Fix pre-existing lint issues in webhook gateway package"
 
 ## 11. Flow reconciler — spec validation and Ready condition
 
-**Status:** `[ ]`
+**Status:** `[x]`
 
 **Why:** The `Flow` CRD has no reconciler. FlowRun execution fetches the Flow directly without knowing if it is valid. A reconciler that validates the spec and sets a `Ready` condition allows the operator to surface misconfigured Flows early and gives FlowRun reconciler a signal to check.
 
@@ -519,7 +519,7 @@ The condition type string should be "Ready". Reason strings: "FlowReady", "Inval
 
 ## 12. Step result passing — template substitution between steps
 
-**Status:** `[ ]`
+**Status:** `[x]`
 
 **Why:** The FlowRun reconciler tracks step results in `stepResults map[string]map[string]string` but currently never uses them. Multi-step flows are not useful without data flowing between steps.
 
@@ -575,7 +575,7 @@ Run make build to verify. Commit with:
 
 ## 13. Webhook HMAC authentication
 
-**Status:** `[ ]`
+**Status:** `[x]`
 
 **Why:** Without auth, any caller that can reach the webhook endpoint can fire triggers. HMAC is the most widely used webhook auth method (GitHub, Stripe, Slack all use it) and is the highest-priority auth mode.
 
@@ -639,7 +639,7 @@ Run make build. Commit:
 
 ## 14. MockEndpoint reconciler and webhook gateway mock route support
 
-**Status:** `[ ]`
+**Status:** `[x]`
 
 **Why:** MockEndpoints are how developers test flows without real external services. The webhook gateway already serves on `/hooks/*` — mock routes live on `/mock/*` on the same server.
 
@@ -714,7 +714,7 @@ Run make manifests. Commit:
 
 ## 15. Integration reconciler
 
-**Status:** `[ ]`
+**Status:** `[x]`
 
 **Why:** The `Integration` CRD has no reconciler. The controller needs to validate Integration specs and manage Deployments for plugin-type integrations.
 

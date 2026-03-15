@@ -50,9 +50,9 @@ endif
 # This is useful for CI or a project to utilize a specific version of the operator-sdk toolkit.
 OPERATOR_SDK_VERSION ?= v1.42.0
 # Image URL to use all building/pushing image targets
-IMG ?= registry.local/kubezap:latest
-WEBHOOK_GATEWAY_IMAGE ?= kubezap/webhook-gateway:latest
-KAFKA_GATEWAY_IMAGE ?= kubezap/kafka-gateway:latest
+IMG ?= docker.io/kubezap/controller:latest
+WEBHOOK_GATEWAY_IMAGE ?= docker.io/kubezap/webhook-gateway:latest
+KAFKA_GATEWAY_IMAGE ?= docker.io/kubezap/kafka-gateway:latest
 
 # Get the currently used golang install path (in GOPATH/bin, unless GOBIN is set)
 ifeq (,$(shell go env GOBIN))

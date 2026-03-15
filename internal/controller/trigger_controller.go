@@ -135,113 +135,10 @@ func (r *TriggerReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	return ctrl.Result{}, nil
 }
 
-// reconcileWebhookGatewayDeployment ensures the webhook gateway Deployment exists in the given
-// namespace and that its image is up to date. The Deployment is shared across all webhook
-// Triggers in the namespace — only one instance is ever created.
+// reconcileWebhookGatewayDeployment is a thin wrapper so TriggerReconciler can call the
+// package-level helper without threading the client through manually.
 func (r *TriggerReconciler) reconcileWebhookGatewayDeployment(ctx context.Context, namespace string) error {
-	log := logf.FromContext(ctx)
-
-	// Ensure ServiceAccount exists.
-	sa := desiredWebhookGatewayServiceAccount(namespace)
-	if _, err := controllerutil.CreateOrUpdate(ctx, r.Client, sa, func() error {
-		sa.Labels = desiredWebhookGatewayServiceAccount(namespace).Labels
-		return nil
-	}); err != nil {
-		return fmt.Errorf("failed to create/update gateway ServiceAccount: %w", err)
-	}
-
-	// Ensure Role exists.
-	role := desiredWebhookGatewayRole(namespace)
-	if _, err := controllerutil.CreateOrUpdate(ctx, r.Client, role, func() error {
-		role.Rules = desiredWebhookGatewayRole(namespace).Rules
-		return nil
-	}); err != nil {
-		return fmt.Errorf("failed to create/update gateway Role: %w", err)
-	}
-
-	// Ensure RoleBinding exists.
-	rb := desiredWebhookGatewayRoleBinding(namespace)
-	if _, err := controllerutil.CreateOrUpdate(ctx, r.Client, rb, func() error {
-		rb.RoleRef = desiredWebhookGatewayRoleBinding(namespace).RoleRef
-		rb.Subjects = desiredWebhookGatewayRoleBinding(namespace).Subjects
-		return nil
-	}); err != nil {
-		return fmt.Errorf("failed to create/update gateway RoleBinding: %w", err)
-	}
-
-	// Ensure ClusterIP Service exists for in-cluster webhook gateway access.
-	svc := desiredWebhookGatewayService(namespace)
-	if _, err := controllerutil.CreateOrUpdate(ctx, r.Client, svc, func() error {
-		svc.Labels = desiredWebhookGatewayService(namespace).Labels
-		svc.Spec = desiredWebhookGatewayService(namespace).Spec
-		return nil
-	}); err != nil {
-		return fmt.Errorf("failed to create/update gateway Service: %w", err)
-	}
-
-	desired := desiredWebhookGatewayDeployment(namespace)
-
-	existing := &appsv1.Deployment{}
-	err := r.Get(ctx, client.ObjectKeyFromObject(desired), existing)
-	if err != nil {
-		if !apierrors.IsNotFound(err) {
-			return err
-		}
-		if err := r.Create(ctx, desired); err != nil && !apierrors.IsAlreadyExists(err) {
-			return err
-		}
-		log.Info("created webhook gateway deployment", "namespace", namespace)
-		return nil
-	}
-
-	// Update image if it has drifted from the desired value.
-	if len(existing.Spec.Template.Spec.Containers) > 0 {
-		c := &existing.Spec.Template.Spec.Containers[0]
-		if c.Image != webhookGatewayImage {
-			c.Image = webhookGatewayImage
-			if err := r.Update(ctx, existing); err != nil {
-				return err
-			}
-			log.Info("updated webhook gateway deployment", "namespace", namespace)
-		}
-	}
-
-	// Ensure HPA exists and is up to date.
-	if err := r.reconcileWebhookGatewayHPA(ctx, namespace); err != nil {
-		return fmt.Errorf("reconciling webhook gateway HPA: %w", err)
-	}
-
-	return nil
-}
-
-// reconcileWebhookGatewayHPA ensures the HorizontalPodAutoscaler for the webhook gateway
-// Deployment exists in the given namespace. The HPA targets 70% average CPU utilization
-// with a minimum of 1 and maximum of 10 replicas.
-func (r *TriggerReconciler) reconcileWebhookGatewayHPA(ctx context.Context, namespace string) error {
-	log := logf.FromContext(ctx)
-
-	desired := desiredWebhookGatewayHPA(namespace)
-	existing := &autoscalingv2.HorizontalPodAutoscaler{}
-	err := r.Get(ctx, client.ObjectKeyFromObject(desired), existing)
-	if err != nil {
-		if !apierrors.IsNotFound(err) {
-			return err
-		}
-		if err := r.Create(ctx, desired); err != nil && !apierrors.IsAlreadyExists(err) {
-			return err
-		}
-		log.Info("created webhook gateway HPA", "namespace", namespace)
-		return nil
-	}
-
-	// Reconcile key fields: min/max replicas and metrics.
-	existing.Spec.MinReplicas = desired.Spec.MinReplicas
-	existing.Spec.MaxReplicas = desired.Spec.MaxReplicas
-	existing.Spec.Metrics = desired.Spec.Metrics
-	if err := r.Update(ctx, existing); err != nil {
-		return err
-	}
-	return nil
+	return ensureWebhookGateway(ctx, r.Client, namespace)
 }
 
 // SetupWithManager sets up the controller with the Manager.
@@ -250,6 +147,91 @@ func (r *TriggerReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		For(&automationv1alpha1.Trigger{}).
 		Named("trigger").
 		Complete(r)
+}
+
+// ensureWebhookGateway ensures the webhook gateway Deployment, Service, RBAC, and HPA
+// exist in the given namespace. It is called by both the Trigger and MockEndpoint reconcilers
+// so that the gateway is present whenever webhook routes or mock endpoints are needed.
+func ensureWebhookGateway(ctx context.Context, c client.Client, namespace string) error {
+	log := logf.FromContext(ctx)
+
+	sa := desiredWebhookGatewayServiceAccount(namespace)
+	if _, err := controllerutil.CreateOrUpdate(ctx, c, sa, func() error {
+		sa.Labels = desiredWebhookGatewayServiceAccount(namespace).Labels
+		return nil
+	}); err != nil {
+		return fmt.Errorf("failed to create/update gateway ServiceAccount: %w", err)
+	}
+
+	role := desiredWebhookGatewayRole(namespace)
+	if _, err := controllerutil.CreateOrUpdate(ctx, c, role, func() error {
+		role.Rules = desiredWebhookGatewayRole(namespace).Rules
+		return nil
+	}); err != nil {
+		return fmt.Errorf("failed to create/update gateway Role: %w", err)
+	}
+
+	rb := desiredWebhookGatewayRoleBinding(namespace)
+	if _, err := controllerutil.CreateOrUpdate(ctx, c, rb, func() error {
+		rb.RoleRef = desiredWebhookGatewayRoleBinding(namespace).RoleRef
+		rb.Subjects = desiredWebhookGatewayRoleBinding(namespace).Subjects
+		return nil
+	}); err != nil {
+		return fmt.Errorf("failed to create/update gateway RoleBinding: %w", err)
+	}
+
+	svc := desiredWebhookGatewayService(namespace)
+	if _, err := controllerutil.CreateOrUpdate(ctx, c, svc, func() error {
+		svc.Labels = desiredWebhookGatewayService(namespace).Labels
+		svc.Spec = desiredWebhookGatewayService(namespace).Spec
+		return nil
+	}); err != nil {
+		return fmt.Errorf("failed to create/update gateway Service: %w", err)
+	}
+
+	desired := desiredWebhookGatewayDeployment(namespace)
+	existing := &appsv1.Deployment{}
+	err := c.Get(ctx, client.ObjectKeyFromObject(desired), existing)
+	if err != nil {
+		if !apierrors.IsNotFound(err) {
+			return err
+		}
+		if err := c.Create(ctx, desired); err != nil && !apierrors.IsAlreadyExists(err) {
+			return err
+		}
+		log.Info("created webhook gateway deployment", "namespace", namespace)
+		return nil
+	}
+	if len(existing.Spec.Template.Spec.Containers) > 0 {
+		if existing.Spec.Template.Spec.Containers[0].Image != webhookGatewayImage {
+			existing.Spec.Template.Spec.Containers[0].Image = webhookGatewayImage
+			if err := c.Update(ctx, existing); err != nil {
+				return err
+			}
+			log.Info("updated webhook gateway deployment", "namespace", namespace)
+		}
+	}
+
+	hpaDesired := desiredWebhookGatewayHPA(namespace)
+	hpaExisting := &autoscalingv2.HorizontalPodAutoscaler{}
+	err = c.Get(ctx, client.ObjectKeyFromObject(hpaDesired), hpaExisting)
+	if err != nil {
+		if !apierrors.IsNotFound(err) {
+			return err
+		}
+		if err := c.Create(ctx, hpaDesired); err != nil && !apierrors.IsAlreadyExists(err) {
+			return err
+		}
+		log.Info("created webhook gateway HPA", "namespace", namespace)
+		return nil
+	}
+	hpaExisting.Spec.MinReplicas = hpaDesired.Spec.MinReplicas
+	hpaExisting.Spec.MaxReplicas = hpaDesired.Spec.MaxReplicas
+	hpaExisting.Spec.Metrics = hpaDesired.Spec.Metrics
+	if err := c.Update(ctx, hpaExisting); err != nil {
+		return err
+	}
+	return nil
 }
 
 func containsString(slice []string, s string) bool {

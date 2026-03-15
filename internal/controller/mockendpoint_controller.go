@@ -18,6 +18,7 @@ package controller
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"strings"
 
@@ -46,6 +47,11 @@ func (r *MockEndpointReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	var me automationv1alpha1.MockEndpoint
 	if err := r.Get(ctx, req.NamespacedName, &me); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
+	}
+
+	// Ensure the webhook gateway is running — it serves /mock/* paths.
+	if err := ensureWebhookGateway(ctx, r.Client, me.Namespace); err != nil {
+		return ctrl.Result{}, fmt.Errorf("ensuring webhook gateway: %w", err)
 	}
 
 	// Validate spec.path.

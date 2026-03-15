@@ -40,8 +40,7 @@ kubectl apply -k config/samples/demo/kafka-enrichment/
 kubectl get mockendpoints -n $NS
 
 # The webhook gateway must be running — it serves /mock/* for the flow steps.
-# A dummy webhook trigger (kafka-enrichment-gateway-init) is included in the
-# demo kustomization specifically to ensure the gateway is created.
+# The MockEndpoint controller ensures the gateway is created automatically.
 kubectl get deployment kubezap-webhook-gateway -n $NS
 ```
 

@@ -385,10 +385,61 @@ func desiredPluginDeployment(integration *automationv1alpha1.Integration) *appsv
 	}
 }
 
-// reconcileKafkaGateway ensures the Kafka gateway Deployment exists and is up to date.
-// It returns the Deployment name.
+// reconcileKafkaGateway ensures the Kafka gateway ServiceAccount, Role, RoleBinding, and
+// Deployment exist and are up to date. It returns the Deployment name.
 func (r *IntegrationReconciler) reconcileKafkaGateway(ctx context.Context, integration *automationv1alpha1.Integration) (string, error) {
 	log := logf.FromContext(ctx)
+
+	ns := integration.Namespace
+
+	// Ensure ServiceAccount.
+	sa := &corev1.ServiceAccount{ObjectMeta: metav1.ObjectMeta{Name: "kubezap-gateway", Namespace: ns}}
+	if err := r.Get(ctx, client.ObjectKeyFromObject(sa), sa); apierrors.IsNotFound(err) {
+		if err := r.Create(ctx, sa); err != nil && !apierrors.IsAlreadyExists(err) {
+			return "", fmt.Errorf("creating kafka gateway ServiceAccount: %w", err)
+		}
+		log.Info("created kafka gateway ServiceAccount", "namespace", ns)
+	} else if err != nil {
+		return "", err
+	}
+
+	// Ensure Role.
+	role := &rbacv1.Role{
+		ObjectMeta: metav1.ObjectMeta{Name: "kubezap-gateway", Namespace: ns},
+		Rules: []rbacv1.PolicyRule{
+			{APIGroups: []string{"automation.kubezap.io"}, Resources: []string{"triggers"}, Verbs: []string{"get", "list", "watch"}},
+			{APIGroups: []string{"automation.kubezap.io"}, Resources: []string{"flowruns"}, Verbs: []string{"create"}},
+		},
+	}
+	existingRole := &rbacv1.Role{}
+	if err := r.Get(ctx, client.ObjectKeyFromObject(role), existingRole); apierrors.IsNotFound(err) {
+		if err := r.Create(ctx, role); err != nil && !apierrors.IsAlreadyExists(err) {
+			return "", fmt.Errorf("creating kafka gateway Role: %w", err)
+		}
+	} else if err != nil {
+		return "", err
+	} else {
+		existingRole.Rules = role.Rules
+		if err := r.Update(ctx, existingRole); err != nil {
+			return "", fmt.Errorf("updating kafka gateway Role: %w", err)
+		}
+	}
+
+	// Ensure RoleBinding.
+	rb := &rbacv1.RoleBinding{
+		ObjectMeta: metav1.ObjectMeta{Name: "kubezap-gateway", Namespace: ns},
+		RoleRef:    rbacv1.RoleRef{APIGroup: "rbac.authorization.k8s.io", Kind: "Role", Name: "kubezap-gateway"},
+		Subjects:   []rbacv1.Subject{{Kind: "ServiceAccount", Name: "kubezap-gateway", Namespace: ns}},
+	}
+	existingRB := &rbacv1.RoleBinding{}
+	if err := r.Get(ctx, client.ObjectKeyFromObject(rb), existingRB); apierrors.IsNotFound(err) {
+		if err := r.Create(ctx, rb); err != nil && !apierrors.IsAlreadyExists(err) {
+			return "", fmt.Errorf("creating kafka gateway RoleBinding: %w", err)
+		}
+	} else if err != nil {
+		return "", err
+	}
+
 	desired := desiredKafkaGatewayDeployment(integration)
 
 	if err := ctrl.SetControllerReference(integration, desired, r.Scheme); err != nil {

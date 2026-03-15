@@ -40,6 +40,39 @@ helm install kubezap kubezap/kubezap
 
 Install via the OpenShift OperatorHub catalog or the community OperatorHub.
 
+### Local development with k3s
+
+k3s uses its own containerd instance, so images built with Docker need to be imported before deploying.
+
+```bash
+# 1. Build both images
+make docker-build IMG=kubezap/controller:latest
+docker build -t kubezap/webhook-gateway:latest -f cmd/webhook-gateway/Dockerfile .
+
+# 2. Import them into k3s containerd
+docker save kubezap/controller:latest      | sudo k3s ctr images import -
+docker save kubezap/webhook-gateway:latest | sudo k3s ctr images import -
+
+# 3. Verify the images are visible to k3s
+sudo k3s ctr images ls | grep kubezap
+
+# 4. Deploy
+make deploy IMG=kubezap/controller:latest
+```
+
+The controller and webhook gateway manifests use `imagePullPolicy: IfNotPresent`, so k3s will use the locally imported images without attempting a registry pull.
+
+When you rebuild after a code change, repeat steps 1–2 then restart the relevant pod:
+
+```bash
+# Rebuild and re-import
+make docker-build IMG=kubezap/controller:latest
+docker save kubezap/controller:latest | sudo k3s ctr images import -
+
+# Restart the controller pod to pick up the new image
+kubectl rollout restart deployment/kubezap-controller-manager -n kubezap-system
+```
+
 ---
 
 ## Quick start

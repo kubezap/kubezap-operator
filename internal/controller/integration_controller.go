@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -28,7 +29,9 @@ import (
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -43,6 +46,7 @@ import (
 // +kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups="",resources=serviceaccounts,verbs=get;list;watch;create;update;patch
 // +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=roles;rolebindings,verbs=get;list;watch;create;update;patch
+// +kubebuilder:rbac:groups=keda.sh,resources=scaledobjects,verbs=get;list;watch;create;update;patch;delete
 
 // IntegrationReconciler reconciles an Integration object.
 type IntegrationReconciler struct {
@@ -92,6 +96,10 @@ func (r *IntegrationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			return ctrl.Result{}, fmt.Errorf("reconciling kafka gateway: %w", err)
 		}
 		integration.Status.GatewayDeploymentName = deploymentName
+
+		if err := r.reconcileKafkaScaledObject(ctx, &integration); err != nil {
+			return ctrl.Result{}, fmt.Errorf("reconciling kafka scaledobject: %w", err)
+		}
 
 		// Set GatewayAvailable condition based on Deployment available replicas.
 		existingDep := &appsv1.Deployment{}
@@ -477,6 +485,141 @@ func desiredKafkaGatewayDeployment(integration *automationv1alpha1.Integration) 
 			},
 		},
 	}
+}
+
+// reconcileKafkaScaledObject ensures a KEDA ScaledObject exists for the Kafka gateway Deployment.
+// If KEDA is not installed, the function logs a warning and returns nil (graceful degradation).
+func (r *IntegrationReconciler) reconcileKafkaScaledObject(ctx context.Context, integration *automationv1alpha1.Integration) error {
+	log := logf.FromContext(ctx)
+
+	// List all Triggers in this namespace and filter for kafka pubsub ones that reference this Integration.
+	triggerList := &automationv1alpha1.TriggerList{}
+	if err := r.List(ctx, triggerList, client.InNamespace(integration.Namespace)); err != nil {
+		return fmt.Errorf("listing triggers: %w", err)
+	}
+
+	topicSet := make(map[string]struct{})
+	cgSet := make(map[string]struct{})
+
+	for _, trigger := range triggerList.Items {
+		if trigger.Spec.Type != "pubsub" {
+			continue
+		}
+		ps := trigger.Spec.PubSub
+		if ps == nil {
+			continue
+		}
+		if ps.Type != "kafka" {
+			continue
+		}
+		if ps.IntegrationRef.Name != integration.Name {
+			continue
+		}
+		topicSet[ps.Topic] = struct{}{}
+		cg := ps.ConsumerGroup
+		if cg == "" {
+			cg = "kubezap-" + trigger.Name
+		}
+		cgSet[cg] = struct{}{}
+	}
+
+	topics := make([]string, 0, len(topicSet))
+	for t := range topicSet {
+		topics = append(topics, t)
+	}
+	consumerGroups := make([]string, 0, len(cgSet))
+	for cg := range cgSet {
+		consumerGroups = append(consumerGroups, cg)
+	}
+
+	scaledObjName := "kubezap-kafka-gateway-" + integration.Name
+
+	scaledObj := &unstructured.Unstructured{
+		Object: map[string]interface{}{
+			"apiVersion": "keda.sh/v1alpha1",
+			"kind":       "ScaledObject",
+			"metadata": map[string]interface{}{
+				"name":      scaledObjName,
+				"namespace": integration.Namespace,
+			},
+			"spec": map[string]interface{}{
+				"scaleTargetRef": map[string]interface{}{
+					"name": scaledObjName,
+				},
+				"minReplicaCount": int64(0),
+				"maxReplicaCount": int64(10),
+				"triggers":        buildKafkaTriggers(integration, topics, consumerGroups),
+			},
+		},
+	}
+	scaledObj.SetGroupVersionKind(schema.GroupVersionKind{
+		Group:   "keda.sh",
+		Version: "v1alpha1",
+		Kind:    "ScaledObject",
+	})
+
+	if err := ctrl.SetControllerReference(integration, scaledObj, r.Scheme); err != nil {
+		return fmt.Errorf("setting owner reference on ScaledObject: %w", err)
+	}
+
+	existing := &unstructured.Unstructured{}
+	existing.SetGroupVersionKind(schema.GroupVersionKind{
+		Group:   "keda.sh",
+		Version: "v1alpha1",
+		Kind:    "ScaledObject",
+	})
+
+	err := r.Get(ctx, client.ObjectKey{Name: scaledObjName, Namespace: integration.Namespace}, existing)
+	if err != nil {
+		if !apierrors.IsNotFound(err) {
+			// Check if KEDA CRD is missing (not installed).
+			if apimeta.IsNoMatchError(err) || strings.Contains(err.Error(), "no kind is registered") {
+				log.Info("KEDA not installed, skipping ScaledObject", "integration", integration.Name)
+				return nil
+			}
+			return fmt.Errorf("getting ScaledObject: %w", err)
+		}
+		// NotFound — create it.
+		if createErr := r.Create(ctx, scaledObj); createErr != nil {
+			if apimeta.IsNoMatchError(createErr) || strings.Contains(createErr.Error(), "no kind is registered") {
+				log.Info("KEDA not installed, skipping ScaledObject", "integration", integration.Name)
+				return nil
+			}
+			if !apierrors.IsAlreadyExists(createErr) {
+				return fmt.Errorf("creating ScaledObject: %w", createErr)
+			}
+		}
+		log.Info("created KEDA ScaledObject", "name", scaledObjName, "namespace", integration.Namespace)
+		return nil
+	}
+
+	// Already exists — update the spec.
+	scaledObj.SetResourceVersion(existing.GetResourceVersion())
+	if updateErr := r.Update(ctx, scaledObj); updateErr != nil {
+		return fmt.Errorf("updating ScaledObject: %w", updateErr)
+	}
+	log.Info("updated KEDA ScaledObject", "name", scaledObjName, "namespace", integration.Namespace)
+	return nil
+}
+
+// buildKafkaTriggers constructs the KEDA trigger entries for a ScaledObject.
+func buildKafkaTriggers(integration *automationv1alpha1.Integration, topics []string, consumerGroups []string) []interface{} {
+	brokers := strings.Join(integration.Spec.Kafka.BootstrapServers, ",")
+	var triggers []interface{}
+	for _, topic := range topics {
+		for _, cg := range consumerGroups {
+			triggers = append(triggers, map[string]interface{}{
+				"type": "kafka",
+				"metadata": map[string]interface{}{
+					"brokerList":    brokers,
+					"consumerGroup": cg,
+					"topic":         topic,
+					"lagThreshold":  "10",
+				},
+			})
+		}
+	}
+	return triggers
 }
 
 // SetupWithManager sets up the controller with the Manager.

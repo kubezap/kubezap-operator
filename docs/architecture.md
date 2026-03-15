@@ -726,6 +726,36 @@ that was in-flight (started but not yet written to status) may fire twice. Downs
 services should be prepared for at-least-once delivery, or a future `step.idempotencyKey`
 field can propagate a caller-supplied key (e.g., `$(trigger.headers.X-Idempotency-Key)`).
 
+**Split-brain prevention**
+Split-brain occurs when both regions believe they are the active controller and execute
+the same FlowRuns simultaneously. Mitigation operates in layers:
+
+1. **Lease expiry, not forced failover.** The standby controller must wait for the
+   primary's Kubernetes Lease to expire naturally (default: 15s `leaseDuration`) before
+   acquiring leadership. It must never force-take the lease. If the primary is slow but
+   alive, forcing a takeover would cause dual execution.
+
+2. **Fencing via shared API server.** If the shared Kubernetes API (or etcd) is
+   reachable, the primary must be able to renew its Lease. If it cannot renew within
+   `renewDeadline`, it voluntarily stops reconciling. This is controller-runtime's default
+   behavior — the controller exits on lease loss rather than continuing blind.
+
+3. **Optimistic concurrency as the last line of defense.** Even if split-brain occurs
+   briefly, both controllers writing to the same `FlowRun.status` will race on
+   `resourceVersion`. Kubernetes rejects the stale write with a conflict error; the
+   losing controller requeues. Because reconcilers are idempotent, the result converges
+   correctly — the only risk is a step firing twice (the step idempotency gap above).
+
+4. **No split-brain within a single cluster.** Kubernetes Lease guarantees mutual
+   exclusion for all controllers sharing the same API server. Split-brain is only a
+   concern when controllers in separate clusters can both reach the CRD API.
+
+The practical recommendation: prefer a **single shared Kubernetes control plane** (e.g.,
+multi-region etcd with a single API server endpoint) over federated independent clusters.
+This eliminates split-brain at the architecture level rather than trying to solve it in
+application code. If independent clusters are required, cross-cluster leader election
+and fencing become necessary (mechanism TBD).
+
 ---
 
 ### Design constraints for current implementation

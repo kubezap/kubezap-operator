@@ -50,7 +50,7 @@
 - [x] Structured JSON access logs (source IP in logs only, not Prometheus labels)
 - [ ] HPA configuration for webhook gateway Deployment
 - [x] Controller manages webhook gateway Deployment lifecycle (one per namespace)
-- [ ] **Gateway ServiceAccount + Role + RoleBinding** created by controller alongside Deployment (deploy blocker — see `docs/architecture.md#gateway-serviceaccount-and-rbac`)
+- [x] **Gateway ServiceAccount + Role + RoleBinding** created by controller alongside Deployment (deploy blocker — see `docs/architecture.md#gateway-serviceaccount-and-rbac`)
 
 ### Cron Trigger
 - [x] Cron scheduler implementation in controller (`robfig/cron v3`)
@@ -72,8 +72,8 @@
 
 ### Flow Reconciler
 - [x] `Flow` reconciler validates spec and sets Ready condition
-- [ ] **CEL `when` expression evaluation** — use `google/cel-go`; variables: `trigger.*`, `steps.<name>.status`, `steps.<name>.results.*`; see `docs/api/flow.md#conditions-and-cel`
-- [ ] **`Skipped` step phase** — when `when` is false; cascade skip downstream when entire `runAfter` set is skipped; see `docs/api/flow.md#skipped-steps-and-dependency-cascading`
+- [x] **CEL `when` expression evaluation** — use `google/cel-go`; variables: `trigger.*`, `steps.<name>.status`, `steps.<name>.results.*`; see `docs/api/flow.md#conditions-and-cel`
+- [x] **`Skipped` step phase** — when `when` is false; cascade skip downstream when entire `runAfter` set is skipped; see `docs/api/flow.md#skipped-steps-and-dependency-cascading`
 - [x] Step input/output data passing between steps (`$(steps.<name>.results.<key>)` substitution)
 - [x] Data transformation step type (`type: transform`)
 - [x] Retry policies with exponential backoff per step
@@ -99,11 +99,11 @@
 These items are needed to demonstrate a working end-to-end flow to stakeholders.
 Target: webhook → transform → conditional mock notify with two branches.
 
-- [ ] **Gateway ServiceAccount + Role + RoleBinding** — controller must create these alongside the webhook gateway Deployment. Required for the gateway to create FlowRuns and write MockEndpoint status. See `docs/architecture.md#gateway-serviceaccount-and-rbac` for the required permissions.
-- [ ] **CEL `when` evaluation** — required for conditional step branching (see Flow Reconciler section above)
-- [ ] **`Skipped` step phase** — required for `when` to be observable (see Flow Reconciler section above)
-- [ ] **Demo sample CRs** — `config/samples/demo/` — the order-router scenario from `docs/guides/getting-started.md`; must `kubectl apply` cleanly and produce a working FlowRun
-- [ ] **`docs/guides/getting-started.md`** complete and validated against actual behavior ✅ (draft written; validate after gateway RBAC and CEL land)
+- [x] **Gateway ServiceAccount + Role + RoleBinding** — controller must create these alongside the webhook gateway Deployment. Required for the gateway to create FlowRuns and write MockEndpoint status. See `docs/architecture.md#gateway-serviceaccount-and-rbac` for the required permissions.
+- [x] **CEL `when` evaluation** — required for conditional step branching (see Flow Reconciler section above)
+- [x] **`Skipped` step phase** — required for `when` to be observable (see Flow Reconciler section above)
+- [x] **Demo sample CRs** — `config/samples/demo/` — the order-router scenario from `docs/guides/getting-started.md`; must `kubectl apply` cleanly and produce a working FlowRun
+- [x] **`docs/guides/getting-started.md`** complete and validated against actual behavior ✅
 
 ---
 
@@ -143,8 +143,8 @@ Target: webhook → transform → conditional mock notify with two branches.
 
 - [x] Ginkgo unit tests for Flow reconciler
 - [x] Ginkgo unit tests for FlowRun reconciler
-- [ ] Ginkgo unit tests for Integration reconciler
-- [ ] Ginkgo unit tests for MockEndpoint reconciler
+- [x] Ginkgo unit tests for Integration reconciler
+- [x] Ginkgo unit tests for MockEndpoint reconciler
 - [ ] E2E tests: webhook trigger → FlowRun creation → step execution
 - [ ] E2E tests: cron trigger fires on schedule
 - [ ] E2E tests: Kafka trigger → FlowRun with dedup key

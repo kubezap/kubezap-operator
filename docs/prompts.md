@@ -437,7 +437,7 @@ Run make test to verify. Commit:
 
 ## 23. Gateway ServiceAccount, Role, and RoleBinding
 
-**Status:** `[ ]`
+**Status:** `[x]`
 
 **Why:** The webhook gateway Deployment already sets `serviceAccountName: kubezap-webhook-gateway`
 but the controller never creates that ServiceAccount, Role, or RoleBinding. Nothing in the
@@ -501,7 +501,7 @@ Run make manifests. Commit:
 
 ## 24. CEL `when` evaluation and `Skipped` step phase
 
-**Status:** `[ ]`
+**Status:** `[x]`
 
 **Why:** The `when` field in FlowStep is defined but never evaluated. Without it there is
 no conditional branching — the core differentiating feature of the flow engine.
@@ -620,7 +620,7 @@ Run go build ./... Commit:
 
 ## 25. Demo sample CRs
 
-**Status:** `[ ]`
+**Status:** `[x]`
 
 **Why:** There are no runnable sample CRs for the getting-started demo scenario.
 Having them in `config/samples/demo/` lets anyone `kubectl apply` them after deploying
@@ -671,7 +671,7 @@ Push: git push -u origin claude/review-docs-schedule-LlDeD
 
 ## 26. Ginkgo unit tests — Integration reconciler
 
-**Status:** `[ ]`
+**Status:** `[x]`
 
 **Why:** The Integration reconciler has no tests.
 
@@ -717,7 +717,7 @@ Push: git push -u origin claude/review-docs-schedule-LlDeD
 
 ## 27. Ginkgo unit tests — MockEndpoint reconciler
 
-**Status:** `[ ]`
+**Status:** `[x]`
 
 **Why:** The MockEndpoint reconciler has no tests.
 

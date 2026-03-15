@@ -74,10 +74,10 @@
 ### Flow Reconciler
 - [ ] `Flow` reconciler validates spec and sets Ready condition
 - [ ] Conditional step execution via CEL expressions (`when` field)
-- [ ] Step input/output data passing between steps
+- [ ] Step input/output data passing between steps (`$(steps.<name>.results.<key>)` substitution)
 - [ ] Data transformation step type (`type: transform`)
-- [ ] Retry policies with exponential backoff per step
-- [ ] Flow-level timeout enforcement
+- [x] Retry policies with exponential backoff per step (implemented in FlowRun reconciler)
+- [ ] Flow-level timeout enforcement (enforce `flow.Spec.Timeout` across all steps)
 
 ### Integration CRD & Kafka Gateway
 - [ ] `Integration` reconciler in `internal/controller/integration_controller.go`

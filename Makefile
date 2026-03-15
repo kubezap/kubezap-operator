@@ -217,7 +217,7 @@ uninstall: manifests kustomize ## Uninstall CRDs from the K8s cluster specified 
 deploy: manifests kustomize ## Deploy controller to the K8s cluster specified in ~/.kube/config.
 	cd config/manager && $(KUSTOMIZE) edit set image controller=${IMG}
 	$(KUSTOMIZE) build config/default | $(KUBECTL) apply -f -
-	$(KUBECTL) set env deployment/controller-manager -n kubezap-system \
+	$(KUBECTL) set env deployment/kubezap-controller-manager -n kubezap-system \
 		WEBHOOK_GATEWAY_IMAGE=$(WEBHOOK_GATEWAY_IMAGE) \
 		KAFKA_GATEWAY_IMAGE=$(KAFKA_GATEWAY_IMAGE)
 

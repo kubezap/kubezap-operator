@@ -179,6 +179,25 @@ func desiredPluginDeployment(integration *automationv1alpha1.Integration) *appsv
 	// Append any user-specified env vars.
 	envVars = append(envVars, plugin.Env...)
 
+	// NOTE: The operator does not auto-grant the plugin Deployment permission to read these
+	// Secrets. The cluster administrator must create a Role + RoleBinding granting
+	// the plugin ServiceAccount access to the referenced Secrets.
+
+	// Inject secret-derived env vars from spec.plugin.secretRefs
+	for _, secretRef := range plugin.SecretRefs {
+		for secretKey, envVarName := range secretRef.EnvVarMappings {
+			envVars = append(envVars, corev1.EnvVar{
+				Name: envVarName,
+				ValueFrom: &corev1.EnvVarSource{
+					SecretKeyRef: &corev1.SecretKeySelector{
+						LocalObjectReference: corev1.LocalObjectReference{Name: secretRef.SecretName},
+						Key:                 secretKey,
+					},
+				},
+			})
+		}
+	}
+
 	return &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      deploymentName,

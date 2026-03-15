@@ -70,28 +70,17 @@ var _ = Describe("Flow Controller", func() {
 
 	Describe("Reconciling a Flow resource", func() {
 		Context("when spec.steps is empty", func() {
-			const flowName = "flow-empty-steps"
-
-			BeforeEach(func() {
-				flow := newFlow(flowName, automationv1alpha1.FlowSpec{
+			// The Flow CRD schema enforces +kubebuilder:validation:MinItems=1 on spec.steps,
+			// so the API server rejects a Flow with no steps at admission time (HTTP 422).
+			// The reconciler's own empty-steps guard is defence-in-depth and is not reachable
+			// via the normal API path.
+			It("is rejected by the API server with a validation error", func() {
+				flow := newFlow("flow-empty-steps", automationv1alpha1.FlowSpec{
 					Steps: []automationv1alpha1.FlowStep{},
 				})
-				Expect(k8sClient.Create(ctx, flow)).To(Succeed())
-			})
-
-			AfterEach(func() {
-				deleteFlow(flowName)
-			})
-
-			It("sets Ready=False with reason=InvalidSpec", func() {
-				_, err := reconcileFlow(flowName)
-				Expect(err).NotTo(HaveOccurred())
-
-				flow := fetchFlow(flowName)
-				cond := apimeta.FindStatusCondition(flow.Status.Conditions, "Ready")
-				Expect(cond).NotTo(BeNil())
-				Expect(cond.Status).To(Equal(metav1.ConditionFalse))
-				Expect(cond.Reason).To(Equal("InvalidSpec"))
+				err := k8sClient.Create(ctx, flow)
+				Expect(err).To(HaveOccurred())
+				Expect(err.Error()).To(ContainSubstring("spec.steps"))
 			})
 		})
 

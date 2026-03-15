@@ -31,6 +31,9 @@ before
 after
 coredns.yaml
 .claude/
+
+# gateway binaries (built at repo root during development)
 /kafka-gateway
+/webhook-gateway
 /amqp-gateway
 /nats-gateway

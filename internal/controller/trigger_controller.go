@@ -27,6 +27,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	automationv1alpha1 "github.com/yourname/kubezap/api/v1alpha1"
@@ -45,6 +46,9 @@ type TriggerReconciler struct {
 // +kubebuilder:rbac:groups=automation.kubezap.io,resources=triggers/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=automation.kubezap.io,resources=triggers/finalizers,verbs=update
 // +kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch;create;update;patch
+// +kubebuilder:rbac:groups="",resources=serviceaccounts,verbs=get;list;watch;create;update;patch
+// +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=roles,verbs=get;list;watch;create;update;patch
+// +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=rolebindings,verbs=get;list;watch;create;update;patch
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
@@ -121,6 +125,35 @@ func (r *TriggerReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 // Triggers in the namespace — only one instance is ever created.
 func (r *TriggerReconciler) reconcileWebhookGatewayDeployment(ctx context.Context, namespace string) error {
 	log := logf.FromContext(ctx)
+
+	// Ensure ServiceAccount exists.
+	sa := desiredWebhookGatewayServiceAccount(namespace)
+	if _, err := controllerutil.CreateOrUpdate(ctx, r.Client, sa, func() error {
+		sa.Labels = desiredWebhookGatewayServiceAccount(namespace).Labels
+		return nil
+	}); err != nil {
+		return fmt.Errorf("failed to create/update gateway ServiceAccount: %w", err)
+	}
+
+	// Ensure Role exists.
+	role := desiredWebhookGatewayRole(namespace)
+	if _, err := controllerutil.CreateOrUpdate(ctx, r.Client, role, func() error {
+		role.Rules = desiredWebhookGatewayRole(namespace).Rules
+		return nil
+	}); err != nil {
+		return fmt.Errorf("failed to create/update gateway Role: %w", err)
+	}
+
+	// Ensure RoleBinding exists.
+	rb := desiredWebhookGatewayRoleBinding(namespace)
+	if _, err := controllerutil.CreateOrUpdate(ctx, r.Client, rb, func() error {
+		rb.RoleRef = desiredWebhookGatewayRoleBinding(namespace).RoleRef
+		rb.Subjects = desiredWebhookGatewayRoleBinding(namespace).Subjects
+		return nil
+	}); err != nil {
+		return fmt.Errorf("failed to create/update gateway RoleBinding: %w", err)
+	}
+
 	desired := desiredWebhookGatewayDeployment(namespace)
 
 	existing := &appsv1.Deployment{}

@@ -323,9 +323,10 @@ Declares an input parameter the flow accepts. Parameters are populated from the 
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `type` | enum | **Yes** | Action type: `http` or `transform` |
+| `type` | enum | **Yes** | Action type: `http`, `transform`, or `publish` |
 | `http` | HTTPAction | Conditional | Required when `type: http` |
 | `transform` | TransformAction | Conditional | Required when `type: transform` |
+| `publish` | PublishAction | Conditional | Required when `type: publish` |
 
 ### HTTPAction
 
@@ -346,6 +347,40 @@ Produces results from existing params and step results without making any networ
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `mappings` | map[string]string | **Yes** | Keys are result names; values are CEL expressions that compute the result value |
+
+### PublishAction
+
+Sends a message to an external system via an `Integration`. The controller
+calls the Integration's gateway `/publish` endpoint, which handles
+serialisation, authentication, and delivery.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `integrationRef` | LocalObjectReference | **Yes** | Name of the `Integration` resource to publish through |
+| `topic` | string | **Yes** | Target topic, queue, or subject name. Supports `$(...)` interpolation. |
+| `body` | string | No | Message body. Supports `$(...)` interpolation. |
+| `headers` | map[string]string | No | Message headers / metadata. Values support `$(...)` interpolation. |
+
+**Example**:
+
+```yaml
+- name: publish-enriched
+  runAfter:
+    - enrich-profile
+  action:
+    type: publish
+    publish:
+      integrationRef:
+        name: customer-kafka
+      topic: customer-events-enriched
+      headers:
+        X-Customer-Tier: "$(steps.enrich_profile.results.tier)"
+      body: |
+        {
+          "customerId": "$(steps.extract_customer.results.customerId)",
+          "tier":       "$(steps.enrich_profile.results.tier)"
+        }
+```
 
 ### ResultDeclaration
 

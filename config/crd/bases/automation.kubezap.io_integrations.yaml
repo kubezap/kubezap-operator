@@ -47,8 +47,126 @@ spec:
           spec:
             description: IntegrationSpec defines desired state for Integration.
             properties:
+              amqp:
+                description: AMQP specific configuration. Required when type=amqp.
+                properties:
+                  passwordSecretRef:
+                    description: Password secret reference.
+                    properties:
+                      key:
+                        description: The key of the secret to select from.  Must be
+                          a valid secret key.
+                        type: string
+                      name:
+                        default: ""
+                        description: |-
+                          Name of the referent.
+                          This field is effectively required, but due to backwards compatibility is
+                          allowed to be empty. Instances of this type with an empty value here are
+                          almost certainly wrong.
+                          More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                        type: string
+                      optional:
+                        description: Specify whether the Secret or its key must be
+                          defined
+                        type: boolean
+                    required:
+                    - key
+                    type: object
+                    x-kubernetes-map-type: atomic
+                  tls:
+                    description: TLS configuration. Inferred from amqps:// URL if
+                      not set explicitly.
+                    properties:
+                      caSecretRef:
+                        description: CA certificate secret reference.
+                        properties:
+                          key:
+                            description: The key of the secret to select from.  Must
+                              be a valid secret key.
+                            type: string
+                          name:
+                            default: ""
+                            description: |-
+                              Name of the referent.
+                              This field is effectively required, but due to backwards compatibility is
+                              allowed to be empty. Instances of this type with an empty value here are
+                              almost certainly wrong.
+                              More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                            type: string
+                          optional:
+                            description: Specify whether the Secret or its key must
+                              be defined
+                            type: boolean
+                        required:
+                        - key
+                        type: object
+                        x-kubernetes-map-type: atomic
+                      clientCertSecretRef:
+                        description: Client certificate secret for mTLS.
+                        properties:
+                          name:
+                            default: ""
+                            description: |-
+                              Name of the referent.
+                              This field is effectively required, but due to backwards compatibility is
+                              allowed to be empty. Instances of this type with an empty value here are
+                              almost certainly wrong.
+                              More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                            type: string
+                        type: object
+                        x-kubernetes-map-type: atomic
+                      enabled:
+                        default: false
+                        description: Enable TLS. Use amqps:// URL to enable automatically.
+                        type: boolean
+                      insecureSkipVerify:
+                        description: Skip server certificate verification. Development
+                          only.
+                        type: boolean
+                    type: object
+                  url:
+                    description: |-
+                      AMQP broker URL. Examples:
+                        amqp://rabbitmq.infra:5672/production
+                        amqps://artemis.infra:5671
+                    type: string
+                  usernameSecretRef:
+                    description: Username secret reference.
+                    properties:
+                      key:
+                        description: The key of the secret to select from.  Must be
+                          a valid secret key.
+                        type: string
+                      name:
+                        default: ""
+                        description: |-
+                          Name of the referent.
+                          This field is effectively required, but due to backwards compatibility is
+                          allowed to be empty. Instances of this type with an empty value here are
+                          almost certainly wrong.
+                          More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                        type: string
+                      optional:
+                        description: Specify whether the Secret or its key must be
+                          defined
+                        type: boolean
+                    required:
+                    - key
+                    type: object
+                    x-kubernetes-map-type: atomic
+                  version:
+                    default: 0-9-1
+                    description: Wire-protocol version.
+                    enum:
+                    - 0-9-1
+                    - "1.0"
+                    type: string
+                required:
+                - url
+                type: object
               kafka:
-                description: Kafka specific configuration.
+                description: Kafka specific configuration. Required when type=kafka.
                 properties:
                   bootstrapServers:
                     description: List of Kafka bootstrap servers.
@@ -173,8 +291,138 @@ spec:
                 required:
                 - bootstrapServers
                 type: object
+              nats:
+                description: NATS specific configuration. Required when type=nats.
+                properties:
+                  credentialsSecretRef:
+                    description: |-
+                      NATS credentials file secret reference (NKey or User JWT credentials).
+                      The secret key must be "nats.creds".
+                    properties:
+                      name:
+                        default: ""
+                        description: |-
+                          Name of the referent.
+                          This field is effectively required, but due to backwards compatibility is
+                          allowed to be empty. Instances of this type with an empty value here are
+                          almost certainly wrong.
+                          More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                        type: string
+                    type: object
+                    x-kubernetes-map-type: atomic
+                  jetStream:
+                    default: false
+                    description: Enable JetStream for durable, persistent message
+                      delivery.
+                    type: boolean
+                  passwordSecretRef:
+                    description: Password secret reference.
+                    properties:
+                      key:
+                        description: The key of the secret to select from.  Must be
+                          a valid secret key.
+                        type: string
+                      name:
+                        default: ""
+                        description: |-
+                          Name of the referent.
+                          This field is effectively required, but due to backwards compatibility is
+                          allowed to be empty. Instances of this type with an empty value here are
+                          almost certainly wrong.
+                          More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                        type: string
+                      optional:
+                        description: Specify whether the Secret or its key must be
+                          defined
+                        type: boolean
+                    required:
+                    - key
+                    type: object
+                    x-kubernetes-map-type: atomic
+                  servers:
+                    description: |-
+                      NATS server URLs. Multiple URLs are used for cluster failover.
+                      Example: ["nats://nats-0.nats.infra:4222", "nats://nats-1.nats.infra:4222"]
+                    items:
+                      type: string
+                    minItems: 1
+                    type: array
+                  tls:
+                    description: TLS configuration.
+                    properties:
+                      caSecretRef:
+                        description: CA certificate secret reference.
+                        properties:
+                          key:
+                            description: The key of the secret to select from.  Must
+                              be a valid secret key.
+                            type: string
+                          name:
+                            default: ""
+                            description: |-
+                              Name of the referent.
+                              This field is effectively required, but due to backwards compatibility is
+                              allowed to be empty. Instances of this type with an empty value here are
+                              almost certainly wrong.
+                              More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                            type: string
+                          optional:
+                            description: Specify whether the Secret or its key must
+                              be defined
+                            type: boolean
+                        required:
+                        - key
+                        type: object
+                        x-kubernetes-map-type: atomic
+                      clientCertSecretRef:
+                        description: Client certificate secret for mTLS.
+                        properties:
+                          name:
+                            default: ""
+                            description: |-
+                              Name of the referent.
+                              This field is effectively required, but due to backwards compatibility is
+                              allowed to be empty. Instances of this type with an empty value here are
+                              almost certainly wrong.
+                              More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                            type: string
+                        type: object
+                        x-kubernetes-map-type: atomic
+                      insecureSkipVerify:
+                        description: Skip server certificate verification. Development
+                          only.
+                        type: boolean
+                    type: object
+                  usernameSecretRef:
+                    description: Username secret reference (basic auth, not recommended
+                      for production).
+                    properties:
+                      key:
+                        description: The key of the secret to select from.  Must be
+                          a valid secret key.
+                        type: string
+                      name:
+                        default: ""
+                        description: |-
+                          Name of the referent.
+                          This field is effectively required, but due to backwards compatibility is
+                          allowed to be empty. Instances of this type with an empty value here are
+                          almost certainly wrong.
+                          More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                        type: string
+                      optional:
+                        description: Specify whether the Secret or its key must be
+                          defined
+                        type: boolean
+                    required:
+                    - key
+                    type: object
+                    x-kubernetes-map-type: atomic
+                required:
+                - servers
+                type: object
               plugin:
-                description: Plugin specific configuration.
+                description: Plugin specific configuration. Required when type=plugin.
                 properties:
                   env:
                     description: Additional environment variables.
@@ -328,9 +576,18 @@ spec:
                 - image
                 type: object
               type:
-                description: Integration type.
+                description: |-
+                  Integration type.
+                  kafka: first-party Kafka gateway (IBM/sarama).
+                  amqp: first-party AMQP gateway; covers RabbitMQ, ActiveMQ, Solace, Azure Service Bus.
+                    Use spec.amqp.version to select 0-9-1 or 1.0 wire protocol.
+                  nats: first-party NATS gateway; supports Core and JetStream.
+                  plugin: community or custom image implementing the KubeZap plugin contract.
+                    See docs/api/plugin-contract.md.
                 enum:
                 - kafka
+                - amqp
+                - nats
                 - plugin
                 type: string
             required:

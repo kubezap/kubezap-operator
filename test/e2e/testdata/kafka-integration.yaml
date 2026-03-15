@@ -1,0 +1,11 @@
+# Applied only when KAFKA_BOOTSTRAP_SERVERS is set. The test patches
+# spec.kafka.brokers at runtime via kubectl patch.
+apiVersion: automation.kubezap.io/v1alpha1
+kind: Integration
+metadata:
+  name: e2e-kafka
+spec:
+  type: kafka
+  kafka:
+    brokers:
+      - PLACEHOLDER

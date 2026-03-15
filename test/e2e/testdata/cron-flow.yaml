@@ -1,0 +1,13 @@
+apiVersion: automation.kubezap.io/v1alpha1
+kind: Flow
+metadata:
+  name: e2e-cron-flow
+spec:
+  timeout: 30s
+  steps:
+    - name: tick
+      action:
+        type: transform
+        transform:
+          mappings:
+            fired: "true"

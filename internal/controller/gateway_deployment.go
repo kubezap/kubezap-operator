@@ -18,6 +18,7 @@ package controller
 
 import (
 	appsv1 "k8s.io/api/apps/v1"
+	autoscalingv2 "k8s.io/api/autoscaling/v2"
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -27,7 +28,7 @@ import (
 
 const (
 	webhookGatewayDeploymentName = "kubezap-webhook-gateway"
-	webhookGatewayImage          = "kubezap/webhook-gateway"
+	webhookGatewayImage          = "kubezap/webhook-gateway:latest"
 	webhookGatewayPort           = int32(8080)
 )
 
@@ -96,6 +97,73 @@ func desiredWebhookGatewayRoleBinding(namespace string) *rbacv1.RoleBinding {
 	}
 }
 
+// desiredWebhookGatewayHPA returns the desired HorizontalPodAutoscaler for the webhook
+// gateway Deployment in the given namespace. It targets CPU utilization at 70% with a
+// min of 1 and max of 10 replicas.
+func desiredWebhookGatewayHPA(namespace string) *autoscalingv2.HorizontalPodAutoscaler {
+	cpuUtilization := int32(70)
+	minReplicas := int32(1)
+	maxReplicas := int32(10)
+
+	return &autoscalingv2.HorizontalPodAutoscaler{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      webhookGatewayDeploymentName,
+			Namespace: namespace,
+			Labels: map[string]string{
+				"kubezap.io/component": "webhook-gateway",
+				"kubezap.io/namespace": namespace,
+			},
+		},
+		Spec: autoscalingv2.HorizontalPodAutoscalerSpec{
+			ScaleTargetRef: autoscalingv2.CrossVersionObjectReference{
+				APIVersion: "apps/v1",
+				Kind:       "Deployment",
+				Name:       webhookGatewayDeploymentName,
+			},
+			MinReplicas: &minReplicas,
+			MaxReplicas: maxReplicas,
+			Metrics: []autoscalingv2.MetricSpec{
+				{
+					Type: autoscalingv2.ResourceMetricSourceType,
+					Resource: &autoscalingv2.ResourceMetricSource{
+						Name: corev1.ResourceCPU,
+						Target: autoscalingv2.MetricTarget{
+							Type:               autoscalingv2.UtilizationMetricType,
+							AverageUtilization: &cpuUtilization,
+						},
+					},
+				},
+			},
+		},
+	}
+}
+
+// desiredWebhookGatewayService returns the desired ClusterIP service for the webhook gateway.
+func desiredWebhookGatewayService(namespace string) *corev1.Service {
+	labels := map[string]string{
+		"kubezap.io/component": "webhook-gateway",
+		"kubezap.io/namespace": namespace,
+	}
+	return &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      webhookGatewayDeploymentName,
+			Namespace: namespace,
+			Labels:    labels,
+		},
+		Spec: corev1.ServiceSpec{
+			Selector: labels,
+			Ports: []corev1.ServicePort{
+				{
+					Name:       "http",
+					Protocol:   corev1.ProtocolTCP,
+					Port:       webhookGatewayPort,
+					TargetPort: intstr.FromInt32(webhookGatewayPort),
+				},
+			},
+		},
+	}
+}
+
 // desiredWebhookGatewayDeployment returns the desired state of the webhook gateway
 // Deployment for the given namespace. The caller is responsible for setting owner
 // references and calling CreateOrUpdate.
@@ -120,12 +188,14 @@ func desiredWebhookGatewayDeployment(namespace string) *appsv1.Deployment {
 				Spec: corev1.PodSpec{
 					ServiceAccountName: "kubezap-webhook-gateway",
 					SecurityContext: &corev1.PodSecurityContext{
-						RunAsNonRoot: ptr.To(true),
+						RunAsNonRoot:   ptr.To(true),
+						SeccompProfile: &corev1.SeccompProfile{Type: corev1.SeccompProfileTypeRuntimeDefault},
 					},
 					Containers: []corev1.Container{
 						{
-							Name:  "webhook-gateway",
-							Image: webhookGatewayImage,
+							Name:            "webhook-gateway",
+							Image:           webhookGatewayImage,
+							ImagePullPolicy: corev1.PullIfNotPresent,
 							Args: []string{
 								"--port=8080",
 								"--namespace=" + namespace,
@@ -137,6 +207,10 @@ func desiredWebhookGatewayDeployment(namespace string) *appsv1.Deployment {
 								RunAsNonRoot:             ptr.To(true),
 								ReadOnlyRootFilesystem:   ptr.To(true),
 								AllowPrivilegeEscalation: ptr.To(false),
+								Capabilities: &corev1.Capabilities{
+									Drop: []corev1.Capability{"ALL"},
+								},
+								SeccompProfile: &corev1.SeccompProfile{Type: corev1.SeccompProfileTypeRuntimeDefault},
 							},
 							LivenessProbe: &corev1.Probe{
 								ProbeHandler: corev1.ProbeHandler{

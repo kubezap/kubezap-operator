@@ -21,6 +21,7 @@ import (
 	"fmt"
 
 	appsv1 "k8s.io/api/apps/v1"
+	autoscalingv2 "k8s.io/api/autoscaling/v2"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
@@ -47,8 +48,10 @@ type TriggerReconciler struct {
 // +kubebuilder:rbac:groups=automation.kubezap.io,resources=triggers/finalizers,verbs=update
 // +kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch;create;update;patch
 // +kubebuilder:rbac:groups="",resources=serviceaccounts,verbs=get;list;watch;create;update;patch
+// +kubebuilder:rbac:groups="",resources=services,verbs=get;list;watch;create;update;patch
 // +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=roles,verbs=get;list;watch;create;update;patch
 // +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=rolebindings,verbs=get;list;watch;create;update;patch
+// +kubebuilder:rbac:groups=autoscaling,resources=horizontalpodautoscalers,verbs=get;list;watch;create;update;patch;delete
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
@@ -105,16 +108,28 @@ func (r *TriggerReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		}
 	}
 
-	// Set initial status for enabled triggers
+	// Update Trigger condition and status based on enabled state.
+	acceptedCondition := metav1.Condition{
+		Type:    "Accepted",
+		Status:  metav1.ConditionFalse,
+		Reason:  "Disabled",
+		Message: "Trigger is disabled",
+	}
 	if trg.Spec.Enabled {
-		now := metav1.Now()
+		acceptedCondition.Status = metav1.ConditionTrue
+		acceptedCondition.Reason = "Enabled"
+		acceptedCondition.Message = "Trigger is accepted and active"
+
 		if trg.Status.LastTriggeredTime == nil || trg.Status.LastTriggeredTime.Time.IsZero() {
+			now := metav1.Now()
 			trg.Status.LastTriggeredTime = &now
-			trg.Status.LastResult = "Accepted"
-			if err := r.Status().Update(ctx, &trg); err != nil {
-				return ctrl.Result{}, fmt.Errorf("updating Trigger status: %w", err)
-			}
 		}
+		trg.Status.LastResult = "Accepted"
+	}
+	setTriggerCondition(&trg.Status, acceptedCondition)
+
+	if err := r.Status().Update(ctx, &trg); err != nil {
+		return ctrl.Result{}, fmt.Errorf("updating Trigger status: %w", err)
 	}
 
 	return ctrl.Result{}, nil
@@ -154,6 +169,16 @@ func (r *TriggerReconciler) reconcileWebhookGatewayDeployment(ctx context.Contex
 		return fmt.Errorf("failed to create/update gateway RoleBinding: %w", err)
 	}
 
+	// Ensure ClusterIP Service exists for in-cluster webhook gateway access.
+	svc := desiredWebhookGatewayService(namespace)
+	if _, err := controllerutil.CreateOrUpdate(ctx, r.Client, svc, func() error {
+		svc.Labels = desiredWebhookGatewayService(namespace).Labels
+		svc.Spec = desiredWebhookGatewayService(namespace).Spec
+		return nil
+	}); err != nil {
+		return fmt.Errorf("failed to create/update gateway Service: %w", err)
+	}
+
 	desired := desiredWebhookGatewayDeployment(namespace)
 
 	existing := &appsv1.Deployment{}
@@ -179,6 +204,42 @@ func (r *TriggerReconciler) reconcileWebhookGatewayDeployment(ctx context.Contex
 			}
 			log.Info("updated webhook gateway deployment", "namespace", namespace)
 		}
+	}
+
+	// Ensure HPA exists and is up to date.
+	if err := r.reconcileWebhookGatewayHPA(ctx, namespace); err != nil {
+		return fmt.Errorf("reconciling webhook gateway HPA: %w", err)
+	}
+
+	return nil
+}
+
+// reconcileWebhookGatewayHPA ensures the HorizontalPodAutoscaler for the webhook gateway
+// Deployment exists in the given namespace. The HPA targets 70% average CPU utilization
+// with a minimum of 1 and maximum of 10 replicas.
+func (r *TriggerReconciler) reconcileWebhookGatewayHPA(ctx context.Context, namespace string) error {
+	log := logf.FromContext(ctx)
+
+	desired := desiredWebhookGatewayHPA(namespace)
+	existing := &autoscalingv2.HorizontalPodAutoscaler{}
+	err := r.Get(ctx, client.ObjectKeyFromObject(desired), existing)
+	if err != nil {
+		if !apierrors.IsNotFound(err) {
+			return err
+		}
+		if err := r.Create(ctx, desired); err != nil && !apierrors.IsAlreadyExists(err) {
+			return err
+		}
+		log.Info("created webhook gateway HPA", "namespace", namespace)
+		return nil
+	}
+
+	// Reconcile key fields: min/max replicas and metrics.
+	existing.Spec.MinReplicas = desired.Spec.MinReplicas
+	existing.Spec.MaxReplicas = desired.Spec.MaxReplicas
+	existing.Spec.Metrics = desired.Spec.Metrics
+	if err := r.Update(ctx, existing); err != nil {
+		return err
 	}
 	return nil
 }
@@ -208,4 +269,22 @@ func removeString(slice []string, s string) []string {
 		}
 	}
 	return result
+}
+
+func setTriggerCondition(status *automationv1alpha1.TriggerStatus, condition metav1.Condition) {
+	if condition.LastTransitionTime.IsZero() {
+		condition.LastTransitionTime = metav1.Now()
+	}
+	for i, existing := range status.Conditions {
+		if existing.Type == condition.Type {
+			if existing.Status != condition.Status {
+				condition.LastTransitionTime = metav1.Now()
+			} else {
+				condition.LastTransitionTime = existing.LastTransitionTime
+			}
+			status.Conditions[i] = condition
+			return
+		}
+	}
+	status.Conditions = append(status.Conditions, condition)
 }

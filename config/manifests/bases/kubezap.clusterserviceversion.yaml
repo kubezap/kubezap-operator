@@ -1,0 +1,419 @@
+apiVersion: operators.coreos.com/v1alpha1
+kind: ClusterServiceVersion
+metadata:
+  annotations:
+    alm-examples: '[]'
+    capabilities: Basic Install
+    categories: Integration & Delivery
+    containerImage: kubezap.io/kubezap/controller:latest
+    description: Declarative workflow automation for Kubernetes — Zapier meets Camunda,
+      but Kubernetes-native.
+    operatorframework.io/suggested-namespace: kubezap-system
+    repository: https://github.com/yourname/kubezap
+    support: KubeZap Community
+  name: kubezap.v0.0.1
+  namespace: placeholder
+spec:
+  apiservicedefinitions: {}
+  customresourcedefinitions:
+    owned:
+    - description: Flow defines an ordered workflow of steps with conditional logic
+        and data transforms.
+      displayName: Flow
+      kind: Flow
+      name: flows.automation.kubezap.io
+      version: v1alpha1
+    - description: FlowRun is an execution instance of a Flow, created by a gateway
+        when a trigger fires.
+      displayName: FlowRun
+      kind: FlowRun
+      name: flowruns.automation.kubezap.io
+      version: v1alpha1
+    - description: Integration connects KubeZap to an external system (Kafka, plugin,
+        etc.).
+      displayName: Integration
+      kind: Integration
+      name: integrations.automation.kubezap.io
+      version: v1alpha1
+    - description: MockEndpoint provides a dev/test HTTP mock server; captures requests
+        in CRD status.
+      displayName: MockEndpoint
+      kind: MockEndpoint
+      name: mockendpoints.automation.kubezap.io
+      version: v1alpha1
+    - description: Trigger defines an event source (webhook, cron, or Kafka topic)
+        that initiates a Flow.
+      displayName: Trigger
+      kind: Trigger
+      name: triggers.automation.kubezap.io
+      version: v1alpha1
+  description: |
+    KubeZap is an enterprise-grade Kubernetes operator providing declarative
+    workflow automation inspired by Zapier. Users define automations via CRDs
+    instead of a web UI — think "Zapier meets Camunda, but Kubernetes-native."
+
+    ## Features
+
+    - **Webhook triggers**: Expose HTTP endpoints that fire workflows on incoming
+      requests with HMAC, bearer token, OIDC/JWT, API-key, mTLS, and IP-allowlist
+      authentication.
+    - **Cron triggers**: Schedule workflow executions using standard cron expressions.
+    - **Kafka triggers**: Consume from Kafka topics and create a FlowRun per message
+      with partition/offset dedup keys.
+    - **CEL conditions**: Per-step `when` expressions with full access to trigger
+      payload and upstream step results.
+    - **Data transforms**: `type: transform` steps for payload shaping between steps.
+    - **Retry policies**: Configurable per-step exponential backoff.
+    - **Plugin integrations**: Operator-managed plugin Deployments with automatic
+      RBAC and secret injection.
+    - **MockEndpoint**: Zero-dependency HTTP mock server for CI/test workflows.
+    - **Observability**: Prometheus metrics, OpenTelemetry traces, and structured JSON
+      access logs out of the box.
+
+    ## Multi-namespace support
+
+    Set `WATCH_NAMESPACES` on the operator Deployment:
+    - Empty (default) — AllNamespaces
+    - Single value — OwnNamespace / SingleNamespace
+    - Comma-separated — MultiNamespace
+
+  displayName: KubeZap
+  icon:
+  - base64data: ""
+    mediatype: image/png
+  install:
+    spec:
+      # clusterPermissions are used for AllNamespaces and MultiNamespace install modes.
+      clusterPermissions:
+      - rules:
+        - apiGroups:
+          - ""
+          resources:
+          - serviceaccounts
+          verbs:
+          - create
+          - get
+          - list
+          - patch
+          - update
+          - watch
+        - apiGroups:
+          - apps
+          resources:
+          - deployments
+          verbs:
+          - create
+          - delete
+          - get
+          - list
+          - patch
+          - update
+          - watch
+        - apiGroups:
+          - automation.kubezap.io
+          resources:
+          - flowruns
+          - triggers
+          verbs:
+          - create
+          - delete
+          - get
+          - list
+          - patch
+          - update
+          - watch
+        - apiGroups:
+          - automation.kubezap.io
+          resources:
+          - flowruns/finalizers
+          - triggers/finalizers
+          verbs:
+          - update
+        - apiGroups:
+          - automation.kubezap.io
+          resources:
+          - flowruns/status
+          - flows/status
+          - integrations/status
+          - mockendpoints/status
+          - triggers/status
+          verbs:
+          - get
+          - patch
+          - update
+        - apiGroups:
+          - automation.kubezap.io
+          resources:
+          - flows
+          - integrations
+          - mockendpoints
+          verbs:
+          - get
+          - list
+          - patch
+          - update
+          - watch
+        - apiGroups:
+          - autoscaling
+          resources:
+          - horizontalpodautoscalers
+          verbs:
+          - create
+          - delete
+          - get
+          - list
+          - patch
+          - update
+          - watch
+        - apiGroups:
+          - keda.sh
+          resources:
+          - scaledobjects
+          verbs:
+          - create
+          - delete
+          - get
+          - list
+          - patch
+          - update
+          - watch
+        - apiGroups:
+          - rbac.authorization.k8s.io
+          resources:
+          - rolebindings
+          - roles
+          verbs:
+          - create
+          - get
+          - list
+          - patch
+          - update
+          - watch
+        serviceAccountName: controller-manager
+      # permissions are used for OwnNamespace and SingleNamespace install modes.
+      permissions:
+      - rules:
+        - apiGroups:
+          - ""
+          resources:
+          - configmaps
+          verbs:
+          - get
+          - list
+          - watch
+          - create
+          - update
+          - patch
+          - delete
+        - apiGroups:
+          - coordination.k8s.io
+          resources:
+          - leases
+          verbs:
+          - get
+          - list
+          - watch
+          - create
+          - update
+          - patch
+          - delete
+        - apiGroups:
+          - ""
+          resources:
+          - events
+          verbs:
+          - create
+          - patch
+        - apiGroups:
+          - ""
+          resources:
+          - serviceaccounts
+          verbs:
+          - create
+          - get
+          - list
+          - patch
+          - update
+          - watch
+        - apiGroups:
+          - apps
+          resources:
+          - deployments
+          verbs:
+          - create
+          - delete
+          - get
+          - list
+          - patch
+          - update
+          - watch
+        - apiGroups:
+          - automation.kubezap.io
+          resources:
+          - flowruns
+          - triggers
+          verbs:
+          - create
+          - delete
+          - get
+          - list
+          - patch
+          - update
+          - watch
+        - apiGroups:
+          - automation.kubezap.io
+          resources:
+          - flowruns/finalizers
+          - triggers/finalizers
+          verbs:
+          - update
+        - apiGroups:
+          - automation.kubezap.io
+          resources:
+          - flowruns/status
+          - flows/status
+          - integrations/status
+          - mockendpoints/status
+          - triggers/status
+          verbs:
+          - get
+          - patch
+          - update
+        - apiGroups:
+          - automation.kubezap.io
+          resources:
+          - flows
+          - integrations
+          - mockendpoints
+          verbs:
+          - get
+          - list
+          - patch
+          - update
+          - watch
+        - apiGroups:
+          - autoscaling
+          resources:
+          - horizontalpodautoscalers
+          verbs:
+          - create
+          - delete
+          - get
+          - list
+          - patch
+          - update
+          - watch
+        - apiGroups:
+          - keda.sh
+          resources:
+          - scaledobjects
+          verbs:
+          - create
+          - delete
+          - get
+          - list
+          - patch
+          - update
+          - watch
+        - apiGroups:
+          - rbac.authorization.k8s.io
+          resources:
+          - rolebindings
+          - roles
+          verbs:
+          - create
+          - get
+          - list
+          - patch
+          - update
+          - watch
+        serviceAccountName: controller-manager
+      deployments:
+      - label:
+          app.kubernetes.io/managed-by: operator-lifecycle-manager
+          app.kubernetes.io/name: kubezap
+          control-plane: controller-manager
+        name: kubezap-controller-manager
+        spec:
+          replicas: 1
+          selector:
+            matchLabels:
+              app.kubernetes.io/name: kubezap
+              control-plane: controller-manager
+          strategy: {}
+          template:
+            metadata:
+              annotations:
+                kubectl.kubernetes.io/default-container: manager
+              labels:
+                app.kubernetes.io/name: kubezap
+                control-plane: controller-manager
+            spec:
+              containers:
+              - command:
+                - /manager
+                env:
+                - name: WATCH_NAMESPACES
+                  valueFrom:
+                    fieldRef:
+                      fieldPath: metadata.annotations['olm.targetNamespaces']
+                image: kubezap.io/kubezap/controller:v0.0.1
+                livenessProbe:
+                  httpGet:
+                    path: /healthz
+                    port: 8081
+                  initialDelaySeconds: 15
+                  periodSeconds: 20
+                name: manager
+                readinessProbe:
+                  httpGet:
+                    path: /readyz
+                    port: 8081
+                  initialDelaySeconds: 5
+                  periodSeconds: 10
+                resources:
+                  limits:
+                    cpu: 500m
+                    memory: 128Mi
+                  requests:
+                    cpu: 10m
+                    memory: 64Mi
+                securityContext:
+                  allowPrivilegeEscalation: false
+                  capabilities:
+                    drop:
+                    - ALL
+              securityContext:
+                runAsNonRoot: true
+                seccompProfile:
+                  type: RuntimeDefault
+              serviceAccountName: controller-manager
+              terminationGracePeriodSeconds: 10
+    strategy: deployment
+  # installModes declares which OLM install modes this operator supports.
+  # All four must be declared for OperatorHub certification.
+  installModes:
+  - supported: true
+    type: OwnNamespace
+  - supported: true
+    type: SingleNamespace
+  - supported: true
+    type: MultiNamespace
+  - supported: true
+    type: AllNamespaces
+  keywords:
+  - automation
+  - workflow
+  - kafka
+  - webhook
+  - cron
+  - kubernetes
+  - operator
+  links:
+  - name: KubeZap Documentation
+    url: https://github.com/yourname/kubezap/docs
+  maturity: alpha
+  provider:
+    name: KubeZap Community
+    url: https://github.com/yourname/kubezap
+  version: 0.0.1

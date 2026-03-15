@@ -649,3 +649,131 @@ The trigger payload will include the full resource object, previous object (for 
 | S3 / GCS events | `kubezap-s3-gateway` | Polls or uses bucket notifications |
 | Git (GitHub/GitLab webhooks) | Webhook gateway (existing) | Standard webhook with HMAC verification; no new gateway needed |
 | Remote cluster events | `kubezap-remote-cluster-gateway` | Future; requires cross-cluster API server access |
+
+---
+
+## Multi-Region HA
+
+> **Status**: Backlog — not yet implemented. This section documents the target architecture
+> and the design constraints it imposes on current implementation decisions. Exact
+> topology details (CRD replication mechanism, failover detection) are to be decided later.
+
+### Target Model: Active-Passive Controller, Active-Active Gateway
+
+The two components have different HA requirements and are treated separately:
+
+| Component | Model | Rationale |
+|---|---|---|
+| **Controller** (FlowRun execution, cron scheduling) | Active-passive | Cron must not fire twice; FlowRun execution must have a single owner. Cross-region leader election handles this. |
+| **Webhook / Kafka gateway** | Active-active | Stateless — trivial to run in multiple regions. Lower latency for geographically distributed senders. |
+
+```
+Region A (primary)              Region B (standby)
+──────────────────              ──────────────────
+Gateway ◄── global LB ──────►  Gateway
+   │                               │
+   └──► FlowRun CRDs ◄─────────────┘   (both regions write FlowRuns)
+              │
+         Controller ◄── leader election ──► Controller
+         (active)                            (standby — takes over on failure)
+```
+
+Both gateways create FlowRuns against the same (replicated) CRD API. Only the leader
+controller executes them. On primary failure the standby wins the lease, picks up any
+in-flight FlowRuns from their last persisted status, and resumes execution — no re-run
+from scratch.
+
+---
+
+### What is already designed for HA
+
+**CRD-as-state (not in-memory)**
+All execution state lives in CRD status (`FlowRun.status`). The controller holds no
+in-memory execution state between reconcile loops. If the active controller fails, the
+standby picks up from the last persisted step status.
+
+**Idempotent reconcilers**
+All reconcilers are safe to re-run at any time. Steps that already have `Succeeded`
+status are skipped on re-reconciliation.
+
+**FlowRun dedup keys**
+FlowRun names encode the triggering event to prevent duplicates:
+- Kafka: `<trigger>-p<partition>-offset-<offset>` — exactly-once per message
+- Cron: `<trigger>-<scheduled-time>` — exactly-once per schedule tick (enforced by leader election)
+- Webhook: `<trigger>-<timestamp>-<random>` — no dedup (webhooks are not idempotent by nature)
+
+**Leader election**
+controller-runtime's lease-based leader election ensures only one controller instance
+executes reconcile loops at a time, both within and (with cross-cluster lease) across regions.
+
+---
+
+### Gaps and future work
+
+**CRD replication**
+Kubernetes CRDs are cluster-scoped and do not replicate automatically. The mechanism for
+making FlowRun CRDs accessible across regions is to be decided (options: managed
+Kubernetes with multi-region etcd, KubeFed, GitOps sync). This is the primary open
+design question for multi-region support.
+
+**Cross-cluster leader election**
+controller-runtime leader election uses a Kubernetes Lease object. Extending this across
+clusters requires a shared API endpoint or a separate distributed lock. Exact mechanism TBD.
+
+**Step idempotency**
+HTTP steps are not idempotent by default. If a FlowRun is resumed after failover, a step
+that was in-flight (started but not yet written to status) may fire twice. Downstream
+services should be prepared for at-least-once delivery, or a future `step.idempotencyKey`
+field can propagate a caller-supplied key (e.g., `$(trigger.headers.X-Idempotency-Key)`).
+
+**Split-brain prevention**
+Split-brain occurs when both regions believe they are the active controller and execute
+the same FlowRuns simultaneously. Mitigation operates in layers:
+
+1. **Lease expiry, not forced failover.** The standby controller must wait for the
+   primary's Kubernetes Lease to expire naturally (default: 15s `leaseDuration`) before
+   acquiring leadership. It must never force-take the lease. If the primary is slow but
+   alive, forcing a takeover would cause dual execution.
+
+2. **Fencing via shared API server.** If the shared Kubernetes API (or etcd) is
+   reachable, the primary must be able to renew its Lease. If it cannot renew within
+   `renewDeadline`, it voluntarily stops reconciling. This is controller-runtime's default
+   behavior — the controller exits on lease loss rather than continuing blind.
+
+3. **Optimistic concurrency as the last line of defense.** Even if split-brain occurs
+   briefly, both controllers writing to the same `FlowRun.status` will race on
+   `resourceVersion`. Kubernetes rejects the stale write with a conflict error; the
+   losing controller requeues. Because reconcilers are idempotent, the result converges
+   correctly — the only risk is a step firing twice (the step idempotency gap above).
+
+4. **No split-brain within a single cluster.** Kubernetes Lease guarantees mutual
+   exclusion for all controllers sharing the same API server. Split-brain is only a
+   concern when controllers in separate clusters can both reach the CRD API.
+
+The practical recommendation: prefer a **single shared Kubernetes control plane** (e.g.,
+multi-region etcd with a single API server endpoint) over federated independent clusters.
+This eliminates split-brain at the architecture level rather than trying to solve it in
+application code. If independent clusters are required, cross-cluster leader election
+and fencing become necessary (mechanism TBD).
+
+---
+
+### Design constraints for current implementation
+
+These must be respected now to avoid rework when HA is added:
+
+1. **Never store execution state in controller memory.** All step results, retry counts,
+   and phase transitions must be written to `FlowRun.status` before the next reconcile.
+   (Already enforced.)
+
+2. **FlowRun names must be deterministic from the trigger event** where possible (Kafka,
+   cron) to support cross-region dedup via `AlreadyExists` error handling on the CRD API.
+
+3. **Avoid node-local resources.** Gateways must not write to local disk or use
+   node-local sockets. All state goes through the Kubernetes API.
+
+4. **Trace context propagation via annotations** must use W3C `traceparent` — this is
+   region-agnostic and works across process boundaries (see observability guide).
+
+5. **RBAC must be namespace-scoped** (Role, not ClusterRole) where possible, supporting
+   future multi-cluster deployments. (Already enforced for gateway RBAC.)

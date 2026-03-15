@@ -44,11 +44,11 @@
 - [x] FlowRun naming: `<trigger>-<timestamp>-<random>`
 - [x] HMAC authentication support
 - [x] Bearer token authentication support
-- [ ] OIDC/JWT authentication support
+- [x] OIDC/JWT authentication support
 - [x] API-key header and IP allowlist authentication support
 - [x] `/mock/*` path support for MockEndpoint CRDs
 - [x] Structured JSON access logs (source IP in logs only, not Prometheus labels)
-- [ ] HPA configuration for webhook gateway Deployment
+- [x] HPA configuration for webhook gateway Deployment
 - [x] Controller manages webhook gateway Deployment lifecycle (one per namespace)
 - [x] **Gateway ServiceAccount + Role + RoleBinding** created by controller alongside Deployment (deploy blocker — see `docs/architecture.md#gateway-serviceaccount-and-rbac`)
 
@@ -81,11 +81,13 @@
 
 ### Integration CRD & Kafka Gateway
 - [x] `Integration` reconciler in `internal/controller/integration_controller.go`
-- [ ] Kafka gateway skeleton in `cmd/kafka-gateway/main.go`
-- [ ] Dynamic topic subscription from Trigger CRDs
-- [ ] FlowRun creation per Kafka message: `<trigger>-p<partition>-offset-<offset>` (dedup key)
-- [ ] KEDA ScaledObject for Kafka gateway (partition-bounded scaling)
-- [ ] Controller manages Kafka gateway Deployment lifecycle (one per namespace × Kafka cluster)
+- [x] Kafka gateway skeleton in `cmd/kafka-gateway/main.go`
+- [x] Dynamic topic subscription from Trigger CRDs (sarama ConsumerGroup, TLS/SASL from Integration spec)
+- [x] FlowRun creation per Kafka message: `<trigger>-p<partition>-offset-<offset>` (dedup key)
+- [x] KEDA ScaledObject for Kafka gateway (partition-bounded scaling; graceful no-op if KEDA absent)
+- [x] Controller manages Kafka gateway Deployment lifecycle (one per namespace × Kafka cluster)
+- [ ] AMQP gateway skeleton in `cmd/amqp-gateway/main.go` (`type: amqp`, versions 0-9-1 and 1.0)
+- [ ] NATS gateway skeleton in `cmd/nats-gateway/main.go` (`type: nats`, Core + JetStream)
 - [x] `type: publish` step action — controller calls plugin `/publish` endpoint
 
 ### MockEndpoint CRD
@@ -105,37 +107,57 @@ Target: webhook → transform → conditional mock notify with two branches.
 - [x] **Demo sample CRs** — `config/samples/demo/` — the order-router scenario from `docs/guides/getting-started.md`; must `kubectl apply` cleanly and produce a working FlowRun
 - [x] **`docs/guides/getting-started.md`** complete and validated against actual behavior ✅
 
+## Demo Scenarios
+
+Additional demonstration scenarios targeting acquisition/enterprise stakeholders.
+
+### Demo 1 — Kafka Event Enrichment Pipeline
+- [x] Sample CRs in `config/samples/demo/kafka-enrichment/` (Integration, Trigger, Flow, MockEndpoints)
+- [x] Guide at `docs/guides/kafka-enrichment.md` (setup, produce messages, inspect FlowRuns, retry demo)
+- [x] `type: publish` PublishAction documented in `docs/api/flow.md`
+
+### Demo 2 — GitOps Deployment Gate
+- [ ] Design `type: kubernetes` step action spec in `docs/api/flow.md` (apply manifest, wait for rollout)
+- [ ] Sample CRs in `config/samples/demo/gitops-deploy-gate/`
+- [ ] Guide at `docs/guides/gitops-deploy-gate.md`
+- [ ] Implement `type: kubernetes` step executor in FlowRun controller
+
+### Demo 3 — Incident Response Escalation
+- [ ] Design wait/requeue primitive (delayed step re-evaluation without blocking)
+- [ ] Sample CRs in `config/samples/demo/incident-escalation/`
+- [ ] Guide at `docs/guides/incident-escalation.md`
+
 ---
 
 ## 3. Plugin System
 
-- [ ] Plugin contract documented in `docs/api/integration.md` (subscriber + publisher roles)
+- [x] Plugin contract documented in `docs/api/plugin-contract.md` (subscriber + publisher roles, dedup keys, observability, security)
 - [x] Operator creates plugin Deployment for `type: plugin` Integrations
-- [ ] Namespace-scoped RBAC granted to plugin Deployment
+- [x] Namespace-scoped RBAC granted to plugin Deployment (SA + Role + RoleBinding auto-created by controller)
 - [x] Env injection: `KUBEZAP_NAMESPACE`, `KUBEZAP_INTEGRATION_NAME`, `KUBEZAP_PUBLISHER_PORT`, `KUBEZAP_LOG_LEVEL`
 - [x] Secret injection via `spec.plugin.secretRefs` + `envVarMappings`
 - [x] Readiness probe: `GET /healthz` → 200
 - [x] Controller routes `type: publish` step calls to plugin `/publish` endpoint
-- [ ] Plugin trust model documented as a security consideration
+- [x] Plugin trust model documented as a security consideration (see `docs/api/plugin-contract.md#security-considerations`)
 
 ---
 
 ## 4. Observability
 
 - [x] Prometheus metrics: trigger firings, FlowRun durations, step outcomes
-- [ ] OpenTelemetry traces for FlowRun execution and step calls
-- [ ] Structured JSON access logs on webhook gateway (source IP, path, status, duration)
-- [ ] Source IP cardinality guard: `/24`-bucketed `source_range` on `ip_blocked` metric only
-- [ ] Observability guide updated in `docs/guides/observability.md`
-- [ ] ServiceMonitor usage documented (not auto-created by operator)
+- [x] OpenTelemetry traces for FlowRun execution and step calls (OTLP gRPC exporter, W3C traceparent propagation)
+- [x] Structured JSON access logs on webhook gateway (source IP, path, status, duration)
+- [x] Source IP cardinality guard: `/24`-bucketed `source_range` on `ip_blocked` metric only
+- [x] Observability guide updated in `docs/guides/observability.md`
+- [x] ServiceMonitor usage documented (not auto-created by operator)
 
 ---
 
 ## 5. Multi-Namespace & RBAC
 
-- [ ] `WATCH_NAMESPACES` env var support (AllNamespaces / MultiNamespace / SingleNamespace / OwnNamespace)
-- [ ] OwnNamespace/SingleNamespace modes use `Role` (not `ClusterRole`)
-- [ ] All four OLM install modes supported in CSV bundle
+- [x] `WATCH_NAMESPACES` env var support (AllNamespaces / MultiNamespace / SingleNamespace / OwnNamespace)
+- [x] OwnNamespace/SingleNamespace modes use `Role` (not `ClusterRole`)
+- [x] All four OLM install modes supported in CSV bundle
 
 ---
 
@@ -145,10 +167,10 @@ Target: webhook → transform → conditional mock notify with two branches.
 - [x] Ginkgo unit tests for FlowRun reconciler
 - [x] Ginkgo unit tests for Integration reconciler
 - [x] Ginkgo unit tests for MockEndpoint reconciler
-- [ ] E2E tests: webhook trigger → FlowRun creation → step execution
-- [ ] E2E tests: cron trigger fires on schedule
-- [ ] E2E tests: Kafka trigger → FlowRun with dedup key
-- [ ] E2E tests: FlowRun GC respects TTL and retain annotation
+- [x] E2E tests: webhook trigger → FlowRun creation → step execution
+- [x] E2E tests: cron trigger fires on schedule
+- [x] E2E tests: Kafka trigger → FlowRun with dedup key (skipped unless `KAFKA_BOOTSTRAP_SERVERS` set)
+- [x] E2E tests: FlowRun GC respects TTL and retain annotation
 
 ---
 
@@ -166,9 +188,12 @@ Target: webhook → transform → conditional mock notify with two branches.
 
 - [ ] `Step` CRD for reusable step definitions
 - [ ] Multi-namespace flows (cross-namespace FlowRun)
-- [ ] Additional message brokers: NATS, RabbitMQ, ActiveMQ, Solace, GCP Pub/Sub
+- [ ] Additional message brokers: GCP Pub/Sub, Solace (non-AMQP), TIBCO EMS (via plugin model)
+- [ ] Plugin catalog / marketplace in `docs/plugins/` with community registry and maturity levels
+- [ ] Reference plugin implementation in `docs/plugins/example-plugin/`
 - [ ] Web UI for flow monitoring
 - [ ] OpenLineage support
 - [ ] Multi-region HA support
 - [ ] Plugin marketplace / integration catalog
 - [ ] S3/Git event trigger source
+- [x] Fix pre-existing `flow_controller_test.go` failure: `when spec.steps is empty` test case

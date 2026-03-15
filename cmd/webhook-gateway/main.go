@@ -115,7 +115,7 @@ func main() {
 		_, _ = w.Write([]byte("not ready"))
 	})
 
-	srv := &http.Server{Addr: fmt.Sprintf(":%d", port), Handler: mux}
+	srv := &http.Server{Addr: fmt.Sprintf(":%d", port), Handler: webhook.AccessLogMiddleware(mux)}
 	go func() {
 		log.Info("starting webhook gateway HTTP server", "port", port)
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {

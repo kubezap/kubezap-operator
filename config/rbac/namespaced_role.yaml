@@ -1,6 +1,11 @@
 ---
+# Role for OwnNamespace / SingleNamespace OLM install modes.
+# Grants the same permissions as manager-role (ClusterRole) but scoped to a
+# single namespace.  Use this instead of manager-role when the operator is
+# installed with OwnNamespace or SingleNamespace install mode so that it does
+# not require cluster-wide RBAC.
 apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRole
+kind: Role
 metadata:
   name: manager-role
 rules:
@@ -8,7 +13,6 @@ rules:
   - ""
   resources:
   - serviceaccounts
-  - services
   verbs:
   - create
   - get

@@ -41,8 +41,16 @@ var (
 		Buckets: prometheus.DefBuckets,
 	}, []string{"namespace", "flow", "step_type", "outcome"})
 	// outcome values: "Succeeded", "Failed"
+
+	// WebhookIPBlocked counts requests rejected by the IP allowlist auth handler.
+	// source_range is the /24 (IPv4) or /48 (IPv6) CIDR bucket of the source IP —
+	// never the full IP — to bound Prometheus label cardinality.
+	WebhookIPBlocked = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "kubezap_webhook_ip_blocked_total",
+		Help: "Total requests blocked by the webhook IP allowlist, labelled by /24 (IPv4) or /48 (IPv6) source CIDR bucket.",
+	}, []string{"trigger", "source_range"})
 )
 
 func init() {
-	ctrlmetrics.Registry.MustRegister(TriggerFirings, FlowRunDuration, StepDuration)
+	ctrlmetrics.Registry.MustRegister(TriggerFirings, FlowRunDuration, StepDuration, WebhookIPBlocked)
 }

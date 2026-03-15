@@ -31,6 +31,6 @@ before
 after
 coredns.yaml
 .claude/
-kafka-gateway
-amqp-gateway
-nats-gateway
+/kafka-gateway
+/amqp-gateway
+/nats-gateway

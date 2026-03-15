@@ -17,7 +17,7 @@ Work top-to-bottom. Each prompt assumes the previous ones are complete.
 
 ## 16. Cron cooldown enforcement
 
-**Status:** `[ ]`
+**Status:** `[x]`
 
 **Why:** `CooldownPolicy` is defined in the Trigger spec but never checked. Without enforcement,
 a misconfigured cron expression or rapid re-reconciliation can flood the cluster with FlowRuns.
@@ -68,7 +68,7 @@ Run make manifests. Commit:
 
 ## 17. Flow timeout enforcement + publish step implementation
 
-**Status:** `[ ]`
+**Status:** `[x]`
 
 **Why:** HTTP steps in long-running flows can block forever if the remote is slow. Flow-level
 timeout is in the spec but not enforced. The `type: publish` step is currently a no-op stub.
@@ -148,7 +148,7 @@ Add import "fmt" if not present. Run go build ./.... Commit:
 
 ## 18. MockEndpoint: persist captured requests to CRD status
 
-**Status:** `[ ]`
+**Status:** `[x]`
 
 **Why:** The mock handler captures request events but they never reach the CRD status. Developers
 using MockEndpoints have no way to inspect what was received.
@@ -211,7 +211,7 @@ Run go build ./.... Commit:
 
 ## 19. Plugin secret injection via spec.plugin.secretRefs
 
-**Status:** `[ ]`
+**Status:** `[x]`
 
 **Why:** Plugin Deployments need secrets (API keys, passwords) injected as env vars. The
 `secretRefs` field is in the spec but ignored by the reconciler.
@@ -253,7 +253,7 @@ Run go build ./.... Commit:
 
 ## 20. Prometheus metrics
 
-**Status:** `[ ]`
+**Status:** `[x]`
 
 **Why:** Observability from day one is a design goal. Without metrics, there is no way to
 alert on trigger storms, slow flows, or high step failure rates.
@@ -330,7 +330,7 @@ Run go build ./.... Commit:
 
 ## 21. Ginkgo unit tests — Flow reconciler
 
-**Status:** `[ ]`
+**Status:** `[x]`
 
 **Why:** The Flow reconciler has no tests. CI will not catch regressions in spec validation logic.
 
@@ -385,7 +385,7 @@ Run make test to verify. Commit:
 
 ## 22. Ginkgo unit tests — FlowRun reconciler
 
-**Status:** `[ ]`
+**Status:** `[x]`
 
 **Why:** The FlowRun reconciler is the core of the system and has no tests.
 

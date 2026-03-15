@@ -56,7 +56,7 @@
 ### Cron Trigger
 - [x] Cron scheduler implementation in controller (`robfig/cron v3`)
 - [x] FlowRun creation on schedule fire: `<trigger>-<scheduled-time>` naming
-- [ ] Cooldown enforcement for cron triggers
+- [x] Cooldown enforcement for cron triggers
 
 ### Controller: FlowRun Execution
 - [x] `FlowRun` reconciler in `internal/controller/flowrun_controller.go`
@@ -77,7 +77,7 @@
 - [x] Step input/output data passing between steps (`$(steps.<name>.results.<key>)` substitution)
 - [x] Data transformation step type (`type: transform`) (implemented in FlowRun reconciler — substituteVars applied to mappings)
 - [x] Retry policies with exponential backoff per step (implemented in FlowRun reconciler)
-- [ ] Flow-level timeout enforcement (enforce `flow.Spec.Timeout` across all steps)
+- [x] Flow-level timeout enforcement (enforce `flow.Spec.Timeout` across all steps)
 
 ### Integration CRD & Kafka Gateway
 - [x] `Integration` reconciler in `internal/controller/integration_controller.go`
@@ -86,11 +86,11 @@
 - [ ] FlowRun creation per Kafka message: `<trigger>-p<partition>-offset-<offset>` (dedup key)
 - [ ] KEDA ScaledObject for Kafka gateway (partition-bounded scaling)
 - [ ] Controller manages Kafka gateway Deployment lifecycle (one per namespace × Kafka cluster)
-- [ ] `type: publish` step action — controller calls plugin `/publish` endpoint
+- [x] `type: publish` step action — controller calls plugin `/publish` endpoint
 
 ### MockEndpoint CRD
 - [x] MockEndpoint reconciler — registers routes on webhook gateway
-- [ ] Captured request storage in CRD status (events sent via channel; controller does not yet persist to status)
+- [x] Captured request storage in CRD status (gateway writes directly to MockEndpoint status via k8sClient)
 
 ---
 
@@ -100,7 +100,7 @@
 - [x] Operator creates plugin Deployment for `type: plugin` Integrations
 - [ ] Namespace-scoped RBAC granted to plugin Deployment
 - [x] Env injection: `KUBEZAP_NAMESPACE`, `KUBEZAP_INTEGRATION_NAME`, `KUBEZAP_PUBLISHER_PORT`, `KUBEZAP_LOG_LEVEL`
-- [ ] Secret injection via `spec.plugin.secretRefs` + `envVarMappings`
+- [x] Secret injection via `spec.plugin.secretRefs` + `envVarMappings`
 - [x] Readiness probe: `GET /healthz` → 200
 - [ ] Controller routes `type: publish` step calls to plugin `/publish` endpoint
 - [ ] Plugin trust model documented as a security consideration
@@ -109,7 +109,7 @@
 
 ## 4. Observability
 
-- [ ] Prometheus metrics: trigger firings, FlowRun durations, step outcomes
+- [x] Prometheus metrics: trigger firings, FlowRun durations, step outcomes
 - [ ] OpenTelemetry traces for FlowRun execution and step calls
 - [ ] Structured JSON access logs on webhook gateway (source IP, path, status, duration)
 - [ ] Source IP cardinality guard: `/24`-bucketed `source_range` on `ip_blocked` metric only
@@ -128,8 +128,8 @@
 
 ## 6. Testing
 
-- [ ] Ginkgo unit tests for Flow reconciler
-- [ ] Ginkgo unit tests for FlowRun reconciler
+- [x] Ginkgo unit tests for Flow reconciler
+- [x] Ginkgo unit tests for FlowRun reconciler
 - [ ] Ginkgo unit tests for Integration reconciler
 - [ ] Ginkgo unit tests for MockEndpoint reconciler
 - [ ] E2E tests: webhook trigger → FlowRun creation → step execution

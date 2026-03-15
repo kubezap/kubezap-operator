@@ -135,9 +135,9 @@ Target: webhook → transform → conditional mock notify with two branches.
 
 ## 5. Multi-Namespace & RBAC
 
-- [ ] `WATCH_NAMESPACES` env var support (AllNamespaces / MultiNamespace / SingleNamespace / OwnNamespace)
-- [ ] OwnNamespace/SingleNamespace modes use `Role` (not `ClusterRole`)
-- [ ] All four OLM install modes supported in CSV bundle
+- [x] `WATCH_NAMESPACES` env var support (AllNamespaces / MultiNamespace / SingleNamespace / OwnNamespace)
+- [x] OwnNamespace/SingleNamespace modes use `Role` (not `ClusterRole`)
+- [x] All four OLM install modes supported in CSV bundle
 
 ---
 

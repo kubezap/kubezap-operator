@@ -1,0 +1,114 @@
+---
+# Role for OwnNamespace / SingleNamespace OLM install modes.
+# Grants the same permissions as manager-role (ClusterRole) but scoped to a
+# single namespace.  Use this instead of manager-role when the operator is
+# installed with OwnNamespace or SingleNamespace install mode so that it does
+# not require cluster-wide RBAC.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: manager-role
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - serviceaccounts
+  verbs:
+  - create
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - apps
+  resources:
+  - deployments
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - automation.kubezap.io
+  resources:
+  - flowruns
+  - triggers
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - automation.kubezap.io
+  resources:
+  - flowruns/finalizers
+  - triggers/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - automation.kubezap.io
+  resources:
+  - flowruns/status
+  - flows/status
+  - integrations/status
+  - mockendpoints/status
+  - triggers/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - automation.kubezap.io
+  resources:
+  - flows
+  - integrations
+  - mockendpoints
+  verbs:
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - autoscaling
+  resources:
+  - horizontalpodautoscalers
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - keda.sh
+  resources:
+  - scaledobjects
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - rbac.authorization.k8s.io
+  resources:
+  - rolebindings
+  - roles
+  verbs:
+  - create
+  - get
+  - list
+  - patch
+  - update
+  - watch

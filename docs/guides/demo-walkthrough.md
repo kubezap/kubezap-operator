@@ -36,10 +36,12 @@ kubectl apply -k config/samples/demo/kafka-enrichment/
 ### Step 2 — Verify MockEndpoints are registered
 
 ```bash
-# All three mock endpoints should appear
+# All four mock endpoints should appear
 kubectl get mockendpoints -n $NS
 
-# Gateway should be running
+# The webhook gateway must be running — it serves /mock/* for the flow steps.
+# A dummy webhook trigger (kafka-enrichment-gateway-init) is included in the
+# demo kustomization specifically to ensure the gateway is created.
 kubectl get deployment kubezap-webhook-gateway -n $NS
 ```
 

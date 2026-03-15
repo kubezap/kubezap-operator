@@ -3,3 +3,4 @@ resources:
   - mockendpoints.yaml
   - flow.yaml
   - trigger.yaml
+  - webhook-gateway-trigger.yaml

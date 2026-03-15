@@ -1,0 +1,45 @@
+apiVersion: automation.kubezap.io/v1alpha1
+kind: MockEndpoint
+metadata:
+  name: enrich-order
+  namespace: default
+spec:
+  path: enrich-order
+  responseSequence:
+    - statusCode: 200
+      body: '{"customerId":"cust-001","tier":"express"}'
+      headers:
+        Content-Type: application/json
+    - statusCode: 200
+      body: '{"customerId":"cust-002","tier":"standard"}'
+      headers:
+        Content-Type: application/json
+  maxRequestHistory: 20
+---
+apiVersion: automation.kubezap.io/v1alpha1
+kind: MockEndpoint
+metadata:
+  name: notify-express
+  namespace: default
+spec:
+  path: notify-express
+  response:
+    statusCode: 200
+    body: '{"notified":true,"tier":"express"}'
+    headers:
+      Content-Type: application/json
+  maxRequestHistory: 20
+---
+apiVersion: automation.kubezap.io/v1alpha1
+kind: MockEndpoint
+metadata:
+  name: notify-standard
+  namespace: default
+spec:
+  path: notify-standard
+  response:
+    statusCode: 200
+    body: '{"notified":true,"tier":"standard"}'
+    headers:
+      Content-Type: application/json
+  maxRequestHistory: 20

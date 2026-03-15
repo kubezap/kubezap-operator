@@ -1,0 +1,13 @@
+apiVersion: automation.kubezap.io/v1alpha1
+kind: Trigger
+metadata:
+  name: order-placed
+  namespace: default
+spec:
+  type: webhook
+  enabled: true
+  webhook:
+    path: /hooks/order-placed
+    method: POST
+  flowRef:
+    name: order-router

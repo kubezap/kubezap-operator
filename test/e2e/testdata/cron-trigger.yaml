@@ -1,0 +1,11 @@
+apiVersion: automation.kubezap.io/v1alpha1
+kind: Trigger
+metadata:
+  name: e2e-cron
+spec:
+  type: cron
+  enabled: true
+  cron:
+    schedule: "*/1 * * * *"
+  flowRef:
+    name: e2e-cron-flow

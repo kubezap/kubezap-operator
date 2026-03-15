@@ -1,0 +1,13 @@
+apiVersion: automation.kubezap.io/v1alpha1
+kind: Flow
+metadata:
+  name: e2e-kafka-flow
+spec:
+  timeout: 30s
+  steps:
+    - name: process-message
+      action:
+        type: transform
+        transform:
+          mappings:
+            payload: "$(trigger.body)"

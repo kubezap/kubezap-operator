@@ -1,0 +1,15 @@
+apiVersion: automation.kubezap.io/v1alpha1
+kind: Trigger
+metadata:
+  name: e2e-kafka
+spec:
+  type: pubsub
+  enabled: true
+  pubsub:
+    type: kafka
+    integrationRef:
+      name: e2e-kafka
+    topic: e2e-test-topic
+    consumerGroup: kubezap-e2e
+  flowRef:
+    name: e2e-kafka-flow

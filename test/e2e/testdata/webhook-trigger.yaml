@@ -1,0 +1,12 @@
+apiVersion: automation.kubezap.io/v1alpha1
+kind: Trigger
+metadata:
+  name: e2e-webhook
+spec:
+  type: webhook
+  enabled: true
+  webhook:
+    path: /hooks/e2e-test
+    method: POST
+  flowRef:
+    name: e2e-webhook-flow

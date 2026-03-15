@@ -147,10 +147,10 @@ Target: webhook → transform → conditional mock notify with two branches.
 - [x] Ginkgo unit tests for FlowRun reconciler
 - [x] Ginkgo unit tests for Integration reconciler
 - [x] Ginkgo unit tests for MockEndpoint reconciler
-- [ ] E2E tests: webhook trigger → FlowRun creation → step execution
-- [ ] E2E tests: cron trigger fires on schedule
-- [ ] E2E tests: Kafka trigger → FlowRun with dedup key
-- [ ] E2E tests: FlowRun GC respects TTL and retain annotation
+- [x] E2E tests: webhook trigger → FlowRun creation → step execution
+- [x] E2E tests: cron trigger fires on schedule
+- [x] E2E tests: Kafka trigger → FlowRun with dedup key (skipped unless `KAFKA_BOOTSTRAP_SERVERS` set)
+- [x] E2E tests: FlowRun GC respects TTL and retain annotation
 
 ---
 

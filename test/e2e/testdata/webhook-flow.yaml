@@ -1,0 +1,13 @@
+apiVersion: automation.kubezap.io/v1alpha1
+kind: Flow
+metadata:
+  name: e2e-webhook-flow
+spec:
+  timeout: 30s
+  steps:
+    - name: echo-payload
+      action:
+        type: transform
+        transform:
+          mappings:
+            message: "$(trigger.body)"

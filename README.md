@@ -44,33 +44,35 @@ Install via the OpenShift OperatorHub catalog or the community OperatorHub.
 
 k3s uses its own containerd instance, so images built with Docker need to be imported before deploying.
 
+Use a git SHA tag instead of `:latest` — with `imagePullPolicy: IfNotPresent`, k3s caches by tag, so reimporting `:latest` won't replace a running pod's image. A unique tag per build guarantees the new image is always used.
+
 ```bash
-# 1. Build both images
-make docker-build IMG=kubezap/controller:latest
-docker build -t kubezap/webhook-gateway:latest -f cmd/webhook-gateway/Dockerfile .
+# 1. Set a tag based on the current git commit
+TAG=$(git rev-parse --short HEAD)
 
-# 2. Import them into k3s containerd
-docker save kubezap/controller:latest      | sudo k3s ctr images import -
-docker save kubezap/webhook-gateway:latest | sudo k3s ctr images import -
+# 2. Build both images
+make docker-build IMG=kubezap/controller:$TAG
+docker build -t kubezap/webhook-gateway:$TAG -f cmd/webhook-gateway/Dockerfile .
 
-# 3. Verify the images are visible to k3s
-sudo k3s ctr images ls | grep kubezap
+# 3. Import them into k3s containerd
+docker save kubezap/controller:$TAG      | sudo k3s ctr images import -
+docker save kubezap/webhook-gateway:$TAG | sudo k3s ctr images import -
 
-# 4. Deploy
-make deploy IMG=kubezap/controller:latest
+# 4. Deploy (kustomize patches the manager image to $TAG)
+make deploy IMG=kubezap/controller:$TAG
 ```
 
-The controller and webhook gateway manifests use `imagePullPolicy: IfNotPresent`, so k3s will use the locally imported images without attempting a registry pull.
-
-When you rebuild after a code change, repeat steps 1–2 then restart the relevant pod:
+The webhook gateway image tag is hardcoded in `internal/controller/gateway_deployment.go`. Update `webhookGatewayImage` to match `$TAG` before running `make deploy`, or override it:
 
 ```bash
-# Rebuild and re-import
-make docker-build IMG=kubezap/controller:latest
-docker save kubezap/controller:latest | sudo k3s ctr images import -
-
-# Restart the controller pod to pick up the new image
-kubectl rollout restart deployment/kubezap-controller-manager -n kubezap-system
+# One-liner: build, import, and deploy in one go
+TAG=$(git rev-parse --short HEAD) && \
+  make docker-build IMG=kubezap/controller:$TAG && \
+  docker build -t kubezap/webhook-gateway:$TAG -f cmd/webhook-gateway/Dockerfile . && \
+  docker save kubezap/controller:$TAG      | sudo k3s ctr images import - && \
+  docker save kubezap/webhook-gateway:$TAG | sudo k3s ctr images import - && \
+  sed -i "s|webhookGatewayImage.*=.*|webhookGatewayImage = \"kubezap/webhook-gateway:$TAG\"|" internal/controller/gateway_deployment.go && \
+  make deploy IMG=kubezap/controller:$TAG
 ```
 
 ---

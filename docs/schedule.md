@@ -126,10 +126,10 @@ Target: webhook → transform → conditional mock notify with two branches.
 
 - [x] Prometheus metrics: trigger firings, FlowRun durations, step outcomes
 - [x] OpenTelemetry traces for FlowRun execution and step calls (OTLP gRPC exporter, W3C traceparent propagation)
-- [ ] Structured JSON access logs on webhook gateway (source IP, path, status, duration)
-- [ ] Source IP cardinality guard: `/24`-bucketed `source_range` on `ip_blocked` metric only
-- [ ] Observability guide updated in `docs/guides/observability.md`
-- [ ] ServiceMonitor usage documented (not auto-created by operator)
+- [x] Structured JSON access logs on webhook gateway (source IP, path, status, duration)
+- [x] Source IP cardinality guard: `/24`-bucketed `source_range` on `ip_blocked` metric only
+- [x] Observability guide updated in `docs/guides/observability.md`
+- [x] ServiceMonitor usage documented (not auto-created by operator)
 
 ---
 

@@ -379,8 +379,29 @@ Every request to the webhook gateway produces a structured JSON access log entry
 
 **This is where source IP tracking lives.** Raw IP addresses are not Prometheus label values due to cardinality — they are in the access log.
 
+Access logging is implemented via `internal/gateway/webhook/accesslog.go`. The `AccessLogMiddleware` wraps every request and emits one log line per request containing the core fields listed below. Auth-specific detail (reason, FlowRun name) is additionally logged inline by the webhook handler at `warn` or `error` level.
+
 ### Access Log Fields
 
+The `AccessLogMiddleware` emits one compact JSON line per request (core fields). The webhook handler emits supplementary log lines for auth detail and FlowRun outcomes. Together they form the full picture shown in the example below.
+
+**Core access log line (emitted by middleware):**
+```json
+{
+  "time": "2026-03-14T10:32:11Z",
+  "level": "INFO",
+  "msg": "access",
+  "timestamp": "2026-03-14T10:32:11Z",
+  "method": "POST",
+  "path": "/hooks/orders",
+  "status": 202,
+  "duration_ms": 12,
+  "source_ip": "203.0.113.42",
+  "trigger": "orders"
+}
+```
+
+**Full structured entry (conceptual — combining middleware + handler log fields):**
 ```json
 {
   "ts": "2026-03-14T10:32:11.423Z",
@@ -530,7 +551,9 @@ Access logging is enabled by default. Configure via operator environment variabl
 
 ### Status
 
-Not yet implemented. Planned for a future release. This section documents the intended design so that the implementation can follow it directly.
+Implemented. The `internal/telemetry` package initialises a global `TracerProvider` using an OTLP gRPC exporter (see `internal/telemetry/tracing.go`). Both the controller (`cmd/main.go`) and the webhook gateway initialise the provider at startup. When `OTEL_EXPORTER_OTLP_ENDPOINT` is unset, a no-op provider is installed with zero overhead.
+
+W3C TraceContext + Baggage propagation is registered globally via `otel.SetTextMapPropagator`. The `kubezap.io/traceparent` annotation on FlowRun resources carries the W3C `traceparent` value across the gateway-to-controller process boundary.
 
 ---
 

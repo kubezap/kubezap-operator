@@ -5,4 +5,4 @@ kind: Kustomization
 images:
 - name: controller
   newName: docker.io/kubezap/controller
-  newTag: 7c4f087
+  newTag: 4dcc486

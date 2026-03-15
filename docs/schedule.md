@@ -44,7 +44,7 @@
 - [x] FlowRun naming: `<trigger>-<timestamp>-<random>`
 - [x] HMAC authentication support
 - [x] Bearer token authentication support
-- [ ] OIDC/JWT authentication support
+- [x] OIDC/JWT authentication support
 - [x] API-key header and IP allowlist authentication support
 - [x] `/mock/*` path support for MockEndpoint CRDs
 - [x] Structured JSON access logs (source IP in logs only, not Prometheus labels)
@@ -81,11 +81,11 @@
 
 ### Integration CRD & Kafka Gateway
 - [x] `Integration` reconciler in `internal/controller/integration_controller.go`
-- [ ] Kafka gateway skeleton in `cmd/kafka-gateway/main.go`
-- [ ] Dynamic topic subscription from Trigger CRDs
-- [ ] FlowRun creation per Kafka message: `<trigger>-p<partition>-offset-<offset>` (dedup key)
-- [ ] KEDA ScaledObject for Kafka gateway (partition-bounded scaling)
-- [ ] Controller manages Kafka gateway Deployment lifecycle (one per namespace × Kafka cluster)
+- [x] Kafka gateway skeleton in `cmd/kafka-gateway/main.go`
+- [x] Dynamic topic subscription from Trigger CRDs (sarama ConsumerGroup, TLS/SASL from Integration spec)
+- [x] FlowRun creation per Kafka message: `<trigger>-p<partition>-offset-<offset>` (dedup key)
+- [x] KEDA ScaledObject for Kafka gateway (partition-bounded scaling; graceful no-op if KEDA absent)
+- [x] Controller manages Kafka gateway Deployment lifecycle (one per namespace × Kafka cluster)
 - [ ] AMQP gateway skeleton in `cmd/amqp-gateway/main.go` (`type: amqp`, versions 0-9-1 and 1.0)
 - [ ] NATS gateway skeleton in `cmd/nats-gateway/main.go` (`type: nats`, Core + JetStream)
 - [x] `type: publish` step action — controller calls plugin `/publish` endpoint
@@ -113,7 +113,7 @@ Target: webhook → transform → conditional mock notify with two branches.
 
 - [x] Plugin contract documented in `docs/api/plugin-contract.md` (subscriber + publisher roles, dedup keys, observability, security)
 - [x] Operator creates plugin Deployment for `type: plugin` Integrations
-- [ ] Namespace-scoped RBAC granted to plugin Deployment
+- [x] Namespace-scoped RBAC granted to plugin Deployment (SA + Role + RoleBinding auto-created by controller)
 - [x] Env injection: `KUBEZAP_NAMESPACE`, `KUBEZAP_INTEGRATION_NAME`, `KUBEZAP_PUBLISHER_PORT`, `KUBEZAP_LOG_LEVEL`
 - [x] Secret injection via `spec.plugin.secretRefs` + `envVarMappings`
 - [x] Readiness probe: `GET /healthz` → 200
@@ -125,7 +125,7 @@ Target: webhook → transform → conditional mock notify with two branches.
 ## 4. Observability
 
 - [x] Prometheus metrics: trigger firings, FlowRun durations, step outcomes
-- [ ] OpenTelemetry traces for FlowRun execution and step calls
+- [x] OpenTelemetry traces for FlowRun execution and step calls (OTLP gRPC exporter, W3C traceparent propagation)
 - [ ] Structured JSON access logs on webhook gateway (source IP, path, status, duration)
 - [ ] Source IP cardinality guard: `/24`-bucketed `source_range` on `ip_blocked` metric only
 - [ ] Observability guide updated in `docs/guides/observability.md`

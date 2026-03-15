@@ -21,6 +21,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	automationv1alpha1 "github.com/yourname/kubezap/api/v1alpha1"
+	"github.com/yourname/kubezap/internal/metrics"
 )
 
 // +kubebuilder:rbac:groups=automation.kubezap.io,resources=flowruns,verbs=create
@@ -65,9 +66,28 @@ func writeJSON(w http.ResponseWriter, status int, body interface{}) {
 	_ = json.NewEncoder(w).Encode(body)
 }
 
+// sourceRange returns the /24 CIDR bucket for IPv4 addresses and the /48 CIDR bucket for IPv6
+// addresses. This is used as the source_range Prometheus label to bound label cardinality.
+// The full source IP is never exposed as a Prometheus label value.
+func sourceRange(ipStr string) string {
+	ip := net.ParseIP(ipStr)
+	if ip == nil {
+		return "unknown"
+	}
+	if ip4 := ip.To4(); ip4 != nil {
+		// IPv4: mask to /24
+		mask := net.CIDRMask(24, 32)
+		return ip4.Mask(mask).String() + "/24"
+	}
+	// IPv6: mask to /48
+	mask := net.CIDRMask(48, 128)
+	return ip.Mask(mask).String() + "/48"
+}
+
 // authenticateRequest validates the incoming request against the route entry's auth configuration.
+// triggerName is used only for metric labelling when a request is blocked by IP allowlist.
 // Returns (http.StatusOK, "") on success, or (statusCode, errorMessage) on failure.
-func authenticateRequest(r *http.Request, body []byte, entry RouteEntry) (int, string) {
+func authenticateRequest(r *http.Request, body []byte, entry RouteEntry, triggerName string) (int, string) {
 	switch entry.AuthType {
 	case "hmac":
 		sigHeader := r.Header.Get("X-Hub-Signature-256")
@@ -116,11 +136,8 @@ func authenticateRequest(r *http.Request, body []byte, entry RouteEntry) (int, s
 		}
 
 	case "ipAllowlist":
-		remoteIP, _, err := net.SplitHostPort(r.RemoteAddr)
-		if err != nil {
-			remoteIP = r.RemoteAddr
-		}
-		ip := net.ParseIP(remoteIP)
+		clientIP := realClientIP(r)
+		ip := net.ParseIP(clientIP)
 		allowed := false
 		for _, cidr := range entry.IPAllowlist {
 			_, ipNet, parseErr := net.ParseCIDR(cidr)
@@ -138,6 +155,7 @@ func authenticateRequest(r *http.Request, body []byte, entry RouteEntry) (int, s
 			}
 		}
 		if !allowed {
+			metrics.WebhookIPBlocked.WithLabelValues(triggerName, sourceRange(clientIP)).Inc()
 			return http.StatusForbidden, "source IP not in allowlist"
 		}
 
@@ -206,7 +224,7 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		bodyBytes = bodyBytes[:maxBody]
 	}
 
-	if authStatus, authMsg := authenticateRequest(r, bodyBytes, entry); authStatus != http.StatusOK {
+	if authStatus, authMsg := authenticateRequest(r, bodyBytes, entry, triggerName); authStatus != http.StatusOK {
 		status = authStatus
 		writeJSON(w, status, map[string]string{"error": authMsg})
 		return

@@ -18,6 +18,7 @@ package controller
 
 import (
 	appsv1 "k8s.io/api/apps/v1"
+	autoscalingv2 "k8s.io/api/autoscaling/v2"
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -91,6 +92,47 @@ func desiredWebhookGatewayRoleBinding(namespace string) *rbacv1.RoleBinding {
 				Kind:      "ServiceAccount",
 				Name:      "kubezap-webhook-gateway",
 				Namespace: namespace,
+			},
+		},
+	}
+}
+
+// desiredWebhookGatewayHPA returns the desired HorizontalPodAutoscaler for the webhook
+// gateway Deployment in the given namespace. It targets CPU utilization at 70% with a
+// min of 1 and max of 10 replicas.
+func desiredWebhookGatewayHPA(namespace string) *autoscalingv2.HorizontalPodAutoscaler {
+	cpuUtilization := int32(70)
+	minReplicas := int32(1)
+	maxReplicas := int32(10)
+
+	return &autoscalingv2.HorizontalPodAutoscaler{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      webhookGatewayDeploymentName,
+			Namespace: namespace,
+			Labels: map[string]string{
+				"kubezap.io/component": "webhook-gateway",
+				"kubezap.io/namespace": namespace,
+			},
+		},
+		Spec: autoscalingv2.HorizontalPodAutoscalerSpec{
+			ScaleTargetRef: autoscalingv2.CrossVersionObjectReference{
+				APIVersion: "apps/v1",
+				Kind:       "Deployment",
+				Name:       webhookGatewayDeploymentName,
+			},
+			MinReplicas: &minReplicas,
+			MaxReplicas: maxReplicas,
+			Metrics: []autoscalingv2.MetricSpec{
+				{
+					Type: autoscalingv2.ResourceMetricSourceType,
+					Resource: &autoscalingv2.ResourceMetricSource{
+						Name: corev1.ResourceCPU,
+						Target: autoscalingv2.MetricTarget{
+							Type:               autoscalingv2.UtilizationMetricType,
+							AverageUtilization: &cpuUtilization,
+						},
+					},
+				},
 			},
 		},
 	}

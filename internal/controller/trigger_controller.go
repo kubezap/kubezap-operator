@@ -21,6 +21,7 @@ import (
 	"fmt"
 
 	appsv1 "k8s.io/api/apps/v1"
+	autoscalingv2 "k8s.io/api/autoscaling/v2"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
@@ -49,6 +50,7 @@ type TriggerReconciler struct {
 // +kubebuilder:rbac:groups="",resources=serviceaccounts,verbs=get;list;watch;create;update;patch
 // +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=roles,verbs=get;list;watch;create;update;patch
 // +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=rolebindings,verbs=get;list;watch;create;update;patch
+// +kubebuilder:rbac:groups=autoscaling,resources=horizontalpodautoscalers,verbs=get;list;watch;create;update;patch;delete
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
@@ -179,6 +181,42 @@ func (r *TriggerReconciler) reconcileWebhookGatewayDeployment(ctx context.Contex
 			}
 			log.Info("updated webhook gateway deployment", "namespace", namespace)
 		}
+	}
+
+	// Ensure HPA exists and is up to date.
+	if err := r.reconcileWebhookGatewayHPA(ctx, namespace); err != nil {
+		return fmt.Errorf("reconciling webhook gateway HPA: %w", err)
+	}
+
+	return nil
+}
+
+// reconcileWebhookGatewayHPA ensures the HorizontalPodAutoscaler for the webhook gateway
+// Deployment exists in the given namespace. The HPA targets 70% average CPU utilization
+// with a minimum of 1 and maximum of 10 replicas.
+func (r *TriggerReconciler) reconcileWebhookGatewayHPA(ctx context.Context, namespace string) error {
+	log := logf.FromContext(ctx)
+
+	desired := desiredWebhookGatewayHPA(namespace)
+	existing := &autoscalingv2.HorizontalPodAutoscaler{}
+	err := r.Get(ctx, client.ObjectKeyFromObject(desired), existing)
+	if err != nil {
+		if !apierrors.IsNotFound(err) {
+			return err
+		}
+		if err := r.Create(ctx, desired); err != nil && !apierrors.IsAlreadyExists(err) {
+			return err
+		}
+		log.Info("created webhook gateway HPA", "namespace", namespace)
+		return nil
+	}
+
+	// Reconcile key fields: min/max replicas and metrics.
+	existing.Spec.MinReplicas = desired.Spec.MinReplicas
+	existing.Spec.MaxReplicas = desired.Spec.MaxReplicas
+	existing.Spec.Metrics = desired.Spec.Metrics
+	if err := r.Update(ctx, existing); err != nil {
+		return err
 	}
 	return nil
 }

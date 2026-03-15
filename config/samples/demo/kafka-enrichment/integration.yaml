@@ -6,8 +6,8 @@ metadata:
 spec:
   type: kafka
   kafka:
-    brokers:
-      - kafka.kafka.svc.cluster.local:9092
+    bootstrapServers:
+      - my-cluster-kafka-bootstrap.kafka.svc.cluster.local:9092
     # Optional TLS — uncomment for production
     # tls:
     #   enabled: true

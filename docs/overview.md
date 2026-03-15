@@ -56,7 +56,7 @@ A `Flow` defines the sequence of steps to execute when a trigger fires. Steps ca
 
 Steps are the individual units of work within a Flow. Each step declares an action (such as an HTTP call), optional conditions for execution, retry behavior, and the outputs it produces for downstream steps.
 
-### Integration _(planned)_
+### Integration
 
 An `Integration` stores connection details and credentials for an external system — a Kafka cluster, a REST API, a database — separately from the flows that use it. This keeps sensitive configuration reusable and out of individual Flow specs.
 
@@ -104,10 +104,10 @@ See [Architecture](architecture.md) for the full design including scaling, names
 | CRD | API Group | Scope | Status |
 |-----|-----------|-------|--------|
 | `Trigger` | `automation.kubezap.io/v1alpha1` | Namespaced | Available |
-| `Flow` | `automation.kubezap.io/v1alpha1` | Namespaced | In design |
-| `FlowRun` | `automation.kubezap.io/v1alpha1` | Namespaced | In design |
-| `Integration` | `automation.kubezap.io/v1alpha1` | Namespaced | In design |
-| `MockEndpoint` | `automation.kubezap.io/v1alpha1` | Namespaced | In design |
+| `Flow` | `automation.kubezap.io/v1alpha1` | Namespaced | Available |
+| `FlowRun` | `automation.kubezap.io/v1alpha1` | Namespaced | Available |
+| `Integration` | `automation.kubezap.io/v1alpha1` | Namespaced | Available |
+| `MockEndpoint` | `automation.kubezap.io/v1alpha1` | Namespaced | Available |
 | `Step` | `automation.kubezap.io/v1alpha1` | Namespaced | Planned |
 
 All CRDs are namespaced by default. Cluster-scoped variants are planned for multi-tenant deployments.
@@ -157,7 +157,7 @@ spec:
     name: generate-nightly-report
 ```
 
-### Pub/Sub — Kafka _(in development)_
+### Pub/Sub — Kafka
 
 KubeZap subscribes to a Kafka topic and fires the trigger for each message consumed. The message payload and metadata (topic, partition, offset, headers) are passed to the Flow.
 
@@ -478,11 +478,24 @@ Every trigger firing, flow execution, and step result is recorded in CRD status 
 
 ## Installation
 
-> Installation documentation is in progress. The following methods will be supported:
+### Raw manifests (available now)
 
-- **Helm chart** — `helm install kubezap kubezap/kubezap`
-- **OLM / OperatorHub** — install via the OpenShift or community OperatorHub catalog
-- **Raw manifests** — `kubectl apply -k config/default`
+```bash
+kubectl apply -k config/crd     # install CRDs
+kubectl apply -k config/default # deploy the operator
+```
+
+### Helm chart _(coming in v0.3)_
+
+```bash
+helm install kubezap kubezap/kubezap
+```
+
+### OperatorHub / OLM _(coming in v0.3)_
+
+Install via the OpenShift OperatorHub catalog or the community OperatorHub.
+
+For a full setup walkthrough including namespace configuration and RBAC see [Getting Started](guides/getting-started.md).
 
 ---
 
@@ -500,35 +513,41 @@ Every trigger firing, flow execution, and step result is recorded in CRD status 
 
 ## Roadmap
 
-### v0.1 — MVP
+### v0.1 — MVP ✅
 
-- [x] `Trigger` CRD with webhook, cron, and Kafka sources
-- [ ] Webhook HTTP server implementation
-- [ ] Cron scheduler implementation
-- [ ] Kafka consumer integration
-- [ ] `Flow` CRD with sequential steps and HTTP actions
-- [ ] Status conditions and observability
+- [x] `Trigger` CRD — webhook, cron, Kafka pub/sub sources
+- [x] Webhook HTTP server with dynamic route registration
+- [x] Cron scheduler with FlowRun creation
+- [x] Kafka gateway with consumer group management
+- [x] `Flow` CRD — DAG steps, HTTP actions, CEL conditions, data passing
+- [x] `FlowRun` CRD — execution history, GC, status conditions
+- [x] `Integration` CRD — Kafka (built-in), plugin protocol
+- [x] `MockEndpoint` CRD — in-cluster mock HTTP endpoints for dev/test
+- [x] Webhook auth — HMAC, bearer, OIDC/JWT, API-key, IP allowlist, mTLS
+- [x] Observability — Prometheus metrics, OpenTelemetry traces, structured access logs
+- [x] Multi-namespace — `WATCH_NAMESPACES`, all four OLM install modes
 
-### v0.2 — Flow Engine
+### v0.2 — Flow Engine ✅
 
-- [ ] Conditional step execution (CEL expressions)
-- [ ] Step input/output data passing
-- [ ] Data transformation step type
-- [ ] Retry policies with exponential backoff
-- [ ] `Integration` CRD — Kafka (built-in), plugin protocol for community integrations
-- [ ] `FlowRun` CRD — execution history, garbage collection
+- [x] CEL `when` expression evaluation
+- [x] Skipped step phase with downstream cascade
+- [x] Step input/output data passing (`$(steps.<name>.results.<key>)`)
+- [x] Data transformation step type (`type: transform`)
+- [x] Retry policies with exponential/linear/fixed backoff
+- [x] Flow-level and per-step timeout enforcement
+- [x] `type: publish` step — routes to Kafka/plugin `/publish` endpoint
+- [x] `type: wait` step — blocking pause with restart-safe `ResumeAfter` in status
 
-### v0.3 — Enterprise
+### v0.3 — Distribution _(in progress)_
 
-- [ ] `Step` CRD for reusable step definitions
-- [ ] Multi-namespace flows
 - [ ] Helm chart
-- [ ] OperatorHub submission
+- [ ] OLM bundle validated and submitted to OperatorHub
+- [ ] Additional message brokers (AMQP, NATS)
 
 ### Future
 
+- [ ] `Step` CRD for reusable step definitions
 - [ ] Plugin marketplace and integration catalog
-- [ ] Additional message brokers (NATS, RabbitMQ, ActiveMQ, Solace)
 - [ ] Web UI for flow monitoring
 - [ ] OpenLineage support
 - [ ] Multi-region HA support

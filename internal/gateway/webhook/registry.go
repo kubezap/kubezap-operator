@@ -14,6 +14,14 @@ type RouteEntry struct {
 	FlowRef          string
 	FlowNamespace    string
 	AllowedMethod    string // "POST" or "PUT"
+
+	// Auth fields — pre-loaded at route registration time.
+	AuthType     string   // "hmac", "bearer", "apiKey", "ipAllowlist", "" (none)
+	HMACSecret   string   // pre-loaded HMAC secret value
+	BearerToken  string   // pre-loaded bearer token value
+	APIKey       string   // pre-loaded API key value
+	APIKeyHeader string   // header name for API key (default "X-Api-Key")
+	IPAllowlist  []string // CIDR blocks or IP addresses
 }
 
 // RouteRegistry is a thread-safe in-memory registry for webhook routes.

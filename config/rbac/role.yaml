@@ -39,6 +39,9 @@ rules:
   - automation.kubezap.io
   resources:
   - flowruns/status
+  - flows/status
+  - integrations/status
+  - mockendpoints/status
   - triggers/status
   verbs:
   - get
@@ -51,4 +54,26 @@ rules:
   verbs:
   - get
   - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - automation.kubezap.io
+  resources:
+  - integrations
+  verbs:
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - automation.kubezap.io
+  resources:
+  - mockendpoints
+  verbs:
+  - get
+  - list
+  - patch
+  - update
   - watch

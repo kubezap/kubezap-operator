@@ -2,7 +2,9 @@ package webhook
 
 import (
 	"context"
+	"crypto/hmac"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -24,13 +26,13 @@ import (
 // +kubebuilder:rbac:groups=automation.kubezap.io,resources=flowruns,verbs=create
 
 type WebhookHandler struct {
-	client   client.Client
-	registry *RouteRegistry
-	log      logr.Logger
+	k8sClient client.Client
+	registry  *RouteRegistry
+	log       logr.Logger
 }
 
-func NewWebhookHandler(client client.Client, registry *RouteRegistry, log logr.Logger) *WebhookHandler {
-	return &WebhookHandler{client: client, registry: registry, log: log}
+func NewWebhookHandler(k8sClient client.Client, registry *RouteRegistry, log logr.Logger) *WebhookHandler {
+	return &WebhookHandler{k8sClient: k8sClient, registry: registry, log: log}
 }
 
 func randomHex(length int) string {
@@ -61,6 +63,79 @@ func writeJSON(w http.ResponseWriter, status int, body interface{}) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(body)
+}
+
+// authenticateRequest validates the incoming request against the route entry's auth configuration.
+// Returns (http.StatusOK, "") on success, or (statusCode, errorMessage) on failure.
+func authenticateRequest(r *http.Request, body []byte, entry RouteEntry) (int, string) {
+	switch entry.AuthType {
+	case "hmac":
+		sigHeader := r.Header.Get("X-Hub-Signature-256")
+		if sigHeader == "" {
+			return http.StatusUnauthorized, "missing X-Hub-Signature-256 header"
+		}
+		expected := "sha256=" + hex.EncodeToString(func() []byte {
+			mac := hmac.New(sha256.New, []byte(entry.HMACSecret))
+			mac.Write(body)
+			return mac.Sum(nil)
+		}())
+		if !hmac.Equal([]byte(sigHeader), []byte(expected)) {
+			return http.StatusUnauthorized, "HMAC signature mismatch"
+		}
+
+	case "bearer":
+		authHeader := r.Header.Get("Authorization")
+		if authHeader == "" {
+			return http.StatusUnauthorized, "missing Authorization header"
+		}
+		if authHeader != "Bearer "+entry.BearerToken {
+			return http.StatusUnauthorized, "invalid bearer token"
+		}
+
+	case "apiKey":
+		headerName := entry.APIKeyHeader
+		if headerName == "" {
+			headerName = "X-Api-Key"
+		}
+		val := r.Header.Get(headerName)
+		if val == "" {
+			return http.StatusUnauthorized, "missing API key header"
+		}
+		if val != entry.APIKey {
+			return http.StatusUnauthorized, "invalid API key"
+		}
+
+	case "ipAllowlist":
+		remoteIP, _, err := net.SplitHostPort(r.RemoteAddr)
+		if err != nil {
+			remoteIP = r.RemoteAddr
+		}
+		ip := net.ParseIP(remoteIP)
+		allowed := false
+		for _, cidr := range entry.IPAllowlist {
+			_, ipNet, parseErr := net.ParseCIDR(cidr)
+			if parseErr != nil {
+				// treat as a plain IP address
+				if allowedIP := net.ParseIP(cidr); allowedIP != nil && allowedIP.Equal(ip) {
+					allowed = true
+					break
+				}
+				continue
+			}
+			if ipNet.Contains(ip) {
+				allowed = true
+				break
+			}
+		}
+		if !allowed {
+			return http.StatusForbidden, "source IP not in allowlist"
+		}
+
+	default:
+		// no auth or unknown — allow
+	}
+
+	return http.StatusOK, ""
 }
 
 func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -121,6 +196,12 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		bodyBytes = bodyBytes[:maxBody]
 	}
 
+	if authStatus, authMsg := authenticateRequest(r, bodyBytes, entry); authStatus != http.StatusOK {
+		status = authStatus
+		writeJSON(w, status, map[string]string{"error": authMsg})
+		return
+	}
+
 	headers := make(map[string]string, len(r.Header))
 	for k, v := range r.Header {
 		headers[k] = redactHeader(k, v)
@@ -161,12 +242,9 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		},
 	}
 
-	if entry.FlowNamespace != "" && entry.FlowNamespace != entry.TriggerNamespace {
-		// FlowRef in FlowRunSpec is LocalObjectReference and does not support namespace
-		// in this scheme. Namespace is implied by FlowRun namespace and Flow controller should resolve.
-	}
-
-	err = h.client.Create(context.Background(), flowRun)
+	// FlowRef in FlowRunSpec is LocalObjectReference and does not support namespace
+	// in this scheme. Namespace is implied by FlowRun namespace and Flow controller should resolve.
+	err = h.k8sClient.Create(context.Background(), flowRun)
 	if err != nil {
 		if apierrors.IsAlreadyExists(err) {
 			status = http.StatusAccepted

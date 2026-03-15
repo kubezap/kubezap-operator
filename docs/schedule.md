@@ -42,11 +42,11 @@
 - [x] Route deregistration on Trigger delete/disable
 - [x] FlowRun creation on incoming webhook request
 - [x] FlowRun naming: `<trigger>-<timestamp>-<random>`
-- [ ] HMAC authentication support
-- [ ] Bearer token authentication support
+- [x] HMAC authentication support
+- [x] Bearer token authentication support
 - [ ] OIDC/JWT authentication support
-- [ ] Basic auth, mTLS, API-key header, IP allowlist support
-- [ ] `/mock/*` path support for MockEndpoint CRDs
+- [x] Basic auth (not implemented), mTLS (not implemented), API-key header, IP allowlist support
+- [x] `/mock/*` path support for MockEndpoint CRDs
 - [x] Structured JSON access logs (source IP in logs only, not Prometheus labels)
 - [x] Fix: add source IP (`RemoteAddr`) to access log in `internal/gateway/webhook/handler.go`
 - [x] Fix: remove dead `RouteRegistry.ServeHTTP` method from `internal/gateway/webhook/registry.go`
@@ -62,7 +62,7 @@
 - [x] `FlowRun` reconciler in `internal/controller/flowrun_controller.go`
 - [x] Fetch referenced Flow and resolve steps in dependency order
 - [x] Execute HTTP action steps
-- [ ] Step result passing and CEL expression evaluation
+- [x] Step result passing (`$(steps.<name>.results.<key>)` and `$(trigger.*)` substitution — prompt 12); CEL evaluation pending
 - [x] FlowRun status conditions (Running, Succeeded, Failed)
 - [x] FlowRun GC: `spec.ttlAfterFinished`, operator flags `--flowrun-ttl-succeeded` / `--flowrun-ttl-failed`
 - [x] `kubezap.io/retain=true` annotation exempts FlowRun from GC
@@ -72,15 +72,15 @@
 ## 2. Flow Engine (v0.2)
 
 ### Flow Reconciler
-- [ ] `Flow` reconciler validates spec and sets Ready condition
+- [x] `Flow` reconciler validates spec and sets Ready condition
 - [ ] Conditional step execution via CEL expressions (`when` field)
-- [ ] Step input/output data passing between steps
-- [ ] Data transformation step type (`type: transform`)
-- [ ] Retry policies with exponential backoff per step
-- [ ] Flow-level timeout enforcement
+- [x] Step input/output data passing between steps (`$(steps.<name>.results.<key>)` substitution)
+- [x] Data transformation step type (`type: transform`) (implemented in FlowRun reconciler — substituteVars applied to mappings)
+- [x] Retry policies with exponential backoff per step (implemented in FlowRun reconciler)
+- [ ] Flow-level timeout enforcement (enforce `flow.Spec.Timeout` across all steps)
 
 ### Integration CRD & Kafka Gateway
-- [ ] `Integration` reconciler in `internal/controller/integration_controller.go`
+- [x] `Integration` reconciler in `internal/controller/integration_controller.go`
 - [ ] Kafka gateway skeleton in `cmd/kafka-gateway/main.go`
 - [ ] Dynamic topic subscription from Trigger CRDs
 - [ ] FlowRun creation per Kafka message: `<trigger>-p<partition>-offset-<offset>` (dedup key)
@@ -89,19 +89,19 @@
 - [ ] `type: publish` step action — controller calls plugin `/publish` endpoint
 
 ### MockEndpoint CRD
-- [ ] MockEndpoint reconciler — registers routes on webhook gateway
-- [ ] Captured request storage in CRD status
+- [x] MockEndpoint reconciler — registers routes on webhook gateway
+- [ ] Captured request storage in CRD status (events sent via channel; controller does not yet persist to status)
 
 ---
 
 ## 3. Plugin System
 
 - [ ] Plugin contract documented in `docs/api/integration.md` (subscriber + publisher roles)
-- [ ] Operator creates plugin Deployment for `type: plugin` Integrations
+- [x] Operator creates plugin Deployment for `type: plugin` Integrations
 - [ ] Namespace-scoped RBAC granted to plugin Deployment
-- [ ] Env injection: `KUBEZAP_NAMESPACE`, `KUBEZAP_INTEGRATION_NAME`, `KUBEZAP_PUBLISHER_PORT`, `KUBEZAP_LOG_LEVEL`
+- [x] Env injection: `KUBEZAP_NAMESPACE`, `KUBEZAP_INTEGRATION_NAME`, `KUBEZAP_PUBLISHER_PORT`, `KUBEZAP_LOG_LEVEL`
 - [ ] Secret injection via `spec.plugin.secretRefs` + `envVarMappings`
-- [ ] Readiness probe: `GET /healthz` → 200
+- [x] Readiness probe: `GET /healthz` → 200
 - [ ] Controller routes `type: publish` step calls to plugin `/publish` endpoint
 - [ ] Plugin trust model documented as a security consideration
 

@@ -407,6 +407,374 @@ Do not delete Running or Pending FlowRuns.
 
 ---
 
+---
+
+## 10. Lint cleanup — fix pre-existing issues
+
+**Status:** `[x]`
+
+**Why:** Four pre-existing lint issues have been reported on every lint run since early in the project. Fixing them now keeps `make lint` clean so new issues are immediately visible.
+
+**Files to change:** `internal/gateway/webhook/watcher.go`, `internal/gateway/webhook/handler.go`
+
+```
+Fix four pre-existing golangci-lint issues in the webhook gateway package.
+Do not change any logic — only fix the lint violations.
+
+File: internal/gateway/webhook/watcher.go
+
+1. errcheck (line ~63): `triggerInformer.AddEventHandler(...)` returns
+   `(cache.ResourceEventHandlerRegistration, error)`. Assign and check the error:
+
+   registration, err := triggerInformer.AddEventHandler(...)
+   if err != nil {
+       return fmt.Errorf("adding trigger event handler: %w", err)
+   }
+   _ = registration
+
+2. revive import-shadowing (line ~36): the parameter named `client` in
+   NewTriggerWatcher shadows the imported `client` package. Rename the
+   parameter to `k8sClient`:
+
+   func NewTriggerWatcher(k8sClient client.Client, ...) (*TriggerWatcher, error) {
+
+   Update the struct field assignment and any uses inside the function body.
+   The TriggerWatcher struct field is also named `client` — rename it to
+   `k8sClient` and update all usages throughout the file.
+
+File: internal/gateway/webhook/handler.go
+
+3. revive import-shadowing (line ~32): the parameter named `client` in
+   NewWebhookHandler shadows the imported `client` package. Rename the
+   parameter to `k8sClient`:
+
+   func NewWebhookHandler(k8sClient client.Client, ...) *WebhookHandler {
+
+   Update the struct field assignment. The WebhookHandler struct field is also
+   named `client` — rename it to `k8sClient` and update all usages.
+
+4. staticcheck SA9003 (line ~164): empty if-branch:
+
+   if entry.FlowNamespace != "" && entry.FlowNamespace != entry.TriggerNamespace {
+       // FlowRef in FlowRunSpec is LocalObjectReference and does not support namespace
+       ...
+   }
+
+   Replace the empty branch with a comment on the field assignment or remove
+   the if-block entirely since there is no code to run. Keep any explanatory
+   comment as a regular comment above the FlowRun creation, not inside an
+   empty branch.
+
+After changes: run `make lint` to confirm all four issues are resolved.
+Commit with message: "Fix pre-existing lint issues in webhook gateway package"
+```
+
+---
+
+## 11. Flow reconciler — spec validation and Ready condition
+
+**Status:** `[x]`
+
+**Why:** The `Flow` CRD has no reconciler. FlowRun execution fetches the Flow directly without knowing if it is valid. A reconciler that validates the spec and sets a `Ready` condition allows the operator to surface misconfigured Flows early and gives FlowRun reconciler a signal to check.
+
+**Files to change/create:** `internal/controller/flow_controller.go` (new), `cmd/main.go`
+
+```
+Create a controller-runtime reconciler for the Flow CRD.
+
+File: internal/controller/flow_controller.go
+
+Requirements:
+
+1. Watch Flow resources. On each reconcile:
+   a. Fetch the Flow. If not found, return (deleted).
+   b. Validate the spec:
+      - steps must be non-empty (at least one step required)
+      - all step names must be unique within the Flow
+      - all runAfter references must name a step that exists in the same Flow
+      - each step action type must be one of: http, transform, publish
+      - for type=http: action.http must be non-nil and url must be non-empty
+      - for type=publish: action.publish must be non-nil, integrationRef.name and
+        topic must be non-empty
+   c. If validation fails: set condition Ready=False, reason=InvalidSpec,
+      message=<first validation error found>. Return without requeue.
+   d. If validation passes: set condition Ready=True, reason=FlowReady,
+      message="Flow is valid and ready".
+
+2. Use metav1.SetStatusCondition to update conditions (standard pattern).
+
+3. RBAC markers:
+   // +kubebuilder:rbac:groups=automation.kubezap.io,resources=flows,verbs=get;list;watch;update;patch
+   // +kubebuilder:rbac:groups=automation.kubezap.io,resources=flows/status,verbs=get;update;patch
+
+4. Register in cmd/main.go after FlowRunReconciler.
+
+5. Run make manifests after adding markers.
+
+Use the TriggerReconciler and FlowRunReconciler in the same package as style reference.
+The condition type string should be "Ready". Reason strings: "FlowReady", "InvalidSpec".
+```
+
+---
+
+## 12. Step result passing — template substitution between steps
+
+**Status:** `[x]`
+
+**Why:** The FlowRun reconciler tracks step results in `stepResults map[string]map[string]string` but currently never uses them. Multi-step flows are not useful without data flowing between steps.
+
+**Files to change:** `internal/controller/flowrun_controller.go`
+
+```
+Add template variable substitution to the FlowRun reconciler so step results
+and trigger payload fields can be referenced in downstream step inputs.
+
+Substitution syntax: $(steps.<stepName>.results.<resultKey>)
+Trigger data syntax: $(trigger.body), $(trigger.headers.<name>), $(trigger.topic),
+                     $(trigger.partition), $(trigger.offset), $(trigger.scheduledTime)
+
+Requirements:
+
+1. Add a helper function:
+
+   func substituteVars(s string, stepResults map[string]map[string]string,
+       triggerData *automationv1alpha1.TriggerData) string
+
+   - Replace all occurrences of $(steps.<name>.results.<key>) with the corresponding
+     value from stepResults[name][key]. If the key does not exist, leave the
+     placeholder unchanged.
+   - Replace $(trigger.body) with triggerData.Body (if triggerData != nil).
+   - Replace $(trigger.headers.<name>) with the header value (case-insensitive lookup).
+   - Replace $(trigger.topic), $(trigger.partition), $(trigger.offset),
+     $(trigger.scheduledTime) with the corresponding TriggerData fields.
+   - Use strings.ReplaceAll for each substitution. No regex needed.
+
+2. In executeHTTPStep, apply substituteVars to:
+   - h.URL
+   - h.Body
+   - each header value in h.Headers
+
+   Pass flowRun.Spec.TriggerData down from Reconcile through executeStep to
+   executeHTTPStep (add a *TriggerData parameter where needed).
+
+3. In executeStep (or the transform stub), for type=transform:
+   Apply substituteVars to each value in action.Transform.Mappings.
+   Store the substituted mappings as the step's results (one ResultValue per
+   mapping key). Set phase=Succeeded.
+   This makes transform steps actually useful for data reshaping between steps.
+
+4. The stepResults map is already populated after each successful step —
+   no change needed there.
+
+Do not add CEL evaluation yet — plain string substitution only.
+Run make build to verify. Commit with:
+"FlowRun: step result and trigger data substitution in HTTP and transform steps"
+```
+
+---
+
+## 13. Webhook HMAC authentication
+
+**Status:** `[x]`
+
+**Why:** Without auth, any caller that can reach the webhook endpoint can fire triggers. HMAC is the most widely used webhook auth method (GitHub, Stripe, Slack all use it) and is the highest-priority auth mode.
+
+**Files to change:** `internal/gateway/webhook/handler.go`, `internal/gateway/webhook/registry.go`, `internal/gateway/webhook/watcher.go`
+
+**Reference:** `api/v1alpha1/trigger_types.go` — `WebhookAuth` struct with `HMACSecretRef`.
+
+```
+Implement HMAC-SHA256 signature verification for webhook triggers.
+
+The webhook gateway does not have direct Kubernetes Secret access today.
+Add it as follows:
+
+1. In RouteEntry (registry.go), add:
+   AuthType      string // "hmac", "bearer", "apiKey", "ipAllowlist", "" (none)
+   HMACSecret    string // pre-loaded secret value (loaded at route registration time)
+   BearerToken   string // pre-loaded token value
+   APIKey        string // pre-loaded key value
+   APIKeyHeader  string // header name for API key (default "X-Api-Key")
+   IPAllowlist   []string // CIDR blocks
+
+2. In watcher.go, when building a RouteEntry from a Trigger, read the auth
+   config from trigger.Spec.Webhook.Auth. If auth.Type == "hmac", fetch
+   the secret value from the Kubernetes Secret referenced by auth.HMACSecretRef
+   using the k8sClient. Store the value in RouteEntry.HMACSecret.
+   Similarly load BearerToken (from auth.BearerTokenSecretRef) and APIKey
+   (from auth.APIKeySecretRef). For ipAllowlist, copy auth.IPAllowlist directly.
+   If fetching the secret fails, log the error and do NOT register the route
+   (return without registering so the endpoint is not exposed unauthenticated).
+
+3. In handler.go, add an authenticateRequest function:
+
+   func authenticateRequest(r *http.Request, body []byte, entry RouteEntry) (int, string)
+   // returns (http.StatusOK, "") on success, or (statusCode, errorMessage) on failure
+
+   Implement for each auth type:
+   - "hmac": compute HMAC-SHA256 of body using entry.HMACSecret as key.
+     Accept the signature from the X-Hub-Signature-256 header in the format
+     "sha256=<hex>". Use hmac.Equal for constant-time comparison. Return 401
+     if header is missing or signature does not match.
+   - "bearer": check Authorization header equals "Bearer <token>". Return 401
+     if missing or mismatched.
+   - "apiKey": check the header named entry.APIKeyHeader equals entry.APIKey.
+     Return 401 if missing or mismatched.
+   - "ipAllowlist": parse r.RemoteAddr, check if the IP is contained in any
+     CIDR in entry.IPAllowlist. Return 403 if not in the list.
+   - "" (none): return 200 OK immediately.
+
+4. In ServeHTTP, after looking up the entry and before reading the body,
+   call authenticateRequest. For HMAC, you need the body first — read the body
+   before calling auth, then pass it to authenticateRequest and reuse the bytes
+   for the FlowRun TriggerData.Body.
+
+5. Add imports: "crypto/hmac", "crypto/sha256", "encoding/hex", "net".
+
+Run make build. Commit:
+"Webhook gateway: HMAC, bearer token, API key, and IP allowlist authentication"
+```
+
+---
+
+## 14. MockEndpoint reconciler and webhook gateway mock route support
+
+**Status:** `[x]`
+
+**Why:** MockEndpoints are how developers test flows without real external services. The webhook gateway already serves on `/hooks/*` — mock routes live on `/mock/*` on the same server.
+
+**Files to change/create:**
+- `internal/controller/mockendpoint_controller.go` (new)
+- `internal/gateway/webhook/mock_handler.go` (new)
+- `internal/gateway/webhook/mock_registry.go` (new)
+- `internal/gateway/webhook/watcher.go` (add MockEndpoint watch)
+- `cmd/main.go` (register reconciler)
+- `cmd/webhook-gateway/main.go` (mount mock handler)
+
+```
+Implement MockEndpoint support across the controller and webhook gateway.
+
+--- Part A: MockRegistry (internal/gateway/webhook/mock_registry.go) ---
+
+Similar to RouteRegistry but for mock routes. Store:
+   type MockEntry struct {
+       Name             string
+       Namespace        string
+       Response         *automationv1alpha1.MockResponse     // default response
+       ResponseSequence []automationv1alpha1.MockResponse    // cycling responses
+       responseIndex    int                                  // current position in sequence
+       MaxHistory       int32
+   }
+
+Thread-safe map keyed by path (e.g. "/mock/my-endpoint").
+Methods: Register(path, entry), Deregister(path), Lookup(path) (MockEntry, bool),
+         NextResponse(path) MockResponse — advances responseIndex, wraps around.
+
+--- Part B: MockHandler (internal/gateway/webhook/mock_handler.go) ---
+
+http.Handler that:
+1. Looks up the path in MockRegistry.
+2. If not found: 404.
+3. Gets the next response (single or from sequence).
+4. Applies DelayMs if set (time.Sleep).
+5. Writes response headers and body with the configured status code.
+6. Sends a CapturedRequest notification back to the controller via a channel
+   or callback so the controller can update MockEndpoint status.
+   For simplicity: use a buffered channel chan CapturedRequestEvent where
+   CapturedRequestEvent carries namespace/name/request. The controller drains
+   this channel via a goroutine.
+
+--- Part C: Controller (internal/controller/mockendpoint_controller.go) ---
+
+1. Watch MockEndpoint resources.
+2. On reconcile: validate spec.path is non-empty, set Ready=True condition,
+   set status.URL = "http://<service>/mock/<path>" (use a configurable base
+   URL from an env var KUBEZAP_GATEWAY_BASE_URL, default "").
+3. RBAC markers:
+   // +kubebuilder:rbac:groups=automation.kubezap.io,resources=mockendpoints,verbs=get;list;watch;update;patch
+   // +kubebuilder:rbac:groups=automation.kubezap.io,resources=mockendpoints/status,verbs=get;update;patch
+4. Register in cmd/main.go.
+
+--- Part D: Webhook gateway watcher (watcher.go) ---
+
+Add a second informer for MockEndpoint resources.
+On Add/Update: if spec.path is non-empty, register the mock route.
+On Delete: deregister.
+
+--- Part E: Webhook gateway main (cmd/webhook-gateway/main.go) ---
+
+Mount the mock handler:
+   mux.Handle("/mock/", mockHandler)
+
+Run make manifests. Commit:
+"MockEndpoint: reconciler, mock route registration, and request capture"
+```
+
+---
+
+## 15. Integration reconciler
+
+**Status:** `[x]`
+
+**Why:** The `Integration` CRD has no reconciler. The controller needs to validate Integration specs and manage Deployments for plugin-type integrations.
+
+**Files to change/create:** `internal/controller/integration_controller.go` (new), `cmd/main.go`
+
+```
+Create a controller-runtime reconciler for the Integration CRD.
+
+File: internal/controller/integration_controller.go
+
+Requirements:
+
+1. Watch Integration resources.
+
+2. On each reconcile:
+   a. Fetch the Integration. If not found, return.
+   b. Validate based on spec.type:
+      - type=kafka: spec.kafka must be non-nil, bootstrapServers must be non-empty.
+      - type=plugin: spec.plugin must be non-nil, spec.plugin.image must be non-empty.
+   c. On validation failure: set condition Ready=False, reason=InvalidSpec. Return.
+   d. For type=plugin: ensure a Deployment exists named
+      "kubezap-plugin-<integration-name>" in the same namespace.
+      Use desiredPluginDeployment (a new helper, similar to
+      desiredWebhookGatewayDeployment in gateway_deployment.go) that builds:
+        - Image: spec.plugin.image
+        - Container name: "plugin"
+        - Port: spec.plugin.publisherPort (default 8090)
+        - Env vars from spec.plugin.env
+        - Secret env vars from spec.plugin.secretRefs (mount each secretName's
+          keys as env vars using envVarMappings)
+        - Standard injected env vars:
+            KUBEZAP_NAMESPACE=<namespace>
+            KUBEZAP_INTEGRATION_NAME=<integration-name>
+            KUBEZAP_PUBLISHER_PORT=<publisherPort>
+            KUBEZAP_LOG_LEVEL=info
+        - Readiness probe: GET /healthz :<publisherPort>, initialDelaySeconds=5
+        - Security context: runAsNonRoot=true, readOnlyRootFilesystem=true,
+          allowPrivilegeEscalation=false
+      Create-or-update (idempotent). Update image if it drifts.
+      Set status.gatewayDeploymentName = deployment name.
+   e. For type=kafka: no Deployment to manage (handled by Kafka gateway).
+      Set condition Ready=True.
+   f. After successful reconcile: set condition Ready=True, update
+      status.lastReconciledTime = now.
+
+3. RBAC markers:
+   // +kubebuilder:rbac:groups=automation.kubezap.io,resources=integrations,verbs=get;list;watch;update;patch
+   // +kubebuilder:rbac:groups=automation.kubezap.io,resources=integrations/status,verbs=get;update;patch
+   // +kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch;create;update;patch
+
+4. Register in cmd/main.go.
+
+5. Run make manifests.
+
+Commit:
+"Integration reconciler: spec validation, plugin Deployment lifecycle"
+```
+
+---
+
 ## Notes
 
 - All Go types in `api/v1alpha1/` require `make generate && make manifests` after changes.

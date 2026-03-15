@@ -80,7 +80,8 @@ func main() {
 	}
 
 	registry := webhook.NewRouteRegistry(log.WithName("route-registry"))
-	watcher, err := webhook.NewTriggerWatcher(k8sClient, registry, namespace, log.WithName("trigger-watcher"))
+	mockRegistry := webhook.NewMockRegistry()
+	watcher, err := webhook.NewTriggerWatcher(k8sClient, registry, mockRegistry, namespace, log.WithName("trigger-watcher"))
 	if err != nil {
 		log.Error(err, "unable to create trigger watcher")
 		os.Exit(1)
@@ -98,6 +99,8 @@ func main() {
 	mux := http.NewServeMux()
 	handler := webhook.NewWebhookHandler(k8sClient, registry, log.WithName("webhook-handler"))
 	mux.Handle("/hooks/", handler)
+	mockHandler := webhook.NewMockHandler(mockRegistry, log.WithName("mock-handler"))
+	mux.Handle("/mock/", mockHandler)
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))

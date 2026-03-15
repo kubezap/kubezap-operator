@@ -48,7 +48,7 @@
 - [x] API-key header and IP allowlist authentication support
 - [x] `/mock/*` path support for MockEndpoint CRDs
 - [x] Structured JSON access logs (source IP in logs only, not Prometheus labels)
-- [ ] HPA configuration for webhook gateway Deployment
+- [x] HPA configuration for webhook gateway Deployment
 - [x] Controller manages webhook gateway Deployment lifecycle (one per namespace)
 - [x] **Gateway ServiceAccount + Role + RoleBinding** created by controller alongside Deployment (deploy blocker — see `docs/architecture.md#gateway-serviceaccount-and-rbac`)
 

@@ -408,6 +408,7 @@ func (r *IntegrationReconciler) reconcileKafkaGateway(ctx context.Context, integ
 		ObjectMeta: metav1.ObjectMeta{Name: "kubezap-gateway", Namespace: ns},
 		Rules: []rbacv1.PolicyRule{
 			{APIGroups: []string{"automation.kubezap.io"}, Resources: []string{"triggers"}, Verbs: []string{"get", "list", "watch"}},
+			{APIGroups: []string{"automation.kubezap.io"}, Resources: []string{"integrations"}, Verbs: []string{"get"}},
 			{APIGroups: []string{"automation.kubezap.io"}, Resources: []string{"flowruns"}, Verbs: []string{"create"}},
 		},
 	}
@@ -459,16 +460,17 @@ func (r *IntegrationReconciler) reconcileKafkaGateway(ctx context.Context, integ
 		return desired.Name, nil
 	}
 
-	// Update image if it has drifted from the desired value.
-	desiredImage := desired.Spec.Template.Spec.Containers[0].Image
+	// Sync image and args if they have drifted from the desired values.
 	if len(existing.Spec.Template.Spec.Containers) > 0 {
 		c := &existing.Spec.Template.Spec.Containers[0]
-		if c.Image != desiredImage {
-			c.Image = desiredImage
+		dc := &desired.Spec.Template.Spec.Containers[0]
+		if c.Image != dc.Image || !stringSliceEqual(c.Args, dc.Args) {
+			c.Image = dc.Image
+			c.Args = dc.Args
 			if err := r.Update(ctx, existing); err != nil {
 				return "", err
 			}
-			log.Info("updated kafka gateway deployment image", "deployment", desired.Name, "namespace", integration.Namespace)
+			log.Info("updated kafka gateway deployment", "deployment", desired.Name, "namespace", integration.Namespace)
 		}
 	}
 	return desired.Name, nil
@@ -514,6 +516,7 @@ func desiredKafkaGatewayDeployment(integration *automationv1alpha1.Integration) 
 						{
 							Name:  "kafka-gateway",
 							Image: image,
+							Args:  []string{"--namespace=" + integration.Namespace},
 							Env:   envVars,
 							SecurityContext: &corev1.SecurityContext{
 								RunAsNonRoot:             ptr.To(true),
@@ -679,4 +682,16 @@ func (r *IntegrationReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		For(&automationv1alpha1.Integration{}).
 		Named("integration").
 		Complete(r)
+}
+
+func stringSliceEqual(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }

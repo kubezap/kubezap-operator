@@ -62,15 +62,12 @@ kubectl get deployment -n $NS -l kubezap.io/component=kafka-gateway
 ### Step 5 — Produce a test message
 
 ```bash
-# Exec into any pod with kafka-console-producer, or use a one-shot pod:
-kubectl run kafka-producer --restart=Never --rm -it \
-  --image=bitnami/kafka:latest \
-  --command -- kafka-console-producer.sh \
-    --bootstrap-server kafka.kafka.svc.cluster.local:9092 \
-    --topic customer-events
-# Then paste and Enter:
-{"customerId":"cust-001","eventType":"purchase"}
-# Ctrl+C to exit
+# Exec into the Strimzi broker pod — no extra image needed
+kubectl exec -n kafka my-cluster-dual-role-0 -- \
+  bash -c 'echo "{\"customerId\":\"cust-001\",\"eventType\":\"purchase\"}" | \
+  /opt/kafka/bin/kafka-console-producer.sh \
+    --bootstrap-server my-cluster-kafka-bootstrap.kafka.svc.cluster.local:9092 \
+    --topic customer-events'
 ```
 
 ### Step 6 — Watch a FlowRun appear
@@ -117,7 +114,7 @@ kubectl get flowrun $FR -n $NS \
 ```bash
 # enterprise-sink should have captured one request
 kubectl get mockendpoint enterprise-sink -n $NS \
-  -o jsonpath='{.status.capturedRequests[-1:]}'
+  -o jsonpath='{.status.recentRequests[-1:]}'
 ```
 
 ### Step 10 — Verify dedup (idempotency)

@@ -273,7 +273,7 @@ func (w *TriggerWatcher) handleMockEndpoint(obj interface{}) {
 		w.log.Info("MockEndpoint has empty path, skipping registration", "name", me.Name)
 		return
 	}
-	mockPath := "/mock/" + strings.TrimPrefix(path, "/")
+	mockPath := "/" + strings.TrimPrefix(path, "/")
 
 	entry := MockEntry{
 		Name:             me.Name,
@@ -305,7 +305,7 @@ func (w *TriggerWatcher) handleMockEndpointDelete(obj interface{}) {
 	if path == "" {
 		return
 	}
-	mockPath := "/mock/" + strings.TrimPrefix(path, "/")
+	mockPath := "/" + strings.TrimPrefix(path, "/")
 	w.mockRegistry.Deregister(mockPath)
 	w.log.Info("deregistered mock route", "path", mockPath, "name", me.Name)
 }

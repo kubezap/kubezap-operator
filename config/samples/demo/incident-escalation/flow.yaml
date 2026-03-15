@@ -19,7 +19,7 @@ spec:
           method: POST
           headers:
             Content-Type: application/json
-          body: '{"text":"ALERT: $(trigger.payload.alertname) is firing on $(trigger.payload.service)"}'
+          body: '{"text":"ALERT: $(trigger.body.alertname) is firing on $(trigger.body.service)"}'
           timeoutSeconds: 10
 
     # ── Step 2 ─────────────────────────────────────────────────────────────────
@@ -35,7 +35,7 @@ spec:
           method: POST
           headers:
             Content-Type: application/json
-          body: '{"action":"restart","service":"$(trigger.payload.service)"}'
+          body: '{"action":"restart","service":"$(trigger.body.service)"}'
           timeoutSeconds: 10
 
     # ── Step 3 ─────────────────────────────────────────────────────────────────
@@ -88,5 +88,5 @@ spec:
           method: POST
           headers:
             Content-Type: application/json
-          body: '{"text":"ESCALATING: $(trigger.payload.alertname) still firing after 2m — paging next tier"}'
+          body: '{"text":"ESCALATING: $(trigger.body.alertname) still firing after 2m — paging next tier"}'
           timeoutSeconds: 10

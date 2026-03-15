@@ -15,8 +15,6 @@ import (
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/client-go/kubernetes/scheme"
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
-	"k8s.io/client-go/rest"
-	"k8s.io/client-go/tools/clientcmd"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -37,11 +35,9 @@ func init() {
 func main() {
 	var namespace string
 	var logLevel string
-	var kubeconfig string
 
 	flag.StringVar(&namespace, "namespace", "", "Namespace to watch; empty=all namespaces")
 	flag.StringVar(&logLevel, "log-level", "info", "Log level: debug|info|warn|error")
-	flag.StringVar(&kubeconfig, "kubeconfig", "", "Path to kubeconfig; empty=in-cluster")
 	flag.Parse()
 
 	opts := zap.NewDevelopmentConfig()
@@ -59,7 +55,7 @@ func main() {
 	ctrl.SetLogger(logger)
 	log = logger
 
-	cfg, err := buildRestConfig(kubeconfig)
+	cfg, err := ctrl.GetConfig()
 	if err != nil {
 		log.Error(err, "unable to build Kubernetes REST config")
 		os.Exit(1)
@@ -86,13 +82,4 @@ func main() {
 
 	<-ctx.Done()
 	log.Info("kafka gateway stopped")
-}
-
-// buildRestConfig returns a *rest.Config from a kubeconfig path or in-cluster defaults.
-func buildRestConfig(kubeconfig string) (*rest.Config, error) {
-	if kubeconfig != "" {
-		return clientcmd.BuildConfigFromFlags("", kubeconfig)
-	}
-	cfg := ctrl.GetConfigOrDie()
-	return cfg, nil
 }

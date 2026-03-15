@@ -19,6 +19,7 @@ package controller
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -26,6 +27,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/IBM/sarama"
 	"github.com/go-logr/logr"
 	"github.com/google/cel-go/cel"
 	"go.opentelemetry.io/otel"
@@ -53,6 +55,7 @@ const retainAnnotation = "kubezap.io/retain"
 // +kubebuilder:rbac:groups=automation.kubezap.io,resources=flowruns/finalizers,verbs=update
 // +kubebuilder:rbac:groups=automation.kubezap.io,resources=flows,verbs=get;list;watch
 // +kubebuilder:rbac:groups=automation.kubezap.io,resources=triggers,verbs=get;list;watch
+// +kubebuilder:rbac:groups=automation.kubezap.io,resources=integrations,verbs=get
 
 // FlowRunReconciler reconciles a FlowRun object.
 type FlowRunReconciler struct {
@@ -467,9 +470,17 @@ func (r *FlowRunReconciler) executeHTTPStep(
 
 		if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 			results := make(map[string]string)
+			results["body"] = string(respBody)
+			results["status"] = fmt.Sprintf("%d", resp.StatusCode)
 			if len(h.ResultMappings) > 0 {
-				results["body"] = string(respBody)
-				results["status"] = fmt.Sprintf("%d", resp.StatusCode)
+				var jsonBody map[string]interface{}
+				if jsonErr := json.Unmarshal(respBody, &jsonBody); jsonErr == nil {
+					for resultKey, jsonPath := range h.ResultMappings {
+						if val := extractSimpleJSONPath(jsonPath, jsonBody); val != "" {
+							results[resultKey] = val
+						}
+					}
+				}
 			}
 			return results, fmt.Sprintf("HTTP %d", resp.StatusCode), nil
 		}
@@ -499,6 +510,16 @@ func (r *FlowRunReconciler) executePublishStep(
 		Namespace: flowRun.Namespace,
 	}, &integration); err != nil {
 		return nil, fmt.Errorf("fetching integration %q: %w", step.Action.Publish.IntegrationRef.Name, err)
+	}
+
+	// Route to appropriate publish backend based on integration type.
+	if integration.Spec.Kafka != nil {
+		body := substituteVars(step.Action.Publish.Body, stepResults, triggerData)
+		headers := make(map[string]string, len(step.Action.Publish.Headers))
+		for k, v := range step.Action.Publish.Headers {
+			headers[k] = substituteVars(v, stepResults, triggerData)
+		}
+		return r.publishToKafka(&integration, step.Action.Publish.Topic, body, headers)
 	}
 
 	if integration.Spec.Plugin == nil {
@@ -959,54 +980,133 @@ func extractTraceContext(ctx context.Context, annotations map[string]string) con
 
 // substituteVars replaces template placeholders in s with values from stepResults and triggerData.
 // Supported syntax:
-//   - $(steps.<name>.results.<key>) — step output value
+//   - $(steps.<name>.results.<key>) — step output value; hyphens in name are normalized to underscores
 //   - $(trigger.body) — raw trigger request body
+//   - $(trigger.body.<field>) — top-level JSON field from trigger body (resolved before $(trigger.body))
 //   - $(trigger.headers.<name>) — trigger request header value (case-insensitive)
 //   - $(trigger.topic), $(trigger.partition), $(trigger.offset), $(trigger.scheduledTime)
 func substituteVars(s string, stepResults map[string]map[string]string, triggerData *automationv1alpha1.TriggerData) string {
-	// Substitute step results: $(steps.<name>.results.<key>)
+	// Substitute step results using underscore-normalized names (hyphens → underscores).
 	for stepName, results := range stepResults {
+		underscoreName := strings.ReplaceAll(stepName, "-", "_")
 		for key, value := range results {
-			placeholder := fmt.Sprintf("$(steps.%s.results.%s)", stepName, key)
+			placeholder := fmt.Sprintf("$(steps.%s.results.%s)", underscoreName, key)
 			s = strings.ReplaceAll(s, placeholder, value)
 		}
 	}
 
-	// Substitute trigger fields.
-	if triggerData != nil {
-		s = strings.ReplaceAll(s, "$(trigger.body)", triggerData.Body)
-		s = strings.ReplaceAll(s, "$(trigger.topic)", triggerData.Topic)
-		s = strings.ReplaceAll(s, "$(trigger.partition)", fmt.Sprintf("%d", triggerData.Partition))
-		s = strings.ReplaceAll(s, "$(trigger.offset)", fmt.Sprintf("%d", triggerData.Offset))
-		if triggerData.ScheduledTime != nil {
-			s = strings.ReplaceAll(s, "$(trigger.scheduledTime)", triggerData.ScheduledTime.UTC().Format(time.RFC3339))
-		} else {
-			s = strings.ReplaceAll(s, "$(trigger.scheduledTime)", "")
-		}
-		// Substitute trigger headers: $(trigger.headers.<name>) — case-insensitive lookup.
-		// Build a lowercase key map once.
-		lowerHeaders := make(map[string]string, len(triggerData.Headers))
-		for k, v := range triggerData.Headers {
-			lowerHeaders[strings.ToLower(k)] = v
-		}
-		// Scan for $(trigger.headers.*) placeholders.
-		const headerPrefix = "$(trigger.headers."
-		for {
-			idx := strings.Index(s, headerPrefix)
-			if idx < 0 {
-				break
+	if triggerData == nil {
+		return s
+	}
+
+	// Handle $(trigger.body.<field>) BEFORE $(trigger.body) to avoid partial replacement.
+	if triggerData.Body != "" {
+		var bodyFields map[string]interface{}
+		if jsonErr := json.Unmarshal([]byte(triggerData.Body), &bodyFields); jsonErr == nil {
+			const bodyFieldPrefix = "$(trigger.body."
+			for {
+				idx := strings.Index(s, bodyFieldPrefix)
+				if idx < 0 {
+					break
+				}
+				end := strings.Index(s[idx:], ")")
+				if end < 0 {
+					break
+				}
+				end += idx
+				placeholder := s[idx : end+1]
+				fieldName := s[idx+len(bodyFieldPrefix) : end]
+				var value string
+				if val, ok := bodyFields[fieldName]; ok {
+					value = fmt.Sprintf("%v", val)
+				}
+				s = strings.ReplaceAll(s, placeholder, value)
 			}
-			end := strings.Index(s[idx:], ")")
-			if end < 0 {
-				break
-			}
-			end += idx
-			placeholder := s[idx : end+1]
-			headerName := s[idx+len(headerPrefix) : end]
-			value := lowerHeaders[strings.ToLower(headerName)]
-			s = strings.ReplaceAll(s, placeholder, value)
 		}
+	}
+
+	s = strings.ReplaceAll(s, "$(trigger.body)", triggerData.Body)
+	s = strings.ReplaceAll(s, "$(trigger.topic)", triggerData.Topic)
+	s = strings.ReplaceAll(s, "$(trigger.partition)", fmt.Sprintf("%d", triggerData.Partition))
+	s = strings.ReplaceAll(s, "$(trigger.offset)", fmt.Sprintf("%d", triggerData.Offset))
+	if triggerData.ScheduledTime != nil {
+		s = strings.ReplaceAll(s, "$(trigger.scheduledTime)", triggerData.ScheduledTime.UTC().Format(time.RFC3339))
+	} else {
+		s = strings.ReplaceAll(s, "$(trigger.scheduledTime)", "")
+	}
+	// Substitute trigger headers: $(trigger.headers.<name>) — case-insensitive lookup.
+	lowerHeaders := make(map[string]string, len(triggerData.Headers))
+	for k, v := range triggerData.Headers {
+		lowerHeaders[strings.ToLower(k)] = v
+	}
+	const headerPrefix = "$(trigger.headers."
+	for {
+		idx := strings.Index(s, headerPrefix)
+		if idx < 0 {
+			break
+		}
+		end := strings.Index(s[idx:], ")")
+		if end < 0 {
+			break
+		}
+		end += idx
+		placeholder := s[idx : end+1]
+		headerName := s[idx+len(headerPrefix) : end]
+		value := lowerHeaders[strings.ToLower(headerName)]
+		s = strings.ReplaceAll(s, placeholder, value)
 	}
 
 	return s
+}
+
+// extractSimpleJSONPath extracts a top-level field value from a JSON object using a "$.field" path.
+// Only single-level paths (e.g., "$.tier") are supported.
+func extractSimpleJSONPath(path string, obj map[string]interface{}) string {
+	field := strings.TrimPrefix(path, "$.")
+	val, ok := obj[field]
+	if !ok {
+		return ""
+	}
+	if s, ok := val.(string); ok {
+		return s
+	}
+	return fmt.Sprintf("%v", val)
+}
+
+// publishToKafka sends a message to a Kafka topic using the integration's bootstrap servers.
+func (r *FlowRunReconciler) publishToKafka(
+	integration *automationv1alpha1.Integration,
+	topic string,
+	body string,
+	headers map[string]string,
+) (map[string]string, error) {
+	config := sarama.NewConfig()
+	config.Producer.Return.Successes = true
+	config.Version = sarama.V2_6_0_0
+
+	producer, err := sarama.NewSyncProducer(integration.Spec.Kafka.BootstrapServers, config)
+	if err != nil {
+		return nil, fmt.Errorf("creating kafka producer for integration %q: %w", integration.Name, err)
+	}
+	defer producer.Close()
+
+	msg := &sarama.ProducerMessage{
+		Topic: topic,
+		Value: sarama.StringEncoder(body),
+	}
+	for k, v := range headers {
+		msg.Headers = append(msg.Headers, sarama.RecordHeader{
+			Key:   []byte(k),
+			Value: []byte(v),
+		})
+	}
+
+	partition, offset, err := producer.SendMessage(msg)
+	if err != nil {
+		return nil, fmt.Errorf("sending kafka message to topic %q: %w", topic, err)
+	}
+	return map[string]string{
+		"partition": fmt.Sprintf("%d", partition),
+		"offset":    fmt.Sprintf("%d", offset),
+	}, nil
 }

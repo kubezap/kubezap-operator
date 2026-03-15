@@ -649,3 +649,106 @@ The trigger payload will include the full resource object, previous object (for 
 | S3 / GCS events | `kubezap-s3-gateway` | Polls or uses bucket notifications |
 | Git (GitHub/GitLab webhooks) | Webhook gateway (existing) | Standard webhook with HMAC verification; no new gateway needed |
 | Remote cluster events | `kubezap-remote-cluster-gateway` | Future; requires cross-cluster API server access |
+
+---
+
+## Multi-Region HA
+
+> **Status**: Backlog — not yet implemented. This section documents the target architecture
+> and the design constraints it imposes on current implementation decisions.
+
+### Goal
+
+Support active-active or active-passive deployments across multiple Kubernetes clusters
+(or regions) with the following properties:
+
+- No single point of failure for trigger reception or FlowRun execution
+- No duplicate FlowRun execution from the same trigger event
+- Consistent FlowRun state visible across regions
+- Graceful failover when a region becomes unavailable mid-FlowRun
+
+---
+
+### What is already designed for HA
+
+These decisions in the current implementation are intentionally HA-compatible:
+
+**CRD-as-state (not in-memory)**
+All execution state lives in CRD status (`FlowRun.status`). The controller holds no
+in-memory execution state between reconcile loops. If a controller pod dies, another
+picks up from the last persisted status. This is the most important HA property.
+
+**Idempotent reconcilers**
+All reconcilers are designed to be safe to re-run at any time. A FlowRun that is
+re-reconciled after a crash completes from the last persisted step, not from scratch.
+Steps that already have `Succeeded` status are skipped.
+
+**FlowRun dedup keys**
+FlowRun names encode the triggering event to prevent duplicates:
+- Kafka: `<trigger>-p<partition>-offset-<offset>` — exactly-once per message
+- Cron: `<trigger>-<scheduled-time>` — exactly-once per schedule tick
+- Webhook: `<trigger>-<timestamp>-<random>` — no dedup (webhooks are not idempotent by nature)
+
+**Leader election**
+The operator uses controller-runtime's built-in leader election (lease-based). Only one
+controller instance executes reconcile loops at a time within a cluster.
+
+---
+
+### Gaps and future work
+
+**Cross-region cron dedup**
+In a multi-region setup, the cron scheduler on each region's controller will fire
+independently at the same scheduled time. Leader election prevents duplicates within a
+cluster, but not across clusters. Mitigation options (to be designed):
+- Global distributed lock (e.g., etcd across regions, or a CRD-based lock with a
+  well-known name and `resourceVersion`-based optimistic concurrency)
+- Designate a "primary region" for cron scheduling; other regions only execute FlowRuns
+  they receive via replication
+
+**FlowRun replication**
+Kubernetes CRDs are cluster-scoped — they do not replicate across clusters automatically.
+Multi-region FlowRun distribution requires either:
+- A federation layer (KubeFed, ArgoCD ApplicationSet, or custom sync controller)
+- Webhook gateways in each region creating FlowRuns locally (active-active ingress)
+
+**Step idempotency**
+HTTP steps are not idempotent by default. If a FlowRun is re-executed after a region
+failover, an HTTP step may fire twice. Downstream services must be prepared for this, or
+steps must implement idempotency keys (future: `step.idempotencyKey` field using
+`$(trigger.headers.X-Idempotency-Key)` or similar).
+
+**Gateway placement**
+Currently one webhook gateway Deployment per namespace. In multi-region:
+- Each region runs its own gateway (active-active ingress)
+- A global load balancer (e.g., AWS Route53, GCP Cloud DNS with geo routing) routes
+  webhook senders to the nearest region
+- FlowRuns created in each region execute locally — no cross-region RPC during execution
+
+**State convergence**
+If a region executes a FlowRun partially and then fails, a secondary region cannot
+resume it without access to the original FlowRun CRD. Resumption across regions requires
+either CRD replication or the FlowRun to be recreated in the secondary region.
+
+---
+
+### Design constraints for current implementation
+
+These constraints must be respected NOW to avoid rework when HA is added:
+
+1. **Never store execution state in controller memory.** All step results, retry counts,
+   and phase transitions must be written to `FlowRun.status` before the next reconcile.
+   (Already enforced by the current design.)
+
+2. **FlowRun names must be deterministic from the trigger event** where possible (Kafka,
+   cron) to support cross-region dedup via `AlreadyExists` error handling.
+
+3. **Avoid node-local resources.** Gateways must not write to local disk or use
+   node-local sockets. All state goes through the Kubernetes API.
+
+4. **Trace context propagation via annotations** (see observability guide) must use
+   W3C `traceparent` — this is region-agnostic and works across process boundaries.
+
+5. **RBAC must be namespace-scoped** (Role, not ClusterRole) where possible. This
+   supports future multi-cluster deployments where each cluster has its own namespace
+   scope. (Already enforced for gateway RBAC.)

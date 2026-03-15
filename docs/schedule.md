@@ -45,13 +45,12 @@
 - [x] HMAC authentication support
 - [x] Bearer token authentication support
 - [ ] OIDC/JWT authentication support
-- [x] Basic auth (not implemented), mTLS (not implemented), API-key header, IP allowlist support
+- [x] API-key header and IP allowlist authentication support
 - [x] `/mock/*` path support for MockEndpoint CRDs
 - [x] Structured JSON access logs (source IP in logs only, not Prometheus labels)
-- [x] Fix: add source IP (`RemoteAddr`) to access log in `internal/gateway/webhook/handler.go`
-- [x] Fix: remove dead `RouteRegistry.ServeHTTP` method from `internal/gateway/webhook/registry.go`
 - [ ] HPA configuration for webhook gateway Deployment
 - [x] Controller manages webhook gateway Deployment lifecycle (one per namespace)
+- [ ] **Gateway ServiceAccount + Role + RoleBinding** created by controller alongside Deployment (deploy blocker — see `docs/architecture.md#gateway-serviceaccount-and-rbac`)
 
 ### Cron Trigger
 - [x] Cron scheduler implementation in controller (`robfig/cron v3`)
@@ -73,11 +72,12 @@
 
 ### Flow Reconciler
 - [x] `Flow` reconciler validates spec and sets Ready condition
-- [ ] Conditional step execution via CEL expressions (`when` field)
+- [ ] **CEL `when` expression evaluation** — use `google/cel-go`; variables: `trigger.*`, `steps.<name>.status`, `steps.<name>.results.*`; see `docs/api/flow.md#conditions-and-cel`
+- [ ] **`Skipped` step phase** — when `when` is false; cascade skip downstream when entire `runAfter` set is skipped; see `docs/api/flow.md#skipped-steps-and-dependency-cascading`
 - [x] Step input/output data passing between steps (`$(steps.<name>.results.<key>)` substitution)
-- [x] Data transformation step type (`type: transform`) (implemented in FlowRun reconciler — substituteVars applied to mappings)
-- [x] Retry policies with exponential backoff per step (implemented in FlowRun reconciler)
-- [x] Flow-level timeout enforcement (enforce `flow.Spec.Timeout` across all steps)
+- [x] Data transformation step type (`type: transform`)
+- [x] Retry policies with exponential backoff per step
+- [x] Flow-level and per-step timeout enforcement
 
 ### Integration CRD & Kafka Gateway
 - [x] `Integration` reconciler in `internal/controller/integration_controller.go`
@@ -94,6 +94,19 @@
 
 ---
 
+## MVP Demo Milestone
+
+These items are needed to demonstrate a working end-to-end flow to stakeholders.
+Target: webhook → transform → conditional mock notify with two branches.
+
+- [ ] **Gateway ServiceAccount + Role + RoleBinding** — controller must create these alongside the webhook gateway Deployment. Required for the gateway to create FlowRuns and write MockEndpoint status. See `docs/architecture.md#gateway-serviceaccount-and-rbac` for the required permissions.
+- [ ] **CEL `when` evaluation** — required for conditional step branching (see Flow Reconciler section above)
+- [ ] **`Skipped` step phase** — required for `when` to be observable (see Flow Reconciler section above)
+- [ ] **Demo sample CRs** — `config/samples/demo/` — the order-router scenario from `docs/guides/getting-started.md`; must `kubectl apply` cleanly and produce a working FlowRun
+- [ ] **`docs/guides/getting-started.md`** complete and validated against actual behavior ✅ (draft written; validate after gateway RBAC and CEL land)
+
+---
+
 ## 3. Plugin System
 
 - [ ] Plugin contract documented in `docs/api/integration.md` (subscriber + publisher roles)
@@ -102,7 +115,7 @@
 - [x] Env injection: `KUBEZAP_NAMESPACE`, `KUBEZAP_INTEGRATION_NAME`, `KUBEZAP_PUBLISHER_PORT`, `KUBEZAP_LOG_LEVEL`
 - [x] Secret injection via `spec.plugin.secretRefs` + `envVarMappings`
 - [x] Readiness probe: `GET /healthz` → 200
-- [ ] Controller routes `type: publish` step calls to plugin `/publish` endpoint
+- [x] Controller routes `type: publish` step calls to plugin `/publish` endpoint
 - [ ] Plugin trust model documented as a security consideration
 
 ---

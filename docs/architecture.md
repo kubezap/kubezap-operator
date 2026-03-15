@@ -11,6 +11,7 @@ This document describes the runtime architecture of KubeZap — specifically how
 - [Webhook Gateway](#webhook-gateway)
 - [Kafka Gateway](#kafka-gateway)
 - [Gateway Configuration: CRD-Watching](#gateway-configuration-crd-watching)
+- [Gateway ServiceAccount and RBAC](#gateway-serviceaccount-and-rbac)
 - [Trigger → Flow Invocation](#trigger--flow-invocation)
 - [Scaling](#scaling)
 - [Namespace Isolation](#namespace-isolation)
@@ -169,6 +170,63 @@ Gateways are configured by watching `Trigger` CRDs directly — there is no inte
 | gRPC/REST from controller | Rich protocol | Tight coupling, harder to run gateways independently |
 
 The gateway RBAC needs `get/list/watch` on `Trigger` resources in its namespace. The operator creates a `ServiceAccount`, `Role`, and `RoleBinding` for each gateway Deployment it provisions.
+
+---
+
+## Gateway ServiceAccount and RBAC
+
+Each gateway Deployment runs under a dedicated ServiceAccount, not the controller's
+ServiceAccount. The controller creates these resources alongside the gateway Deployment.
+
+### Webhook Gateway ServiceAccount
+
+**Name:** `kubezap-webhook-gateway` (in the same namespace as the gateway Deployment)
+
+**Role permissions required:**
+
+| API Group | Resource | Verbs | Why |
+|---|---|---|---|
+| `automation.kubezap.io` | `triggers` | `get, list, watch` | Route registration from Trigger CRDs |
+| `automation.kubezap.io` | `flowruns` | `create` | FlowRun creation on webhook arrival |
+| `automation.kubezap.io` | `mockendpoints` | `get, list, watch` | Mock route registration |
+| `automation.kubezap.io` | `mockendpoints/status` | `get, update, patch` | Captured request storage |
+
+The controller creates a `Role` (not `ClusterRole`) with these permissions and a
+`RoleBinding` to the gateway ServiceAccount. This keeps the gateway's blast radius
+scoped to its own namespace.
+
+**Implementation:** `internal/controller/gateway_deployment.go` is responsible for
+creating/updating the ServiceAccount, Role, and RoleBinding as part of the gateway
+Deployment reconciliation. These resources share the gateway Deployment's lifecycle:
+created when the first webhook Trigger appears in a namespace, deleted when the last one
+is removed.
+
+**Required controller RBAC additions:**
+
+The controller itself needs permission to create/manage these resources:
+```yaml
+# +kubebuilder:rbac:groups="",resources=serviceaccounts,verbs=get;list;watch;create;update;patch;delete
+# +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=roles,verbs=get;list;watch;create;update;patch;delete
+# +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=rolebindings,verbs=get;list;watch;create;update;patch;delete
+```
+
+### Verifying Gateway Permissions
+
+```bash
+kubectl auth can-i create flowruns \
+  --as=system:serviceaccount:default:kubezap-webhook-gateway -n default
+# Expected: yes
+
+kubectl auth can-i patch mockendpoints/status \
+  --as=system:serviceaccount:default:kubezap-webhook-gateway -n default
+# Expected: yes
+```
+
+### Plugin ServiceAccount
+
+Plugin Deployments (type=plugin Integrations) do **not** receive automatic RBAC from the
+operator. The plugin image is user-supplied and its permissions are the cluster admin's
+responsibility. See [Plugin Trust Model](../api/integration.md#trust-model).
 
 ---
 

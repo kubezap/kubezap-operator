@@ -176,3 +176,4 @@ Target: webhook → transform → conditional mock notify with two branches.
 - [ ] Multi-region HA support
 - [ ] Plugin marketplace / integration catalog
 - [ ] S3/Git event trigger source
+- [ ] Fix pre-existing `flow_controller_test.go` failure: `when spec.steps is empty` test case

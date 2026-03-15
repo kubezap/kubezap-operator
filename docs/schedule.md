@@ -86,6 +86,8 @@
 - [ ] FlowRun creation per Kafka message: `<trigger>-p<partition>-offset-<offset>` (dedup key)
 - [ ] KEDA ScaledObject for Kafka gateway (partition-bounded scaling)
 - [ ] Controller manages Kafka gateway Deployment lifecycle (one per namespace × Kafka cluster)
+- [ ] AMQP gateway skeleton in `cmd/amqp-gateway/main.go` (`type: amqp`, versions 0-9-1 and 1.0)
+- [ ] NATS gateway skeleton in `cmd/nats-gateway/main.go` (`type: nats`, Core + JetStream)
 - [x] `type: publish` step action — controller calls plugin `/publish` endpoint
 
 ### MockEndpoint CRD
@@ -109,14 +111,14 @@ Target: webhook → transform → conditional mock notify with two branches.
 
 ## 3. Plugin System
 
-- [ ] Plugin contract documented in `docs/api/integration.md` (subscriber + publisher roles)
+- [x] Plugin contract documented in `docs/api/plugin-contract.md` (subscriber + publisher roles, dedup keys, observability, security)
 - [x] Operator creates plugin Deployment for `type: plugin` Integrations
 - [ ] Namespace-scoped RBAC granted to plugin Deployment
 - [x] Env injection: `KUBEZAP_NAMESPACE`, `KUBEZAP_INTEGRATION_NAME`, `KUBEZAP_PUBLISHER_PORT`, `KUBEZAP_LOG_LEVEL`
 - [x] Secret injection via `spec.plugin.secretRefs` + `envVarMappings`
 - [x] Readiness probe: `GET /healthz` → 200
 - [x] Controller routes `type: publish` step calls to plugin `/publish` endpoint
-- [ ] Plugin trust model documented as a security consideration
+- [x] Plugin trust model documented as a security consideration (see `docs/api/plugin-contract.md#security-considerations`)
 
 ---
 
@@ -166,7 +168,9 @@ Target: webhook → transform → conditional mock notify with two branches.
 
 - [ ] `Step` CRD for reusable step definitions
 - [ ] Multi-namespace flows (cross-namespace FlowRun)
-- [ ] Additional message brokers: NATS, RabbitMQ, ActiveMQ, Solace, GCP Pub/Sub
+- [ ] Additional message brokers: GCP Pub/Sub, Solace (non-AMQP), TIBCO EMS (via plugin model)
+- [ ] Plugin catalog / marketplace in `docs/plugins/` with community registry and maturity levels
+- [ ] Reference plugin implementation in `docs/plugins/example-plugin/`
 - [ ] Web UI for flow monitoring
 - [ ] OpenLineage support
 - [ ] Multi-region HA support

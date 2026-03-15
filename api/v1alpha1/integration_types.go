@@ -65,6 +65,84 @@ type KafkaIntegrationSpec struct {
 	ConsumerGroupPrefix string `json:"consumerGroupPrefix,omitempty"`
 }
 
+// AmqpTLSConfig defines TLS options for AMQP connections.
+type AmqpTLSConfig struct {
+	// Enable TLS. Use amqps:// URL to enable automatically.
+	// +kubebuilder:default=false
+	Enabled bool `json:"enabled,omitempty"`
+
+	// Skip server certificate verification. Development only.
+	InsecureSkipVerify bool `json:"insecureSkipVerify,omitempty"`
+
+	// CA certificate secret reference.
+	CASecretRef *corev1.SecretKeySelector `json:"caSecretRef,omitempty"`
+
+	// Client certificate secret for mTLS.
+	ClientCertSecretRef *corev1.LocalObjectReference `json:"clientCertSecretRef,omitempty"`
+}
+
+// AmqpIntegrationSpec contains AMQP-specific integration configuration.
+// Covers AMQP 0-9-1 (RabbitMQ, ActiveMQ Classic) and AMQP 1.0
+// (ActiveMQ Artemis, Azure Service Bus, Solace, IBM MQ).
+type AmqpIntegrationSpec struct {
+	// AMQP broker URL. Examples:
+	//   amqp://rabbitmq.infra:5672/production
+	//   amqps://artemis.infra:5671
+	URL string `json:"url"`
+
+	// Wire-protocol version.
+	// +kubebuilder:validation:Enum="0-9-1";"1.0"
+	// +kubebuilder:default="0-9-1"
+	Version string `json:"version,omitempty"`
+
+	// TLS configuration. Inferred from amqps:// URL if not set explicitly.
+	TLS *AmqpTLSConfig `json:"tls,omitempty"`
+
+	// Username secret reference.
+	UsernameSecretRef *corev1.SecretKeySelector `json:"usernameSecretRef,omitempty"`
+
+	// Password secret reference.
+	PasswordSecretRef *corev1.SecretKeySelector `json:"passwordSecretRef,omitempty"`
+}
+
+// NatsTLSConfig defines TLS options for NATS connections.
+type NatsTLSConfig struct {
+	// Skip server certificate verification. Development only.
+	InsecureSkipVerify bool `json:"insecureSkipVerify,omitempty"`
+
+	// CA certificate secret reference.
+	CASecretRef *corev1.SecretKeySelector `json:"caSecretRef,omitempty"`
+
+	// Client certificate secret for mTLS.
+	ClientCertSecretRef *corev1.LocalObjectReference `json:"clientCertSecretRef,omitempty"`
+}
+
+// NatsIntegrationSpec contains NATS-specific integration configuration.
+// Supports NATS Core and NATS JetStream.
+type NatsIntegrationSpec struct {
+	// NATS server URLs. Multiple URLs are used for cluster failover.
+	// Example: ["nats://nats-0.nats.infra:4222", "nats://nats-1.nats.infra:4222"]
+	// +kubebuilder:validation:MinItems=1
+	Servers []string `json:"servers"`
+
+	// TLS configuration.
+	TLS *NatsTLSConfig `json:"tls,omitempty"`
+
+	// NATS credentials file secret reference (NKey or User JWT credentials).
+	// The secret key must be "nats.creds".
+	CredentialsSecretRef *corev1.LocalObjectReference `json:"credentialsSecretRef,omitempty"`
+
+	// Username secret reference (basic auth, not recommended for production).
+	UsernameSecretRef *corev1.SecretKeySelector `json:"usernameSecretRef,omitempty"`
+
+	// Password secret reference.
+	PasswordSecretRef *corev1.SecretKeySelector `json:"passwordSecretRef,omitempty"`
+
+	// Enable JetStream for durable, persistent message delivery.
+	// +kubebuilder:default=false
+	JetStream bool `json:"jetStream,omitempty"`
+}
+
 // PluginSecretRef maps secret keys to environment variable names.
 type PluginSecretRef struct {
 	// Secret name.
@@ -94,13 +172,25 @@ type PluginIntegrationSpec struct {
 // IntegrationSpec defines desired state for Integration.
 type IntegrationSpec struct {
 	// Integration type.
-	// +kubebuilder:validation:Enum=kafka;plugin
+	// kafka: first-party Kafka gateway (IBM/sarama).
+	// amqp: first-party AMQP gateway; covers RabbitMQ, ActiveMQ, Solace, Azure Service Bus.
+	//   Use spec.amqp.version to select 0-9-1 or 1.0 wire protocol.
+	// nats: first-party NATS gateway; supports Core and JetStream.
+	// plugin: community or custom image implementing the KubeZap plugin contract.
+	//   See docs/api/plugin-contract.md.
+	// +kubebuilder:validation:Enum=kafka;amqp;nats;plugin
 	Type string `json:"type"`
 
-	// Kafka specific configuration.
+	// Kafka specific configuration. Required when type=kafka.
 	Kafka *KafkaIntegrationSpec `json:"kafka,omitempty"`
 
-	// Plugin specific configuration.
+	// AMQP specific configuration. Required when type=amqp.
+	Amqp *AmqpIntegrationSpec `json:"amqp,omitempty"`
+
+	// NATS specific configuration. Required when type=nats.
+	Nats *NatsIntegrationSpec `json:"nats,omitempty"`
+
+	// Plugin specific configuration. Required when type=plugin.
 	Plugin *PluginIntegrationSpec `json:"plugin,omitempty"`
 }
 

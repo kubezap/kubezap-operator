@@ -11,15 +11,19 @@ An `Integration` stores the connection details and credentials for an external s
 - [Built-in Integration Types](#built-in-integration-types)
 - [Plugin Integration Type](#plugin-integration-type)
 - [Plugin Protocol Specification](#plugin-protocol-specification)
+- [Community Plugin Graduation](#community-plugin-graduation)
 - [Spec Reference](#spec-reference)
 - [Status Reference](#status-reference)
 - [Examples](#examples)
   - [Kafka Integration](#example-1-kafka-integration)
   - [Kafka with mTLS](#example-2-kafka-with-mtls)
   - [Kafka with SASL/SCRAM](#example-3-kafka-with-saslscram)
-  - [Community Plugin Integration](#example-4-community-plugin-integration)
-  - [Using an Integration in a Trigger](#example-5-using-an-integration-in-a-trigger)
-  - [Using an Integration as a Publisher in a Flow](#example-6-using-an-integration-as-a-publisher-in-a-flow)
+  - [AMQP Integration (RabbitMQ)](#example-4-amqp-integration-rabbitmq)
+  - [AMQP 1.0 Integration (ActiveMQ Artemis)](#example-5-amqp-10-integration-activemq-artemis)
+  - [NATS JetStream Integration](#example-6-nats-jetstream-integration)
+  - [Community Plugin Integration](#example-7-community-plugin-integration)
+  - [Using an Integration in a Trigger](#example-8-using-an-integration-in-a-trigger)
+  - [Using an Integration as a Publisher in a Flow](#example-9-using-an-integration-as-a-publisher-in-a-flow)
 - [kubectl Reference](#kubectl-reference)
 - [Limitations](#limitations)
 
@@ -89,19 +93,49 @@ steps:
 
 ## Built-in Integration Types
 
+KubeZap ships first-party gateway binaries for the protocols below. The operator manages the gateway Deployment lifecycle; you supply only the connection config.
+
+The type taxonomy is intentionally **protocol-level, not broker-level**. A single `type: amqp` gateway covers RabbitMQ, ActiveMQ Artemis, Solace, Azure Service Bus, and IBM MQ AMQP — regardless of which broker is behind the connection. This avoids an unbounded list of broker-specific types. For brokers without a matching protocol type, use `type: plugin` with a community or vendor-supplied image.
+
 ### Kafka (`type: kafka`)
 
-First-class built-in support. Uses the `kubezap/kafka-gateway` image. Supports:
+Uses the `kubezap/kafka-gateway` image with the [IBM/sarama](https://github.com/IBM/sarama) client.
 
 - SASL/PLAIN, SASL/SCRAM-SHA-256, SASL/SCRAM-SHA-512
-- TLS with custom CAs
-- Mutual TLS (client certificate authentication)
+- TLS with custom CAs and mutual TLS
 - Configurable consumer group prefix
-- Per-namespace gateway Deployment (one Deployment per Integration per namespace)
+- Offset-based dedup key in FlowRun names (`<trigger>-p<partition>-offset-<offset>`)
+- One gateway Deployment per Integration per namespace
 
-### RabbitMQ (`type: rabbitmq`) _(planned)_
+Kafka has dedicated first-party support rather than being absorbed into a generic AMQP type because its offset/partition semantics, dedup model, and scaling story (KEDA partition-bounded HPA) are fundamentally different from queue-based protocols.
 
-Planned for a future release. Will use a dedicated `kubezap/rabbitmq-gateway` image with AMQP 0-9-1 support, exchange/queue configuration, and the same subscriber/publisher model as Kafka.
+### AMQP (`type: amqp`) _(planned)_
+
+Uses the `kubezap/amqp-gateway` image. Covers:
+
+| Broker | Protocol version |
+|---|---|
+| RabbitMQ | AMQP 0-9-1 (default) |
+| ActiveMQ Classic | AMQP 0-9-1 |
+| ActiveMQ Artemis | AMQP 1.0 |
+| Solace PubSub+ | AMQP 1.0 |
+| Azure Service Bus | AMQP 1.0 |
+| IBM MQ | AMQP 1.0 |
+
+Select the wire protocol via `spec.amqp.version: "0-9-1"` or `"1.0"` (default: `"0-9-1"`). The gateway dispatches to the appropriate client library at startup.
+
+> **Note on JMS:** JMS is a Java API layer, not a wire protocol. For brokers typically accessed via JMS in Java environments, use the AMQP type with the appropriate version. ActiveMQ Artemis and IBM MQ both support AMQP 1.0 natively. TIBCO EMS and other JMS-only brokers have no AMQP support — use `type: plugin` with the vendor's Go SDK.
+
+### NATS (`type: nats`) _(planned)_
+
+Uses the `kubezap/nats-gateway` image with the official [nats.go](https://github.com/nats-io/nats.go) client.
+
+- NATS Core (at-most-once) and JetStream (durable, at-least-once)
+- NKey and User JWT credential files
+- TLS and mTLS
+- Multiple server URLs for cluster failover
+
+Enable JetStream with `spec.nats.jetStream: true`. Without JetStream, the gateway uses Core NATS subjects (no persistence, no dedup key guarantee).
 
 ---
 
@@ -242,9 +276,49 @@ The operator uses this for the Deployment readiness probe.
 
 | Field | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `type` | string | **Yes** | — | Integration type: `kafka`, `rabbitmq` _(planned)_, `plugin` |
+| `type` | string | **Yes** | — | `kafka`, `amqp`, `nats`, or `plugin` |
 | `kafka` | KafkaIntegrationSpec | No | — | Kafka connection details. Required when `type: kafka`. |
+| `amqp` | AmqpIntegrationSpec | No | — | AMQP connection details. Required when `type: amqp`. _(planned)_ |
+| `nats` | NatsIntegrationSpec | No | — | NATS connection details. Required when `type: nats`. _(planned)_ |
 | `plugin` | PluginIntegrationSpec | No | — | Plugin configuration. Required when `type: plugin`. |
+
+### AmqpIntegrationSpec
+
+| Field | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `url` | string | **Yes** | — | AMQP broker URL, e.g. `amqp://rabbitmq:5672/vhost` or `amqps://...` |
+| `version` | string | No | `"0-9-1"` | Wire protocol: `"0-9-1"` or `"1.0"` |
+| `tls` | AmqpTLSConfig | No | — | TLS configuration. Inferred from `amqps://` URL if omitted. |
+| `usernameSecretRef` | SecretKeyRef | No | — | Secret key containing AMQP username |
+| `passwordSecretRef` | SecretKeyRef | No | — | Secret key containing AMQP password |
+
+### AmqpTLSConfig
+
+| Field | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `enabled` | boolean | No | `false` | Enable TLS (auto-enabled for `amqps://` URLs) |
+| `insecureSkipVerify` | boolean | No | `false` | Disable certificate verification. Development only. |
+| `caSecretRef` | SecretKeyRef | No | — | Custom CA certificate |
+| `clientCertSecretRef` | LocalObjectReference | No | — | Client certificate secret for mTLS (`tls.crt` + `tls.key`) |
+
+### NatsIntegrationSpec
+
+| Field | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `servers` | []string | **Yes** | — | NATS server URLs. Multiple entries used for cluster failover. |
+| `tls` | NatsTLSConfig | No | — | TLS configuration |
+| `credentialsSecretRef` | LocalObjectReference | No | — | Secret containing `nats.creds` (NKey or User JWT credentials) |
+| `usernameSecretRef` | SecretKeyRef | No | — | Username for basic auth (not recommended for production) |
+| `passwordSecretRef` | SecretKeyRef | No | — | Password for basic auth |
+| `jetStream` | boolean | No | `false` | Enable NATS JetStream for durable delivery |
+
+### NatsTLSConfig
+
+| Field | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `insecureSkipVerify` | boolean | No | `false` | Disable certificate verification. Development only. |
+| `caSecretRef` | SecretKeyRef | No | — | Custom CA certificate |
+| `clientCertSecretRef` | LocalObjectReference | No | — | Client certificate secret for mTLS |
 
 ### KafkaIntegrationSpec
 
@@ -432,9 +506,83 @@ stringData:
 
 ---
 
-### Example 4: Community Plugin Integration
+### Example 4: AMQP Integration (RabbitMQ)
 
-A community-maintained RabbitMQ plugin that implements the KubeZap plugin protocol:
+RabbitMQ using AMQP 0-9-1 (the default version):
+
+```yaml
+apiVersion: automation.kubezap.io/v1alpha1
+kind: Integration
+metadata:
+  name: rabbitmq-prod
+  namespace: automation
+spec:
+  type: amqp
+  amqp:
+    url: amqps://rabbitmq.infra.svc.cluster.local:5671/production
+    version: "0-9-1"
+    usernameSecretRef:
+      name: rabbitmq-credentials
+      key: username
+    passwordSecretRef:
+      name: rabbitmq-credentials
+      key: password
+```
+
+---
+
+### Example 5: AMQP 1.0 Integration (ActiveMQ Artemis)
+
+ActiveMQ Artemis with AMQP 1.0 and mTLS:
+
+```yaml
+apiVersion: automation.kubezap.io/v1alpha1
+kind: Integration
+metadata:
+  name: artemis-prod
+  namespace: automation
+spec:
+  type: amqp
+  amqp:
+    url: amqps://artemis.infra.svc.cluster.local:5671
+    version: "1.0"
+    tls:
+      caSecretRef:
+        name: artemis-ca
+        key: ca.crt
+      clientCertSecretRef:
+        name: kubezap-artemis-client-cert
+```
+
+---
+
+### Example 6: NATS JetStream Integration
+
+NATS cluster with JetStream enabled and NKey credentials:
+
+```yaml
+apiVersion: automation.kubezap.io/v1alpha1
+kind: Integration
+metadata:
+  name: nats-cluster
+  namespace: automation
+spec:
+  type: nats
+  nats:
+    servers:
+      - nats://nats-0.nats.infra.svc.cluster.local:4222
+      - nats://nats-1.nats.infra.svc.cluster.local:4222
+      - nats://nats-2.nats.infra.svc.cluster.local:4222
+    jetStream: true
+    credentialsSecretRef:
+      name: nats-kubezap-creds   # must contain key: nats.creds
+```
+
+---
+
+### Example 7: Community Plugin Integration
+
+A community plugin for a system without a built-in first-party type:
 
 ```yaml
 apiVersion: automation.kubezap.io/v1alpha1
@@ -468,7 +616,7 @@ spec:
 
 ---
 
-### Example 5: Using an Integration in a Trigger
+### Example 8: Using an Integration in a Trigger
 
 A Trigger referencing a Kafka Integration as a subscriber:
 
@@ -495,7 +643,7 @@ spec:
 
 ---
 
-### Example 6: Using an Integration as a Publisher in a Flow
+### Example 9: Using an Integration as a Publisher in a Flow
 
 A Flow step that publishes a message to Kafka on completion:
 
@@ -542,6 +690,39 @@ spec:
 
 ---
 
+## Community Plugin Graduation
+
+Community plugins can graduate to first-party built-in types. The lifecycle is:
+
+```
+type: plugin  (community image, BYO lifecycle)
+    ↓  adoption signal + stable wire protocol + Go client
+type: <protocol>  (first-party gateway binary, operator-managed)
+```
+
+### Graduation criteria
+
+A `type: plugin` integration is a graduation candidate when it meets all of:
+
+1. **Stable wire protocol** — a well-defined open protocol (AMQP, STOMP, NATS, etc.) rather than a vendor-proprietary SDK
+2. **Permissive Go client** — a Go client library exists with Apache 2.0 or MIT license
+3. **Full contract compliance** — implements the complete [plugin contract](./plugin-contract.md) including dedup keys, W3C traceparent propagation, and structured logging
+4. **Integration tests** — test suite contributions to the KubeZap repository covering the subscribe and publish paths
+5. **Assigned maintainer** — at least one person willing to own the first-party gateway long-term
+
+### What graduation changes
+
+When a plugin graduates:
+- A new `type: <protocol>` value is added to the enum (non-breaking addition)
+- A first-party `kubezap/<protocol>-gateway` image is built and published
+- `type: plugin` with the community image continues to work indefinitely — existing Integration CRs do not need to migrate
+
+### Plugin catalog
+
+The community plugin catalog lives at `docs/plugins/` (forthcoming). Each catalog entry declares the supported broker, required secrets schema, supported trigger types, and maturity level (`community` / `verified` / `core`). See that directory for contribution guidelines.
+
+---
+
 ## kubectl Reference
 
 | Command | Description |
@@ -558,5 +739,5 @@ spec:
 - **Namespace-scoped references**: A Trigger and the Integration it references must be in the same namespace. Cross-namespace Integration references are not supported.
 - **Plugin RBAC is namespace-scoped**: Plugin pods are granted Role (not ClusterRole) permissions to watch Triggers and create FlowRuns only in their own namespace. This is intentional for security and OpenShift SCC compliance.
 - **Plugin image trust**: KubeZap does not verify plugin images. Only use plugin images from sources you trust, as they run inside your cluster with Kubernetes API access.
-- **RabbitMQ native support**: Built-in RabbitMQ support (`type: rabbitmq`) is planned but not yet implemented. Use `type: plugin` with the community RabbitMQ plugin in the meantime.
+- **AMQP and NATS gateways**: `type: amqp` and `type: nats` are reserved in the API but not yet implemented. Use `type: plugin` with a community image in the meantime.
 - **One gateway Deployment per Integration per namespace**: KubeZap does not share a single Kafka gateway pod across multiple Integrations. Each Integration gets its own gateway Deployment in each namespace where it is used.

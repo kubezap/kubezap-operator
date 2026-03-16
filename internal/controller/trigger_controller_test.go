@@ -18,76 +18,425 @@ package controller
 
 import (
 	"context"
+	"fmt"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	"k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/types"
-	"sigs.k8s.io/controller-runtime/pkg/reconcile"
-
+	appsv1 "k8s.io/api/apps/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	logf "sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	automationv1alpha1 "github.com/yourname/kubezap/api/v1alpha1"
 )
 
-var _ = Describe("Trigger Controller", func() {
-	Context("When reconciling a resource", func() {
-		const resourceName = "test-resource"
+var _ = Describe("TriggerReconciler", func() {
+	const testNamespace = "default"
 
-		ctx := context.Background()
-
-		typeNamespacedName := types.NamespacedName{
-			Name:      resourceName,
-			Namespace: "default", // TODO(user):Modify as needed
+	// newReconciler returns a TriggerReconciler wired to the envtest client.
+	// CronScheduler is intentionally left nil unless a specific test requires it.
+	newReconciler := func() *TriggerReconciler {
+		return &TriggerReconciler{
+			Client: k8sClient,
+			Scheme: k8sClient.Scheme(),
 		}
-		trigger := &automationv1alpha1.Trigger{}
+	}
+
+	// reconcileAndFetch invokes the reconciler then re-fetches the Trigger so
+	// callers can assert on the latest persisted status.
+	reconcileAndFetch := func(name string) (*automationv1alpha1.Trigger, error) {
+		r := newReconciler()
+		nn := types.NamespacedName{Name: name, Namespace: testNamespace}
+		_, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
+		if err != nil {
+			return nil, err
+		}
+		var updated automationv1alpha1.Trigger
+		if fetchErr := k8sClient.Get(ctx, nn, &updated); fetchErr != nil {
+			return nil, fetchErr
+		}
+		return &updated, nil
+	}
+
+	// makeTrigger builds a Trigger object without persisting it.
+	makeTrigger := func(name string, spec automationv1alpha1.TriggerSpec) *automationv1alpha1.Trigger {
+		return &automationv1alpha1.Trigger{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      name,
+				Namespace: testNamespace,
+			},
+			Spec: spec,
+		}
+	}
+
+	// findCondition returns the named condition from the Trigger status, or nil.
+	findCondition := func(trg *automationv1alpha1.Trigger, condType string) *metav1.Condition {
+		for i := range trg.Status.Conditions {
+			if trg.Status.Conditions[i].Type == condType {
+				return &trg.Status.Conditions[i]
+			}
+		}
+		return nil
+	}
+
+	// -------------------------------------------------------------------------
+	// Accepted condition — enabled Trigger
+	// -------------------------------------------------------------------------
+
+	Context("when reconciling an enabled webhook Trigger", func() {
+		var trigger *automationv1alpha1.Trigger
 
 		BeforeEach(func() {
-			By("creating the custom resource for the Kind Trigger")
-			err := k8sClient.Get(ctx, typeNamespacedName, trigger)
-			if err != nil && errors.IsNotFound(err) {
-				resource := &automationv1alpha1.Trigger{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      resourceName,
-						Namespace: "default",
+			By("creating an enabled webhook Trigger")
+			trigger = makeTrigger(
+				fmt.Sprintf("trg-enabled-%d", GinkgoRandomSeed()),
+				automationv1alpha1.TriggerSpec{
+					Type:    "webhook",
+					Enabled: true,
+					Webhook: &automationv1alpha1.WebhookTrigger{
+						Path:   "/hook/enabled",
+						Method: "POST",
 					},
-					Spec: automationv1alpha1.TriggerSpec{
-						Type: "webhook",
-						Webhook: &automationv1alpha1.WebhookTrigger{
-							Path:   "/test",
-							Method: "POST",
-						},
-						FlowRef: &automationv1alpha1.FlowReference{
-							Name: "example-flow",
-						},
-					},
-				}
-				Expect(k8sClient.Create(ctx, resource)).To(Succeed())
-			}
-		})
-
-		AfterEach(func() {
-			// TODO(user): Cleanup logic after each test, like removing the resource instance.
-			resource := &automationv1alpha1.Trigger{}
-			err := k8sClient.Get(ctx, typeNamespacedName, resource)
-			Expect(err).NotTo(HaveOccurred())
-
-			By("Cleanup the specific resource instance Trigger")
-			Expect(k8sClient.Delete(ctx, resource)).To(Succeed())
-		})
-		It("should successfully reconcile the resource", func() {
-			By("Reconciling the created resource")
-			controllerReconciler := &TriggerReconciler{
-				Client: k8sClient,
-				Scheme: k8sClient.Scheme(),
-			}
-
-			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
-				NamespacedName: typeNamespacedName,
+					FlowRef: &automationv1alpha1.FlowReference{Name: "example-flow"},
+				},
+			)
+			Expect(k8sClient.Create(ctx, trigger)).To(Succeed())
+			DeferCleanup(func() {
+				_ = k8sClient.Delete(context.Background(), trigger)
 			})
+		})
+
+		It("sets the Accepted condition status to True", func() {
+			By("invoking the reconciler")
+			updated, err := reconcileAndFetch(trigger.Name)
 			Expect(err).NotTo(HaveOccurred())
-			// TODO(user): Add more specific assertions depending on your controller's reconciliation logic.
-			// Example: If you expect a certain status condition after reconciliation, verify it here.
+
+			By("asserting the Accepted condition is True with reason Enabled")
+			cond := findCondition(updated, "Accepted")
+			Expect(cond).NotTo(BeNil(), "expected an Accepted condition to be present")
+			Expect(cond.Status).To(Equal(metav1.ConditionTrue))
+			Expect(cond.Reason).To(Equal("Enabled"))
+		})
+
+		It("sets status.lastResult to Accepted", func() {
+			updated, err := reconcileAndFetch(trigger.Name)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(updated.Status.LastResult).To(Equal("Accepted"))
+		})
+	})
+
+	// -------------------------------------------------------------------------
+	// Accepted condition — disabled Trigger
+	// -------------------------------------------------------------------------
+
+	Context("when reconciling a disabled Trigger", func() {
+		var trigger *automationv1alpha1.Trigger
+
+		BeforeEach(func() {
+			By("creating a disabled webhook Trigger")
+			trigger = makeTrigger(
+				fmt.Sprintf("trg-disabled-%d", GinkgoRandomSeed()),
+				automationv1alpha1.TriggerSpec{
+					Type:    "webhook",
+					Enabled: false,
+					Webhook: &automationv1alpha1.WebhookTrigger{
+						Path:   "/hook/disabled",
+						Method: "POST",
+					},
+				},
+			)
+			Expect(k8sClient.Create(ctx, trigger)).To(Succeed())
+			DeferCleanup(func() {
+				_ = k8sClient.Delete(context.Background(), trigger)
+			})
+		})
+
+		It("sets the Accepted condition to False with reason Disabled", func() {
+			By("invoking the reconciler")
+			updated, err := reconcileAndFetch(trigger.Name)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("asserting the Accepted condition is False")
+			cond := findCondition(updated, "Accepted")
+			Expect(cond).NotTo(BeNil(), "expected an Accepted condition to be present")
+			Expect(cond.Status).To(Equal(metav1.ConditionFalse))
+			Expect(cond.Reason).To(Equal("Disabled"))
+		})
+
+		It("does not set status.lastResult to Accepted", func() {
+			updated, err := reconcileAndFetch(trigger.Name)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(updated.Status.LastResult).NotTo(Equal("Accepted"))
+		})
+	})
+
+	// -------------------------------------------------------------------------
+	// Webhook gateway Deployment created
+	// -------------------------------------------------------------------------
+
+	Context("when an enabled webhook Trigger is reconciled", func() {
+		var trigger *automationv1alpha1.Trigger
+
+		BeforeEach(func() {
+			By("creating an enabled webhook Trigger")
+			trigger = makeTrigger(
+				fmt.Sprintf("trg-gw-%d", GinkgoRandomSeed()),
+				automationv1alpha1.TriggerSpec{
+					Type:    "webhook",
+					Enabled: true,
+					Webhook: &automationv1alpha1.WebhookTrigger{
+						Path:   "/hook/gateway",
+						Method: "POST",
+					},
+					FlowRef: &automationv1alpha1.FlowReference{Name: "example-flow"},
+				},
+			)
+			Expect(k8sClient.Create(ctx, trigger)).To(Succeed())
+			DeferCleanup(func() {
+				_ = k8sClient.Delete(context.Background(), trigger)
+			})
+		})
+
+		It("ensures the webhook gateway Deployment exists in the trigger's namespace", func() {
+			By("invoking the reconciler")
+			_, err := reconcileAndFetch(trigger.Name)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("fetching the gateway Deployment by its well-known name")
+			var deploy appsv1.Deployment
+			nn := types.NamespacedName{
+				Name:      webhookGatewayDeploymentName,
+				Namespace: testNamespace,
+			}
+			Expect(k8sClient.Get(ctx, nn, &deploy)).To(Succeed())
+		})
+
+		It("labels the gateway Deployment with kubezap.io/component=webhook-gateway", func() {
+			_, err := reconcileAndFetch(trigger.Name)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("listing Deployments with the gateway component label")
+			var deployList appsv1.DeploymentList
+			Expect(k8sClient.List(ctx, &deployList,
+				client.InNamespace(testNamespace),
+				client.MatchingLabels{"kubezap.io/component": "webhook-gateway"},
+			)).To(Succeed())
+			Expect(deployList.Items).NotTo(BeEmpty())
+		})
+	})
+
+	// -------------------------------------------------------------------------
+	// lastTriggeredTime NOT set by the reconciler (HIGH bug regression)
+	// -------------------------------------------------------------------------
+
+	Context("after reconciling an enabled webhook Trigger", func() {
+		var trigger *automationv1alpha1.Trigger
+
+		BeforeEach(func() {
+			By("creating a fresh enabled webhook Trigger with no prior status")
+			trigger = makeTrigger(
+				fmt.Sprintf("trg-ltt-%d", GinkgoRandomSeed()),
+				automationv1alpha1.TriggerSpec{
+					Type:    "webhook",
+					Enabled: true,
+					Webhook: &automationv1alpha1.WebhookTrigger{
+						Path:   "/hook/ltt",
+						Method: "POST",
+					},
+					FlowRef: &automationv1alpha1.FlowReference{Name: "example-flow"},
+				},
+			)
+			Expect(k8sClient.Create(ctx, trigger)).To(Succeed())
+			DeferCleanup(func() {
+				_ = k8sClient.Delete(context.Background(), trigger)
+			})
+		})
+
+		It("does not populate status.lastTriggeredTime (only set on actual firing)", func() {
+			By("invoking the reconciler")
+			updated, err := reconcileAndFetch(trigger.Name)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("asserting lastTriggeredTime remains nil — reconciler must not set it")
+			Expect(updated.Status.LastTriggeredTime).To(BeNil(),
+				"lastTriggeredTime must only be set when the trigger fires, not during reconciliation")
+		})
+	})
+
+	// -------------------------------------------------------------------------
+	// Cron Trigger scheduling
+	// -------------------------------------------------------------------------
+
+	Context("when reconciling a cron Trigger with a valid schedule", func() {
+		var (
+			trigger   *automationv1alpha1.Trigger
+			scheduler *CronScheduler
+		)
+
+		BeforeEach(func() {
+			By("constructing a CronScheduler backed by the envtest client")
+			logger := logf.FromContext(ctx)
+			scheduler = NewCronScheduler(k8sClient, logger)
+			DeferCleanup(func() {
+				scheduler.Stop()
+			})
+
+			By("creating a cron Trigger with a valid five-field schedule")
+			trigger = makeTrigger(
+				fmt.Sprintf("trg-cron-%d", GinkgoRandomSeed()),
+				automationv1alpha1.TriggerSpec{
+					Type:    "cron",
+					Enabled: true,
+					Cron: &automationv1alpha1.CronTrigger{
+						Schedule: "*/5 * * * *",
+					},
+					FlowRef: &automationv1alpha1.FlowReference{Name: "example-flow"},
+				},
+			)
+			Expect(k8sClient.Create(ctx, trigger)).To(Succeed())
+			DeferCleanup(func() {
+				_ = k8sClient.Delete(context.Background(), trigger)
+			})
+		})
+
+		It("reconciles without error and sets the Accepted condition to True", func() {
+			By("invoking a reconciler with a CronScheduler attached")
+			r := &TriggerReconciler{
+				Client:        k8sClient,
+				Scheme:        k8sClient.Scheme(),
+				CronScheduler: scheduler,
+			}
+			nn := types.NamespacedName{Name: trigger.Name, Namespace: testNamespace}
+			_, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
+			Expect(err).NotTo(HaveOccurred())
+
+			By("re-fetching and asserting Accepted condition")
+			var updated automationv1alpha1.Trigger
+			Expect(k8sClient.Get(ctx, nn, &updated)).To(Succeed())
+
+			cond := findCondition(&updated, "Accepted")
+			Expect(cond).NotTo(BeNil())
+			Expect(cond.Status).To(Equal(metav1.ConditionTrue))
+		})
+
+		It("adds the cron finalizer to the Trigger", func() {
+			By("invoking a reconciler with a CronScheduler attached")
+			r := &TriggerReconciler{
+				Client:        k8sClient,
+				Scheme:        k8sClient.Scheme(),
+				CronScheduler: scheduler,
+			}
+			nn := types.NamespacedName{Name: trigger.Name, Namespace: testNamespace}
+			_, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
+			Expect(err).NotTo(HaveOccurred())
+
+			By("asserting the cron finalizer is present on the Trigger")
+			var updated automationv1alpha1.Trigger
+			Expect(k8sClient.Get(ctx, nn, &updated)).To(Succeed())
+			Expect(updated.Finalizers).To(ContainElement(cronTriggerFinalizer))
+		})
+	})
+
+	// -------------------------------------------------------------------------
+	// Degenerate spec — webhook type with no webhook sub-spec
+	// -------------------------------------------------------------------------
+
+	Context("when a webhook Trigger has the webhook sub-spec omitted", func() {
+		var trigger *automationv1alpha1.Trigger
+
+		BeforeEach(func() {
+			By("creating a webhook Trigger without a Webhook field")
+			trigger = makeTrigger(
+				fmt.Sprintf("trg-nowh-%d", GinkgoRandomSeed()),
+				automationv1alpha1.TriggerSpec{
+					Type:    "webhook",
+					Enabled: true,
+					// spec.webhook is intentionally absent
+					FlowRef: &automationv1alpha1.FlowReference{Name: "example-flow"},
+				},
+			)
+			Expect(k8sClient.Create(ctx, trigger)).To(Succeed())
+			DeferCleanup(func() {
+				_ = k8sClient.Delete(context.Background(), trigger)
+			})
+		})
+
+		It("does not panic regardless of whether it returns an error", func() {
+			By("invoking the reconciler — a panic is never acceptable")
+			r := newReconciler()
+			nn := types.NamespacedName{Name: trigger.Name, Namespace: testNamespace}
+			// The reconciler calls ensureWebhookGateway for all enabled webhook
+			// Triggers, irrespective of spec.webhook being nil, so this exercises
+			// the path where the sub-spec is absent. Returning an error is fine;
+			// panicking is not.
+			Expect(func() {
+				_, _ = r.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
+			}).NotTo(Panic())
+		})
+	})
+
+	// -------------------------------------------------------------------------
+	// Idempotency — reconciling the same Trigger twice is safe
+	// -------------------------------------------------------------------------
+
+	Context("when the same enabled webhook Trigger is reconciled multiple times", func() {
+		var trigger *automationv1alpha1.Trigger
+
+		BeforeEach(func() {
+			trigger = makeTrigger(
+				fmt.Sprintf("trg-idem-%d", GinkgoRandomSeed()),
+				automationv1alpha1.TriggerSpec{
+					Type:    "webhook",
+					Enabled: true,
+					Webhook: &automationv1alpha1.WebhookTrigger{
+						Path:   "/hook/idempotent",
+						Method: "POST",
+					},
+					FlowRef: &automationv1alpha1.FlowReference{Name: "example-flow"},
+				},
+			)
+			Expect(k8sClient.Create(ctx, trigger)).To(Succeed())
+			DeferCleanup(func() {
+				_ = k8sClient.Delete(context.Background(), trigger)
+			})
+		})
+
+		It("succeeds on the second invocation and preserves the Accepted condition", func() {
+			r := newReconciler()
+			nn := types.NamespacedName{Name: trigger.Name, Namespace: testNamespace}
+
+			By("first reconcile")
+			_, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
+			Expect(err).NotTo(HaveOccurred())
+
+			By("second reconcile — must be idempotent")
+			_, err = r.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
+			Expect(err).NotTo(HaveOccurred())
+
+			By("asserting the Accepted condition is still True after the second reconcile")
+			var updated automationv1alpha1.Trigger
+			Expect(k8sClient.Get(ctx, nn, &updated)).To(Succeed())
+			cond := findCondition(&updated, "Accepted")
+			Expect(cond).NotTo(BeNil())
+			Expect(cond.Status).To(Equal(metav1.ConditionTrue))
+		})
+	})
+
+	// -------------------------------------------------------------------------
+	// Not-found — reconciling a missing resource is a no-op
+	// -------------------------------------------------------------------------
+
+	Context("when the Trigger resource does not exist", func() {
+		It("returns no error (IgnoreNotFound behaviour)", func() {
+			r := newReconciler()
+			nn := types.NamespacedName{
+				Name:      "nonexistent-trigger",
+				Namespace: testNamespace,
+			}
+			_, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
+			Expect(err).NotTo(HaveOccurred())
 		})
 	})
 })

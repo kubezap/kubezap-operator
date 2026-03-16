@@ -25,6 +25,7 @@ import (
 	"net/http"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/IBM/sarama"
@@ -64,6 +65,13 @@ type FlowRunReconciler struct {
 	HTTPClient   *http.Client
 	TTLSucceeded time.Duration
 	TTLFailed    time.Duration
+
+	// kafkaProducers caches sarama.SyncProducer instances keyed by bootstrap-server
+	// address string. Producers are created lazily and reused across publish steps to
+	// avoid the per-call TCP handshake + metadata fetch overhead. Access is
+	// synchronized via kafkaProducersMu.
+	kafkaProducersMu sync.Mutex
+	kafkaProducers   map[string]sarama.SyncProducer
 }
 
 func (r *FlowRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -464,9 +472,12 @@ func (r *FlowRunReconciler) executeHTTPStep(
 			log.Error(err, "HTTP step request failed", "step", step.Name, "attempt", attempt+1)
 			continue
 		}
-		defer resp.Body.Close() //nolint:gocritic
 
 		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
+		// Close the body explicitly here rather than via defer so that connections
+		// are returned to the pool after each iteration instead of accumulating
+		// until executeHTTPStep returns.
+		resp.Body.Close()
 
 		if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 			results := make(map[string]string)
@@ -799,7 +810,12 @@ func (r *FlowRunReconciler) enforceMaxFlowRuns(ctx context.Context, triggerName,
 }
 
 // SetupWithManager sets up the controller with the Manager.
+// It also registers the reconciler as a Runnable so that cached Kafka producers
+// are closed cleanly when the manager shuts down.
 func (r *FlowRunReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	if err := mgr.Add(r); err != nil {
+		return fmt.Errorf("registering FlowRunReconciler as runnable: %w", err)
+	}
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&automationv1alpha1.FlowRun{}).
 		Named("flowrun").
@@ -1073,22 +1089,40 @@ func extractSimpleJSONPath(path string, obj map[string]interface{}) string {
 	return fmt.Sprintf("%v", val)
 }
 
-// publishToKafka sends a message to a Kafka topic using the integration's bootstrap servers.
+// Start implements manager.Runnable. It blocks until ctx is cancelled, then
+// closes all cached Kafka producers so that broker connections are released
+// cleanly during controller shutdown. Wire this into the manager via
+// ctrl.Manager.Add(reconciler) in SetupWithManager or main.go.
+func (r *FlowRunReconciler) Start(ctx context.Context) error {
+	<-ctx.Done()
+	r.kafkaProducersMu.Lock()
+	defer r.kafkaProducersMu.Unlock()
+	for addr, p := range r.kafkaProducers {
+		if err := p.Close(); err != nil {
+			// Log but do not fail — we are already shutting down.
+			logf.Log.Error(err, "error closing cached kafka producer", "brokerAddress", addr)
+		}
+	}
+	r.kafkaProducers = nil
+	return nil
+}
+
+// publishToKafka sends a message to a Kafka topic using the integration's
+// bootstrap servers. Producers are cached by broker address and reused across
+// calls to avoid the per-call TCP handshake and metadata fetch that would
+// otherwise exhaust broker connections at any meaningful publish rate.
 func (r *FlowRunReconciler) publishToKafka(
 	integration *automationv1alpha1.Integration,
 	topic string,
 	body string,
 	headers map[string]string,
 ) (map[string]string, error) {
-	config := sarama.NewConfig()
-	config.Producer.Return.Successes = true
-	config.Version = sarama.V2_6_0_0
+	brokerKey := strings.Join(integration.Spec.Kafka.BootstrapServers, ",")
 
-	producer, err := sarama.NewSyncProducer(integration.Spec.Kafka.BootstrapServers, config)
+	producer, err := r.getOrCreateKafkaProducer(brokerKey, integration)
 	if err != nil {
-		return nil, fmt.Errorf("creating kafka producer for integration %q: %w", integration.Name, err)
+		return nil, err
 	}
-	defer producer.Close()
 
 	msg := &sarama.ProducerMessage{
 		Topic: topic,
@@ -1101,12 +1135,47 @@ func (r *FlowRunReconciler) publishToKafka(
 		})
 	}
 
-	partition, offset, err := producer.SendMessage(msg)
-	if err != nil {
-		return nil, fmt.Errorf("sending kafka message to topic %q: %w", topic, err)
+	partition, offset, sendErr := producer.SendMessage(msg)
+	if sendErr != nil {
+		// Evict the potentially broken producer so the next call creates a fresh one.
+		r.kafkaProducersMu.Lock()
+		if r.kafkaProducers != nil {
+			delete(r.kafkaProducers, brokerKey)
+		}
+		r.kafkaProducersMu.Unlock()
+		_ = producer.Close()
+		return nil, fmt.Errorf("sending kafka message to topic %q: %w", topic, sendErr)
 	}
 	return map[string]string{
 		"partition": fmt.Sprintf("%d", partition),
 		"offset":    fmt.Sprintf("%d", offset),
 	}, nil
+}
+
+// getOrCreateKafkaProducer returns a cached producer for brokerKey or creates
+// and caches a new one. integration is used only when a new producer is needed.
+func (r *FlowRunReconciler) getOrCreateKafkaProducer(
+	brokerKey string,
+	integration *automationv1alpha1.Integration,
+) (sarama.SyncProducer, error) {
+	r.kafkaProducersMu.Lock()
+	defer r.kafkaProducersMu.Unlock()
+
+	if r.kafkaProducers == nil {
+		r.kafkaProducers = make(map[string]sarama.SyncProducer)
+	}
+	if p, ok := r.kafkaProducers[brokerKey]; ok {
+		return p, nil
+	}
+
+	config := sarama.NewConfig()
+	config.Producer.Return.Successes = true
+	config.Version = sarama.V2_6_0_0
+
+	p, err := sarama.NewSyncProducer(integration.Spec.Kafka.BootstrapServers, config)
+	if err != nil {
+		return nil, fmt.Errorf("creating kafka producer for integration %q: %w", integration.Name, err)
+	}
+	r.kafkaProducers[brokerKey] = p
+	return p, nil
 }

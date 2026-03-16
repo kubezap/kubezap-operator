@@ -182,9 +182,10 @@ spec:
                           description: Wait action details.
                           properties:
                             duration:
-                              description: Duration is the amount of time to wait,
-                                as a Go duration string (e.g. "10m", "30s", "1h").
-                              pattern: ^[0-9]+(ns|us|µs|ms|s|m|h)$
+                              description: |-
+                                Duration is the amount of time to wait, as a Go duration string (e.g. "10m", "30s", "1h", "1h30m").
+                                Compound durations such as "1h30m" are accepted, matching what time.ParseDuration accepts.
+                              pattern: ^([0-9]+(ns|us|µs|ms|s|m|h))+$
                               type: string
                           required:
                           - duration

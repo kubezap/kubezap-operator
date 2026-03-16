@@ -167,8 +167,9 @@ type PublishAction struct {
 
 // WaitAction pauses the FlowRun for a fixed duration before continuing.
 type WaitAction struct {
-	// Duration is the amount of time to wait, as a Go duration string (e.g. "10m", "30s", "1h").
-	// +kubebuilder:validation:Pattern=`^[0-9]+(ns|us|µs|ms|s|m|h)$`
+	// Duration is the amount of time to wait, as a Go duration string (e.g. "10m", "30s", "1h", "1h30m").
+	// Compound durations such as "1h30m" are accepted, matching what time.ParseDuration accepts.
+	// +kubebuilder:validation:Pattern=`^([0-9]+(ns|us|µs|ms|s|m|h))+$`
 	Duration string `json:"duration"`
 }
 

@@ -120,10 +120,6 @@ func (r *TriggerReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		acceptedCondition.Reason = "Enabled"
 		acceptedCondition.Message = "Trigger is accepted and active"
 
-		if trg.Status.LastTriggeredTime == nil || trg.Status.LastTriggeredTime.Time.IsZero() {
-			now := metav1.Now()
-			trg.Status.LastTriggeredTime = &now
-		}
 		trg.Status.LastResult = "Accepted"
 	}
 	setTriggerCondition(&trg.Status, acceptedCondition)

@@ -1,0 +1,13 @@
+apiVersion: automation.kubezap.io/v1alpha1
+kind: Integration
+metadata:
+  labels:
+    app.kubernetes.io/name: kubezap
+    app.kubernetes.io/managed-by: kustomize
+  name: my-rabbitmq
+  namespace: default
+spec:
+  type: amqp
+  amqp:
+    url: amqp://rabbitmq.default.svc.cluster.local:5672/
+    version: "0-9-1"

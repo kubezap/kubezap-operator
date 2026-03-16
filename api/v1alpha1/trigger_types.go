@@ -160,7 +160,7 @@ type CooldownPolicy struct {
 // PubSubTrigger configures a message-broker-based trigger.
 type PubSubTrigger struct {
 	// Message broker type.
-	// +kubebuilder:validation:Enum=kafka
+	// +kubebuilder:validation:Enum=kafka;amqp
 	Type string `json:"type"`
 
 	// Reference to an Integration CR with broker connection details.
@@ -171,6 +171,9 @@ type PubSubTrigger struct {
 
 	// Kafka consumer group ID. Defaults to "kubezap-<trigger-name>" at runtime.
 	ConsumerGroup string `json:"consumerGroup,omitempty"`
+
+	// RoutingKey is the AMQP routing key or binding pattern. Used for type=amqp only.
+	RoutingKey string `json:"routingKey,omitempty"`
 }
 
 // WebhookAuth configures authentication for a webhook trigger endpoint.

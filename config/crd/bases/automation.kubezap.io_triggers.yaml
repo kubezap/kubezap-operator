@@ -165,6 +165,10 @@ spec:
                         type: string
                     type: object
                     x-kubernetes-map-type: atomic
+                  routingKey:
+                    description: RoutingKey is the AMQP routing key or binding pattern.
+                      Used for type=amqp only.
+                    type: string
                   topic:
                     description: Topic to consume from.
                     type: string
@@ -172,6 +176,7 @@ spec:
                     description: Message broker type.
                     enum:
                     - kafka
+                    - amqp
                     type: string
                 required:
                 - integrationRef

@@ -36,6 +36,7 @@ import (
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	automationv1alpha1 "github.com/yourname/kubezap/api/v1alpha1"
@@ -167,12 +168,37 @@ func validateIntegrationSpec(spec automationv1alpha1.IntegrationSpec) error {
 	return nil
 }
 
-// reconcilePluginRBAC ensures a ServiceAccount, Role, and RoleBinding exist for a plugin Integration.
-// All three resources are owner-referenced to the Integration so they are garbage-collected when
-// the Integration is deleted.
+// reconcilePluginRBAC ensures a ServiceAccount, Role, and RoleBinding exist for a plugin Integration
+// and are kept up to date on every reconcile pass. All three resources are owner-referenced to the
+// Integration so they are garbage-collected when the Integration is deleted.
 func (r *IntegrationReconciler) reconcilePluginRBAC(ctx context.Context, integration *automationv1alpha1.Integration) error {
 	log := logf.FromContext(ctx)
 	resourceName := "kubezap-plugin-" + integration.Name
+
+	desiredRules := []rbacv1.PolicyRule{
+		{
+			APIGroups: []string{"automation.kubezap.io"},
+			Resources: []string{"triggers"},
+			Verbs:     []string{"get", "list", "watch"},
+		},
+		{
+			APIGroups: []string{"automation.kubezap.io"},
+			Resources: []string{"flowruns"},
+			Verbs:     []string{"get", "list", "create", "update", "patch"},
+		},
+	}
+	desiredRoleRef := rbacv1.RoleRef{
+		APIGroup: "rbac.authorization.k8s.io",
+		Kind:     "Role",
+		Name:     resourceName,
+	}
+	desiredSubjects := []rbacv1.Subject{
+		{
+			Kind:      "ServiceAccount",
+			Name:      resourceName,
+			Namespace: integration.Namespace,
+		},
+	}
 
 	// --- ServiceAccount ---
 	sa := &corev1.ServiceAccount{
@@ -181,18 +207,15 @@ func (r *IntegrationReconciler) reconcilePluginRBAC(ctx context.Context, integra
 			Namespace: integration.Namespace,
 		},
 	}
-	if err := ctrl.SetControllerReference(integration, sa, r.Scheme); err != nil {
-		return fmt.Errorf("setting owner reference on ServiceAccount: %w", err)
+	result, err := controllerutil.CreateOrUpdate(ctx, r.Client, sa, func() error {
+		// ServiceAccount has no spec fields to reconcile beyond metadata/owner reference.
+		return ctrl.SetControllerReference(integration, sa, r.Scheme)
+	})
+	if err != nil {
+		return fmt.Errorf("upserting plugin ServiceAccount: %w", err)
 	}
-	existingSA := &corev1.ServiceAccount{}
-	if err := r.Get(ctx, client.ObjectKeyFromObject(sa), existingSA); err != nil {
-		if !apierrors.IsNotFound(err) {
-			return err
-		}
-		if err := r.Create(ctx, sa); err != nil && !apierrors.IsAlreadyExists(err) {
-			return err
-		}
-		log.Info("created plugin ServiceAccount", "name", resourceName, "namespace", integration.Namespace)
+	if result != controllerutil.OperationResultNone {
+		log.Info("reconciled plugin ServiceAccount", "name", resourceName, "namespace", integration.Namespace, "result", result)
 	}
 
 	// --- Role ---
@@ -201,68 +224,72 @@ func (r *IntegrationReconciler) reconcilePluginRBAC(ctx context.Context, integra
 			Name:      resourceName,
 			Namespace: integration.Namespace,
 		},
-		Rules: []rbacv1.PolicyRule{
-			{
-				APIGroups: []string{"automation.kubezap.io"},
-				Resources: []string{"triggers"},
-				Verbs:     []string{"get", "list", "watch"},
-			},
-			{
-				APIGroups: []string{"automation.kubezap.io"},
-				Resources: []string{"flowruns"},
-				Verbs:     []string{"get", "list", "create", "update", "patch"},
-			},
-		},
 	}
-	if err := ctrl.SetControllerReference(integration, role, r.Scheme); err != nil {
-		return fmt.Errorf("setting owner reference on Role: %w", err)
+	result, err = controllerutil.CreateOrUpdate(ctx, r.Client, role, func() error {
+		// Always overwrite Rules to pick up any permission changes.
+		role.Rules = desiredRules
+		return ctrl.SetControllerReference(integration, role, r.Scheme)
+	})
+	if err != nil {
+		return fmt.Errorf("upserting plugin Role: %w", err)
 	}
-	existingRole := &rbacv1.Role{}
-	if err := r.Get(ctx, client.ObjectKeyFromObject(role), existingRole); err != nil {
-		if !apierrors.IsNotFound(err) {
-			return err
-		}
-		if err := r.Create(ctx, role); err != nil && !apierrors.IsAlreadyExists(err) {
-			return err
-		}
-		log.Info("created plugin Role", "name", resourceName, "namespace", integration.Namespace)
+	if result != controllerutil.OperationResultNone {
+		log.Info("reconciled plugin Role", "name", resourceName, "namespace", integration.Namespace, "result", result)
 	}
 
 	// --- RoleBinding ---
+	// RoleRef is immutable after creation. If it has changed, delete and recreate.
 	rb := &rbacv1.RoleBinding{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      resourceName,
 			Namespace: integration.Namespace,
 		},
-		RoleRef: rbacv1.RoleRef{
-			APIGroup: "rbac.authorization.k8s.io",
-			Kind:     "Role",
-			Name:     resourceName,
-		},
-		Subjects: []rbacv1.Subject{
-			{
-				Kind:      "ServiceAccount",
-				Name:      resourceName,
-				Namespace: integration.Namespace,
-			},
-		},
 	}
-	if err := ctrl.SetControllerReference(integration, rb, r.Scheme); err != nil {
-		return fmt.Errorf("setting owner reference on RoleBinding: %w", err)
-	}
-	existingRB := &rbacv1.RoleBinding{}
-	if err := r.Get(ctx, client.ObjectKeyFromObject(rb), existingRB); err != nil {
-		if !apierrors.IsNotFound(err) {
-			return err
+	result, err = controllerutil.CreateOrUpdate(ctx, r.Client, rb, func() error {
+		// If the RoleBinding already exists with a different RoleRef we must delete and recreate
+		// because RoleRef is immutable. Signal this by returning a typed sentinel.
+		if rb.ResourceVersion != "" && rb.RoleRef != desiredRoleRef {
+			return errRoleRefChanged
 		}
-		if err := r.Create(ctx, rb); err != nil && !apierrors.IsAlreadyExists(err) {
-			return err
+		rb.RoleRef = desiredRoleRef
+		rb.Subjects = desiredSubjects
+		return ctrl.SetControllerReference(integration, rb, r.Scheme)
+	})
+	if err != nil {
+		if err == errRoleRefChanged {
+			// Delete the old RoleBinding and create a fresh one with the correct RoleRef.
+			if delErr := r.Delete(ctx, rb); delErr != nil && !apierrors.IsNotFound(delErr) {
+				return fmt.Errorf("deleting stale plugin RoleBinding: %w", delErr)
+			}
+			rb = &rbacv1.RoleBinding{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      resourceName,
+					Namespace: integration.Namespace,
+				},
+				RoleRef:  desiredRoleRef,
+				Subjects: desiredSubjects,
+			}
+			if err := ctrl.SetControllerReference(integration, rb, r.Scheme); err != nil {
+				return fmt.Errorf("setting owner reference on recreated RoleBinding: %w", err)
+			}
+			if err := r.Create(ctx, rb); err != nil && !apierrors.IsAlreadyExists(err) {
+				return fmt.Errorf("recreating plugin RoleBinding: %w", err)
+			}
+			log.Info("recreated plugin RoleBinding (RoleRef changed)", "name", resourceName, "namespace", integration.Namespace)
+		} else {
+			return fmt.Errorf("upserting plugin RoleBinding: %w", err)
 		}
-		log.Info("created plugin RoleBinding", "name", resourceName, "namespace", integration.Namespace)
+	} else if result != controllerutil.OperationResultNone {
+		log.Info("reconciled plugin RoleBinding", "name", resourceName, "namespace", integration.Namespace, "result", result)
 	}
 
 	return nil
 }
+
+// errRoleRefChanged is a sentinel error returned from a CreateOrUpdate mutate function when the
+// existing RoleBinding's RoleRef does not match the desired value. Because RoleRef is immutable in
+// Kubernetes, the RoleBinding must be deleted and recreated rather than updated.
+var errRoleRefChanged = fmt.Errorf("rolebinding RoleRef has changed and must be recreated")
 
 // reconcilePluginDeployment ensures the plugin Deployment exists and is up to date.
 func (r *IntegrationReconciler) reconcilePluginDeployment(ctx context.Context, integration *automationv1alpha1.Integration) error {
@@ -394,13 +421,15 @@ func (r *IntegrationReconciler) reconcileKafkaGateway(ctx context.Context, integ
 
 	// Ensure ServiceAccount.
 	sa := &corev1.ServiceAccount{ObjectMeta: metav1.ObjectMeta{Name: "kubezap-gateway", Namespace: ns}}
-	if err := r.Get(ctx, client.ObjectKeyFromObject(sa), sa); apierrors.IsNotFound(err) {
-		if err := r.Create(ctx, sa); err != nil && !apierrors.IsAlreadyExists(err) {
-			return "", fmt.Errorf("creating kafka gateway ServiceAccount: %w", err)
-		}
-		log.Info("created kafka gateway ServiceAccount", "namespace", ns)
-	} else if err != nil {
-		return "", err
+	saResult, err := controllerutil.CreateOrUpdate(ctx, r.Client, sa, func() error {
+		// ServiceAccount has no spec fields to reconcile beyond metadata.
+		return nil
+	})
+	if err != nil {
+		return "", fmt.Errorf("upserting kafka gateway ServiceAccount: %w", err)
+	}
+	if saResult != controllerutil.OperationResultNone {
+		log.Info("reconciled kafka gateway ServiceAccount", "namespace", ns, "result", saResult)
 	}
 
 	// Ensure Role.
@@ -427,18 +456,37 @@ func (r *IntegrationReconciler) reconcileKafkaGateway(ctx context.Context, integ
 	}
 
 	// Ensure RoleBinding.
-	rb := &rbacv1.RoleBinding{
-		ObjectMeta: metav1.ObjectMeta{Name: "kubezap-gateway", Namespace: ns},
-		RoleRef:    rbacv1.RoleRef{APIGroup: "rbac.authorization.k8s.io", Kind: "Role", Name: "kubezap-gateway"},
-		Subjects:   []rbacv1.Subject{{Kind: "ServiceAccount", Name: "kubezap-gateway", Namespace: ns}},
-	}
-	existingRB := &rbacv1.RoleBinding{}
-	if err := r.Get(ctx, client.ObjectKeyFromObject(rb), existingRB); apierrors.IsNotFound(err) {
-		if err := r.Create(ctx, rb); err != nil && !apierrors.IsAlreadyExists(err) {
-			return "", fmt.Errorf("creating kafka gateway RoleBinding: %w", err)
+	// RoleRef is immutable — if it has changed the binding must be deleted and recreated.
+	kafkaDesiredRoleRef := rbacv1.RoleRef{APIGroup: "rbac.authorization.k8s.io", Kind: "Role", Name: "kubezap-gateway"}
+	kafkaDesiredSubjects := []rbacv1.Subject{{Kind: "ServiceAccount", Name: "kubezap-gateway", Namespace: ns}}
+	rb := &rbacv1.RoleBinding{ObjectMeta: metav1.ObjectMeta{Name: "kubezap-gateway", Namespace: ns}}
+	rbResult, rbErr := controllerutil.CreateOrUpdate(ctx, r.Client, rb, func() error {
+		if rb.ResourceVersion != "" && rb.RoleRef != kafkaDesiredRoleRef {
+			return errRoleRefChanged
 		}
-	} else if err != nil {
-		return "", err
+		rb.RoleRef = kafkaDesiredRoleRef
+		rb.Subjects = kafkaDesiredSubjects
+		return nil
+	})
+	if rbErr != nil {
+		if rbErr == errRoleRefChanged {
+			if delErr := r.Delete(ctx, rb); delErr != nil && !apierrors.IsNotFound(delErr) {
+				return "", fmt.Errorf("deleting stale kafka gateway RoleBinding: %w", delErr)
+			}
+			rb = &rbacv1.RoleBinding{
+				ObjectMeta: metav1.ObjectMeta{Name: "kubezap-gateway", Namespace: ns},
+				RoleRef:    kafkaDesiredRoleRef,
+				Subjects:   kafkaDesiredSubjects,
+			}
+			if err := r.Create(ctx, rb); err != nil && !apierrors.IsAlreadyExists(err) {
+				return "", fmt.Errorf("recreating kafka gateway RoleBinding: %w", err)
+			}
+			log.Info("recreated kafka gateway RoleBinding (RoleRef changed)", "namespace", ns)
+		} else {
+			return "", fmt.Errorf("upserting kafka gateway RoleBinding: %w", rbErr)
+		}
+	} else if rbResult != controllerutil.OperationResultNone {
+		log.Info("reconciled kafka gateway RoleBinding", "namespace", ns, "result", rbResult)
 	}
 
 	desired := desiredKafkaGatewayDeployment(integration)
@@ -448,7 +496,7 @@ func (r *IntegrationReconciler) reconcileKafkaGateway(ctx context.Context, integ
 	}
 
 	existing := &appsv1.Deployment{}
-	err := r.Get(ctx, client.ObjectKeyFromObject(desired), existing)
+	err = r.Get(ctx, client.ObjectKeyFromObject(desired), existing)
 	if err != nil {
 		if !apierrors.IsNotFound(err) {
 			return "", err

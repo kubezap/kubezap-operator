@@ -3,6 +3,7 @@ module github.com/yourname/kubezap
 go 1.24.0
 
 require (
+	github.com/IBM/sarama v1.45.1
 	github.com/go-logr/logr v1.4.2
 	github.com/go-logr/zapr v1.3.0
 	github.com/google/cel-go v0.27.0
@@ -25,7 +26,6 @@ require (
 
 require (
 	cel.dev/expr v0.25.1 // indirect
-	github.com/IBM/sarama v1.45.1 // indirect
 	github.com/antlr4-go/antlr/v4 v4.13.1 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/blang/semver/v4 v4.0.0 // indirect

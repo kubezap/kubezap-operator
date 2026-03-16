@@ -124,6 +124,33 @@ func (r *IntegrationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			}
 		}
 		apimeta.SetStatusCondition(&integration.Status.Conditions, gatewayAvailCond)
+	case "nats":
+		deploymentName, err := r.reconcileNatsGateway(ctx, &integration)
+		if err != nil {
+			return ctrl.Result{}, fmt.Errorf("reconciling nats gateway: %w", err)
+		}
+		integration.Status.GatewayDeploymentName = deploymentName
+		existingDep := &appsv1.Deployment{}
+		depKey := client.ObjectKey{Name: deploymentName, Namespace: integration.Namespace}
+		var gatewayAvailCond metav1.Condition
+		if err := r.Get(ctx, depKey, existingDep); err == nil && existingDep.Status.AvailableReplicas > 0 {
+			gatewayAvailCond = metav1.Condition{
+				Type:               "GatewayAvailable",
+				Status:             metav1.ConditionTrue,
+				Reason:             "DeploymentAvailable",
+				Message:            "NATS gateway Deployment has available replicas",
+				ObservedGeneration: integration.Generation,
+			}
+		} else {
+			gatewayAvailCond = metav1.Condition{
+				Type:               "GatewayAvailable",
+				Status:             metav1.ConditionFalse,
+				Reason:             "DeploymentUnavailable",
+				Message:            "NATS gateway Deployment has no available replicas yet",
+				ObservedGeneration: integration.Generation,
+			}
+		}
+		apimeta.SetStatusCondition(&integration.Status.Conditions, gatewayAvailCond)
 	}
 
 	// Set Ready=True after successful reconcile.
@@ -154,6 +181,13 @@ func validateIntegrationSpec(spec automationv1alpha1.IntegrationSpec) error {
 		}
 		if len(spec.Kafka.BootstrapServers) == 0 {
 			return fmt.Errorf("spec.kafka.bootstrapServers must be non-empty when type=kafka")
+		}
+	case "nats":
+		if spec.Nats == nil {
+			return fmt.Errorf("spec.nats must be set when type=nats")
+		}
+		if len(spec.Nats.Servers) == 0 {
+			return fmt.Errorf("spec.nats.servers must be non-empty")
 		}
 	case "plugin":
 		if spec.Plugin == nil {
@@ -742,4 +776,179 @@ func stringSliceEqual(a, b []string) bool {
 		}
 	}
 	return true
+}
+
+// reconcileNatsGateway ensures the NATS gateway ServiceAccount, Role, RoleBinding, and
+// Deployment exist and are up to date. It returns the Deployment name.
+func (r *IntegrationReconciler) reconcileNatsGateway(ctx context.Context, integration *automationv1alpha1.Integration) (string, error) {
+	log := logf.FromContext(ctx)
+
+	ns := integration.Namespace
+
+	// Ensure ServiceAccount.
+	sa := &corev1.ServiceAccount{ObjectMeta: metav1.ObjectMeta{Name: "kubezap-gateway", Namespace: ns}}
+	saResult, err := controllerutil.CreateOrUpdate(ctx, r.Client, sa, func() error {
+		return nil
+	})
+	if err != nil {
+		return "", fmt.Errorf("upserting nats gateway ServiceAccount: %w", err)
+	}
+	if saResult != controllerutil.OperationResultNone {
+		log.Info("reconciled nats gateway ServiceAccount", "namespace", ns, "result", saResult)
+	}
+
+	// Ensure Role.
+	role := &rbacv1.Role{
+		ObjectMeta: metav1.ObjectMeta{Name: "kubezap-gateway", Namespace: ns},
+		Rules: []rbacv1.PolicyRule{
+			{APIGroups: []string{"automation.kubezap.io"}, Resources: []string{"triggers"}, Verbs: []string{"get", "list", "watch"}},
+			{APIGroups: []string{"automation.kubezap.io"}, Resources: []string{"integrations"}, Verbs: []string{"get"}},
+			{APIGroups: []string{"automation.kubezap.io"}, Resources: []string{"flowruns"}, Verbs: []string{"create"}},
+		},
+	}
+	existingRole := &rbacv1.Role{}
+	if err := r.Get(ctx, client.ObjectKeyFromObject(role), existingRole); apierrors.IsNotFound(err) {
+		if err := r.Create(ctx, role); err != nil && !apierrors.IsAlreadyExists(err) {
+			return "", fmt.Errorf("creating nats gateway Role: %w", err)
+		}
+	} else if err != nil {
+		return "", err
+	} else {
+		existingRole.Rules = role.Rules
+		if err := r.Update(ctx, existingRole); err != nil {
+			return "", fmt.Errorf("updating nats gateway Role: %w", err)
+		}
+	}
+
+	// Ensure RoleBinding.
+	natsDesiredRoleRef := rbacv1.RoleRef{APIGroup: "rbac.authorization.k8s.io", Kind: "Role", Name: "kubezap-gateway"}
+	natsDesiredSubjects := []rbacv1.Subject{{Kind: "ServiceAccount", Name: "kubezap-gateway", Namespace: ns}}
+	rb := &rbacv1.RoleBinding{ObjectMeta: metav1.ObjectMeta{Name: "kubezap-gateway", Namespace: ns}}
+	rbResult, rbErr := controllerutil.CreateOrUpdate(ctx, r.Client, rb, func() error {
+		if rb.ResourceVersion != "" && rb.RoleRef != natsDesiredRoleRef {
+			return errRoleRefChanged
+		}
+		rb.RoleRef = natsDesiredRoleRef
+		rb.Subjects = natsDesiredSubjects
+		return nil
+	})
+	if rbErr != nil {
+		if rbErr == errRoleRefChanged {
+			if delErr := r.Delete(ctx, rb); delErr != nil && !apierrors.IsNotFound(delErr) {
+				return "", fmt.Errorf("deleting stale nats gateway RoleBinding: %w", delErr)
+			}
+			rb = &rbacv1.RoleBinding{
+				ObjectMeta: metav1.ObjectMeta{Name: "kubezap-gateway", Namespace: ns},
+				RoleRef:    natsDesiredRoleRef,
+				Subjects:   natsDesiredSubjects,
+			}
+			if err := r.Create(ctx, rb); err != nil && !apierrors.IsAlreadyExists(err) {
+				return "", fmt.Errorf("recreating nats gateway RoleBinding: %w", err)
+			}
+			log.Info("recreated nats gateway RoleBinding (RoleRef changed)", "namespace", ns)
+		} else {
+			return "", fmt.Errorf("upserting nats gateway RoleBinding: %w", rbErr)
+		}
+	} else if rbResult != controllerutil.OperationResultNone {
+		log.Info("reconciled nats gateway RoleBinding", "namespace", ns, "result", rbResult)
+	}
+
+	desired := desiredNatsGatewayDeployment(integration)
+
+	if err := ctrl.SetControllerReference(integration, desired, r.Scheme); err != nil {
+		return "", fmt.Errorf("setting owner reference on nats gateway Deployment: %w", err)
+	}
+
+	existing := &appsv1.Deployment{}
+	err = r.Get(ctx, client.ObjectKeyFromObject(desired), existing)
+	if err != nil {
+		if !apierrors.IsNotFound(err) {
+			return "", err
+		}
+		if err := r.Create(ctx, desired); err != nil && !apierrors.IsAlreadyExists(err) {
+			return "", err
+		}
+		log.Info("created nats gateway deployment", "deployment", desired.Name, "namespace", integration.Namespace)
+		return desired.Name, nil
+	}
+
+	// Sync image and args if they have drifted from the desired values.
+	if len(existing.Spec.Template.Spec.Containers) > 0 {
+		c := &existing.Spec.Template.Spec.Containers[0]
+		dc := &desired.Spec.Template.Spec.Containers[0]
+		if c.Image != dc.Image || !stringSliceEqual(c.Args, dc.Args) {
+			c.Image = dc.Image
+			c.Args = dc.Args
+			if err := r.Update(ctx, existing); err != nil {
+				return "", err
+			}
+			log.Info("updated nats gateway deployment", "deployment", desired.Name, "namespace", integration.Namespace)
+		}
+	}
+	return desired.Name, nil
+}
+
+// desiredNatsGatewayDeployment returns the desired Deployment for a nats Integration.
+func desiredNatsGatewayDeployment(integration *automationv1alpha1.Integration) *appsv1.Deployment {
+	image := os.Getenv("NATS_GATEWAY_IMAGE")
+	if image == "" {
+		image = "kubezap/nats-gateway:latest"
+	}
+
+	deploymentName := "kubezap-nats-gateway-" + integration.Name
+	labels := map[string]string{
+		"app":                  deploymentName,
+		"kubezap.io/component": "nats-gateway",
+	}
+
+	envVars := []corev1.EnvVar{
+		{Name: "WATCH_NAMESPACES", Value: os.Getenv("WATCH_NAMESPACES")},
+		{Name: "KUBEZAP_NAMESPACE", Value: integration.Namespace},
+		{Name: "KUBEZAP_INTEGRATION_NAME", Value: integration.Name},
+		{Name: "LOG_LEVEL", Value: "info"},
+	}
+
+	return &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      deploymentName,
+			Namespace: integration.Namespace,
+			Labels:    labels,
+		},
+		Spec: appsv1.DeploymentSpec{
+			Replicas: ptr.To(int32(1)),
+			Selector: &metav1.LabelSelector{MatchLabels: labels},
+			Template: corev1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{Labels: labels},
+				Spec: corev1.PodSpec{
+					ServiceAccountName: "kubezap-gateway",
+					SecurityContext: &corev1.PodSecurityContext{
+						RunAsNonRoot: ptr.To(true),
+					},
+					Containers: []corev1.Container{
+						{
+							Name:  "nats-gateway",
+							Image: image,
+							Args:  []string{"--namespace=" + integration.Namespace},
+							Env:   envVars,
+							SecurityContext: &corev1.SecurityContext{
+								RunAsNonRoot:             ptr.To(true),
+								ReadOnlyRootFilesystem:   ptr.To(true),
+								AllowPrivilegeEscalation: ptr.To(false),
+							},
+							Resources: corev1.ResourceRequirements{
+								Requests: corev1.ResourceList{
+									corev1.ResourceCPU:    resource.MustParse("50m"),
+									corev1.ResourceMemory: resource.MustParse("64Mi"),
+								},
+								Limits: corev1.ResourceList{
+									corev1.ResourceCPU:    resource.MustParse("200m"),
+									corev1.ResourceMemory: resource.MustParse("128Mi"),
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
 }

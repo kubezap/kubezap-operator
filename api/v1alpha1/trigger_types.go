@@ -160,7 +160,7 @@ type CooldownPolicy struct {
 // PubSubTrigger configures a message-broker-based trigger.
 type PubSubTrigger struct {
 	// Message broker type.
-	// +kubebuilder:validation:Enum=kafka
+	// +kubebuilder:validation:Enum=kafka;nats
 	Type string `json:"type"`
 
 	// Reference to an Integration CR with broker connection details.
@@ -171,6 +171,10 @@ type PubSubTrigger struct {
 
 	// Kafka consumer group ID. Defaults to "kubezap-<trigger-name>" at runtime.
 	ConsumerGroup string `json:"consumerGroup,omitempty"`
+
+	// Subject is the NATS subject to subscribe to. Used for type=nats only.
+	// Supports NATS wildcards (e.g. "orders.*", "events.>").
+	Subject string `json:"subject,omitempty"`
 }
 
 // WebhookAuth configures authentication for a webhook trigger endpoint.

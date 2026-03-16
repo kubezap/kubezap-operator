@@ -485,11 +485,24 @@ kubectl apply -k config/crd     # install CRDs
 kubectl apply -k config/default # deploy the operator
 ```
 
-### Helm chart _(coming in v0.3)_
+### Helm (recommended)
 
 ```bash
-helm install kubezap kubezap/kubezap
+# AllNamespaces mode (default)
+helm install kubezap ./charts/kubezap --namespace kubezap-system --create-namespace
+
+# SingleNamespace mode
+helm install kubezap ./charts/kubezap \
+  --namespace tenant-a --create-namespace \
+  --set watchNamespaces=tenant-a
+
+# Multi-namespace mode
+helm install kubezap ./charts/kubezap \
+  --namespace kubezap-system --create-namespace \
+  --set watchNamespaces="tenant-a,tenant-b"
 ```
+
+See `charts/kubezap/values.yaml` for all configurable options.
 
 ### OperatorHub / OLM _(coming in v0.3)_
 

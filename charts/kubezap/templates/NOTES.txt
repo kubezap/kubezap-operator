@@ -1,0 +1,16 @@
+KubeZap has been deployed.
+
+  Release:    {{ .Release.Name }}
+  Namespace:  {{ .Release.Namespace }}
+  Image:      {{ .Values.image.repository }}:{{ .Values.image.tag }}
+  Replicas:   {{ .Values.replicaCount }}
+  Watch mode: {{ if eq .Values.watchNamespaces "" }}AllNamespaces (ClusterRole){{ else if contains "," .Values.watchNamespaces }}MultiNamespace: {{ .Values.watchNamespaces }} (ClusterRole){{ else }}SingleNamespace: {{ .Values.watchNamespaces }} (Role){{ end }}
+
+Verify:
+  kubectl get deployment -n {{ .Release.Namespace }} {{ include "kubezap.fullname" . }}
+  kubectl logs -n {{ .Release.Namespace }} -l app.kubernetes.io/name={{ include "kubezap.name" . }}
+
+Create your first automation:
+  kubectl apply -f https://raw.githubusercontent.com/kubezap/kubezap/main/config/samples/automation_v1alpha1_trigger_webhook.yaml
+
+Docs: https://github.com/kubezap/kubezap/tree/main/docs

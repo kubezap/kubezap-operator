@@ -71,6 +71,8 @@ func main() {
 	var tlsOpts []func(*tls.Config)
 	var flowRunTTLSucceeded time.Duration
 	var flowRunTTLFailed time.Duration
+	var maxConcurrentFlowRuns int
+	var flowRunExecutionTimeout time.Duration
 	flag.StringVar(&metricsAddr, "metrics-bind-address", "0", "The address the metrics endpoint binds to. "+
 		"Use :8443 for HTTPS or :8080 for HTTP, or leave as 0 to disable the metrics service.")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
@@ -90,6 +92,8 @@ func main() {
 		"If set, HTTP/2 will be enabled for the metrics and webhook servers")
 	flag.DurationVar(&flowRunTTLSucceeded, "flowrun-ttl-succeeded", 24*time.Hour, "TTL for succeeded FlowRuns before GC")
 	flag.DurationVar(&flowRunTTLFailed, "flowrun-ttl-failed", 72*time.Hour, "TTL for failed FlowRuns before GC")
+	flag.IntVar(&maxConcurrentFlowRuns, "max-concurrent-flowruns", 10, "Maximum number of FlowRun reconciliations to run concurrently.")
+	flag.DurationVar(&flowRunExecutionTimeout, "flowrun-execution-timeout", time.Hour, "Maximum time a FlowRun may remain in Running phase before being failed as orphaned (0 = disabled).")
 	flag.BoolVar(&developmentLogging, "development", false,
 		"Enable development logging mode (human-readable, with caller info). Defaults to false for production JSON logging.")
 	opts := zap.Options{
@@ -253,10 +257,12 @@ func main() {
 		os.Exit(1)
 	}
 	if err = (&controller.FlowRunReconciler{
-		Client:       mgr.GetClient(),
-		Scheme:       mgr.GetScheme(),
-		TTLSucceeded: flowRunTTLSucceeded,
-		TTLFailed:    flowRunTTLFailed,
+		Client:                  mgr.GetClient(),
+		Scheme:                  mgr.GetScheme(),
+		TTLSucceeded:            flowRunTTLSucceeded,
+		TTLFailed:               flowRunTTLFailed,
+		MaxConcurrentReconciles: maxConcurrentFlowRuns,
+		ExecutionTimeout:        flowRunExecutionTimeout,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "FlowRun")
 		os.Exit(1)

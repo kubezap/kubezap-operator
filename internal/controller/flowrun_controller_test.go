@@ -259,4 +259,147 @@ var _ = Describe("FlowRunReconciler", func() {
 			Expect(updated.Status.Steps).To(BeEmpty())
 		})
 	})
+
+	Context("execution timeout recovery", func() {
+		var (
+			flow    *automationv1alpha1.Flow
+			flowRun *automationv1alpha1.FlowRun
+		)
+
+		BeforeEach(func() {
+			seed := GinkgoRandomSeed()
+			flowName := fmt.Sprintf("flow-timeout-%d", seed)
+			flowRunName := fmt.Sprintf("fr-timeout-%d", seed)
+
+			flow = makeFlow(flowName, []automationv1alpha1.FlowStep{})
+			Expect(k8sClient.Create(ctx, flow)).To(Succeed())
+
+			flowRun = makeFlowRun(flowRunName, flowName)
+			Expect(k8sClient.Create(ctx, flowRun)).To(Succeed())
+
+			// Simulate a Running FlowRun that started 2 hours ago.
+			startedAt := metav1.NewTime(time.Now().Add(-2 * time.Hour))
+			flowRun.Status.Phase = "Running"
+			flowRun.Status.StartTime = &startedAt
+			Expect(k8sClient.Status().Update(ctx, flowRun)).To(Succeed())
+
+			DeferCleanup(func() {
+				_ = k8sClient.Delete(context.Background(), flowRun)
+				_ = k8sClient.Delete(context.Background(), flow)
+			})
+		})
+
+		It("fails a Running FlowRun that exceeded ExecutionTimeout", func() {
+			r := newReconciler()
+			r.ExecutionTimeout = time.Hour // 1h timeout; FlowRun has been running 2h
+
+			nn := types.NamespacedName{Name: flowRun.Name, Namespace: testNamespace}
+			_, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: nn})
+			Expect(err).NotTo(HaveOccurred())
+
+			var updated automationv1alpha1.FlowRun
+			Expect(k8sClient.Get(ctx, nn, &updated)).To(Succeed())
+			Expect(updated.Status.Phase).To(Equal("Failed"))
+			Expect(updated.Status.Message).To(ContainSubstring("execution timeout exceeded"))
+		})
+	})
+
+	Context("executing finalizer lifecycle", func() {
+		var (
+			flow    *automationv1alpha1.Flow
+			flowRun *automationv1alpha1.FlowRun
+		)
+
+		BeforeEach(func() {
+			seed := GinkgoRandomSeed()
+			flow = makeFlow(fmt.Sprintf("flow-finalizer-%d", seed), []automationv1alpha1.FlowStep{})
+			Expect(k8sClient.Create(ctx, flow)).To(Succeed())
+
+			flowRun = makeFlowRun(fmt.Sprintf("fr-finalizer-%d", seed), flow.Name)
+			Expect(k8sClient.Create(ctx, flowRun)).To(Succeed())
+
+			DeferCleanup(func() {
+				_ = k8sClient.Delete(context.Background(), flowRun)
+				_ = k8sClient.Delete(context.Background(), flow)
+			})
+		})
+
+		It("adds the kubezap.io/executing finalizer when transitioning Pending→Running", func() {
+			r := newReconciler()
+			nn := types.NamespacedName{Name: flowRun.Name, Namespace: testNamespace}
+			// First reconcile: transitions Pending → Running (adds finalizer).
+			_, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: nn})
+			Expect(err).NotTo(HaveOccurred())
+
+			var updated automationv1alpha1.FlowRun
+			Expect(k8sClient.Get(ctx, nn, &updated)).To(Succeed())
+			Expect(updated.Finalizers).To(ContainElement("kubezap.io/executing"))
+		})
+
+		It("removes the finalizer when the FlowRun succeeds", func() {
+			r := newReconciler()
+			nn := types.NamespacedName{Name: flowRun.Name, Namespace: testNamespace}
+			// Reconcile: Flow has no steps → transitions Pending→Running→Succeeded in one pass.
+			_, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: nn})
+			Expect(err).NotTo(HaveOccurred())
+
+			var updated automationv1alpha1.FlowRun
+			Expect(k8sClient.Get(ctx, nn, &updated)).To(Succeed())
+			Expect(updated.Status.Phase).To(Equal("Succeeded"))
+			Expect(updated.Finalizers).NotTo(ContainElement("kubezap.io/executing"))
+		})
+	})
+
+	Context("DeletionTimestamp while running", func() {
+		var (
+			flow    *automationv1alpha1.Flow
+			flowRun *automationv1alpha1.FlowRun
+		)
+
+		BeforeEach(func() {
+			seed := GinkgoRandomSeed()
+			flowName := fmt.Sprintf("flow-del-running-%d", seed)
+			flowRunName := fmt.Sprintf("fr-del-running-%d", seed)
+
+			flow = makeFlow(flowName, []automationv1alpha1.FlowStep{})
+			Expect(k8sClient.Create(ctx, flow)).To(Succeed())
+
+			flowRun = makeFlowRun(flowRunName, flowName)
+			// Pre-add the finalizer so deletion is blocked until we remove it.
+			flowRun.Finalizers = []string{"kubezap.io/executing"}
+			Expect(k8sClient.Create(ctx, flowRun)).To(Succeed())
+
+			// Set phase=Running via status subresource.
+			now := metav1.Now()
+			flowRun.Status.Phase = "Running"
+			flowRun.Status.StartTime = &now
+			Expect(k8sClient.Status().Update(ctx, flowRun)).To(Succeed())
+
+			// Issue delete to set DeletionTimestamp (finalizer blocks actual removal).
+			Expect(k8sClient.Delete(ctx, flowRun)).To(Succeed())
+
+			DeferCleanup(func() {
+				// Ensure the finalizer is gone so the object can be cleaned up.
+				var fr automationv1alpha1.FlowRun
+				if err := k8sClient.Get(context.Background(), types.NamespacedName{Name: flowRunName, Namespace: testNamespace}, &fr); err == nil {
+					fr.Finalizers = nil
+					_ = k8sClient.Update(context.Background(), &fr)
+					_ = k8sClient.Delete(context.Background(), &fr)
+				}
+				_ = k8sClient.Delete(context.Background(), flow)
+			})
+		})
+
+		It("fails the FlowRun and removes the executing finalizer", func() {
+			r := newReconciler()
+			nn := types.NamespacedName{Name: flowRun.Name, Namespace: testNamespace}
+			_, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: nn})
+			Expect(err).NotTo(HaveOccurred())
+
+			var updated automationv1alpha1.FlowRun
+			Expect(k8sClient.Get(ctx, nn, &updated)).To(Succeed())
+			Expect(updated.Status.Phase).To(Equal("Failed"))
+			Expect(updated.Finalizers).NotTo(ContainElement("kubezap.io/executing"))
+		})
+	})
 })

@@ -43,6 +43,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	automationv1alpha1 "github.com/yourname/kubezap/api/v1alpha1"
@@ -50,6 +51,7 @@ import (
 )
 
 const retainAnnotation = "kubezap.io/retain"
+const executingFinalizer = "kubezap.io/executing"
 
 // +kubebuilder:rbac:groups=automation.kubezap.io,resources=flowruns,verbs=get;list;watch;update;patch;delete
 // +kubebuilder:rbac:groups=automation.kubezap.io,resources=flowruns/status,verbs=get;update;patch
@@ -65,6 +67,14 @@ type FlowRunReconciler struct {
 	HTTPClient   *http.Client
 	TTLSucceeded time.Duration
 	TTLFailed    time.Duration
+
+	// MaxConcurrentReconciles controls how many FlowRun reconciliations may run
+	// in parallel. Defaults to 10 when unset or <= 0.
+	MaxConcurrentReconciles int
+
+	// ExecutionTimeout is the maximum time a FlowRun may remain in Running phase
+	// before it is failed as orphaned. Set to 0 to disable.
+	ExecutionTimeout time.Duration
 
 	// kafkaProducers caches sarama.SyncProducer instances keyed by bootstrap-server
 	// address string. Producers are created lazily and reused across publish steps to
@@ -92,6 +102,14 @@ func (r *FlowRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 			attribute.String("flowrun.namespace", flowRun.Namespace),
 		))
 	defer span.End()
+
+	// FlowRun was deleted while running — fail it and remove executing finalizer.
+	if !flowRun.DeletionTimestamp.IsZero() && flowRun.Status.Phase == "Running" {
+		if err := r.failFlowRun(ctx, &flowRun, "FlowRun deleted while running"); err != nil {
+			return ctrl.Result{}, err
+		}
+		return ctrl.Result{}, nil
+	}
 
 	// GC: handle terminal FlowRuns (TTL expiry + maxFlowRuns cap).
 	if flowRun.Status.Phase == "Succeeded" || flowRun.Status.Phase == "Failed" {
@@ -123,6 +141,16 @@ func (r *FlowRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 
 	// Transition Pending → Running.
 	if flowRun.Status.Phase == "" || flowRun.Status.Phase == "Pending" {
+		if !containsString(flowRun.Finalizers, executingFinalizer) {
+			flowRun.Finalizers = append(flowRun.Finalizers, executingFinalizer)
+			if err := r.Update(ctx, &flowRun); err != nil {
+				return ctrl.Result{}, err
+			}
+			// Re-fetch after metadata update to get fresh resourceVersion.
+			if err := r.Get(ctx, req.NamespacedName, &flowRun); err != nil {
+				return ctrl.Result{}, client.IgnoreNotFound(err)
+			}
+		}
 		now := metav1.Now()
 		flowRun.Status.Phase = "Running"
 		flowRun.Status.StartTime = &now
@@ -144,6 +172,18 @@ func (r *FlowRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		var cancel context.CancelFunc
 		execCtx, cancel = context.WithTimeout(ctx, flow.Spec.Timeout.Duration)
 		defer cancel()
+	}
+
+	// Orphan recovery: fail Running FlowRuns that have exceeded the operator-level
+	// execution timeout. This recovers FlowRuns abandoned mid-execution after a
+	// controller restart.
+	if r.ExecutionTimeout > 0 && flowRun.Status.StartTime != nil {
+		if time.Since(flowRun.Status.StartTime.Time) > r.ExecutionTimeout {
+			return ctrl.Result{}, r.failFlowRun(ctx, &flowRun,
+				fmt.Sprintf("execution timeout exceeded (running for %s, limit %s)",
+					time.Since(flowRun.Status.StartTime.Time).Truncate(time.Second),
+					r.ExecutionTimeout))
+		}
 	}
 
 	// Execute steps in order.
@@ -307,6 +347,12 @@ func (r *FlowRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		).Observe(duration.Seconds())
 	}
 	span.SetStatus(otelcodes.Ok, "")
+	if containsString(flowRun.Finalizers, executingFinalizer) {
+		flowRun.Finalizers = removeString(flowRun.Finalizers, executingFinalizer)
+		if err := r.Update(ctx, &flowRun); err != nil {
+			return ctrl.Result{}, err
+		}
+	}
 	return ctrl.Result{}, r.Status().Update(ctx, &flowRun)
 }
 
@@ -683,6 +729,12 @@ func (r *FlowRunReconciler) failFlowRun(ctx context.Context, flowRun *automation
 		).Observe(duration.Seconds())
 	}
 	trace.SpanFromContext(ctx).SetStatus(otelcodes.Error, "FlowRun failed")
+	if containsString(flowRun.Finalizers, executingFinalizer) {
+		flowRun.Finalizers = removeString(flowRun.Finalizers, executingFinalizer)
+		if err := r.Update(ctx, flowRun); err != nil {
+			return err
+		}
+	}
 	return r.Status().Update(ctx, flowRun)
 }
 
@@ -816,9 +868,14 @@ func (r *FlowRunReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	if err := mgr.Add(r); err != nil {
 		return fmt.Errorf("registering FlowRunReconciler as runnable: %w", err)
 	}
+	maxConcurrent := r.MaxConcurrentReconciles
+	if maxConcurrent <= 0 {
+		maxConcurrent = 10
+	}
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&automationv1alpha1.FlowRun{}).
 		Named("flowrun").
+		WithOptions(controller.Options{MaxConcurrentReconciles: maxConcurrent}).
 		Complete(r)
 }
 
@@ -1089,12 +1146,39 @@ func extractSimpleJSONPath(path string, obj map[string]interface{}) string {
 	return fmt.Sprintf("%v", val)
 }
 
-// Start implements manager.Runnable. It blocks until ctx is cancelled, then
-// closes all cached Kafka producers so that broker connections are released
-// cleanly during controller shutdown. Wire this into the manager via
-// ctrl.Manager.Add(reconciler) in SetupWithManager or main.go.
+// Start implements manager.Runnable. It performs a startup scan to fail any
+// Running FlowRuns that exceeded the execution timeout (orphaned during a
+// previous controller restart), then blocks until ctx is cancelled and closes
+// all cached Kafka producers so that broker connections are released cleanly.
 func (r *FlowRunReconciler) Start(ctx context.Context) error {
+	// Startup scan: fail any Running FlowRuns that exceeded the execution timeout.
+	// These were likely abandoned mid-execution during a previous controller restart.
+	if r.ExecutionTimeout > 0 {
+		var list automationv1alpha1.FlowRunList
+		if err := r.List(ctx, &list); err != nil {
+			logf.Log.Error(err, "startup scan: failed to list FlowRuns")
+		} else {
+			for i := range list.Items {
+				fr := &list.Items[i]
+				if fr.Status.Phase != "Running" || fr.Status.StartTime == nil {
+					continue
+				}
+				if time.Since(fr.Status.StartTime.Time) <= r.ExecutionTimeout {
+					continue
+				}
+				if err := r.failFlowRun(ctx, fr,
+					fmt.Sprintf("orphaned at startup: running for %s (limit %s)",
+						time.Since(fr.Status.StartTime.Time).Truncate(time.Second),
+						r.ExecutionTimeout)); err != nil {
+					logf.Log.Error(err, "startup scan: failed to fail orphaned FlowRun",
+						"name", fr.Name, "namespace", fr.Namespace)
+				}
+			}
+		}
+	}
+
 	<-ctx.Done()
+	// Existing Kafka producer teardown below (keep unchanged).
 	r.kafkaProducersMu.Lock()
 	defer r.kafkaProducersMu.Unlock()
 	for addr, p := range r.kafkaProducers {

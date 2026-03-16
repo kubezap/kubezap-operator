@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "kubezap.fullname" . }}-metrics
+  namespace: {{ .Release.Namespace }}
+  labels:
+    control-plane: controller-manager
+    {{- include "kubezap.labels" . | nindent 4 }}
+spec:
+  ports:
+    - name: metrics
+      port: 8080
+      protocol: TCP
+      targetPort: 8080
+  selector:
+    control-plane: controller-manager
+    {{- include "kubezap.selectorLabels" . | nindent 4 }}

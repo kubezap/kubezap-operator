@@ -1,0 +1,14 @@
+apiVersion: automation.kubezap.io/v1alpha1
+kind: Integration
+metadata:
+  labels:
+    app.kubernetes.io/name: kubezap
+    app.kubernetes.io/managed-by: kustomize
+  name: my-nats
+  namespace: default
+spec:
+  type: nats
+  nats:
+    servers:
+      - nats://nats.default.svc.cluster.local:4222
+    jetStream: false

@@ -87,7 +87,25 @@
 - [x] KEDA ScaledObject for Kafka gateway (partition-bounded scaling; graceful no-op if KEDA absent)
 - [x] Controller manages Kafka gateway Deployment lifecycle (one per namespace × Kafka cluster)
 - [ ] AMQP gateway skeleton in `cmd/amqp-gateway/main.go` (`type: amqp`, versions 0-9-1 and 1.0)
+  - [ ] Add `amqp` to `PubSubTrigger.Type` enum in `trigger_types.go`; run `make generate && make manifests`
+  - [ ] Add `github.com/rabbitmq/amqp091-go` and `github.com/Azure/go-amqp` dependencies via `go get`
+  - [ ] Implement `internal/gateway/amqp/watcher.go` — polls/watches Trigger CRDs for `pubsub.type=amqp`, manages channel subscriptions (mirrors kafka/watcher.go pattern)
+  - [ ] Implement `internal/gateway/amqp/handler.go` — converts AMQP deliveries into FlowRun CRDs; dedup key `<trigger>-<queue>-<delivery-tag>`
+  - [ ] Implement `cmd/amqp-gateway/main.go` binary entry point (mirrors cmd/kafka-gateway/main.go)
+  - [ ] Add `Dockerfile.amqp-gateway` (mirrors Dockerfile.kafka-gateway)
+  - [ ] Extend `integration_controller.go` to handle `type: amqp` — create/update AMQP gateway Deployment (one per namespace × broker URL)
+  - [ ] Add sample CR `config/samples/automation_v1alpha1_integration_amqp.yaml`
+  - [ ] Write Ginkgo unit tests in `internal/gateway/amqp/` and `internal/controller/integration_controller_test.go` (amqp cases)
 - [ ] NATS gateway skeleton in `cmd/nats-gateway/main.go` (`type: nats`, Core + JetStream)
+  - [ ] Add `nats` to `PubSubTrigger.Type` enum in `trigger_types.go`; run `make generate && make manifests`
+  - [ ] Add `github.com/nats-io/nats.go` dependency via `go get`
+  - [ ] Implement `internal/gateway/nats/watcher.go` — watches Trigger CRDs for `pubsub.type=nats`, manages Core subscriptions and JetStream durable consumers
+  - [ ] Implement `internal/gateway/nats/handler.go` — converts NATS messages into FlowRun CRDs; JetStream dedup key `<trigger>-seq-<sequence>`, Core key `<trigger>-<timestamp>-<random>`
+  - [ ] Implement `cmd/nats-gateway/main.go` binary entry point (mirrors cmd/kafka-gateway/main.go)
+  - [ ] Add `Dockerfile.nats-gateway` (mirrors Dockerfile.kafka-gateway)
+  - [ ] Extend `integration_controller.go` to handle `type: nats` — create/update NATS gateway Deployment (one per namespace × NATS cluster)
+  - [ ] Add sample CR `config/samples/automation_v1alpha1_integration_nats.yaml`
+  - [ ] Write Ginkgo unit tests in `internal/gateway/nats/` and `internal/controller/integration_controller_test.go` (nats cases)
 - [x] `type: publish` step action — controller calls plugin `/publish` endpoint
 
 ### MockEndpoint CRD
@@ -175,6 +193,16 @@ Additional demonstration scenarios targeting acquisition/enterprise stakeholders
 ## 7. Deployment & Distribution (v0.3)
 
 - [ ] Helm chart in `charts/kubezap/`
+  - [ ] Scaffold chart skeleton: `charts/kubezap/Chart.yaml`, `charts/kubezap/values.yaml`, `charts/kubezap/templates/`
+  - [ ] Controller Deployment template with `WATCH_NAMESPACES`, `--leader-elect`, image, resources, securityContext (non-root, readOnlyRootFilesystem)
+  - [ ] Controller ServiceAccount + ClusterRole/Role (conditional on `controller.watchNamespaces`) + ClusterRoleBinding/RoleBinding
+  - [ ] Bundle CRD manifests from `config/crd/bases/` into `charts/kubezap/crds/` (Helm manages CRD lifecycle)
+  - [ ] Values: `controller.image`, `controller.watchNamespaces`, `controller.leaderElect`, `controller.resources`, `controller.replicas`
+  - [ ] Values: gateway images (`webhookGateway.image`, `kafkaGateway.image`, `amqpGateway.image`, `natsGateway.image`) — images referenced by controller at runtime
+  - [ ] `_helpers.tpl` for label/selector helpers following `app.kubernetes.io/` conventions
+  - [ ] `NOTES.txt` with post-install instructions
+  - [ ] `helm lint` and `helm template` validation pass
+  - [ ] Document Helm installation in `docs/overview.md` Installation section
 - [ ] OLM bundle finalized and validated with `operator-sdk bundle validate`
 - [ ] OperatorHub submission PR
 - [ ] `docs/overview.md` Installation section completed
@@ -189,10 +217,10 @@ Additional demonstration scenarios targeting acquisition/enterprise stakeholders
 
 ### Blockers
 
-- [ ] **BLOCKER** `flowrun_controller.go`: FlowRun step execution loop is synchronous and blocking — a single long-running HTTP step or a long wait-step requeue holds the reconciler goroutine for the full duration. Under the default controller-runtime concurrency limit this starves other FlowRuns. Steps must be made non-blocking (e.g., per-FlowRun concurrency, or step-granularity requeueing without blocking the goroutine).
+- [x] **BLOCKER** `flowrun_controller.go`: FlowRun step execution loop is synchronous and blocking — a single long-running HTTP step or a long wait-step requeue holds the reconciler goroutine for the full duration. Under the default controller-runtime concurrency limit this starves other FlowRuns. Steps must be made non-blocking (e.g., per-FlowRun concurrency, or step-granularity requeueing without blocking the goroutine).
 - [x] **BLOCKER** `flowrun_controller.go` `executeHTTPStep`: `defer resp.Body.Close()` inside a retry loop (`//nolint:gocritic`) leaks the response body of all retries except the last — body is only closed when the enclosing function returns, not after each iteration. All non-final response bodies are leaked.
 - [x] **BLOCKER** `flowrun_controller.go`: A new Kafka `sarama.SyncProducer` is created on every `type: publish` step execution (`publishToKafka`). Producers are expensive to open and are not reused or pooled. At any meaningful call rate this will exhaust connections and degrade the Kafka broker.
-- [ ] **BLOCKER** `flowrun_controller.go`: The `Reconcile` function does not hold a finalizer on FlowRun resources. If the controller pod is deleted mid-execution, the FlowRun will sit in `Running` phase indefinitely with no mechanism to detect or recover the orphan (no timeout at the FlowRun level, no heartbeat condition).
+- [x] **BLOCKER** `flowrun_controller.go`: The `Reconcile` function does not hold a finalizer on FlowRun resources. If the controller pod is deleted mid-execution, the FlowRun will sit in `Running` phase indefinitely with no mechanism to detect or recover the orphan (no timeout at the FlowRun level, no heartbeat condition).
 - [x] **BLOCKER** `cmd/webhook-gateway/main.go` `ServeHTTP`: FlowRun is created with `context.Background()` instead of the request context (`r.Context()`). If the client disconnects, the create call is not cancelled and the FlowRun is still created — this is likely intentional for fire-and-forget semantics, but means the traced span loses its parent context. More critically, a panicking request handler will leave a dangling goroutine; the handler has no recover/panic boundary.
 - [x] **BLOCKER** `trigger_controller.go`: `LastTriggeredTime` is unconditionally set to `metav1.Now()` for any enabled Trigger, even webhooks (line 123–124). This pollutes status with a fake timestamp before any trigger has actually fired. The field should only be updated when the trigger actually fires.
 - [x] **BLOCKER** `integration_controller.go` `reconcilePluginRBAC`: plugin SA, Role, and RoleBinding are only created — never updated if they drift. If the rules are changed in code (e.g., new verbs added), existing deployments will retain the old rules until the resources are manually deleted. The pattern used for the Kafka gateway (read-then-update) should be applied here as well.

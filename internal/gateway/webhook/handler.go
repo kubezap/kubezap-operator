@@ -11,6 +11,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"runtime/debug"
 	"strings"
 	"time"
 
@@ -179,6 +180,20 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	defer func() {
+		if rec := recover(); rec != nil {
+			stack := debug.Stack()
+			h.log.Error(fmt.Errorf("panic: %v", rec), "webhook handler panic recovered",
+				"path", r.URL.Path,
+				"stack", string(stack),
+			)
+			status = http.StatusInternalServerError
+			// Write 500 only if headers have not been sent yet. Attempting to write
+			// after WriteHeader has been called is a no-op for status but still safe.
+			http.Error(w, `{"error":"internal server error"}`, http.StatusInternalServerError)
+		}
+	}()
+
+	defer func() {
 		durationMs := time.Since(start).Milliseconds()
 		h.log.Info("webhook access",
 			"method", r.Method,
@@ -272,7 +287,19 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	// FlowRef in FlowRunSpec is LocalObjectReference and does not support namespace
 	// in this scheme. Namespace is implied by FlowRun namespace and Flow controller should resolve.
-	err = h.k8sClient.Create(context.Background(), flowRun)
+	//
+	// We intentionally do NOT use r.Context() directly: client disconnects cancel that context
+	// which would abandon the FlowRun create (losing fire-and-forget semantics). Instead, we
+	// derive from context.Background() with a bounded timeout to prevent goroutines from
+	// blocking indefinitely if the API server is slow. The request context is used as the
+	// parent when it is still alive so OTel span context propagates when possible.
+	createParent := context.Background()
+	if r.Context().Err() == nil {
+		createParent = r.Context()
+	}
+	createCtx, createCancel := context.WithTimeout(createParent, 10*time.Second)
+	defer createCancel()
+	err = h.k8sClient.Create(createCtx, flowRun)
 	if err != nil {
 		if apierrors.IsAlreadyExists(err) {
 			status = http.StatusAccepted

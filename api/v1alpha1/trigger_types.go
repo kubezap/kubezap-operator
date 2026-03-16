@@ -160,7 +160,7 @@ type CooldownPolicy struct {
 // PubSubTrigger configures a message-broker-based trigger.
 type PubSubTrigger struct {
 	// Message broker type.
-	// +kubebuilder:validation:Enum=kafka;amqp
+	// +kubebuilder:validation:Enum=kafka;amqp;nats
 	Type string `json:"type"`
 
 	// Reference to an Integration CR with broker connection details.
@@ -174,6 +174,10 @@ type PubSubTrigger struct {
 
 	// RoutingKey is the AMQP routing key or binding pattern. Used for type=amqp only.
 	RoutingKey string `json:"routingKey,omitempty"`
+
+	// Subject is the NATS subject to subscribe to. Used for type=nats only.
+	// Supports NATS wildcards (e.g. "orders.*", "events.>").
+	Subject string `json:"subject,omitempty"`
 }
 
 // WebhookAuth configures authentication for a webhook trigger endpoint.

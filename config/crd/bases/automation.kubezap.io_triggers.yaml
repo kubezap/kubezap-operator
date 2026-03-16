@@ -169,6 +169,11 @@ spec:
                     description: RoutingKey is the AMQP routing key or binding pattern.
                       Used for type=amqp only.
                     type: string
+                  subject:
+                    description: |-
+                      Subject is the NATS subject to subscribe to. Used for type=nats only.
+                      Supports NATS wildcards (e.g. "orders.*", "events.>").
+                    type: string
                   topic:
                     description: Topic to consume from.
                     type: string
@@ -177,6 +182,7 @@ spec:
                     enum:
                     - kafka
                     - amqp
+                    - nats
                     type: string
                 required:
                 - integrationRef

@@ -206,6 +206,11 @@ spec:
                 type: array
               message:
                 type: string
+              observedGeneration:
+                description: ObservedGeneration is the most recent generation observed
+                  by the controller.
+                format: int64
+                type: integer
               phase:
                 enum:
                 - Pending

@@ -135,12 +135,15 @@ var _ = Describe("TriggerReconciler", func() {
 		var trigger *automationv1alpha1.Trigger
 
 		BeforeEach(func() {
-			By("creating a disabled webhook Trigger")
+			By("creating a webhook Trigger and then patching spec.enabled=false")
+			// spec.enabled has `+kubebuilder:default=true` and `omitempty`, so the
+			// API server will override a Go false zero-value to true.  We must
+			// create the object first, then immediately patch it to set the field
+			// explicitly to false via a strategic merge patch.
 			trigger = makeTrigger(
 				fmt.Sprintf("trg-disabled-%d", GinkgoRandomSeed()),
 				automationv1alpha1.TriggerSpec{
-					Type:    "webhook",
-					Enabled: false,
+					Type: "webhook",
 					Webhook: &automationv1alpha1.WebhookTrigger{
 						Path:   "/hook/disabled",
 						Method: "POST",
@@ -148,6 +151,11 @@ var _ = Describe("TriggerReconciler", func() {
 				},
 			)
 			Expect(k8sClient.Create(ctx, trigger)).To(Succeed())
+
+			// Patch spec.enabled to false — the raw merge patch bypasses omitempty.
+			patch := []byte(`{"spec":{"enabled":false}}`)
+			Expect(k8sClient.Patch(ctx, trigger, client.RawPatch(types.MergePatchType, patch))).To(Succeed())
+
 			DeferCleanup(func() {
 				_ = k8sClient.Delete(context.Background(), trigger)
 			})
@@ -297,7 +305,16 @@ var _ = Describe("TriggerReconciler", func() {
 			)
 			Expect(k8sClient.Create(ctx, trigger)).To(Succeed())
 			DeferCleanup(func() {
-				_ = k8sClient.Delete(context.Background(), trigger)
+				// Strip any finalizers the reconciler may have added before deleting
+				// so that the object is not left in a terminating state between It
+				// blocks (both share the same BeforeEach).
+				var latest automationv1alpha1.Trigger
+				nn := types.NamespacedName{Name: trigger.Name, Namespace: testNamespace}
+				if err := k8sClient.Get(context.Background(), nn, &latest); err == nil {
+					latest.Finalizers = nil
+					_ = k8sClient.Update(context.Background(), &latest)
+					_ = k8sClient.Delete(context.Background(), &latest)
+				}
 			})
 		})
 

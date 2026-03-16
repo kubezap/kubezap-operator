@@ -136,6 +136,15 @@ func authenticateRequest(r *http.Request, body []byte, entry RouteEntry, trigger
 			return http.StatusUnauthorized, fmt.Sprintf(`{"error":"unauthorized","reason":"%s"}`, err.Error())
 		}
 
+	case "basic":
+		username, password, ok := r.BasicAuth()
+		if !ok {
+			return http.StatusUnauthorized, "missing or malformed Basic auth credentials"
+		}
+		if username != entry.BasicUsername || password != entry.BasicPassword {
+			return http.StatusUnauthorized, "invalid Basic auth credentials"
+		}
+
 	case "ipAllowlist":
 		clientIP := realClientIP(r)
 		ip := net.ParseIP(clientIP)

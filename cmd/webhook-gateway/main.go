@@ -39,10 +39,14 @@ func main() {
 	var port int
 	var namespace string
 	var logLevel string
+	var tlsCertFile string
+	var tlsKeyFile string
 
-	flag.IntVar(&port, "port", 8080, "HTTP server port")
+	flag.IntVar(&port, "port", 8080, "HTTP/HTTPS server port")
 	flag.StringVar(&namespace, "namespace", "", "Namespace to watch; empty=all namespaces")
 	flag.StringVar(&logLevel, "log-level", "info", "Log level: debug|info|warn|error")
+	flag.StringVar(&tlsCertFile, "tls-cert-file", "", "Path to TLS certificate file (PEM). When set with --tls-key-file the server listens on HTTPS.")
+	flag.StringVar(&tlsKeyFile, "tls-key-file", "", "Path to TLS private key file (PEM). Required when --tls-cert-file is set.")
 	flag.Parse()
 
 	opts := zap.NewDevelopmentConfig()
@@ -117,10 +121,18 @@ func main() {
 
 	srv := &http.Server{Addr: fmt.Sprintf(":%d", port), Handler: webhook.AccessLogMiddleware(mux)}
 	go func() {
-		log.Info("starting webhook gateway HTTP server", "port", port)
-		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Error(err, "server failed")
-			cancel()
+		if tlsCertFile != "" && tlsKeyFile != "" {
+			log.Info("starting webhook gateway HTTPS server", "port", port, "certFile", tlsCertFile)
+			if err := srv.ListenAndServeTLS(tlsCertFile, tlsKeyFile); err != nil && err != http.ErrServerClosed {
+				log.Error(err, "HTTPS server failed")
+				cancel()
+			}
+		} else {
+			log.Info("starting webhook gateway HTTP server", "port", port)
+			if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+				log.Error(err, "HTTP server failed")
+				cancel()
+			}
 		}
 	}()
 

@@ -238,6 +238,29 @@ func (w *TriggerWatcher) buildRouteEntry(ctx context.Context, trigger *automatio
 			entry.APIKeyHeader = "X-Api-Key"
 		}
 
+	case "basic":
+		if auth.Basic == nil {
+			return RouteEntry{}, fmt.Errorf("basic auth requires basic.secretRef")
+		}
+		usernameKey := auth.Basic.UsernameKey
+		if usernameKey == "" {
+			usernameKey = "username"
+		}
+		passwordKey := auth.Basic.PasswordKey
+		if passwordKey == "" {
+			passwordKey = "password"
+		}
+		username, err := w.readSecretKey(ctx, trigger.Namespace, auth.Basic.SecretRef.Name, usernameKey)
+		if err != nil {
+			return RouteEntry{}, fmt.Errorf("reading Basic auth username from secret: %w", err)
+		}
+		password, err := w.readSecretKey(ctx, trigger.Namespace, auth.Basic.SecretRef.Name, passwordKey)
+		if err != nil {
+			return RouteEntry{}, fmt.Errorf("reading Basic auth password from secret: %w", err)
+		}
+		entry.BasicUsername = username
+		entry.BasicPassword = password
+
 	case "ipAllowlist":
 		entry.IPAllowlist = append([]string(nil), auth.IPAllowlist...)
 

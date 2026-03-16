@@ -82,6 +82,15 @@ type FlowRunReconciler struct {
 	// synchronized via kafkaProducersMu.
 	kafkaProducersMu sync.Mutex
 	kafkaProducers   map[string]sarama.SyncProducer
+
+	// celEnv is the shared CEL environment, initialized once via celEnvOnce.
+	celEnvOnce sync.Once
+	celEnv     *cel.Env
+	celEnvErr  error
+
+	// celCache maps CEL expression string → compiled cel.Program for reuse across reconciles.
+	// sync.Map is used because the reconciler can run in multiple goroutines concurrently.
+	celCache sync.Map
 }
 
 func (r *FlowRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -154,7 +163,7 @@ func (r *FlowRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		now := metav1.Now()
 		flowRun.Status.Phase = "Running"
 		flowRun.Status.StartTime = &now
-		setFlowRunCondition(&flowRun.Status, metav1.Condition{
+		setFlowRunCondition(&flowRun, metav1.Condition{
 			Type:               "Running",
 			Status:             metav1.ConditionTrue,
 			Reason:             "FlowRunRunning",
@@ -227,7 +236,7 @@ func (r *FlowRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 
 		// Evaluate when conditions.
 		if len(step.When) > 0 {
-			run, err := evaluateWhen(step.When, stepResults, flowRun.Status.Steps, flowRun.Spec.TriggerData)
+			run, err := r.evaluateWhen(step.When, stepResults, flowRun.Status.Steps, flowRun.Spec.TriggerData)
 			if err != nil {
 				now := metav1.Now()
 				flowRun.Status.Steps = upsertStepStatus(flowRun.Status.Steps, automationv1alpha1.StepRunStatus{
@@ -333,7 +342,7 @@ func (r *FlowRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	now := metav1.Now()
 	flowRun.Status.Phase = "Succeeded"
 	flowRun.Status.CompletionTime = &now
-	setFlowRunCondition(&flowRun.Status, metav1.Condition{
+	setFlowRunCondition(&flowRun, metav1.Condition{
 		Type:               "Succeeded",
 		Status:             metav1.ConditionTrue,
 		Reason:             "FlowRunSucceeded",
@@ -715,7 +724,7 @@ func (r *FlowRunReconciler) failFlowRun(ctx context.Context, flowRun *automation
 	flowRun.Status.Phase = "Failed"
 	flowRun.Status.CompletionTime = &now
 	flowRun.Status.Message = msg
-	setFlowRunCondition(&flowRun.Status, metav1.Condition{
+	setFlowRunCondition(flowRun, metav1.Condition{
 		Type:               "Failed",
 		Status:             metav1.ConditionTrue,
 		Reason:             "FlowRunFailed",
@@ -738,11 +747,12 @@ func (r *FlowRunReconciler) failFlowRun(ctx context.Context, flowRun *automation
 	return r.Status().Update(ctx, flowRun)
 }
 
-func setFlowRunCondition(status *automationv1alpha1.FlowRunStatus, condition metav1.Condition) {
+func setFlowRunCondition(flowRun *automationv1alpha1.FlowRun, condition metav1.Condition) {
 	if condition.LastTransitionTime.IsZero() {
 		condition.LastTransitionTime = metav1.Now()
 	}
-	apimeta.SetStatusCondition(&status.Conditions, condition)
+	apimeta.SetStatusCondition(&flowRun.Status.Conditions, condition)
+	flowRun.Status.ObservedGeneration = flowRun.Generation
 }
 
 func (r *FlowRunReconciler) dependenciesMet(step automationv1alpha1.FlowStep, statuses []automationv1alpha1.StepRunStatus) bool {
@@ -883,7 +893,9 @@ func (r *FlowRunReconciler) SetupWithManager(mgr ctrl.Manager) error {
 
 // evaluateWhen evaluates all WhenExpression conditions using CEL.
 // Returns true if all conditions pass (or the list is empty), false if any fail.
-func evaluateWhen(
+// The CEL environment is initialized once and reused; compiled programs are cached
+// per expression string for efficiency across reconcile calls.
+func (r *FlowRunReconciler) evaluateWhen(
 	when []automationv1alpha1.WhenExpression,
 	stepResults map[string]map[string]string,
 	stepStatuses []automationv1alpha1.StepRunStatus,
@@ -893,13 +905,17 @@ func evaluateWhen(
 		return true, nil
 	}
 
-	env, err := cel.NewEnv(
-		cel.Variable("trigger", cel.MapType(cel.StringType, cel.DynType)),
-		cel.Variable("steps", cel.MapType(cel.StringType, cel.DynType)),
-	)
-	if err != nil {
-		return false, err
+	// Initialize the CEL environment exactly once for the lifetime of this reconciler.
+	r.celEnvOnce.Do(func() {
+		r.celEnv, r.celEnvErr = cel.NewEnv(
+			cel.Variable("trigger", cel.MapType(cel.StringType, cel.DynType)),
+			cel.Variable("steps", cel.MapType(cel.StringType, cel.DynType)),
+		)
+	})
+	if r.celEnvErr != nil {
+		return false, r.celEnvErr
 	}
+	env := r.celEnv
 
 	// Build trigger activation map.
 	triggerMap := map[string]interface{}{
@@ -958,14 +974,23 @@ func evaluateWhen(
 	}
 
 	for _, expr := range when {
-		ast, iss := env.Compile(expr.Expression)
-		if iss != nil && iss.Err() != nil {
-			return false, fmt.Errorf("CEL compile error: %w", iss.Err())
+		// Check the program cache first; compile on miss.
+		var prog cel.Program
+		if cached, ok := r.celCache.Load(expr.Expression); ok {
+			prog = cached.(cel.Program)
+		} else {
+			ast, iss := env.Compile(expr.Expression)
+			if iss != nil && iss.Err() != nil {
+				return false, fmt.Errorf("CEL compile error: %w", iss.Err())
+			}
+			var err error
+			prog, err = env.Program(ast)
+			if err != nil {
+				return false, fmt.Errorf("CEL program error: %w", err)
+			}
+			r.celCache.Store(expr.Expression, prog)
 		}
-		prog, err := env.Program(ast)
-		if err != nil {
-			return false, fmt.Errorf("CEL program error: %w", err)
-		}
+
 		out, _, err := prog.Eval(activation)
 		if err != nil {
 			return false, fmt.Errorf("CEL eval error: %w", err)

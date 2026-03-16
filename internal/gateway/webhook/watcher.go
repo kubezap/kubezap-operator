@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
@@ -120,7 +121,9 @@ func (w *TriggerWatcher) handleTrigger(obj interface{}) {
 	}
 
 	if trigger.Spec.Type == "webhook" && trigger.Spec.Enabled && trigger.Spec.Webhook != nil {
-		entry, err := w.buildRouteEntry(context.Background(), trigger)
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		entry, err := w.buildRouteEntry(ctx, trigger)
 		if err != nil {
 			w.log.Error(err, "failed to build route entry; route not registered", "trigger", trigger.Name, "namespace", trigger.Namespace)
 			return

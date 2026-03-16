@@ -92,6 +92,10 @@ type StepRunStatus struct {
 
 // FlowRunStatus defines the observed state of FlowRun.
 type FlowRunStatus struct {
+	// ObservedGeneration is the most recent generation observed by the controller.
+	// +optional
+	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
+
 	// +kubebuilder:validation:Enum=Pending;Running;Succeeded;Failed;Cancelled
 	Phase string `json:"phase,omitempty"`
 

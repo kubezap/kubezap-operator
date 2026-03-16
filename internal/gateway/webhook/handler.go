@@ -160,8 +160,12 @@ func authenticateRequest(r *http.Request, body []byte, entry RouteEntry, trigger
 			return http.StatusForbidden, "source IP not in allowlist"
 		}
 
+	case "":
+		// no auth configured — allow
+
 	default:
-		// no auth or unknown — allow
+		// unimplemented auth type — fail closed
+		return http.StatusUnauthorized, "authentication type not implemented"
 	}
 
 	return http.StatusOK, ""
@@ -237,6 +241,12 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	bodyTruncated := int64(len(bodyBytes)) > maxBody || (r.ContentLength > maxBody)
 	if len(bodyBytes) > int(maxBody) {
 		bodyBytes = bodyBytes[:maxBody]
+	}
+
+	if bodyTruncated {
+		status = http.StatusRequestEntityTooLarge
+		writeJSON(w, status, map[string]string{"error": "request body exceeds maximum allowed size"})
+		return
 	}
 
 	if authStatus, authMsg := authenticateRequest(r, bodyBytes, entry, triggerName); authStatus != http.StatusOK {

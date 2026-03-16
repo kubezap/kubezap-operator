@@ -20,7 +20,6 @@ import (
 	"context"
 	"fmt"
 
-	appsv1 "k8s.io/api/apps/v1"
 	autoscalingv2 "k8s.io/api/autoscaling/v2"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -186,26 +185,25 @@ func ensureWebhookGateway(ctx context.Context, c client.Client, namespace string
 	}
 
 	desired := desiredWebhookGatewayDeployment(namespace)
-	existing := &appsv1.Deployment{}
-	err := c.Get(ctx, client.ObjectKeyFromObject(desired), existing)
-	if err != nil {
-		if !apierrors.IsNotFound(err) {
-			return err
+	op, err := controllerutil.CreateOrUpdate(ctx, c, desired, func() error {
+		// desired is populated with the live object by CreateOrUpdate before this func
+		// is called. Capture the live replicas before overwriting the spec so that an
+		// HPA's replica count is not reset on every reconcile.
+		liveReplicas := desired.Spec.Replicas
+		desired.Spec = desiredWebhookGatewayDeployment(namespace).Spec
+		// Preserve HPA-managed replica count: if an HPA (already reconciled above) is
+		// present, keep whatever replica count the live object had rather than
+		// snapping back to the template default.
+		if liveReplicas != nil && desired.Spec.Replicas == nil {
+			desired.Spec.Replicas = liveReplicas
 		}
-		if err := c.Create(ctx, desired); err != nil && !apierrors.IsAlreadyExists(err) {
-			return err
-		}
-		log.Info("created webhook gateway deployment", "namespace", namespace)
 		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("failed to create/update gateway Deployment: %w", err)
 	}
-	if len(existing.Spec.Template.Spec.Containers) > 0 {
-		if existing.Spec.Template.Spec.Containers[0].Image != webhookGatewayImage() {
-			existing.Spec.Template.Spec.Containers[0].Image = webhookGatewayImage()
-			if err := c.Update(ctx, existing); err != nil {
-				return err
-			}
-			log.Info("updated webhook gateway deployment", "namespace", namespace)
-		}
+	if op != controllerutil.OperationResultNone {
+		log.Info("reconciled webhook gateway deployment", "namespace", namespace, "result", op)
 	}
 
 	hpaDesired := desiredWebhookGatewayHPA(namespace)

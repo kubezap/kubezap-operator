@@ -145,8 +145,19 @@ func (s *CronScheduler) Register(trigger *automationv1alpha1.Trigger) error {
 				}
 				// Refresh local trigger state after patch so Step 4 uses the updated object.
 				trigger.Status.LastTriggeredTime = &metav1.Time{Time: now}
+			} else {
+				// LastTriggeredTime is nil: no window is open yet (first invocation, or a prior Step 4
+				// patch failed and left the field unset). Open the window atomically BEFORE creating
+				// the FlowRun so that a subsequent patch failure in Step 4 does not leave the window
+				// permanently absent and allow unbounded re-firing on every tick.
+				base := trigger.DeepCopy()
+				trigger.Status.LastTriggeredTime = &metav1.Time{Time: now}
+				trigger.Status.CurrentInvocationCount = 1
+				if patchErr := s.client.Status().Patch(ctx, trigger, client.MergeFrom(base)); patchErr != nil {
+					s.log.Error(patchErr, "failed to open cooldown window before FlowRun creation", "trigger", name, "namespace", ns)
+					return
+				}
 			}
-			// If LastTriggeredTime is nil, no window has started — allow firing (fall through to Step 3).
 		}
 
 		// Step 3: Create the FlowRun.

@@ -281,7 +281,7 @@ func (w *Watcher) startSubscription(ctx context.Context, trigger *automationv1al
 		return fmt.Errorf("create consumer group for trigger %s/%s: %w", trigger.Namespace, trigger.Name, err)
 	}
 
-	subCtx, cancel := context.WithCancel(context.Background())
+	subCtx, cancel := context.WithCancel(ctx)
 	sub := &subscription{
 		cancel:          cancel,
 		integrationName: integrationName,

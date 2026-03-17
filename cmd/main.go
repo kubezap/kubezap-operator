@@ -96,11 +96,13 @@ func main() {
 	flag.DurationVar(&flowRunExecutionTimeout, "flowrun-execution-timeout", time.Hour, "Maximum time a FlowRun may remain in Running phase before being failed as orphaned (0 = disabled).")
 	flag.BoolVar(&developmentLogging, "development", false,
 		"Enable development logging mode (human-readable, with caller info). Defaults to false for production JSON logging.")
-	opts := zap.Options{
-		Development: developmentLogging,
-	}
+	var opts zap.Options
 	opts.BindFlags(flag.CommandLine)
 	flag.Parse()
+	// Apply the --development flag after parsing so it takes effect regardless of --zap-devel.
+	if developmentLogging {
+		opts.Development = true
+	}
 
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
 

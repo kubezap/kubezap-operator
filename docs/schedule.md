@@ -86,26 +86,28 @@
 - [x] FlowRun creation per Kafka message: `<trigger>-p<partition>-offset-<offset>` (dedup key)
 - [x] KEDA ScaledObject for Kafka gateway (partition-bounded scaling; graceful no-op if KEDA absent)
 - [x] Controller manages Kafka gateway Deployment lifecycle (one per namespace × Kafka cluster)
-- [ ] AMQP gateway skeleton in `cmd/amqp-gateway/main.go` (`type: amqp`, versions 0-9-1 and 1.0)
-  - [ ] Add `amqp` to `PubSubTrigger.Type` enum in `trigger_types.go`; run `make generate && make manifests`
-  - [ ] Add `github.com/rabbitmq/amqp091-go` and `github.com/Azure/go-amqp` dependencies via `go get`
-  - [ ] Implement `internal/gateway/amqp/watcher.go` — polls/watches Trigger CRDs for `pubsub.type=amqp`, manages channel subscriptions (mirrors kafka/watcher.go pattern)
-  - [ ] Implement `internal/gateway/amqp/handler.go` — converts AMQP deliveries into FlowRun CRDs; dedup key `<trigger>-<queue>-<delivery-tag>`
-  - [ ] Implement `cmd/amqp-gateway/main.go` binary entry point (mirrors cmd/kafka-gateway/main.go)
-  - [ ] Add `Dockerfile.amqp-gateway` (mirrors Dockerfile.kafka-gateway)
-  - [ ] Extend `integration_controller.go` to handle `type: amqp` — create/update AMQP gateway Deployment (one per namespace × broker URL)
-  - [ ] Add sample CR `config/samples/automation_v1alpha1_integration_amqp.yaml`
-  - [ ] Write Ginkgo unit tests in `internal/gateway/amqp/` and `internal/controller/integration_controller_test.go` (amqp cases)
-- [ ] NATS gateway skeleton in `cmd/nats-gateway/main.go` (`type: nats`, Core + JetStream)
-  - [ ] Add `nats` to `PubSubTrigger.Type` enum in `trigger_types.go`; run `make generate && make manifests`
-  - [ ] Add `github.com/nats-io/nats.go` dependency via `go get`
-  - [ ] Implement `internal/gateway/nats/watcher.go` — watches Trigger CRDs for `pubsub.type=nats`, manages Core subscriptions and JetStream durable consumers
-  - [ ] Implement `internal/gateway/nats/handler.go` — converts NATS messages into FlowRun CRDs; JetStream dedup key `<trigger>-seq-<sequence>`, Core key `<trigger>-<timestamp>-<random>`
-  - [ ] Implement `cmd/nats-gateway/main.go` binary entry point (mirrors cmd/kafka-gateway/main.go)
-  - [ ] Add `Dockerfile.nats-gateway` (mirrors Dockerfile.kafka-gateway)
-  - [ ] Extend `integration_controller.go` to handle `type: nats` — create/update NATS gateway Deployment (one per namespace × NATS cluster)
-  - [ ] Add sample CR `config/samples/automation_v1alpha1_integration_nats.yaml`
-  - [ ] Write Ginkgo unit tests in `internal/gateway/nats/` and `internal/controller/integration_controller_test.go` (nats cases)
+- [x] AMQP gateway skeleton in `cmd/amqp-gateway/main.go` (`type: amqp`, versions 0-9-1 and 1.0)
+  - [x] Add `amqp` to `PubSubTrigger.Type` enum in `trigger_types.go`; run `make generate && make manifests`
+  - [x] Add `github.com/rabbitmq/amqp091-go` and `github.com/Azure/go-amqp` dependencies via `go get`
+  - [x] Implement `internal/gateway/amqp/watcher.go` — polls/watches Trigger CRDs for `pubsub.type=amqp`, manages channel subscriptions (mirrors kafka/watcher.go pattern)
+  - [x] Implement `internal/gateway/amqp/handler.go` — converts AMQP deliveries into FlowRun CRDs; dedup key `<trigger>-<queue>-<delivery-tag>`
+  - [x] Implement `cmd/amqp-gateway/main.go` binary entry point (mirrors cmd/kafka-gateway/main.go)
+  - [x] Add `Dockerfile.amqp-gateway` (mirrors Dockerfile.kafka-gateway)
+  - [x] Extend `integration_controller.go` to handle `type: amqp` — create/update AMQP gateway Deployment (one per namespace × broker URL)
+  - [x] Add sample CR `config/samples/automation_v1alpha1_integration_amqp.yaml`
+  - [x] Add sample Trigger CR `config/samples/automation_v1alpha1_trigger_amqp.yaml`
+  - [x] Write Ginkgo unit tests in `internal/gateway/amqp/` and `internal/controller/integration_controller_test.go` (amqp cases)
+- [x] NATS gateway skeleton in `cmd/nats-gateway/main.go` (`type: nats`, Core + JetStream)
+  - [x] Add `nats` to `PubSubTrigger.Type` enum in `trigger_types.go`; run `make generate && make manifests`
+  - [x] Add `github.com/nats-io/nats.go` dependency via `go get`
+  - [x] Implement `internal/gateway/nats/watcher.go` — watches Trigger CRDs for `pubsub.type=nats`, manages Core subscriptions and JetStream durable consumers
+  - [x] Implement `internal/gateway/nats/handler.go` — converts NATS messages into FlowRun CRDs; JetStream dedup key `<trigger>-seq-<sequence>`, Core key `<trigger>-<timestamp>-<random>`
+  - [x] Implement `cmd/nats-gateway/main.go` binary entry point (mirrors cmd/kafka-gateway/main.go)
+  - [x] Add `Dockerfile.nats-gateway` (mirrors Dockerfile.kafka-gateway)
+  - [x] Extend `integration_controller.go` to handle `type: nats` — create/update NATS gateway Deployment (one per namespace × NATS cluster)
+  - [x] Add sample CR `config/samples/automation_v1alpha1_integration_nats.yaml`
+  - [x] Add sample Trigger CR `config/samples/automation_v1alpha1_trigger_nats.yaml`
+  - [x] Write Ginkgo unit tests in `internal/gateway/nats/` and `internal/controller/integration_controller_test.go` (nats cases)
 - [x] `type: publish` step action — controller calls plugin `/publish` endpoint
 
 ### MockEndpoint CRD
@@ -192,17 +194,17 @@ Additional demonstration scenarios targeting acquisition/enterprise stakeholders
 
 ## 7. Deployment & Distribution (v0.3)
 
-- [ ] Helm chart in `charts/kubezap/`
-  - [ ] Scaffold chart skeleton: `charts/kubezap/Chart.yaml`, `charts/kubezap/values.yaml`, `charts/kubezap/templates/`
-  - [ ] Controller Deployment template with `WATCH_NAMESPACES`, `--leader-elect`, image, resources, securityContext (non-root, readOnlyRootFilesystem)
-  - [ ] Controller ServiceAccount + ClusterRole/Role (conditional on `controller.watchNamespaces`) + ClusterRoleBinding/RoleBinding
-  - [ ] Bundle CRD manifests from `config/crd/bases/` into `charts/kubezap/crds/` (Helm manages CRD lifecycle)
-  - [ ] Values: `controller.image`, `controller.watchNamespaces`, `controller.leaderElect`, `controller.resources`, `controller.replicas`
-  - [ ] Values: gateway images (`webhookGateway.image`, `kafkaGateway.image`, `amqpGateway.image`, `natsGateway.image`) — images referenced by controller at runtime
-  - [ ] `_helpers.tpl` for label/selector helpers following `app.kubernetes.io/` conventions
-  - [ ] `NOTES.txt` with post-install instructions
-  - [ ] `helm lint` and `helm template` validation pass
-  - [ ] Document Helm installation in `docs/overview.md` Installation section
+- [x] Helm chart in `charts/kubezap/`
+  - [x] Scaffold chart skeleton: `charts/kubezap/Chart.yaml`, `charts/kubezap/values.yaml`, `charts/kubezap/templates/`
+  - [x] Controller Deployment template with `WATCH_NAMESPACES`, `--leader-elect`, image, resources, securityContext (non-root, readOnlyRootFilesystem)
+  - [x] Controller ServiceAccount + ClusterRole/Role (conditional on `controller.watchNamespaces`) + ClusterRoleBinding/RoleBinding
+  - [x] Bundle CRD manifests from `config/crd/bases/` into `charts/kubezap/crds/` (Helm manages CRD lifecycle)
+  - [x] Values: `controller.image`, `controller.watchNamespaces`, `controller.leaderElect`, `controller.resources`, `controller.replicas`
+  - [x] Values: gateway images (`webhookGateway.image`, `kafkaGateway.image`, `amqpGateway.image`, `natsGateway.image`) — images referenced by controller at runtime
+  - [x] `_helpers.tpl` for label/selector helpers following `app.kubernetes.io/` conventions
+  - [x] `NOTES.txt` with post-install instructions
+  - [ ] `helm lint` and `helm template` validation pass — **NEEDS VERIFICATION** (helm not installed in dev container; run `helm lint charts/kubezap && helm template kubezap charts/kubezap` before release)
+  - [x] Document Helm installation in `docs/overview.md` Installation section
 - [ ] OLM bundle finalized and validated with `operator-sdk bundle validate`
 - [ ] OperatorHub submission PR
 - [ ] `docs/overview.md` Installation section completed
@@ -229,7 +231,7 @@ Additional demonstration scenarios targeting acquisition/enterprise stakeholders
 
 - [x] **HIGH** `flowrun_controller.go`: The `evaluateWhen` function creates a new CEL `env` and compiles every `when` expression on every reconcile pass. CEL environments and compiled programs are expensive and should be cached (keyed by Flow generation or expression text). _(done: `celEnvOnce` + `celCache sync.Map`)_
 - [x] **HIGH** `cron_scheduler.go`: The cron job closure captures `flowRef` by value at registration time (line 70–73). _(confirmed non-issue: Go string value capture is immutable; reconciler re-registers on update; bounded staleness window is by design — not a bug)_
-- [ ] **HIGH** `cron_scheduler.go`: Cooldown logic uses `LastTriggeredTime` as the window-start reference, but this field is set only after a successful `Status().Patch` call. If the patch fails (transient API error), the field is not updated and the trigger will fire again immediately on the next tick — invocation count is not reliably enforced.
+- [x] **HIGH** `cron_scheduler.go`: Cooldown logic uses `LastTriggeredTime` as the window-start reference, but this field is set only after a successful `Status().Patch` call. If the patch fails (transient API error), the field is not updated and the trigger will fire again immediately on the next tick — invocation count is not reliably enforced. _(fixed: nil-`LastTriggeredTime` path now patches `LastTriggeredTime=now, CurrentInvocationCount=1` BEFORE FlowRun creation; returns on patch failure so window is authoritative)_
 - [x] **HIGH** `internal/gateway/webhook/watcher.go` `buildRouteEntry`: Secrets are read synchronously inside the informer event handler. _(done: `handleTrigger` creates `context.WithTimeout(..., 5s)` before calling `buildRouteEntry`)_
 - [x] **HIGH** `internal/gateway/kafka/watcher.go`: Uses a polling loop (`time.NewTicker(30 * time.Second)`) rather than a controller-runtime informer or watch. _(done: refactored to informer/cache in 2026-03-16 debt sprint)_
 - [x] **HIGH** `internal/gateway/webhook/handler.go`: No `413` response for oversized payloads. _(done: handler returns `StatusRequestEntityTooLarge` when `bodyTruncated`)_
@@ -251,15 +253,16 @@ Additional demonstration scenarios targeting acquisition/enterprise stakeholders
 - [ ] `internal/gateway/webhook/handler.go` `redactHeader`: Only `Authorization` and `X-Api-Key` are redacted in the access log header map that is stored in `FlowRun.Spec.TriggerData.Headers`. Other sensitive headers (e.g., `Cookie`, `X-Auth-Token`, custom bearer headers) are stored unredacted in the CRD object and visible to anyone with `get flowruns` permission.
 - [ ] `internal/controller/mockendpoint_controller.go`: `status.URL` is constructed from `KUBEZAP_GATEWAY_BASE_URL` env var. If the env var is unset (the common case in-cluster where the URL must be inferred), the URL is built as `/mock/<path>` with no host — a relative path that is not useful. There is no validation or warning when the env var is absent.
 - [x] `internal/controller/integration_controller.go` `reconcileKafkaGateway`: The kafka gateway SA and RoleBinding are never updated after creation (only the Role is updated). If the SA or RoleBinding drift they will not be reconciled.
-- [ ] `internal/controller/integration_controller.go` `buildKafkaTriggers`: For a Kafka integration with N topics and M consumer groups, the KEDA ScaledObject gets N×M trigger entries. This cross-product is almost certainly unintentional — each topic should have exactly one consumer group, not all consumer groups.
+- [x] `internal/controller/integration_controller.go` `buildKafkaTriggers`: For a Kafka integration with N topics and M consumer groups, the KEDA ScaledObject gets N×M trigger entries. _(fixed: replaced separate topic/cg sets with `kafkaTopicCGPair` set; each Trigger contributes exactly one pair)_
 - [ ] `api/v1alpha1/flowrun_types.go`: `FlowRunSpec.FlowRef` is a `corev1.LocalObjectReference` (name only, no namespace). Cross-namespace flows are architecturally desired (see backlog) but the type does not support it. A `FlowReference` type (matching `trigger_types.go`) should be used to allow namespace to be specified.
 - [ ] `api/v1alpha1/trigger_types.go`: `TriggerSpec` has both `FlowRef` and an inline `Action` field with no validation ensuring exactly one is set. A Trigger with neither (or both) will silently proceed: with neither, FlowRun `spec.flowRef.name` will be empty; with both, Action is ignored. A CEL validation rule (`has(self.flowRef) != has(self.action)` or similar) should enforce mutual exclusivity.
 - [ ] `internal/controller/cron_scheduler.go`: The cron scheduler does not validate the `Timezone` field from `CronTrigger.Timezone`. The `robfig/cron` library supports `CRON_TZ=` prefix in the schedule string, but the Timezone field is never applied to the cron entry. Schedules always fire in the controller pod's local timezone (UTC in distroless), silently ignoring the user-specified timezone.
+- [ ] `internal/gateway/amqp/watcher.go` and `internal/gateway/nats/watcher.go`: Both use a polling loop (`time.NewTicker(30 * time.Second)`) rather than a controller-runtime informer or watch — same issue that was fixed in the Kafka gateway. Reaction time to Trigger changes is up to 30 s. Should be refactored to informer/cache pattern (mirrors `internal/gateway/kafka/watcher.go` post-refactor).
 - [ ] `internal/gateway/webhook/watcher.go`: `ctrl.GetConfigOrDie()` is called inside `NewTriggerWatcher` in addition to being called in `main.go`. This is an anti-pattern — the REST config should be passed in from the caller rather than fetched again. Two fetches of the kube config is harmless but fragile (the second fetch could theoretically produce a different config).
 - [ ] `config/rbac/role.yaml`: The generated ClusterRole grants `rbac.authorization.k8s.io/roles` and `rolebindings` verbs without `delete`. The integration reconciler and gateway deployment helper use `Create`/`Update`/`Patch` but never `Delete` — orphaned Roles and RoleBindings accumulate if the associated Integration or gateway is removed. Owner references on Kafka gateway RBAC resources are not set (unlike the plugin RBAC path which does set them).
-- [ ] `cmd/main.go`: `Development: true` is hardcoded in the zap options for the controller binary (line 93). Development mode emits caller information and uses a human-readable format rather than JSON — inappropriate for production. This should be configurable via flag (the flag is already bound but `Development` is not derived from it).
+- [x] `cmd/main.go`: `Development: true` is hardcoded in the zap options for the controller binary (line 93). Development mode emits caller information and uses a human-readable format rather than JSON — inappropriate for production. _(fixed: `--development` flag now correctly applied after `flag.Parse()`, overriding `--zap-devel` when set)_
 - [ ] Missing tests: `substituteVars` has no unit tests for edge cases (nested body fields, headers case-insensitivity, unresolved placeholders left verbatim). `evaluateWhen` has no unit tests. `enforceMaxFlowRuns` has no unit tests. `cron_scheduler.go` cooldown logic has no unit tests. These are all critical hot-path functions with observable correctness requirements.
-- [ ] `internal/gateway/kafka/watcher.go` `startSubscription`: the subscription goroutine uses `context.WithCancel(context.Background())` rather than deriving from the caller's context. This means if the watcher's `Start` context is cancelled (e.g., pod shutdown), in-flight consumer group sessions are not cleanly cancelled before the goroutine drains — the 5 s retry backoff means shutdown can take up to 5 s per subscription beyond the graceful shutdown window.
+- [x] `internal/gateway/kafka/watcher.go` `startSubscription`: the subscription goroutine uses `context.WithCancel(context.Background())` rather than deriving from the caller's context. _(fixed: changed to `context.WithCancel(ctx)` so pod shutdown cleanly cancels all in-flight consumer sessions)_
 
 ---
 

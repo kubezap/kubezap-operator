@@ -635,6 +635,12 @@ func desiredKafkaGatewayDeployment(integration *automationv1alpha1.Integration) 
 	}
 }
 
+// kafkaTopicCGPair holds a single (topic, consumerGroup) pair for KEDA ScaledObject trigger construction.
+type kafkaTopicCGPair struct {
+	topic string
+	cg    string
+}
+
 // reconcileKafkaScaledObject ensures a KEDA ScaledObject exists for the Kafka gateway Deployment.
 // If KEDA is not installed, the function logs a warning and returns nil (graceful degradation).
 func (r *IntegrationReconciler) reconcileKafkaScaledObject(ctx context.Context, integration *automationv1alpha1.Integration) error {
@@ -646,8 +652,8 @@ func (r *IntegrationReconciler) reconcileKafkaScaledObject(ctx context.Context, 
 		return fmt.Errorf("listing triggers: %w", err)
 	}
 
-	topicSet := make(map[string]struct{})
-	cgSet := make(map[string]struct{})
+	// Collect unique (topic, consumerGroup) pairs — one per Trigger, not a Cartesian product.
+	pairSet := make(map[kafkaTopicCGPair]struct{})
 
 	for _, trigger := range triggerList.Items {
 		if trigger.Spec.Type != "pubsub" {
@@ -663,21 +669,16 @@ func (r *IntegrationReconciler) reconcileKafkaScaledObject(ctx context.Context, 
 		if ps.IntegrationRef.Name != integration.Name {
 			continue
 		}
-		topicSet[ps.Topic] = struct{}{}
 		cg := ps.ConsumerGroup
 		if cg == "" {
 			cg = "kubezap-" + trigger.Name
 		}
-		cgSet[cg] = struct{}{}
+		pairSet[kafkaTopicCGPair{topic: ps.Topic, cg: cg}] = struct{}{}
 	}
 
-	topics := make([]string, 0, len(topicSet))
-	for t := range topicSet {
-		topics = append(topics, t)
-	}
-	consumerGroups := make([]string, 0, len(cgSet))
-	for cg := range cgSet {
-		consumerGroups = append(consumerGroups, cg)
+	pairs := make([]kafkaTopicCGPair, 0, len(pairSet))
+	for p := range pairSet {
+		pairs = append(pairs, p)
 	}
 
 	scaledObjName := "kubezap-kafka-gateway-" + integration.Name
@@ -696,7 +697,7 @@ func (r *IntegrationReconciler) reconcileKafkaScaledObject(ctx context.Context, 
 				},
 				"minReplicaCount": int64(0),
 				"maxReplicaCount": int64(10),
-				"triggers":        buildKafkaTriggers(integration, topics, consumerGroups),
+				"triggers":        buildKafkaTriggers(integration, pairs),
 			},
 		},
 	}
@@ -751,21 +752,20 @@ func (r *IntegrationReconciler) reconcileKafkaScaledObject(ctx context.Context, 
 }
 
 // buildKafkaTriggers constructs the KEDA trigger entries for a ScaledObject.
-func buildKafkaTriggers(integration *automationv1alpha1.Integration, topics []string, consumerGroups []string) []interface{} {
+// Each pair is one (topic, consumerGroup) from a distinct Trigger — no Cartesian product.
+func buildKafkaTriggers(integration *automationv1alpha1.Integration, pairs []kafkaTopicCGPair) []interface{} {
 	brokers := strings.Join(integration.Spec.Kafka.BootstrapServers, ",")
 	var triggers []interface{}
-	for _, topic := range topics {
-		for _, cg := range consumerGroups {
-			triggers = append(triggers, map[string]interface{}{
-				"type": "kafka",
-				"metadata": map[string]interface{}{
-					"brokerList":    brokers,
-					"consumerGroup": cg,
-					"topic":         topic,
-					"lagThreshold":  "10",
-				},
-			})
-		}
+	for _, p := range pairs {
+		triggers = append(triggers, map[string]interface{}{
+			"type": "kafka",
+			"metadata": map[string]interface{}{
+				"brokerList":    brokers,
+				"consumerGroup": p.cg,
+				"topic":         p.topic,
+				"lagThreshold":  "10",
+			},
+		})
 	}
 	return triggers
 }

@@ -1,0 +1,19 @@
+apiVersion: automation.kubezap.io/v1alpha1
+kind: Trigger
+metadata:
+  labels:
+    app.kubernetes.io/name: kubezap
+    app.kubernetes.io/managed-by: kustomize
+  name: amqp-orders
+  namespace: default
+spec:
+  type: pubsub
+  enabled: true
+  pubsub:
+    type: amqp
+    integrationRef:
+      name: my-rabbitmq
+    topic: orders
+    routingKey: orders.created
+  flowRef:
+    name: process-order

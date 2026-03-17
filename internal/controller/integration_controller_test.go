@@ -202,6 +202,126 @@ var _ = Describe("IntegrationReconciler", func() {
 		})
 	})
 
+	// ---- AMQP ----
+
+	Context("when type=amqp and url is empty", func() {
+		It("sets Ready=False, reason=InvalidSpec", func() {
+			name := "amqp-no-url"
+			integration := &automationv1alpha1.Integration{
+				ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace},
+				Spec: automationv1alpha1.IntegrationSpec{
+					Type: "amqp",
+					Amqp: &automationv1alpha1.AmqpIntegrationSpec{
+						URL: "",
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, integration)).To(Succeed())
+			DeferCleanup(func() {
+				_ = k8sClient.Delete(ctx, integration)
+			})
+
+			reconcile(name)
+
+			fetched := &automationv1alpha1.Integration{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: name, Namespace: namespace}, fetched)).To(Succeed())
+
+			cond := apimeta.FindStatusCondition(fetched.Status.Conditions, "Ready")
+			Expect(cond).NotTo(BeNil())
+			Expect(cond.Status).To(Equal(metav1.ConditionFalse))
+			Expect(cond.Reason).To(Equal("InvalidSpec"))
+		})
+	})
+
+	Context("when type=amqp and url is non-empty", func() {
+		It("sets Ready=True, reason=IntegrationReady", func() {
+			name := "amqp-valid"
+			integration := &automationv1alpha1.Integration{
+				ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace},
+				Spec: automationv1alpha1.IntegrationSpec{
+					Type: "amqp",
+					Amqp: &automationv1alpha1.AmqpIntegrationSpec{
+						URL: "amqp://rabbitmq.default.svc.cluster.local:5672/",
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, integration)).To(Succeed())
+			DeferCleanup(func() {
+				_ = k8sClient.Delete(ctx, integration)
+			})
+
+			reconcile(name)
+
+			fetched := &automationv1alpha1.Integration{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: name, Namespace: namespace}, fetched)).To(Succeed())
+
+			cond := apimeta.FindStatusCondition(fetched.Status.Conditions, "Ready")
+			Expect(cond).NotTo(BeNil())
+			Expect(cond.Status).To(Equal(metav1.ConditionTrue))
+			Expect(cond.Reason).To(Equal("IntegrationReady"))
+		})
+	})
+
+	// ---- NATS ----
+
+	Context("when type=nats and servers list is empty", func() {
+		It("sets Ready=False, reason=InvalidSpec", func() {
+			name := "nats-no-servers"
+			integration := &automationv1alpha1.Integration{
+				ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace},
+				Spec: automationv1alpha1.IntegrationSpec{
+					Type: "nats",
+					Nats: &automationv1alpha1.NatsIntegrationSpec{
+						Servers: []string{},
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, integration)).To(Succeed())
+			DeferCleanup(func() {
+				_ = k8sClient.Delete(ctx, integration)
+			})
+
+			reconcile(name)
+
+			fetched := &automationv1alpha1.Integration{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: name, Namespace: namespace}, fetched)).To(Succeed())
+
+			cond := apimeta.FindStatusCondition(fetched.Status.Conditions, "Ready")
+			Expect(cond).NotTo(BeNil())
+			Expect(cond.Status).To(Equal(metav1.ConditionFalse))
+			Expect(cond.Reason).To(Equal("InvalidSpec"))
+		})
+	})
+
+	Context("when type=nats and servers list is non-empty", func() {
+		It("sets Ready=True, reason=IntegrationReady", func() {
+			name := "nats-valid"
+			integration := &automationv1alpha1.Integration{
+				ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace},
+				Spec: automationv1alpha1.IntegrationSpec{
+					Type: "nats",
+					Nats: &automationv1alpha1.NatsIntegrationSpec{
+						Servers: []string{"nats://nats.default.svc.cluster.local:4222"},
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, integration)).To(Succeed())
+			DeferCleanup(func() {
+				_ = k8sClient.Delete(ctx, integration)
+			})
+
+			reconcile(name)
+
+			fetched := &automationv1alpha1.Integration{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: name, Namespace: namespace}, fetched)).To(Succeed())
+
+			cond := apimeta.FindStatusCondition(fetched.Status.Conditions, "Ready")
+			Expect(cond).NotTo(BeNil())
+			Expect(cond.Status).To(Equal(metav1.ConditionTrue))
+			Expect(cond.Reason).To(Equal("IntegrationReady"))
+		})
+	})
+
 	Context("when type is unknown/unsupported", func() {
 		// The CRD enum marker prevents creating an Integration with an unsupported type
 		// via the Kubernetes API server. We validate the reconciler's own spec validation

@@ -181,9 +181,12 @@ type PubSubTrigger struct {
 }
 
 // WebhookAuth configures authentication for a webhook trigger endpoint.
+// mTLS is not supported at the handler layer — use TLS termination at the gateway
+// server level (--tls-cert-file / --tls-key-file flags) for transport-layer mutual
+// auth with broker gateways. Client-cert auth for HTTP webhooks is out of scope.
 type WebhookAuth struct {
 	// Authentication method.
-	// +kubebuilder:validation:Enum=hmac;bearer;oidc;basic;mtls;apiKey;ipAllowlist
+	// +kubebuilder:validation:Enum=hmac;bearer;oidc;basic;apiKey;ipAllowlist
 	Type string `json:"type"`
 
 	// HMAC secret reference (key contains the shared secret). Used when type is "hmac".
@@ -198,8 +201,8 @@ type WebhookAuth struct {
 	// OIDC audience. Used when type is "oidc".
 	OIDCAudience string `json:"oidcAudience,omitempty"`
 
-	// Basic auth credentials secret (must have keys "username" and "password"). Used when type is "basic".
-	BasicAuthSecretRef *corev1.LocalObjectReference `json:"basicAuthSecretRef,omitempty"`
+	// Basic auth configuration. Used when type is "basic".
+	Basic *WebhookBasicAuth `json:"basic,omitempty"`
 
 	// API key value secret reference. Used when type is "apiKey".
 	APIKeySecretRef *corev1.SecretKeySelector `json:"apiKeySecretRef,omitempty"`
@@ -211,6 +214,21 @@ type WebhookAuth struct {
 	// CIDR blocks allowed to call this endpoint. Used when type is "ipAllowlist".
 	// Example: ["10.0.0.0/8", "192.168.1.0/24"]
 	IPAllowlist []string `json:"ipAllowlist,omitempty"`
+}
+
+// WebhookBasicAuth configures HTTP Basic authentication for a webhook endpoint.
+type WebhookBasicAuth struct {
+	// Reference to the Secret containing the username and password.
+	// +kubebuilder:validation:Required
+	SecretRef corev1.LocalObjectReference `json:"secretRef"`
+
+	// Key in the Secret that holds the username.
+	// +kubebuilder:default="username"
+	UsernameKey string `json:"usernameKey,omitempty"`
+
+	// Key in the Secret that holds the password.
+	// +kubebuilder:default="password"
+	PasswordKey string `json:"passwordKey,omitempty"`
 }
 
 // TriggerStatus defines the observed state of Trigger.

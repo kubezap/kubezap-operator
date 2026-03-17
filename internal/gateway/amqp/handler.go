@@ -8,8 +8,8 @@ import (
 	"time"
 
 	goamqp "github.com/Azure/go-amqp"
-	amqp091 "github.com/rabbitmq/amqp091-go"
 	"github.com/go-logr/logr"
+	amqp091 "github.com/rabbitmq/amqp091-go"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"

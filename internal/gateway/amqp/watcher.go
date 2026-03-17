@@ -9,9 +9,9 @@ import (
 	"sync"
 	"time"
 
-	amqp091 "github.com/rabbitmq/amqp091-go"
-	"github.com/go-logr/logr"
 	goamqp "github.com/Azure/go-amqp"
+	"github.com/go-logr/logr"
+	amqp091 "github.com/rabbitmq/amqp091-go"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -307,13 +307,13 @@ func (w *Watcher) connect091(
 	}
 
 	deliveries, err := ch.Consume(
-		topic,                    // queue
+		topic,                   // queue
 		"kubezap-"+trigger.Name, // consumer tag
-		false,                    // auto-ack (false: manual ack after FlowRun creation)
-		false,                    // exclusive
-		false,                    // no-local
-		false,                    // no-wait
-		nil,                      // args
+		false,                   // auto-ack (false: manual ack after FlowRun creation)
+		false,                   // exclusive
+		false,                   // no-local
+		false,                   // no-wait
+		nil,                     // args
 	)
 	if err != nil {
 		return fmt.Errorf("starting consume on queue %q: %w", topic, err)

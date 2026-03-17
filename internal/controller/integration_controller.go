@@ -364,29 +364,19 @@ func (r *IntegrationReconciler) reconcilePluginDeployment(ctx context.Context, i
 	log := logf.FromContext(ctx)
 	desired := desiredPluginDeployment(integration)
 
-	existing := &appsv1.Deployment{}
-	err := r.Get(ctx, client.ObjectKeyFromObject(desired), existing)
-	if err != nil {
-		if !apierrors.IsNotFound(err) {
-			return err
-		}
-		if err := r.Create(ctx, desired); err != nil && !apierrors.IsAlreadyExists(err) {
-			return err
-		}
-		log.Info("created plugin deployment", "deployment", desired.Name, "namespace", integration.Namespace)
+	op, err := controllerutil.CreateOrUpdate(ctx, r.Client, desired, func() error {
+		// desired is populated with the live object by CreateOrUpdate before this func
+		// is called. Overwrite the full spec from the helper so that env vars,
+		// security contexts, resource limits, probes, args, and service account
+		// all stay in sync and do not drift silently.
+		desired.Spec = desiredPluginDeployment(integration).Spec
 		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("failed to create/update plugin deployment: %w", err)
 	}
-
-	// Update image if it has drifted from the desired value.
-	if len(existing.Spec.Template.Spec.Containers) > 0 {
-		c := &existing.Spec.Template.Spec.Containers[0]
-		if c.Image != integration.Spec.Plugin.Image {
-			c.Image = integration.Spec.Plugin.Image
-			if err := r.Update(ctx, existing); err != nil {
-				return err
-			}
-			log.Info("updated plugin deployment image", "deployment", desired.Name, "namespace", integration.Namespace)
-		}
+	if op != controllerutil.OperationResultNone {
+		log.Info("reconciled plugin deployment", "deployment", desired.Name, "namespace", integration.Namespace, "result", op)
 	}
 	return nil
 }
@@ -563,33 +553,21 @@ func (r *IntegrationReconciler) reconcileKafkaGateway(ctx context.Context, integ
 		return "", fmt.Errorf("setting owner reference on kafka gateway Deployment: %w", err)
 	}
 
-	existing := &appsv1.Deployment{}
-	err = r.Get(ctx, client.ObjectKeyFromObject(desired), existing)
+	deploymentName := desired.Name
+	op, err := controllerutil.CreateOrUpdate(ctx, r.Client, desired, func() error {
+		// desired is populated with the live object by CreateOrUpdate before this func
+		// is called. Overwrite the full spec so that env vars, security contexts,
+		// resource limits, probes, args, and service account do not drift silently.
+		desired.Spec = desiredKafkaGatewayDeployment(integration).Spec
+		return nil
+	})
 	if err != nil {
-		if !apierrors.IsNotFound(err) {
-			return "", err
-		}
-		if err := r.Create(ctx, desired); err != nil && !apierrors.IsAlreadyExists(err) {
-			return "", err
-		}
-		log.Info("created kafka gateway deployment", "deployment", desired.Name, "namespace", integration.Namespace)
-		return desired.Name, nil
+		return "", fmt.Errorf("failed to create/update kafka gateway deployment: %w", err)
 	}
-
-	// Sync image and args if they have drifted from the desired values.
-	if len(existing.Spec.Template.Spec.Containers) > 0 {
-		c := &existing.Spec.Template.Spec.Containers[0]
-		dc := &desired.Spec.Template.Spec.Containers[0]
-		if c.Image != dc.Image || !stringSliceEqual(c.Args, dc.Args) {
-			c.Image = dc.Image
-			c.Args = dc.Args
-			if err := r.Update(ctx, existing); err != nil {
-				return "", err
-			}
-			log.Info("updated kafka gateway deployment", "deployment", desired.Name, "namespace", integration.Namespace)
-		}
+	if op != controllerutil.OperationResultNone {
+		log.Info("reconciled kafka gateway deployment", "deployment", deploymentName, "namespace", integration.Namespace, "result", op)
 	}
-	return desired.Name, nil
+	return deploymentName, nil
 }
 
 // desiredKafkaGatewayDeployment returns the desired Deployment for a kafka Integration.
@@ -873,33 +851,21 @@ func (r *IntegrationReconciler) reconcileAmqpGateway(ctx context.Context, integr
 		return "", fmt.Errorf("setting owner reference on amqp gateway Deployment: %w", err)
 	}
 
-	existing := &appsv1.Deployment{}
-	err = r.Get(ctx, client.ObjectKeyFromObject(desired), existing)
+	deploymentName := desired.Name
+	op, err := controllerutil.CreateOrUpdate(ctx, r.Client, desired, func() error {
+		// desired is populated with the live object by CreateOrUpdate before this func
+		// is called. Overwrite the full spec so that env vars, security contexts,
+		// resource limits, probes, args, and service account do not drift silently.
+		desired.Spec = desiredAmqpGatewayDeployment(integration).Spec
+		return nil
+	})
 	if err != nil {
-		if !apierrors.IsNotFound(err) {
-			return "", err
-		}
-		if err := r.Create(ctx, desired); err != nil && !apierrors.IsAlreadyExists(err) {
-			return "", err
-		}
-		log.Info("created amqp gateway deployment", "deployment", desired.Name, "namespace", integration.Namespace)
-		return desired.Name, nil
+		return "", fmt.Errorf("failed to create/update amqp gateway deployment: %w", err)
 	}
-
-	// Sync image and args if they have drifted from the desired values.
-	if len(existing.Spec.Template.Spec.Containers) > 0 {
-		c := &existing.Spec.Template.Spec.Containers[0]
-		dc := &desired.Spec.Template.Spec.Containers[0]
-		if c.Image != dc.Image || !stringSliceEqual(c.Args, dc.Args) {
-			c.Image = dc.Image
-			c.Args = dc.Args
-			if err := r.Update(ctx, existing); err != nil {
-				return "", err
-			}
-			log.Info("updated amqp gateway deployment", "deployment", desired.Name, "namespace", integration.Namespace)
-		}
+	if op != controllerutil.OperationResultNone {
+		log.Info("reconciled amqp gateway deployment", "deployment", deploymentName, "namespace", integration.Namespace, "result", op)
 	}
-	return desired.Name, nil
+	return deploymentName, nil
 }
 
 // desiredAmqpGatewayDeployment returns the desired Deployment for an amqp Integration.
@@ -1068,33 +1034,21 @@ func (r *IntegrationReconciler) reconcileNatsGateway(ctx context.Context, integr
 		return "", fmt.Errorf("setting owner reference on nats gateway Deployment: %w", err)
 	}
 
-	existing := &appsv1.Deployment{}
-	err = r.Get(ctx, client.ObjectKeyFromObject(desired), existing)
+	deploymentName := desired.Name
+	op, err := controllerutil.CreateOrUpdate(ctx, r.Client, desired, func() error {
+		// desired is populated with the live object by CreateOrUpdate before this func
+		// is called. Overwrite the full spec so that env vars, security contexts,
+		// resource limits, probes, args, and service account do not drift silently.
+		desired.Spec = desiredNatsGatewayDeployment(integration).Spec
+		return nil
+	})
 	if err != nil {
-		if !apierrors.IsNotFound(err) {
-			return "", err
-		}
-		if err := r.Create(ctx, desired); err != nil && !apierrors.IsAlreadyExists(err) {
-			return "", err
-		}
-		log.Info("created nats gateway deployment", "deployment", desired.Name, "namespace", integration.Namespace)
-		return desired.Name, nil
+		return "", fmt.Errorf("failed to create/update nats gateway deployment: %w", err)
 	}
-
-	// Sync image and args if they have drifted from the desired values.
-	if len(existing.Spec.Template.Spec.Containers) > 0 {
-		c := &existing.Spec.Template.Spec.Containers[0]
-		dc := &desired.Spec.Template.Spec.Containers[0]
-		if c.Image != dc.Image || !stringSliceEqual(c.Args, dc.Args) {
-			c.Image = dc.Image
-			c.Args = dc.Args
-			if err := r.Update(ctx, existing); err != nil {
-				return "", err
-			}
-			log.Info("updated nats gateway deployment", "deployment", desired.Name, "namespace", integration.Namespace)
-		}
+	if op != controllerutil.OperationResultNone {
+		log.Info("reconciled nats gateway deployment", "deployment", deploymentName, "namespace", integration.Namespace, "result", op)
 	}
-	return desired.Name, nil
+	return deploymentName, nil
 }
 
 // desiredNatsGatewayDeployment returns the desired Deployment for a nats Integration.

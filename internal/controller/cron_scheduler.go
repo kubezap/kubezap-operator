@@ -131,6 +131,7 @@ func (s *CronScheduler) Register(trigger *automationv1alpha1.Trigger) error {
 					trigger.Status.CurrentInvocationCount++
 					if patchErr := s.client.Status().Patch(ctx, trigger, client.MergeFrom(base)); patchErr != nil {
 						s.log.Error(patchErr, "failed to patch trigger invocation count", "trigger", name, "namespace", ns)
+						return
 					}
 				} else {
 					// Window has expired — start a new window.
@@ -139,6 +140,7 @@ func (s *CronScheduler) Register(trigger *automationv1alpha1.Trigger) error {
 					trigger.Status.LastTriggeredTime = &metav1.Time{Time: now}
 					if patchErr := s.client.Status().Patch(ctx, trigger, client.MergeFrom(base)); patchErr != nil {
 						s.log.Error(patchErr, "failed to reset trigger cooldown window", "trigger", name, "namespace", ns)
+						return
 					}
 				}
 				// Refresh local trigger state after patch so Step 4 uses the updated object.

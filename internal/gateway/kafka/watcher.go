@@ -19,11 +19,23 @@ import (
 	"github.com/IBM/sarama"
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/rest"
+	toolscache "k8s.io/client-go/tools/cache"
+	"sigs.k8s.io/controller-runtime/pkg/cache"
+	crcache "sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
 
 	automationv1alpha1 "github.com/yourname/kubezap/api/v1alpha1"
 )
+
+var controllerScheme = runtime.NewScheme()
+
+func init() {
+	_ = automationv1alpha1.AddToScheme(controllerScheme)
+}
 
 // subscription tracks an active Kafka consumer group for a Trigger.
 type subscription struct {
@@ -33,121 +45,144 @@ type subscription struct {
 	consumerGroup   string
 }
 
-// Watcher watches Trigger CRDs and manages Kafka topic subscriptions.
+// Watcher watches Trigger CRDs via an informer and manages Kafka topic subscriptions.
 type Watcher struct {
 	client        client.Client
+	cache         crcache.Cache
 	namespace     string
 	log           logr.Logger
 	subscriptions sync.Map // key: types.NamespacedName, value: *subscription
 }
 
-// NewWatcher creates a new Watcher.
-func NewWatcher(c client.Client, namespace string, log logr.Logger) *Watcher {
-	return &Watcher{
-		client:    c,
-		namespace: namespace,
-		log:       log,
+// NewWatcher creates a new Watcher backed by an informer cache.
+func NewWatcher(c client.Client, cfg *rest.Config, namespace string, log logr.Logger) (*Watcher, error) {
+	httpClient, err := rest.HTTPClientFor(cfg)
+	if err != nil {
+		return nil, fmt.Errorf("unable to create HTTP client for REST config: %w", err)
 	}
+
+	mapper, err := apiutil.NewDynamicRESTMapper(cfg, httpClient)
+	if err != nil {
+		return nil, fmt.Errorf("unable to create REST mapper: %w", err)
+	}
+
+	cacheOpts := cache.Options{Scheme: controllerScheme, Mapper: mapper}
+	if namespace != "" {
+		cacheOpts.DefaultNamespaces = map[string]crcache.Config{namespace: {}}
+	}
+
+	watchCache, err := crcache.New(cfg, cacheOpts)
+	if err != nil {
+		return nil, fmt.Errorf("unable to create cache: %w", err)
+	}
+
+	return &Watcher{client: c, cache: watchCache, namespace: namespace, log: log}, nil
 }
 
-// Start begins watching Trigger CRDs and managing Kafka subscriptions.
-// Blocks until ctx is cancelled.
+// Start launches the informer cache and stays running until ctx is cancelled.
 func (w *Watcher) Start(ctx context.Context) error {
+	triggerInformer, err := w.cache.GetInformer(ctx, &automationv1alpha1.Trigger{})
+	if err != nil {
+		return fmt.Errorf("unable to get trigger informer: %w", err)
+	}
+
+	_, err = triggerInformer.AddEventHandler(toolscache.ResourceEventHandlerFuncs{
+		AddFunc:    func(obj interface{}) { w.onTriggerAdd(ctx, obj) },
+		UpdateFunc: func(_, newObj interface{}) { w.onTriggerUpdate(ctx, newObj) },
+		DeleteFunc: func(obj interface{}) { w.onTriggerDelete(obj) },
+	})
+	if err != nil {
+		return fmt.Errorf("adding trigger event handler: %w", err)
+	}
+
+	go func() {
+		if err := w.cache.Start(ctx); err != nil && err != context.Canceled {
+			w.log.Error(err, "trigger cache stopped with error")
+		}
+	}()
+
+	if !w.cache.WaitForCacheSync(ctx) {
+		return fmt.Errorf("timed out waiting for initial cache sync")
+	}
 	w.log.Info("kafka watcher started", "namespace", w.namespace)
 
-	ticker := time.NewTicker(30 * time.Second)
-	defer ticker.Stop()
+	<-ctx.Done()
+	w.log.Info("kafka watcher stopped")
 
-	// Run once immediately before the first tick.
-	w.reconcileTriggers(ctx)
-
-	for {
-		select {
-		case <-ticker.C:
-			w.reconcileTriggers(ctx)
-		case <-ctx.Done():
-			w.log.Info("kafka watcher stopped")
-			// Cancel all active subscriptions.
-			w.subscriptions.Range(func(key, value any) bool {
-				sub := value.(*subscription)
-				sub.cancel()
-				w.subscriptions.Delete(key)
-				return true
-			})
-			return ctx.Err()
-		}
-	}
+	// Cancel all active subscriptions on shutdown.
+	w.subscriptions.Range(func(key, value any) bool {
+		sub := value.(*subscription)
+		sub.cancel()
+		w.subscriptions.Delete(key)
+		return true
+	})
+	return ctx.Err()
 }
 
-// reconcileTriggers lists all Kafka Triggers and reconciles subscriptions.
-func (w *Watcher) reconcileTriggers(ctx context.Context) {
-	list := &automationv1alpha1.TriggerList{}
-	listOpts := []client.ListOption{}
-	if w.namespace != "" {
-		listOpts = append(listOpts, client.InNamespace(w.namespace))
+func (w *Watcher) onTriggerAdd(ctx context.Context, obj interface{}) {
+	trigger, ok := obj.(*automationv1alpha1.Trigger)
+	if !ok {
+		return
 	}
+	w.reconcileTrigger(ctx, trigger)
+}
 
-	if err := w.client.List(ctx, list, listOpts...); err != nil {
-		w.log.Error(err, "failed to list triggers")
+func (w *Watcher) onTriggerUpdate(ctx context.Context, obj interface{}) {
+	trigger, ok := obj.(*automationv1alpha1.Trigger)
+	if !ok {
+		return
+	}
+	w.reconcileTrigger(ctx, trigger)
+}
+
+func (w *Watcher) onTriggerDelete(obj interface{}) {
+	trigger, ok := obj.(*automationv1alpha1.Trigger)
+	if !ok {
+		tombstone, ok := obj.(toolscache.DeletedFinalStateUnknown)
+		if !ok {
+			w.log.Error(fmt.Errorf("unexpected delete object type"), "expected Trigger or tombstone")
+			return
+		}
+		trigger, ok = tombstone.Obj.(*automationv1alpha1.Trigger)
+		if !ok {
+			w.log.Error(fmt.Errorf("unexpected tombstone object type"), "expected Trigger")
+			return
+		}
+	}
+	key := types.NamespacedName{Name: trigger.Name, Namespace: trigger.Namespace}
+	w.stopSubscription(key)
+}
+
+// reconcileTrigger ensures the subscription state for a single Trigger matches its spec.
+func (w *Watcher) reconcileTrigger(ctx context.Context, trigger *automationv1alpha1.Trigger) {
+	key := types.NamespacedName{Name: trigger.Name, Namespace: trigger.Namespace}
+
+	// Stop subscription if trigger is not a kafka pubsub trigger or is disabled.
+	if trigger.Spec.Type != "pubsub" || trigger.Spec.PubSub == nil || trigger.Spec.PubSub.Type != "kafka" || !trigger.Spec.Enabled {
+		w.stopSubscription(key)
 		return
 	}
 
-	// Build a set of desired trigger keys for cleanup later.
-	desired := make(map[types.NamespacedName]bool)
+	topic := trigger.Spec.PubSub.Topic
+	cgID := trigger.Spec.PubSub.ConsumerGroup
+	if cgID == "" {
+		cgID = "kubezap-" + trigger.Name
+	}
+	integrationName := trigger.Spec.PubSub.IntegrationRef.Name
 
-	for i := range list.Items {
-		trigger := &list.Items[i]
-		if trigger.Spec.Type != "pubsub" {
-			continue
+	if existing, ok := w.subscriptions.Load(key); ok {
+		sub := existing.(*subscription)
+		if sub.topic == topic && sub.consumerGroup == cgID && sub.integrationName == integrationName {
+			return // no change
 		}
-		if trigger.Spec.PubSub == nil || trigger.Spec.PubSub.Type != "kafka" {
-			continue
-		}
-		if !trigger.Spec.Enabled {
-			continue
-		}
-
-		key := types.NamespacedName{Name: trigger.Name, Namespace: trigger.Namespace}
-		desired[key] = true
-
-		topic := trigger.Spec.PubSub.Topic
-		cgID := trigger.Spec.PubSub.ConsumerGroup
-		if cgID == "" {
-			cgID = "kubezap-" + trigger.Name
-		}
-		integrationName := trigger.Spec.PubSub.IntegrationRef.Name
-
-		if existing, ok := w.subscriptions.Load(key); ok {
-			sub := existing.(*subscription)
-			// Restart if topic, consumerGroup, or integrationRef changed.
-			if sub.topic == topic && sub.consumerGroup == cgID && sub.integrationName == integrationName {
-				continue
-			}
-			w.log.Info("kafka subscription config changed, restarting",
-				"trigger", key,
-				"topic", topic,
-				"consumerGroup", cgID,
-			)
-			w.stopSubscription(key)
-		}
-
-		if err := w.startSubscription(ctx, trigger); err != nil {
-			w.log.Error(err, "failed to start kafka subscription",
-				"trigger", key,
-				"topic", topic,
-			)
-		}
+		w.log.Info("kafka subscription config changed, restarting",
+			"trigger", key, "topic", topic, "consumerGroup", cgID)
+		w.stopSubscription(key)
 	}
 
-	// Stop subscriptions for triggers that no longer exist or are disabled.
-	w.subscriptions.Range(func(k, _ any) bool {
-		key := k.(types.NamespacedName)
-		if !desired[key] {
-			w.log.Info("stopping kafka subscription, trigger removed or disabled", "trigger", key)
-			w.stopSubscription(key)
-		}
-		return true
-	})
+	if err := w.startSubscription(ctx, trigger); err != nil {
+		w.log.Error(err, "failed to start kafka subscription", "trigger", key, "topic", topic)
+	}
 }
 
 // startSubscription creates a sarama consumer group for the given Trigger.

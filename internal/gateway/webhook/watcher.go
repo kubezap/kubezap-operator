@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
@@ -120,7 +121,9 @@ func (w *TriggerWatcher) handleTrigger(obj interface{}) {
 	}
 
 	if trigger.Spec.Type == "webhook" && trigger.Spec.Enabled && trigger.Spec.Webhook != nil {
-		entry, err := w.buildRouteEntry(context.Background(), trigger)
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		entry, err := w.buildRouteEntry(ctx, trigger)
 		if err != nil {
 			w.log.Error(err, "failed to build route entry; route not registered", "trigger", trigger.Name, "namespace", trigger.Namespace)
 			return
@@ -234,6 +237,29 @@ func (w *TriggerWatcher) buildRouteEntry(ctx context.Context, trigger *automatio
 		if entry.APIKeyHeader == "" {
 			entry.APIKeyHeader = "X-Api-Key"
 		}
+
+	case "basic":
+		if auth.Basic == nil {
+			return RouteEntry{}, fmt.Errorf("basic auth requires basic.secretRef")
+		}
+		usernameKey := auth.Basic.UsernameKey
+		if usernameKey == "" {
+			usernameKey = "username"
+		}
+		passwordKey := auth.Basic.PasswordKey
+		if passwordKey == "" {
+			passwordKey = "password"
+		}
+		username, err := w.readSecretKey(ctx, trigger.Namespace, auth.Basic.SecretRef.Name, usernameKey)
+		if err != nil {
+			return RouteEntry{}, fmt.Errorf("reading Basic auth username from secret: %w", err)
+		}
+		password, err := w.readSecretKey(ctx, trigger.Namespace, auth.Basic.SecretRef.Name, passwordKey)
+		if err != nil {
+			return RouteEntry{}, fmt.Errorf("reading Basic auth password from secret: %w", err)
+		}
+		entry.BasicUsername = username
+		entry.BasicPassword = password
 
 	case "ipAllowlist":
 		entry.IPAllowlist = append([]string(nil), auth.IPAllowlist...)

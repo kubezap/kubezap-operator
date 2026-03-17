@@ -298,21 +298,35 @@ spec:
                         - key
                         type: object
                         x-kubernetes-map-type: atomic
-                      basicAuthSecretRef:
-                        description: Basic auth credentials secret (must have keys
-                          "username" and "password"). Used when type is "basic".
+                      basic:
+                        description: Basic auth configuration. Used when type is "basic".
                         properties:
-                          name:
-                            default: ""
-                            description: |-
-                              Name of the referent.
-                              This field is effectively required, but due to backwards compatibility is
-                              allowed to be empty. Instances of this type with an empty value here are
-                              almost certainly wrong.
-                              More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                          passwordKey:
+                            default: password
+                            description: Key in the Secret that holds the password.
                             type: string
+                          secretRef:
+                            description: Reference to the Secret containing the username
+                              and password.
+                            properties:
+                              name:
+                                default: ""
+                                description: |-
+                                  Name of the referent.
+                                  This field is effectively required, but due to backwards compatibility is
+                                  allowed to be empty. Instances of this type with an empty value here are
+                                  almost certainly wrong.
+                                  More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                                type: string
+                            type: object
+                            x-kubernetes-map-type: atomic
+                          usernameKey:
+                            default: username
+                            description: Key in the Secret that holds the username.
+                            type: string
+                        required:
+                        - secretRef
                         type: object
-                        x-kubernetes-map-type: atomic
                       bearerTokenSecretRef:
                         description: Bearer token secret reference. Used when type
                           is "bearer".
@@ -383,7 +397,6 @@ spec:
                         - bearer
                         - oidc
                         - basic
-                        - mtls
                         - apiKey
                         - ipAllowlist
                         type: string

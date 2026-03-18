@@ -51,8 +51,8 @@
 - [x] HPA configuration for webhook gateway Deployment
 - [x] Controller manages webhook gateway Deployment lifecycle (one per namespace)
 - [x] **Gateway ServiceAccount + Role + RoleBinding** created by controller alongside Deployment (deploy blocker — see `docs/architecture.md#gateway-serviceaccount-and-rbac`)
-- [ ] **Webhook gateway TLS termination** — server-side TLS: cert + key via user-provided Secret (cert-manager compatible). Operator mounts Secret as volume, configures HTTP server with `tls.Config`. Transport-layer concern, independent of auth. Prior design decision in `docs/tech-debt/pending-input-required.md#c-mtls-auth--tls-termination`.
-- [ ] **Webhook gateway mTLS auth** — inbound client cert verification. Requires server TLS (above) to be enabled first. CA cert configured via `kubezap.io/webhook-mtls-ca-secret` annotation (documented in `docs/overview.md#tls-and-mtls`). Sets `tls.Config.ClientAuth = tls.RequireAndVerifyClientCert` with the user-provided CA.
+- [x] **Webhook gateway TLS termination** — server-side TLS: cert + key via user-provided Secret (cert-manager compatible). Operator mounts Secret as volume, configures HTTP server with `tls.Config`. Transport-layer concern, independent of auth. Configured via `kubezap.io/webhook-tls-secret` Namespace annotation. _(done 2026-03-18)_
+- [x] **Webhook gateway mTLS auth** — inbound client cert verification. Requires server TLS (above) to be enabled first. CA cert configured via `kubezap.io/webhook-mtls-ca-secret` Namespace annotation. Sets `tls.Config.ClientAuth = tls.RequireAndVerifyClientCert` with the user-provided CA. _(done 2026-03-18)_
 
 ### Cron Trigger
 - [x] Cron scheduler implementation in controller (`robfig/cron v3`)

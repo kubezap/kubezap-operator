@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"flag"
 	"fmt"
 	"net/http"
@@ -41,12 +43,14 @@ func main() {
 	var logLevel string
 	var tlsCertFile string
 	var tlsKeyFile string
+	var mtlsCAFile string
 
 	flag.IntVar(&port, "port", 8080, "HTTP/HTTPS server port")
 	flag.StringVar(&namespace, "namespace", "", "Namespace to watch; empty=all namespaces")
 	flag.StringVar(&logLevel, "log-level", "info", "Log level: debug|info|warn|error")
 	flag.StringVar(&tlsCertFile, "tls-cert-file", "", "Path to TLS certificate file (PEM). When set with --tls-key-file the server listens on HTTPS.")
 	flag.StringVar(&tlsKeyFile, "tls-key-file", "", "Path to TLS private key file (PEM). Required when --tls-cert-file is set.")
+	flag.StringVar(&mtlsCAFile, "mtls-ca-file", "", "Path to CA certificate PEM file for verifying client certificates (mTLS). Requires --tls-cert-file and --tls-key-file.")
 	flag.Parse()
 
 	opts := zap.NewDevelopmentConfig()
@@ -122,12 +126,32 @@ func main() {
 	srv := &http.Server{Addr: fmt.Sprintf(":%d", port), Handler: webhook.AccessLogMiddleware(mux)}
 	go func() {
 		if tlsCertFile != "" && tlsKeyFile != "" {
+			tlsCfg := &tls.Config{
+				MinVersion: tls.VersionTLS12,
+			}
+			if mtlsCAFile != "" {
+				caPEM, err := os.ReadFile(mtlsCAFile)
+				if err != nil {
+					log.Error(err, "failed to read mTLS CA certificate file", "caFile", mtlsCAFile)
+					cancel()
+					return
+				}
+				caCertPool := x509.NewCertPool()
+				caCertPool.AppendCertsFromPEM(caPEM)
+				tlsCfg.ClientCAs = caCertPool
+				tlsCfg.ClientAuth = tls.RequireAndVerifyClientCert
+				log.Info("mTLS client certificate verification enabled", "caFile", mtlsCAFile)
+			}
+			srv.TLSConfig = tlsCfg
 			log.Info("starting webhook gateway HTTPS server", "port", port, "certFile", tlsCertFile)
 			if err := srv.ListenAndServeTLS(tlsCertFile, tlsKeyFile); err != nil && err != http.ErrServerClosed {
 				log.Error(err, "HTTPS server failed")
 				cancel()
 			}
 		} else {
+			if mtlsCAFile != "" {
+				log.Info("WARNING: --mtls-ca-file is set but TLS is not enabled; ignoring mTLS CA file", "caFile", mtlsCAFile)
+			}
 			log.Info("starting webhook gateway HTTP server", "port", port)
 			if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 				log.Error(err, "HTTP server failed")

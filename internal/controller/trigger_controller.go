@@ -21,6 +21,7 @@ import (
 	"fmt"
 
 	autoscalingv2 "k8s.io/api/autoscaling/v2"
+	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
@@ -51,6 +52,7 @@ type TriggerReconciler struct {
 // +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=roles,verbs=get;list;watch;create;update;patch
 // +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=rolebindings,verbs=get;list;watch;create;update;patch
 // +kubebuilder:rbac:groups=autoscaling,resources=horizontalpodautoscalers,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups="",resources=namespaces,verbs=get
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
@@ -147,8 +149,25 @@ func (r *TriggerReconciler) SetupWithManager(mgr ctrl.Manager) error {
 // ensureWebhookGateway ensures the webhook gateway Deployment, Service, RBAC, and HPA
 // exist in the given namespace. It is called by both the Trigger and MockEndpoint reconcilers
 // so that the gateway is present whenever webhook routes or mock endpoints are needed.
+//
+// TLS configuration is read from the Namespace annotations:
+//
+//	kubezap.io/webhook-tls-secret     — Secret name with tls.crt / tls.key (cert-manager compatible)
+//	kubezap.io/webhook-mtls-ca-secret — Secret name with ca.crt (requires webhook-tls-secret)
 func ensureWebhookGateway(ctx context.Context, c client.Client, namespace string) error {
 	log := logf.FromContext(ctx)
+
+	// Read TLS configuration from Namespace annotations.
+	tlsCfg := WebhookGatewayTLSConfig{}
+	var ns corev1.Namespace
+	if err := c.Get(ctx, client.ObjectKey{Name: namespace}, &ns); err == nil {
+		tlsCfg.TLSSecretName = ns.Annotations["kubezap.io/webhook-tls-secret"]
+		if tlsCfg.TLSSecretName != "" {
+			tlsCfg.MTLSCASecretName = ns.Annotations["kubezap.io/webhook-mtls-ca-secret"]
+		}
+	} else if !apierrors.IsNotFound(err) {
+		return fmt.Errorf("failed to get namespace %s for TLS config: %w", namespace, err)
+	}
 
 	sa := desiredWebhookGatewayServiceAccount(namespace)
 	if _, err := controllerutil.CreateOrUpdate(ctx, c, sa, func() error {
@@ -175,22 +194,22 @@ func ensureWebhookGateway(ctx context.Context, c client.Client, namespace string
 		return fmt.Errorf("failed to create/update gateway RoleBinding: %w", err)
 	}
 
-	svc := desiredWebhookGatewayService(namespace)
+	svc := desiredWebhookGatewayService(namespace, tlsCfg)
 	if _, err := controllerutil.CreateOrUpdate(ctx, c, svc, func() error {
-		svc.Labels = desiredWebhookGatewayService(namespace).Labels
-		svc.Spec = desiredWebhookGatewayService(namespace).Spec
+		svc.Labels = desiredWebhookGatewayService(namespace, tlsCfg).Labels
+		svc.Spec = desiredWebhookGatewayService(namespace, tlsCfg).Spec
 		return nil
 	}); err != nil {
 		return fmt.Errorf("failed to create/update gateway Service: %w", err)
 	}
 
-	desired := desiredWebhookGatewayDeployment(namespace)
+	desired := desiredWebhookGatewayDeployment(namespace, tlsCfg)
 	op, err := controllerutil.CreateOrUpdate(ctx, c, desired, func() error {
 		// desired is populated with the live object by CreateOrUpdate before this func
 		// is called. Capture the live replicas before overwriting the spec so that an
 		// HPA's replica count is not reset on every reconcile.
 		liveReplicas := desired.Spec.Replicas
-		desired.Spec = desiredWebhookGatewayDeployment(namespace).Spec
+		desired.Spec = desiredWebhookGatewayDeployment(namespace, tlsCfg).Spec
 		// Preserve HPA-managed replica count: if an HPA (already reconciled above) is
 		// present, keep whatever replica count the live object had rather than
 		// snapping back to the template default.

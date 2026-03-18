@@ -263,17 +263,72 @@ metadata:
 
 The client certificate secret must contain `tls.crt` and `tls.key` keys (standard Kubernetes TLS secret format). Use [cert-manager](https://cert-manager.io) to issue and rotate client certificates.
 
-### Inbound Webhook mTLS
+### Server-Side TLS for the Webhook Gateway
 
-To require clients to present a certificate when calling webhook endpoints, annotate the `Trigger`:
+The webhook gateway serves plain HTTP by default. To enable HTTPS (required for mTLS, re-encrypt routes, and end-to-end encryption), annotate the **Namespace** with the name of a TLS Secret:
 
 ```yaml
+apiVersion: v1
+kind: Namespace
 metadata:
+  name: my-namespace
   annotations:
-    kubezap.io/webhook-mtls-ca-secret: "webhook-client-ca"
+    kubezap.io/webhook-tls-secret: "kubezap-webhook-tls"
 ```
 
-The operator will verify that the client certificate is signed by the specified CA.
+The Secret must contain `tls.crt` and `tls.key` in standard Kubernetes TLS Secret format, compatible with [cert-manager](https://cert-manager.io) `Certificate` resources:
+
+```bash
+# Using cert-manager (recommended)
+kubectl apply -f - <<EOF
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: kubezap-webhook-tls
+  namespace: my-namespace
+spec:
+  secretName: kubezap-webhook-tls
+  dnsNames: [webhooks.example.com]
+  issuerRef:
+    name: letsencrypt-prod
+    kind: ClusterIssuer
+EOF
+```
+
+When the annotation is present, the controller:
+- Mounts the Secret as a read-only volume at `/etc/webhook-tls` in the gateway pod
+- Starts the gateway with `--tls-cert-file=/etc/webhook-tls/tls.crt --tls-key-file=/etc/webhook-tls/tls.key`
+- Switches liveness/readiness probes to HTTPS scheme
+- Renames the Service port from `http` to `https`
+
+> **Annotation is read on every reconcile.** Adding or removing the annotation will update the gateway Deployment on the next Trigger reconcile.
+
+### Inbound mTLS (Mutual TLS)
+
+For zero-trust environments where webhook callers must present a client certificate, enable mTLS by adding a second annotation to the **Namespace**:
+
+```yaml
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: my-namespace
+  annotations:
+    kubezap.io/webhook-tls-secret: "kubezap-webhook-tls"       # required: server TLS first
+    kubezap.io/webhook-mtls-ca-secret: "webhook-client-ca"     # enables mTLS
+```
+
+The CA Secret must contain `ca.crt` with the PEM-encoded CA certificate used to issue client certificates. The gateway sets `tls.Config.ClientAuth = RequireAndVerifyClientCert` — all connections without a valid client cert are rejected at the TLS handshake.
+
+```bash
+# Create the CA cert secret (example: self-signed CA)
+kubectl create secret generic webhook-client-ca \
+  --from-file=ca.crt=/path/to/ca.crt \
+  -n my-namespace
+```
+
+> **mTLS requires server TLS.** The `kubezap.io/webhook-mtls-ca-secret` annotation is silently ignored if `kubezap.io/webhook-tls-secret` is not set.
+
+> **Ingress passthrough.** If you front the webhook gateway with an Ingress or OpenShift Route, use TLS passthrough mode so client certificates reach the gateway pod. Re-encrypt termination at the Ingress proxy will strip client certs.
 
 ### TLS for Development (skip verification)
 

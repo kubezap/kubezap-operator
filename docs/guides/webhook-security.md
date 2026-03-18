@@ -210,26 +210,70 @@ kubectl create secret generic webhook-basic-auth \
 
 ## mTLS (Client Certificate)
 
-For zero-trust environments or service meshes where the calling service authenticates with a client certificate. The gateway verifies the client cert against a configured CA.
+For zero-trust environments or service meshes where the calling service must authenticate with a client certificate. KubeZap implements mTLS at the transport layer (TLS handshake), not as a per-Trigger auth type.
 
+### Prerequisites
+
+mTLS requires server-side TLS to be enabled first. Both settings are configured via **Namespace annotations** — they apply to the shared webhook gateway Deployment for that namespace.
+
+### Configuration
+
+Annotate the Namespace with the TLS server cert Secret and the CA Secret for client verification:
+
+```yaml
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: my-namespace
+  annotations:
+    kubezap.io/webhook-tls-secret: "kubezap-webhook-tls"       # server cert (tls.crt + tls.key)
+    kubezap.io/webhook-mtls-ca-secret: "webhook-client-ca"     # client CA (ca.crt)
+```
+
+Create the CA secret containing the certificate authority that issued the client certificates:
+
+```bash
+kubectl create secret generic webhook-client-ca \
+  --from-file=ca.crt=/path/to/client-ca.crt \
+  -n my-namespace
+```
+
+### What the operator does
+
+When both annotations are present, the controller:
+1. Mounts `kubezap-webhook-tls` as a read-only volume at `/etc/webhook-tls`
+2. Mounts `webhook-client-ca` as a read-only volume at `/etc/webhook-mtls-ca`
+3. Starts the gateway with `--tls-cert-file`, `--tls-key-file`, and `--mtls-ca-file` flags
+4. The gateway sets `tls.Config.ClientAuth = tls.RequireAndVerifyClientCert` with the provided CA pool
+
+All connections without a valid client certificate are rejected at the TLS handshake — the webhook handler never receives the request.
+
+### Calling the webhook with a client certificate
+
+```bash
+curl --cert client.crt --key client.key --cacert server-ca.crt \
+  https://webhooks.example.com/hooks/my-trigger \
+  -H 'Content-Type: application/json' \
+  -d '{"event": "test"}'
+```
+
+### Ingress / Route passthrough
+
+mTLS requires TLS passthrough at the Ingress/Route layer so client certificates are forwarded intact to the gateway pod. Re-encrypt or edge termination strips client certs.
+
+For Kubernetes Ingress with NGINX:
 ```yaml
 metadata:
   annotations:
-    kubezap.io/webhook-mtls-ca-secret: "webhook-client-ca"
-spec:
-  webhook:
-    auth:
-      type: mtls
-      mtls:
-        caSecretRef:
-          name: webhook-client-ca    # must contain ca.crt
-        # Optional: require a specific CN or SAN
-        requiredCN: "my-service.internal"
+    nginx.ingress.kubernetes.io/ssl-passthrough: "true"
 ```
 
-The `caSecretRef` here is equivalent to the `kubezap.io/webhook-mtls-ca-secret` annotation documented in the [Trigger CRD reference](../api/trigger.md#tls-and-mtls-annotations) — either form is accepted.
-
-> mTLS requires TLS passthrough at the Ingress/Route layer. See [Trigger CRD → OpenShift Route](../api/trigger.md#openshift-route) for passthrough configuration.
+For OpenShift Route:
+```yaml
+spec:
+  tls:
+    termination: passthrough
+```
 
 ---
 
@@ -337,13 +381,13 @@ spec:
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `type` | enum | No | Auth method: `hmac`, `bearer`, `oidc`, `basic`, `mtls`, `header-equals`. Omit for no authentication. |
+| `type` | enum | No | Auth method: `hmac`, `bearer`, `oidc`, `basic`, `apiKey`, `ipAllowlist`. Omit for no authentication. mTLS is configured at the transport layer via Namespace annotations — see [mTLS (Client Certificate)](#mtls-client-certificate). |
 | `hmac` | HMACAuth | Conditional | Required when `type: hmac` |
 | `bearer` | BearerAuth | Conditional | Required when `type: bearer` |
 | `oidc` | OIDCAuth | Conditional | Required when `type: oidc` |
 | `basic` | BasicAuth | Conditional | Required when `type: basic` |
-| `mtls` | MTLSAuth | Conditional | Required when `type: mtls` |
-| `headerEquals` | HeaderEqualsAuth | Conditional | Required when `type: header-equals` |
+| `apiKeySecretRef` | SecretKeySelector | Conditional | Secret key containing the API key value. Used when `type: apiKey` |
+| `apiKeyHeader` | string | No | Header name to check (default: `X-Api-Key`). Used when `type: apiKey` |
 | `ipAllowlist` | []string | No | CIDR ranges allowed to call this endpoint. Combinable with any `type`. |
 | `trustedProxies` | []string | No | CIDR ranges of trusted proxy IPs for X-Forwarded-For header processing |
 
@@ -380,14 +424,6 @@ spec:
 | `secretRef` | SecretKeyRef | Conditional | Secret containing `username:password` string. Mutually exclusive with username/password refs. |
 | `usernameSecretRef` | SecretKeyRef | Conditional | Secret key containing the username |
 | `passwordSecretRef` | SecretKeyRef | Conditional | Secret key containing the password |
-
-### MTLSAuth
-
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `caSecretRef` | SecretKeyRef | **Yes** | Secret containing `ca.crt` PEM bundle |
-| `requiredCN` | string | No | If set, the client certificate Common Name must match this value |
-| `requiredSAN` | string | No | If set, the client certificate must contain this Subject Alternative Name |
 
 ### HeaderEqualsAuth
 

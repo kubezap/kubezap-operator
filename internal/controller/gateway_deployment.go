@@ -33,6 +33,18 @@ const (
 	webhookGatewayPort           = int32(8080)
 )
 
+// WebhookGatewayTLSConfig carries TLS/mTLS configuration for the webhook gateway Deployment.
+// An empty struct means plain HTTP with no TLS termination.
+type WebhookGatewayTLSConfig struct {
+	// TLSSecretName is the name of the Secret in the gateway namespace containing
+	// tls.crt and tls.key (cert-manager compatible). Empty means plain HTTP.
+	TLSSecretName string
+
+	// MTLSCASecretName is the name of the Secret containing ca.crt used to verify
+	// client certificates. Only effective when TLSSecretName is also set.
+	MTLSCASecretName string
+}
+
 func webhookGatewayImage() string {
 	if img := os.Getenv("WEBHOOK_GATEWAY_IMAGE"); img != "" {
 		return img
@@ -147,11 +159,17 @@ func desiredWebhookGatewayHPA(namespace string) *autoscalingv2.HorizontalPodAuto
 }
 
 // desiredWebhookGatewayService returns the desired ClusterIP service for the webhook gateway.
-func desiredWebhookGatewayService(namespace string) *corev1.Service {
+func desiredWebhookGatewayService(namespace string, tlsCfg WebhookGatewayTLSConfig) *corev1.Service {
 	labels := map[string]string{
 		"kubezap.io/component": "webhook-gateway",
 		"kubezap.io/namespace": namespace,
 	}
+
+	portName := "http"
+	if tlsCfg.TLSSecretName != "" {
+		portName = "https"
+	}
+
 	return &corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      webhookGatewayDeploymentName,
@@ -162,7 +180,7 @@ func desiredWebhookGatewayService(namespace string) *corev1.Service {
 			Selector: labels,
 			Ports: []corev1.ServicePort{
 				{
-					Name:       "http",
+					Name:       portName,
 					Protocol:   corev1.ProtocolTCP,
 					Port:       webhookGatewayPort,
 					TargetPort: intstr.FromInt32(webhookGatewayPort),
@@ -175,12 +193,65 @@ func desiredWebhookGatewayService(namespace string) *corev1.Service {
 // desiredWebhookGatewayDeployment returns the desired state of the webhook gateway
 // Deployment for the given namespace. The caller is responsible for setting owner
 // references and calling CreateOrUpdate.
-func desiredWebhookGatewayDeployment(namespace string) *appsv1.Deployment {
+func desiredWebhookGatewayDeployment(namespace string, tlsCfg WebhookGatewayTLSConfig) *appsv1.Deployment {
 	labels := map[string]string{
 		"kubezap.io/component": "webhook-gateway",
 		"kubezap.io/namespace": namespace,
 	}
 	replicas := int32(1)
+
+	// Build args, volume mounts, and volumes conditionally based on TLS config.
+	args := []string{
+		"--port=8080",
+		"--namespace=" + namespace,
+	}
+	var volumeMounts []corev1.VolumeMount
+	var volumes []corev1.Volume
+
+	portName := "http"
+	probeScheme := corev1.URISchemeHTTP
+
+	if tlsCfg.TLSSecretName != "" {
+		portName = "https"
+		probeScheme = corev1.URISchemeHTTPS
+
+		args = append(args,
+			"--tls-cert-file=/etc/webhook-tls/tls.crt",
+			"--tls-key-file=/etc/webhook-tls/tls.key",
+		)
+		volumeMounts = append(volumeMounts, corev1.VolumeMount{
+			Name:      "webhook-tls",
+			MountPath: "/etc/webhook-tls",
+			ReadOnly:  true,
+		})
+		volumes = append(volumes, corev1.Volume{
+			Name: "webhook-tls",
+			VolumeSource: corev1.VolumeSource{
+				Secret: &corev1.SecretVolumeSource{
+					SecretName:  tlsCfg.TLSSecretName,
+					DefaultMode: ptr.To(int32(0400)),
+				},
+			},
+		})
+
+		if tlsCfg.MTLSCASecretName != "" {
+			args = append(args, "--mtls-ca-file=/etc/webhook-mtls-ca/ca.crt")
+			volumeMounts = append(volumeMounts, corev1.VolumeMount{
+				Name:      "webhook-mtls-ca",
+				MountPath: "/etc/webhook-mtls-ca",
+				ReadOnly:  true,
+			})
+			volumes = append(volumes, corev1.Volume{
+				Name: "webhook-mtls-ca",
+				VolumeSource: corev1.VolumeSource{
+					Secret: &corev1.SecretVolumeSource{
+						SecretName:  tlsCfg.MTLSCASecretName,
+						DefaultMode: ptr.To(int32(0400)),
+					},
+				},
+			})
+		}
+	}
 
 	return &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
@@ -199,18 +270,17 @@ func desiredWebhookGatewayDeployment(namespace string) *appsv1.Deployment {
 						RunAsNonRoot:   ptr.To(true),
 						SeccompProfile: &corev1.SeccompProfile{Type: corev1.SeccompProfileTypeRuntimeDefault},
 					},
+					Volumes: volumes,
 					Containers: []corev1.Container{
 						{
 							Name:            "webhook-gateway",
 							Image:           webhookGatewayImage(),
 							ImagePullPolicy: corev1.PullIfNotPresent,
-							Args: []string{
-								"--port=8080",
-								"--namespace=" + namespace,
-							},
+							Args:            args,
 							Ports: []corev1.ContainerPort{
-								{Name: "http", ContainerPort: webhookGatewayPort, Protocol: corev1.ProtocolTCP},
+								{Name: portName, ContainerPort: webhookGatewayPort, Protocol: corev1.ProtocolTCP},
 							},
+							VolumeMounts: volumeMounts,
 							SecurityContext: &corev1.SecurityContext{
 								RunAsNonRoot:             ptr.To(true),
 								ReadOnlyRootFilesystem:   ptr.To(true),
@@ -223,8 +293,9 @@ func desiredWebhookGatewayDeployment(namespace string) *appsv1.Deployment {
 							LivenessProbe: &corev1.Probe{
 								ProbeHandler: corev1.ProbeHandler{
 									HTTPGet: &corev1.HTTPGetAction{
-										Path: "/healthz",
-										Port: intstr.FromInt32(webhookGatewayPort),
+										Path:   "/healthz",
+										Port:   intstr.FromInt32(webhookGatewayPort),
+										Scheme: probeScheme,
 									},
 								},
 								InitialDelaySeconds: 5,
@@ -233,8 +304,9 @@ func desiredWebhookGatewayDeployment(namespace string) *appsv1.Deployment {
 							ReadinessProbe: &corev1.Probe{
 								ProbeHandler: corev1.ProbeHandler{
 									HTTPGet: &corev1.HTTPGetAction{
-										Path: "/readyz",
-										Port: intstr.FromInt32(webhookGatewayPort),
+										Path:   "/readyz",
+										Port:   intstr.FromInt32(webhookGatewayPort),
+										Scheme: probeScheme,
 									},
 								},
 								InitialDelaySeconds: 3,

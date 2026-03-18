@@ -45,8 +45,8 @@ import (
 // +kubebuilder:rbac:groups=automation.kubezap.io,resources=integrations,verbs=get;list;watch;update;patch
 // +kubebuilder:rbac:groups=automation.kubezap.io,resources=integrations/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups="",resources=serviceaccounts,verbs=get;list;watch;create;update;patch
-// +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=roles;rolebindings,verbs=get;list;watch;create;update;patch
+// +kubebuilder:rbac:groups="",resources=serviceaccounts,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=roles;rolebindings,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=keda.sh,resources=scaledobjects,verbs=get;list;watch;create;update;patch;delete
 
 // IntegrationReconciler reconciles an Integration object.
@@ -480,8 +480,7 @@ func (r *IntegrationReconciler) reconcileKafkaGateway(ctx context.Context, integ
 	// Ensure ServiceAccount.
 	sa := &corev1.ServiceAccount{ObjectMeta: metav1.ObjectMeta{Name: "kubezap-gateway", Namespace: ns}}
 	saResult, err := controllerutil.CreateOrUpdate(ctx, r.Client, sa, func() error {
-		// ServiceAccount has no spec fields to reconcile beyond metadata.
-		return nil
+		return ctrl.SetControllerReference(integration, sa, r.Scheme)
 	})
 	if err != nil {
 		return "", fmt.Errorf("upserting kafka gateway ServiceAccount: %w", err)
@@ -491,26 +490,20 @@ func (r *IntegrationReconciler) reconcileKafkaGateway(ctx context.Context, integ
 	}
 
 	// Ensure Role.
-	role := &rbacv1.Role{
-		ObjectMeta: metav1.ObjectMeta{Name: "kubezap-gateway", Namespace: ns},
-		Rules: []rbacv1.PolicyRule{
+	role := &rbacv1.Role{ObjectMeta: metav1.ObjectMeta{Name: "kubezap-gateway", Namespace: ns}}
+	roleResult, err := controllerutil.CreateOrUpdate(ctx, r.Client, role, func() error {
+		role.Rules = []rbacv1.PolicyRule{
 			{APIGroups: []string{"automation.kubezap.io"}, Resources: []string{"triggers"}, Verbs: []string{"get", "list", "watch"}},
 			{APIGroups: []string{"automation.kubezap.io"}, Resources: []string{"integrations"}, Verbs: []string{"get"}},
 			{APIGroups: []string{"automation.kubezap.io"}, Resources: []string{"flowruns"}, Verbs: []string{"create"}},
-		},
+		}
+		return ctrl.SetControllerReference(integration, role, r.Scheme)
+	})
+	if err != nil {
+		return "", fmt.Errorf("upserting kafka gateway Role: %w", err)
 	}
-	existingRole := &rbacv1.Role{}
-	if err := r.Get(ctx, client.ObjectKeyFromObject(role), existingRole); apierrors.IsNotFound(err) {
-		if err := r.Create(ctx, role); err != nil && !apierrors.IsAlreadyExists(err) {
-			return "", fmt.Errorf("creating kafka gateway Role: %w", err)
-		}
-	} else if err != nil {
-		return "", err
-	} else {
-		existingRole.Rules = role.Rules
-		if err := r.Update(ctx, existingRole); err != nil {
-			return "", fmt.Errorf("updating kafka gateway Role: %w", err)
-		}
+	if roleResult != controllerutil.OperationResultNone {
+		log.Info("reconciled kafka gateway Role", "namespace", ns, "result", roleResult)
 	}
 
 	// Ensure RoleBinding.
@@ -524,7 +517,7 @@ func (r *IntegrationReconciler) reconcileKafkaGateway(ctx context.Context, integ
 		}
 		rb.RoleRef = kafkaDesiredRoleRef
 		rb.Subjects = kafkaDesiredSubjects
-		return nil
+		return ctrl.SetControllerReference(integration, rb, r.Scheme)
 	})
 	if rbErr != nil {
 		if rbErr == errRoleRefChanged {

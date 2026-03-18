@@ -263,11 +263,20 @@ status:
 **Why FlowRun rather than direct invocation:**
 
 - **Decoupled**: the gateway doesn't need to know how to execute flows
-- **Observable**: every execution is a Kubernetes resource — `kubectl get flowruns` shows history
+- **Observable**: every execution is a Kubernetes resource — `kubectl get flowruns` shows active runs
 - **Reliable**: if the controller restarts mid-execution, it picks up in-progress FlowRuns on restart
-- **Auditable**: FlowRuns are created as owner-referenced to the Trigger, so `kubectl get flowruns --field-selector spec.triggerRef.name=order-received` shows all executions for a given trigger
+- **Auditable**: FlowRuns are created as owner-referenced to the Trigger, so `kubectl get flowruns --field-selector spec.triggerRef.name=order-received` shows active executions for a given trigger
 
 The gateway returns `202 Accepted` to the caller as soon as the FlowRun is created. Flow execution is fully asynchronous.
+
+### FlowRun Storage Tiers
+
+At high ingest rates (e.g. 10,000+ FlowRuns/min from Kafka triggers) storing completed FlowRuns in etcd exhausts write throughput and storage quota. KubeZap uses a two-tier storage model:
+
+- **Active tier (etcd/CRD)**: FlowRuns in `Pending`, `Running`, or `Waiting` phase remain as CRDs. The controller watches them, executes steps, and updates status in-flight. At 10,000 FlowRuns/min with a 5-second average execution time, the steady-state active set is ~800 objects — trivial for etcd.
+- **Archive tier (PostgreSQL)**: On terminal phase transition (`Succeeded`, `Failed`, `Cancelled`), the controller writes the complete record to Postgres then deletes the CRD. `kubectl get flowruns` shows active runs only; history is queried via Postgres (web UI / `kubezap history` CLI).
+
+The archive tier is optional. Standalone installs without `--flowrun-archive-dsn-secret` retain the current CRD-only behaviour with TTL + count-based GC. See [`docs/design/flowrun-storage.md`](design/flowrun-storage.md) for the full architectural rationale and implementation plan.
 
 ---
 

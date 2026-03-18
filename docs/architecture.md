@@ -269,6 +269,12 @@ status:
 
 The gateway returns `202 Accepted` to the caller as soon as the FlowRun is created. Flow execution is fully asynchronous.
 
+### Scale Limitations
+
+KubeZap is designed for **workflow orchestration** — multi-step flows with HTTP calls, retries, conditional branching, and wait steps. It is not designed for high-throughput stream processing (see [scale-limitations.md](design/scale-limitations.md)).
+
+FlowRun history is managed entirely via TTL and count-based GC policies. At high ingest rates, tuning these policies aggressively (short TTLs, low `maxSucceeded`/`maxFailed` counts) is required to avoid etcd storage pressure.
+
 ---
 
 ## Scaling

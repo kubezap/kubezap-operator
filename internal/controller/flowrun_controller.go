@@ -774,12 +774,12 @@ func (r *FlowRunReconciler) reconcileGC(ctx context.Context, flowRun *automation
 		return 0, nil
 	}
 
-	// Enforce maxFlowRuns cap if trigger label is present.
+	// Enforce per-trigger GC policy if trigger label is present.
 	if triggerName, ok := flowRun.Labels["kubezap.io/trigger"]; ok && triggerName != "" {
 		var trigger automationv1alpha1.Trigger
 		if err := r.Get(ctx, types.NamespacedName{Name: triggerName, Namespace: flowRun.Namespace}, &trigger); err == nil {
-			if trigger.Spec.MaxFlowRuns != nil && *trigger.Spec.MaxFlowRuns > 0 {
-				if err := r.enforceMaxFlowRuns(ctx, triggerName, flowRun.Namespace, *trigger.Spec.MaxFlowRuns); err != nil {
+			if trigger.Spec.FlowRunGC != nil {
+				if err := r.enforceFlowRunGCPolicy(ctx, triggerName, flowRun.Namespace, *trigger.Spec.FlowRunGC); err != nil {
 					return 0, err
 				}
 			}
@@ -787,11 +787,30 @@ func (r *FlowRunReconciler) reconcileGC(ctx context.Context, flowRun *automation
 		// Ignore NotFound — trigger may have been deleted.
 	}
 
-	// Determine TTL: per-FlowRun spec overrides operator flag.
+	// Determine TTL. Priority: per-FlowRun spec > per-trigger GC policy > operator flag.
 	ttl := r.TTLSucceeded
 	if flowRun.Status.Phase == "Failed" {
 		ttl = r.TTLFailed
 	}
+	// Apply per-trigger TTL override from FlowRunGC policy.
+	if triggerName, ok := flowRun.Labels["kubezap.io/trigger"]; ok && triggerName != "" {
+		var trigger automationv1alpha1.Trigger
+		if err := r.Get(ctx, types.NamespacedName{Name: triggerName, Namespace: flowRun.Namespace}, &trigger); err == nil {
+			if gc := trigger.Spec.FlowRunGC; gc != nil {
+				switch flowRun.Status.Phase {
+				case "Succeeded":
+					if gc.TTLAfterSucceeded != nil {
+						ttl = gc.TTLAfterSucceeded.Duration
+					}
+				case "Failed":
+					if gc.TTLAfterFailed != nil {
+						ttl = gc.TTLAfterFailed.Duration
+					}
+				}
+			}
+		}
+	}
+	// Per-FlowRun spec takes highest priority.
 	if flowRun.Spec.TTLAfterFinished != nil {
 		ttl = flowRun.Spec.TTLAfterFinished.Duration
 	}
@@ -820,9 +839,24 @@ func (r *FlowRunReconciler) reconcileGC(ctx context.Context, flowRun *automation
 	return 0, nil
 }
 
-// enforceMaxFlowRuns deletes the oldest completed FlowRuns for a trigger
-// until the count is within the maxFlowRuns cap.
-func (r *FlowRunReconciler) enforceMaxFlowRuns(ctx context.Context, triggerName, namespace string, maxFlowRuns int32) error {
+// enforceFlowRunGCPolicy applies per-state count caps from a FlowRunGCPolicy.
+func (r *FlowRunReconciler) enforceFlowRunGCPolicy(ctx context.Context, triggerName, namespace string, policy automationv1alpha1.FlowRunGCPolicy) error {
+	if policy.MaxSucceeded != nil {
+		if err := r.enforceMaxFlowRunsByPhase(ctx, triggerName, namespace, "Succeeded", *policy.MaxSucceeded); err != nil {
+			return err
+		}
+	}
+	if policy.MaxFailed != nil {
+		if err := r.enforceMaxFlowRunsByPhase(ctx, triggerName, namespace, "Failed", *policy.MaxFailed); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// enforceMaxFlowRunsByPhase deletes the oldest FlowRuns in the given phase for a trigger
+// until the count is within the max cap.
+func (r *FlowRunReconciler) enforceMaxFlowRunsByPhase(ctx context.Context, triggerName, namespace, phase string, max int32) error {
 	log := logf.FromContext(ctx)
 
 	var list automationv1alpha1.FlowRunList
@@ -833,24 +867,24 @@ func (r *FlowRunReconciler) enforceMaxFlowRuns(ctx context.Context, triggerName,
 		return err
 	}
 
-	var completed []automationv1alpha1.FlowRun
+	var matching []automationv1alpha1.FlowRun
 	for _, fr := range list.Items {
-		if fr.Status.Phase != "Succeeded" && fr.Status.Phase != "Failed" {
+		if fr.Status.Phase != phase {
 			continue
 		}
 		if fr.Annotations[retainAnnotation] == "true" {
 			continue
 		}
-		completed = append(completed, fr)
+		matching = append(matching, fr)
 	}
 
-	if int32(len(completed)) <= maxFlowRuns {
+	if int32(len(matching)) <= max {
 		return nil
 	}
 
-	sort.Slice(completed, func(i, j int) bool {
-		ti := completed[i].Status.CompletionTime
-		tj := completed[j].Status.CompletionTime
+	sort.Slice(matching, func(i, j int) bool {
+		ti := matching[i].Status.CompletionTime
+		tj := matching[j].Status.CompletionTime
 		if ti == nil {
 			return true
 		}
@@ -860,10 +894,11 @@ func (r *FlowRunReconciler) enforceMaxFlowRuns(ctx context.Context, triggerName,
 		return ti.Before(tj)
 	})
 
-	toDelete := int(int32(len(completed)) - maxFlowRuns)
+	toDelete := int(int32(len(matching)) - max)
 	for i := 0; i < toDelete; i++ {
-		fr := completed[i]
-		log.Info("enforcing maxFlowRuns, deleting oldest", "flowRun", fr.Name, "trigger", triggerName)
+		fr := matching[i]
+		log.Info("enforcing GC count limit, deleting oldest",
+			"flowRun", fr.Name, "trigger", triggerName, "phase", phase, "limit", max)
 		if err := r.Delete(ctx, &fr); err != nil && !apierrors.IsNotFound(err) {
 			return err
 		}

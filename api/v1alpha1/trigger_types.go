@@ -64,11 +64,48 @@ type TriggerSpec struct {
 	// Cooldown/debounce policy to limit the number of firings in a window.
 	Cooldown *CooldownPolicy `json:"cooldown,omitempty"`
 
-	// MaxFlowRuns caps the number of retained FlowRuns for this Trigger.
-	// When exceeded, the oldest completed FlowRuns are garbage-collected.
-	// If zero or omitted, no cap is applied.
+	// FlowRunGC configures garbage collection of completed FlowRuns for this Trigger.
+	// Operator-level defaults apply when omitted; set individual fields to override per-trigger.
+	FlowRunGC *FlowRunGCPolicy `json:"flowRunGC,omitempty"`
+}
+
+// FlowRunGCPolicy defines retention limits for completed FlowRuns produced by a Trigger.
+// Mirrors the Kubernetes Job history limits pattern (successfulJobsHistoryLimit /
+// failedJobsHistoryLimit) but extended with TTL overrides for fine-grained control.
+//
+// All fields are optional. When a field is omitted the operator-level default applies
+// (flags: --flowrun-ttl-succeeded, --flowrun-ttl-failed, --flowrun-gc-max-succeeded,
+// --flowrun-gc-max-failed).
+//
+// Both count-based and TTL-based GC run independently: a FlowRun is eligible for
+// deletion when EITHER its TTL has elapsed OR the count limit is exceeded.
+type FlowRunGCPolicy struct {
+	// MaxSucceeded is the maximum number of succeeded FlowRuns to retain for this Trigger.
+	// When exceeded, the oldest succeeded FlowRuns are deleted. Set to 0 to disable
+	// count-based GC for succeeded runs (TTL still applies).
 	// +kubebuilder:validation:Minimum=0
-	MaxFlowRuns *int32 `json:"maxFlowRuns,omitempty"`
+	// +optional
+	MaxSucceeded *int32 `json:"maxSucceeded,omitempty"`
+
+	// MaxFailed is the maximum number of failed FlowRuns to retain for this Trigger.
+	// When exceeded, the oldest failed FlowRuns are deleted. Set to 0 to disable
+	// count-based GC for failed runs (TTL still applies).
+	// Defaults to a higher value than MaxSucceeded to retain failure history for debugging.
+	// +kubebuilder:validation:Minimum=0
+	// +optional
+	MaxFailed *int32 `json:"maxFailed,omitempty"`
+
+	// TTLAfterSucceeded is the duration to retain a succeeded FlowRun after completion.
+	// Overrides the operator's --flowrun-ttl-succeeded flag for this Trigger.
+	// Set to "0s" to delete succeeded FlowRuns immediately.
+	// +optional
+	TTLAfterSucceeded *metav1.Duration `json:"ttlAfterSucceeded,omitempty"`
+
+	// TTLAfterFailed is the duration to retain a failed FlowRun after completion.
+	// Overrides the operator's --flowrun-ttl-failed flag for this Trigger.
+	// Set to "0s" to delete failed FlowRuns immediately (not recommended — loses debug history).
+	// +optional
+	TTLAfterFailed *metav1.Duration `json:"ttlAfterFailed,omitempty"`
 }
 
 type WebhookTrigger struct {

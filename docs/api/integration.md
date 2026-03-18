@@ -109,6 +109,29 @@ Uses the `kubezap/kafka-gateway` image with the [IBM/sarama](https://github.com/
 
 Kafka has dedicated first-party support rather than being absorbed into a generic AMQP type because its offset/partition semantics, dedup model, and scaling story (KEDA partition-bounded HPA) are fundamentally different from queue-based protocols.
 
+#### Scaling with KEDA
+
+KubeZap creates a KEDA `ScaledObject` alongside each Kafka gateway Deployment when KEDA is installed in the cluster. The `ScaledObject` uses the `kafka` trigger type and scales the gateway based on consumer group lag, bounded by the number of partitions in the topic:
+
+```
+minReplicaCount: 1
+maxReplicaCount: <number of partitions>
+trigger:
+  type: kafka
+  metadata:
+    bootstrapServers: <from Integration.spec.kafka.bootstrapServers>
+    consumerGroup: <kubezap-<trigger-name>>
+    topic: <from Trigger.spec.pubsub.topic>
+    lagThreshold: "50"
+    offsetResetPolicy: latest
+```
+
+**Prerequisites:** KEDA must be installed in the cluster (`keda-operator` pod running in the `keda` namespace or similar). KubeZap detects KEDA availability by checking for the `ScaledObject` CRD at startup. If KEDA is not installed, the gateway Deployment is created with a static replica count of 1 and no `ScaledObject` is created.
+
+**Lag threshold:** The default lag threshold is 50 messages per replica. This is intentionally conservative — tune it down for latency-sensitive flows or up for high-throughput batch scenarios. Future: expose `spec.kafka.kedaLagThreshold` on the `Integration` to control this per-integration.
+
+**Partition-bounded scaling:** KEDA will not scale the gateway beyond the number of partitions in the topic, since there is no benefit to having more consumers than partitions. Ensure your topics have enough partitions for the concurrency you expect.
+
 ### AMQP (`type: amqp`) _(beta)_
 
 Uses the `kubezap/amqp-gateway` image. Covers:

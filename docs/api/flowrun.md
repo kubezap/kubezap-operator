@@ -200,15 +200,42 @@ nightly-report-2026031402      gen-report     Running     30s    —
 
 ## Garbage Collection
 
-FlowRuns accumulate over time. KubeZap garbage collects completed FlowRuns based on:
+FlowRuns accumulate over time. KubeZap garbage collects completed FlowRuns through two independent mechanisms that both run on each reconcile of a terminal FlowRun:
 
-1. **`spec.ttlAfterFinished`** — if set on the FlowRun itself, takes precedence
-2. **Operator-level TTL defaults** — configured via the controller's `--flowrun-ttl-succeeded` and `--flowrun-ttl-failed` flags (defaults: `24h` succeeded, `72h` failed)
-3. **`spec.maxFlowRuns`** on the `Trigger` — keeps the N most recent FlowRuns for that trigger, deleting older ones regardless of TTL
+### TTL-Based GC (time-to-live)
 
-FlowRuns in `Pending` or `Running` phase are never garbage collected automatically.
+Priority order (highest wins):
 
-To retain a specific FlowRun indefinitely, annotate it:
+1. **`spec.ttlAfterFinished`** on the FlowRun — overrides everything; set per-FlowRun by the gateway at creation time
+2. **`spec.flowRunGC.ttlAfterSucceeded` / `ttlAfterFailed`** on the `Trigger` — per-trigger override
+3. **Operator-level defaults** — `--flowrun-ttl-succeeded` (default: `24h`) and `--flowrun-ttl-failed` (default: `72h`)
+
+Failed FlowRuns default to a longer retention window than succeeded because they are more likely to be needed for debugging.
+
+### Count-Based GC (history limit)
+
+Mirrors the Kubernetes Job history limits pattern. Configured on the `Trigger` via `spec.flowRunGC`:
+
+```yaml
+spec:
+  flowRunGC:
+    maxSucceeded: 10      # keep last 10 succeeded FlowRuns
+    maxFailed: 25         # keep last 25 failed FlowRuns (separate cap)
+    ttlAfterSucceeded: 2h # per-trigger TTL override for succeeded
+    ttlAfterFailed: 48h   # per-trigger TTL override for failed
+```
+
+Count-based and TTL-based GC are **independent** — a FlowRun is eligible for deletion when either condition is met first.
+
+Set `maxSucceeded: 0` or `maxFailed: 0` to disable count-based GC for that phase (TTL still applies).
+
+### Active FlowRuns are exempt
+
+FlowRuns in `Pending`, `Running`, or `Waiting` phase are never garbage collected automatically.
+
+### Retain annotation
+
+To exempt a specific FlowRun from all GC (TTL and count-based):
 
 ```bash
 kubectl annotate flowrun order-received-1710412335-x8k \

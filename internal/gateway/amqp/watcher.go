@@ -165,7 +165,7 @@ func (w *Watcher) startSubscription(ctx context.Context, trigger *automationv1al
 
 	amqpSpec := integration.Spec.Amqp
 
-	subCtx, cancel := context.WithCancel(context.Background())
+	subCtx, cancel := context.WithCancel(ctx)
 	sub := &subscription{
 		cancel:          cancel,
 		integrationName: integrationName,

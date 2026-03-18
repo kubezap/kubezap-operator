@@ -286,60 +286,39 @@ Additional demonstration scenarios targeting acquisition/enterprise stakeholders
 
 ---
 
-## 9. FlowRun Two-Tier Storage (Postgres Archive)
+## 9. `kubezap` CLI Tool
 
-> Design decision finalised 2026-03-18. See `docs/design/flowrun-storage.md` for full rationale.
->
-> **Context**: At enterprise Kafka scale (10,000+ FlowRuns/min), storing completed FlowRuns as
-> CRDs exhausts etcd write throughput and storage quota. The two-tier model keeps active
-> FlowRuns (Pending/Running/Waiting) in etcd for watch/crash-recovery semantics, and archives
-> completed records (Succeeded/Failed/Cancelled) to Postgres. Standalone installs (no Postgres)
-> retain current CRD-only behaviour unchanged.
+> FlowRun history is stored entirely in Kubernetes CRDs with TTL + count-based GC.
+> An external database was considered and rejected (2026-03-18) — see `docs/design/scale-limitations.md`.
+> The CLI provides richer history querying than raw `kubectl` without requiring an external store.
 
-### Design & Operator Config
+### Design
 
-- [ ] Add `--flowrun-archive-dsn-secret` flag to `cmd/main.go` — references a `Secret` (key: `dsn`) containing the Postgres connection string; archive tier disabled when absent
-- [ ] Add `FlowRunArchiveConfig` struct to operator manager options; wire flag into manager setup
-- [ ] Document the two-tier deployment tiers in `docs/design/flowrun-storage.md` (standalone vs archive)
-- [ ] Document CloudNativePG / CrunchyData PGO as recommended on-cluster Postgres operators in `docs/overview.md`
+- [ ] Design doc in `docs/design/cli.md` — command surface, output formats, auth/kubeconfig handling, distribution model (standalone binary vs kubectl plugin `kubectl-kubezap`)
+- [ ] Decide: standalone binary or `kubectl` plugin (recommend kubectl plugin — no PATH friction, consistent with operator ecosystem)
 
-### Postgres Driver & Schema
+### Core Commands
 
-- [ ] Add `github.com/jackc/pgx/v5` as a direct dependency (only linked when archive DSN configured)
-- [ ] Create `internal/archive/` package — `archive.go` interface, `postgres.go` implementation, `noop.go` for standalone tier
-- [ ] Embed Postgres schema migration SQL in `internal/archive/migrations/` (use `golang-migrate/migrate` or hand-rolled `IF NOT EXISTS` DDL on startup)
-- [ ] Schema: `flow_runs` table per `docs/design/flowrun-storage.md#postgres-schema` — UUID PK, `UNIQUE(namespace, name)`, JSONB columns for params/trigger_data/steps/conditions, required indexes
-- [ ] Unit tests in `internal/archive/` covering insert idempotency (`ON CONFLICT DO NOTHING`), TTL query correctness, count-based GC query correctness
+- [ ] `kubezap history [--trigger <name>] [--flow <name>] [--phase <phase>] [--since <duration>] [-n <namespace>]` — list FlowRuns with formatted tabular output (name, trigger, flow, phase, duration, age); uses label/field selectors against the Kubernetes API
+- [ ] `kubezap history <flowrun-name>` — detailed single FlowRun view: spec summary, per-step timeline, results, retry history
+- [ ] `kubezap history --watch` — live tail of FlowRun completions (watches the CRD API)
+- [ ] `kubezap triggers [--namespace <ns>]` — list Triggers with status, last fired time, cooldown state
+- [ ] `kubezap version` — print CLI version + operator version (via operator metrics/status endpoint)
 
-### Controller: Archive on Terminal Transition
+### Implementation
 
-- [ ] `internal/controller/flowrun_controller.go`: on terminal phase transition, call `archive.Store(ctx, flowRun)` before patching CRD status; if archive write fails, return error and let controller-runtime requeue
-- [ ] After successful archive write + status patch: delete the FlowRun CRD (`r.Delete(ctx, flowRun)`)
-- [ ] Idempotency: if CRD delete fails but Postgres record already exists (`UNIQUE` conflict is a no-op), retry delete on next reconcile without re-inserting
-- [ ] When archive tier is disabled (noop backend): existing `enforceFlowRunGCPolicy` path runs unchanged
+- [ ] Scaffold CLI binary in `cmd/kubezap/main.go` using `cobra`
+- [ ] Kubernetes client setup: respect `KUBECONFIG`, `--context`, `--namespace` flags (mirrors kubectl conventions)
+- [ ] Output formatters: table (default), JSON (`-o json`), YAML (`-o yaml`)
+- [ ] Step timeline renderer for single FlowRun detail view (ASCII table: step name, phase, duration, attempts, result keys)
+- [ ] `Makefile` target: `make build-cli` — produces `bin/kubezap`
+- [ ] Goreleaser config for multi-platform CLI releases (alongside operator image releases)
 
-### Controller: Postgres GC Background Goroutine
+### Distribution
 
-- [ ] Add `internal/archive/gc.go` — `RunGC(ctx, db, policy)` function that runs a ticker loop
-- [ ] TTL GC query: `DELETE FROM flow_runs WHERE retain=false AND completion_time < NOW() - interval` (per-FlowRun TTL column > trigger-level TTL > operator default; priority resolved in Go before query)
-- [ ] Count-based GC query: per-trigger, per-phase windowed delete (keep last N, per `docs/design/flowrun-storage.md#count-based-gc`)
-- [ ] GC goroutine started from manager `Start()` (implements `manager.Runnable`); interval configurable via `--flowrun-gc-interval` flag (default: 5m)
-- [ ] Unit tests for both GC queries with test Postgres instance (use `testcontainers-go` or `pgmock`)
-
-### CLI / Observability
-
-- [ ] Add `kubezap.io/retain=true` annotation handling: on archive write, set `retain=true` in Postgres row (annotation value read from FlowRun metadata before CRD delete)
-- [ ] Prometheus metric: `kubezap_flowrun_archive_write_total{result="success|error"}` and `kubezap_flowrun_archive_gc_deleted_total{reason="ttl|count"}` — emit from archive backend
-- [ ] Update `docs/api/flowrun.md` to document two-tier behaviour: active runs visible via kubectl, completed runs archived to Postgres when configured
-- [ ] Add `kubezap history` CLI note in `docs/api/flowrun.md` (planned follow-on, not in this scope)
-
-### Testing
-
-- [ ] Integration test: controller archives FlowRun to Postgres on Succeeded transition + CRD is deleted
-- [ ] Integration test: Postgres write failure causes CRD to be retained (requeue behaviour)
-- [ ] Integration test: TTL GC deletes expired records; `retain=true` record is exempt
-- [ ] Integration test: count-based GC prunes to `maxSucceeded` / `maxFailed` per trigger
-- [ ] E2E: standalone tier (no DSN) behaviour is unchanged — existing GC e2e test still passes
+- [ ] Document installation as kubectl plugin: `mv bin/kubezap /usr/local/bin/kubectl-kubezap`
+- [ ] Add to `docs/overview.md` Installation section
+- [ ] Add to Helm chart as optional `kubectl` plugin install job (or document manual install)
 
 ---
 

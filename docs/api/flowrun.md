@@ -70,8 +70,11 @@ Each step within a FlowRun follows its own phase:
 Pending ──► Running ──► Succeeded
                    ──► Failed ──► (retry) ──► Running
                                          ──► Failed (max attempts reached)
-                   ──► Skipped  (when condition was false)
+                   ──► Skipped   (when condition was false)
+                   ──► Waiting   (wait step — paused until resumeAfter time)
 ```
+
+A `Waiting` step has persisted a `resumeAfter` timestamp to `FlowRun.status`. The controller requeues the FlowRun at that time and resumes execution. This state survives controller restarts — the `resumeAfter` field in status is the authoritative source of truth for when to re-check.
 
 A FlowRun is `Succeeded` only when all non-skipped steps reach `Succeeded`. A single step that exhausts its retries and remains `Failed` causes the entire FlowRun to be `Failed`, unless an `onFailure` handler succeeds.
 
@@ -145,7 +148,7 @@ Snapshot of the event that caused this FlowRun. The full set of fields depends o
 
 | Field | Type | Description |
 |---|---|---|
-| `phase` | string | Overall execution phase: `Pending`, `Running`, `Succeeded`, `Failed`, `Cancelled` |
+| `phase` | string | Overall execution phase: `Pending`, `Running`, `Waiting`, `Succeeded`, `Failed`, `Cancelled` |
 | `conditions` | []Condition | Standard conditions (see below) |
 | `startTime` | timestamp | When the controller began executing the FlowRun |
 | `completionTime` | timestamp | When the FlowRun reached a terminal phase |
@@ -165,12 +168,13 @@ Snapshot of the event that caused this FlowRun. The full set of fields depends o
 | Field | Type | Description |
 |---|---|---|
 | `name` | string | Step name (matches `Flow.spec.steps[].name`) |
-| `phase` | string | `Pending`, `Running`, `Succeeded`, `Failed`, `Skipped` |
+| `phase` | string | `Pending`, `Running`, `Succeeded`, `Failed`, `Skipped`, `Waiting` |
 | `startTime` | timestamp | When this step began executing |
 | `completionTime` | timestamp | When this step reached a terminal phase |
 | `attempts` | integer | Number of execution attempts (1 on first try; incremented on retry) |
 | `message` | string | Error message or skip reason |
 | `results` | []ResultValue | Output values produced by this step |
+| `resumeAfter` | timestamp | Set by wait steps: the time after which the controller will re-evaluate this step. Persisted in status so it survives controller restarts. |
 
 ### ResultValue
 

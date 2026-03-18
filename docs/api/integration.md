@@ -109,7 +109,7 @@ Uses the `kubezap/kafka-gateway` image with the [IBM/sarama](https://github.com/
 
 Kafka has dedicated first-party support rather than being absorbed into a generic AMQP type because its offset/partition semantics, dedup model, and scaling story (KEDA partition-bounded HPA) are fundamentally different from queue-based protocols.
 
-### AMQP (`type: amqp`) _(planned)_
+### AMQP (`type: amqp`) _(beta)_
 
 Uses the `kubezap/amqp-gateway` image. Covers:
 
@@ -126,7 +126,7 @@ Select the wire protocol via `spec.amqp.version: "0-9-1"` or `"1.0"` (default: `
 
 > **Note on JMS:** JMS is a Java API layer, not a wire protocol. For brokers typically accessed via JMS in Java environments, use the AMQP type with the appropriate version. ActiveMQ Artemis and IBM MQ both support AMQP 1.0 natively. TIBCO EMS and other JMS-only brokers have no AMQP support — use `type: plugin` with the vendor's Go SDK.
 
-### NATS (`type: nats`) _(planned)_
+### NATS (`type: nats`) _(beta)_
 
 Uses the `kubezap/nats-gateway` image with the official [nats.go](https://github.com/nats-io/nats.go) client.
 
@@ -739,5 +739,5 @@ The community plugin catalog lives at `docs/plugins/` (forthcoming). Each catalo
 - **Namespace-scoped references**: A Trigger and the Integration it references must be in the same namespace. Cross-namespace Integration references are not supported.
 - **Plugin RBAC is namespace-scoped**: Plugin pods are granted Role (not ClusterRole) permissions to watch Triggers and create FlowRuns only in their own namespace. This is intentional for security and OpenShift SCC compliance.
 - **Plugin image trust**: KubeZap does not verify plugin images. Only use plugin images from sources you trust, as they run inside your cluster with Kubernetes API access.
-- **AMQP and NATS gateways**: `type: amqp` and `type: nats` are reserved in the API but not yet implemented. Use `type: plugin` with a community image in the meantime.
+- **AMQP and NATS gateways**: `type: amqp` and `type: nats` are implemented (beta). Known limitations: the AMQP and NATS gateway watchers currently use a 30-second polling interval to detect Trigger changes (reaction latency up to 30 s); informer-based watch is planned for the next stabilization sprint. See `docs/tech-debt/gateway-shutdown-correctness.md` for details.
 - **One gateway Deployment per Integration per namespace**: KubeZap does not share a single Kafka gateway pod across multiple Integrations. Each Integration gets its own gateway Deployment in each namespace where it is used.

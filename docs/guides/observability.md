@@ -47,6 +47,12 @@ All metrics use the `kubezap_` prefix. Each component exposes a `/metrics` endpo
 
 The webhook trigger endpoint and the metrics endpoint share port `:8080` on the webhook gateway but use different paths (`/hooks/*` and `/metrics` respectively).
 
+> **Note — ServiceMonitor not auto-created**: KubeZap does **not** automatically create
+> `ServiceMonitor` resources. This is intentional — `ServiceMonitor` is a Prometheus Operator
+> CRD that may not be present in every cluster. After installing KubeZap, create
+> `ServiceMonitor` resources manually. See the [Prometheus ServiceMonitor](#prometheus-servicemonitor)
+> section at the end of this guide for ready-to-use templates.
+
 ### Webhook Gateway Metrics
 
 #### `kubezap_webhook_requests_total`

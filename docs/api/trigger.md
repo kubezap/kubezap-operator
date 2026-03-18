@@ -60,7 +60,33 @@ A `Trigger` can also define an inline `action` instead of a `flowRef` for simple
 
 The full URL of the webhook endpoint is: `http://<operator-service>:<port><path>`
 
-For authentication configuration details see [Securing Webhook Triggers](../guides/webhook-security.md). Supported methods: HMAC signature, bearer token, OIDC/OAuth2 JWT, Basic auth, mTLS, API key header, and IP allowlist.
+For authentication configuration examples and security guidance see [Securing Webhook Triggers](../guides/webhook-security.md).
+
+### WebhookAuth
+
+Configures authentication for a webhook trigger endpoint. If omitted, the endpoint accepts requests from any caller — always set `auth` in production.
+
+| Field | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `type` | enum | **Yes** | — | Authentication method: `hmac`, `bearer`, `oidc`, `basic`, `apiKey`, or `ipAllowlist` |
+| `hmacSecretRef` | SecretKeySelector | Conditional | — | Reference to the Secret key containing the HMAC shared secret. Required when `type: hmac`. |
+| `bearerTokenSecretRef` | SecretKeySelector | Conditional | — | Reference to the Secret key containing the expected bearer token. Required when `type: bearer`. |
+| `oidcIssuer` | string | Conditional | — | OIDC/JWT issuer URL (e.g., `https://accounts.google.com`). Required when `type: oidc`. |
+| `oidcAudience` | string | No | — | Expected `aud` claim value. When omitted, audience validation is skipped. Used when `type: oidc`. |
+| `basic` | WebhookBasicAuth | Conditional | — | Basic auth configuration. Required when `type: basic`. |
+| `apiKeySecretRef` | SecretKeySelector | Conditional | — | Reference to the Secret key containing the expected API key value. Required when `type: apiKey`. |
+| `apiKeyHeader` | string | No | `X-Api-Key` | Header name to check for the API key. Used when `type: apiKey`. |
+| `ipAllowlist` | []string | Conditional | — | List of CIDR blocks allowed to call this endpoint (e.g., `["10.0.0.0/8", "192.168.1.0/24"]`). Required when `type: ipAllowlist`. |
+
+> **Note — mTLS**: Client-certificate authentication is not configured via `WebhookAuth`. It is enforced at the TLS termination layer using the `kubezap.io/webhook-mtls-ca-secret` annotation. See [TLS and mTLS Annotations](#tls-and-mtls-annotations) for details.
+
+### WebhookBasicAuth
+
+| Field | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `secretRef` | LocalObjectReference | **Yes** | — | Name of the Secret containing the username and password. |
+| `usernameKey` | string | No | `username` | Key within the Secret that holds the username. |
+| `passwordKey` | string | No | `password` | Key within the Secret that holds the password. |
 
 ### CronTrigger
 

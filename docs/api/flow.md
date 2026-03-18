@@ -384,6 +384,29 @@ serialisation, authentication, and delivery.
         }
 ```
 
+#### Execution
+
+The controller routes the publish call based on the `Integration` type referenced by `integrationRef`:
+
+**If the Integration type is `kafka`** (`spec.kafka` is set):
+- The controller publishes the message directly via a cached `sarama.SyncProducer` connected to the integration's bootstrap servers.
+- No HTTP call is made. Kafka headers from `headers` are forwarded as Kafka message headers.
+- Producers are cached per broker address and reused across publish steps to avoid per-call TCP handshake overhead.
+
+**If the Integration type is `plugin`** (`spec.plugin` is set):
+- The controller makes an HTTP POST to the plugin's `/publish` endpoint:
+  ```
+  POST http://kubezap-plugin-{integration-name}.{namespace}.svc.cluster.local:{port}/publish
+  ```
+  where `{port}` defaults to `8090` if `spec.plugin.publisherPort` is unset.
+- **Content-Type**: defaults to `application/json`; override by setting `Content-Type` in `headers`.
+- **Body**: the value of `body` after `$(...)` interpolation. If `body` is empty, the request is sent with no body.
+- **Timeout**: 30 seconds, unless the enclosing step or flow timeout context is shorter.
+- **Success**: HTTP 2xx response — the step succeeds with an empty results map.
+- **Failure**: HTTP status >= 400 — the step fails with an error message containing the status code. The response body is not included in the error message.
+
+**Retry interaction**: publish steps respect `retryPolicy` if configured on the step. Each retry re-executes the full publish call (Kafka produce or HTTP POST).
+
 ### WaitAction
 
 Pauses the FlowRun for a fixed duration before continuing. When the step is

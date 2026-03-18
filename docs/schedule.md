@@ -288,37 +288,46 @@ Additional demonstration scenarios targeting acquisition/enterprise stakeholders
 
 ## 9. `kubezap` CLI Tool
 
-> FlowRun history is stored entirely in Kubernetes CRDs with TTL + count-based GC.
-> An external database was considered and rejected (2026-03-18) — see `docs/design/scale-limitations.md`.
-> The CLI provides richer history querying than raw `kubectl` without requiring an external store.
+> **Scope decision (2026-03-18)**: read-only for all CRDs. FlowRun history querying is the
+> primary use case — this is where `kubectl` falls short. Triggers, Flows, and Integrations
+> get richer status views than `kubectl get` but no write operations. Write support
+> (editor+template) deferred to future backlog.
+>
+> **Repo decision (2026-03-18)**: monorepo. CLI lives in `cmd/kubezap/` and imports
+> `api/v1alpha1` directly. Separate release artifact via Goreleaser. Split only if CLI
+> ever needs to talk to a hosted API rather than Kubernetes directly.
 
 ### Design
 
-- [ ] Design doc in `docs/design/cli.md` — command surface, output formats, auth/kubeconfig handling, distribution model (standalone binary vs kubectl plugin `kubectl-kubezap`)
-- [ ] Decide: standalone binary or `kubectl` plugin (recommend kubectl plugin — no PATH friction, consistent with operator ecosystem)
+- [ ] Design doc in `docs/design/cli.md` — full command surface, output formats, kubeconfig/context handling, kubectl plugin installation, Goreleaser distribution
 
-### Core Commands
+### Core Commands — FlowRun History (primary use case)
 
-- [ ] `kubezap history [--trigger <name>] [--flow <name>] [--phase <phase>] [--since <duration>] [-n <namespace>]` — list FlowRuns with formatted tabular output (name, trigger, flow, phase, duration, age); uses label/field selectors against the Kubernetes API
-- [ ] `kubezap history <flowrun-name>` — detailed single FlowRun view: spec summary, per-step timeline, results, retry history
-- [ ] `kubezap history --watch` — live tail of FlowRun completions (watches the CRD API)
-- [ ] `kubezap triggers [--namespace <ns>]` — list Triggers with status, last fired time, cooldown state
-- [ ] `kubezap version` — print CLI version + operator version (via operator metrics/status endpoint)
+- [ ] `kubezap history [-n <ns>] [--trigger <name>] [--flow <name>] [--phase <phase>] [--since <duration>]` — filtered FlowRun list: name, trigger, flow, phase, duration, age; uses label/field selectors
+- [ ] `kubezap history <flowrun-name>` — single FlowRun detail: spec summary, per-step timeline (name, phase, duration, attempts), result values, skip/failure reasons
+- [ ] `kubezap history --watch` — live tail of FlowRun completions via CRD watch
+
+### Read-Only Status Commands
+
+- [ ] `kubezap triggers [-n <ns>]` — table: name, type, status, last fired, active FlowRun count, effective GC policy; surfaces cross-referenced state that requires multiple `kubectl` commands to assemble
+- [ ] `kubezap flows [-n <ns>]` — table: name, step count, ready condition, last used (inferred from most recent FlowRun)
+- [ ] `kubezap integrations [-n <ns>]` — table: name, type, plugin health (readiness probe status), associated gateway Deployment status
+- [ ] `kubezap version` — CLI version + operator version (from operator Deployment image tag)
 
 ### Implementation
 
-- [ ] Scaffold CLI binary in `cmd/kubezap/main.go` using `cobra`
-- [ ] Kubernetes client setup: respect `KUBECONFIG`, `--context`, `--namespace` flags (mirrors kubectl conventions)
-- [ ] Output formatters: table (default), JSON (`-o json`), YAML (`-o yaml`)
-- [ ] Step timeline renderer for single FlowRun detail view (ASCII table: step name, phase, duration, attempts, result keys)
-- [ ] `Makefile` target: `make build-cli` — produces `bin/kubezap`
-- [ ] Goreleaser config for multi-platform CLI releases (alongside operator image releases)
+- [ ] Scaffold CLI binary in `cmd/kubezap/main.go` using `cobra`; internal commands in `internal/cli/`
+- [ ] Kubernetes client setup: respect `KUBECONFIG`, `--context`, `--namespace` / `-n` flags (mirrors kubectl conventions); use `api/v1alpha1` types directly (same module, no versioning complexity)
+- [ ] Output formatters in `internal/cli/output/`: table (default), JSON (`-o json`), YAML (`-o yaml`)
+- [ ] Step timeline renderer for `history <name>`: ASCII table with step name, phase icon, start→end duration, attempt count, result key=value pairs
+- [ ] `Makefile` target `make build-cli` — produces `bin/kubezap`
+- [ ] Goreleaser config: multi-platform CLI binaries (linux/amd64, linux/arm64, darwin/amd64, darwin/arm64) released alongside operator image
 
 ### Distribution
 
-- [ ] Document installation as kubectl plugin: `mv bin/kubezap /usr/local/bin/kubectl-kubezap`
-- [ ] Add to `docs/overview.md` Installation section
-- [ ] Add to Helm chart as optional `kubectl` plugin install job (or document manual install)
+- [ ] Distributed as `kubectl-kubezap` binary — users add to `$PATH` and invoke as `kubectl kubezap` or standalone `kubezap`
+- [ ] Document installation in `docs/overview.md` (brew tap, direct download, manual kubectl plugin install)
+- [ ] Future: `kubezap create <kind>` — opens `$EDITOR` with a pre-filled template YAML; deferred until read-only commands are stable
 
 ---
 

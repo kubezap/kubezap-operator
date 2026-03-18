@@ -109,7 +109,30 @@ Uses the `kubezap/kafka-gateway` image with the [IBM/sarama](https://github.com/
 
 Kafka has dedicated first-party support rather than being absorbed into a generic AMQP type because its offset/partition semantics, dedup model, and scaling story (KEDA partition-bounded HPA) are fundamentally different from queue-based protocols.
 
-### AMQP (`type: amqp`) _(planned)_
+#### Scaling with KEDA
+
+KubeZap creates a KEDA `ScaledObject` alongside each Kafka gateway Deployment when KEDA is installed in the cluster. The `ScaledObject` uses the `kafka` trigger type and scales the gateway based on consumer group lag, bounded by the number of partitions in the topic:
+
+```
+minReplicaCount: 1
+maxReplicaCount: <number of partitions>
+trigger:
+  type: kafka
+  metadata:
+    bootstrapServers: <from Integration.spec.kafka.bootstrapServers>
+    consumerGroup: <kubezap-<trigger-name>>
+    topic: <from Trigger.spec.pubsub.topic>
+    lagThreshold: "50"
+    offsetResetPolicy: latest
+```
+
+**Prerequisites:** KEDA must be installed in the cluster (`keda-operator` pod running in the `keda` namespace or similar). KubeZap detects KEDA availability by checking for the `ScaledObject` CRD at startup. If KEDA is not installed, the gateway Deployment is created with a static replica count of 1 and no `ScaledObject` is created.
+
+**Lag threshold:** The default lag threshold is 50 messages per replica. This is intentionally conservative — tune it down for latency-sensitive flows or up for high-throughput batch scenarios. Future: expose `spec.kafka.kedaLagThreshold` on the `Integration` to control this per-integration.
+
+**Partition-bounded scaling:** KEDA will not scale the gateway beyond the number of partitions in the topic, since there is no benefit to having more consumers than partitions. Ensure your topics have enough partitions for the concurrency you expect.
+
+### AMQP (`type: amqp`) _(beta)_
 
 Uses the `kubezap/amqp-gateway` image. Covers:
 
@@ -126,7 +149,7 @@ Select the wire protocol via `spec.amqp.version: "0-9-1"` or `"1.0"` (default: `
 
 > **Note on JMS:** JMS is a Java API layer, not a wire protocol. For brokers typically accessed via JMS in Java environments, use the AMQP type with the appropriate version. ActiveMQ Artemis and IBM MQ both support AMQP 1.0 natively. TIBCO EMS and other JMS-only brokers have no AMQP support — use `type: plugin` with the vendor's Go SDK.
 
-### NATS (`type: nats`) _(planned)_
+### NATS (`type: nats`) _(beta)_
 
 Uses the `kubezap/nats-gateway` image with the official [nats.go](https://github.com/nats-io/nats.go) client.
 
@@ -739,5 +762,5 @@ The community plugin catalog lives at `docs/plugins/` (forthcoming). Each catalo
 - **Namespace-scoped references**: A Trigger and the Integration it references must be in the same namespace. Cross-namespace Integration references are not supported.
 - **Plugin RBAC is namespace-scoped**: Plugin pods are granted Role (not ClusterRole) permissions to watch Triggers and create FlowRuns only in their own namespace. This is intentional for security and OpenShift SCC compliance.
 - **Plugin image trust**: KubeZap does not verify plugin images. Only use plugin images from sources you trust, as they run inside your cluster with Kubernetes API access.
-- **AMQP and NATS gateways**: `type: amqp` and `type: nats` are reserved in the API but not yet implemented. Use `type: plugin` with a community image in the meantime.
+- **AMQP and NATS gateways**: `type: amqp` and `type: nats` are implemented (beta). Known limitations: the AMQP and NATS gateway watchers currently use a 30-second polling interval to detect Trigger changes (reaction latency up to 30 s); informer-based watch is planned for the next stabilization sprint. See `docs/tech-debt/gateway-shutdown-correctness.md` for details.
 - **One gateway Deployment per Integration per namespace**: KubeZap does not share a single Kafka gateway pod across multiple Integrations. Each Integration gets its own gateway Deployment in each namespace where it is used.

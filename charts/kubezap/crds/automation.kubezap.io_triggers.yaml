@@ -135,14 +135,41 @@ spec:
                 required:
                 - name
                 type: object
-              maxFlowRuns:
+              flowRunGC:
                 description: |-
-                  MaxFlowRuns caps the number of retained FlowRuns for this Trigger.
-                  When exceeded, the oldest completed FlowRuns are garbage-collected.
-                  If zero or omitted, no cap is applied.
-                format: int32
-                minimum: 0
-                type: integer
+                  FlowRunGC configures garbage collection of completed FlowRuns for this Trigger.
+                  Operator-level defaults apply when omitted; set individual fields to override per-trigger.
+                properties:
+                  maxFailed:
+                    description: |-
+                      MaxFailed is the maximum number of failed FlowRuns to retain for this Trigger.
+                      When exceeded, the oldest failed FlowRuns are deleted. Set to 0 to disable
+                      count-based GC for failed runs (TTL still applies).
+                      Defaults to a higher value than MaxSucceeded to retain failure history for debugging.
+                    format: int32
+                    minimum: 0
+                    type: integer
+                  maxSucceeded:
+                    description: |-
+                      MaxSucceeded is the maximum number of succeeded FlowRuns to retain for this Trigger.
+                      When exceeded, the oldest succeeded FlowRuns are deleted. Set to 0 to disable
+                      count-based GC for succeeded runs (TTL still applies).
+                    format: int32
+                    minimum: 0
+                    type: integer
+                  ttlAfterFailed:
+                    description: |-
+                      TTLAfterFailed is the duration to retain a failed FlowRun after completion.
+                      Overrides the operator's --flowrun-ttl-failed flag for this Trigger.
+                      Set to "0s" to delete failed FlowRuns immediately (not recommended — loses debug history).
+                    type: string
+                  ttlAfterSucceeded:
+                    description: |-
+                      TTLAfterSucceeded is the duration to retain a succeeded FlowRun after completion.
+                      Overrides the operator's --flowrun-ttl-succeeded flag for this Trigger.
+                      Set to "0s" to delete succeeded FlowRuns immediately.
+                    type: string
+                type: object
               pubsub:
                 description: PubSub configuration (only for type=pubsub)
                 properties:

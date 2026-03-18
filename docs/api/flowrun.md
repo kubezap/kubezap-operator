@@ -70,8 +70,11 @@ Each step within a FlowRun follows its own phase:
 Pending ──► Running ──► Succeeded
                    ──► Failed ──► (retry) ──► Running
                                          ──► Failed (max attempts reached)
-                   ──► Skipped  (when condition was false)
+                   ──► Skipped   (when condition was false)
+                   ──► Waiting   (wait step — paused until resumeAfter time)
 ```
+
+A `Waiting` step has persisted a `resumeAfter` timestamp to `FlowRun.status`. The controller requeues the FlowRun at that time and resumes execution. This state survives controller restarts — the `resumeAfter` field in status is the authoritative source of truth for when to re-check.
 
 A FlowRun is `Succeeded` only when all non-skipped steps reach `Succeeded`. A single step that exhausts its retries and remains `Failed` causes the entire FlowRun to be `Failed`, unless an `onFailure` handler succeeds.
 
@@ -145,7 +148,7 @@ Snapshot of the event that caused this FlowRun. The full set of fields depends o
 
 | Field | Type | Description |
 |---|---|---|
-| `phase` | string | Overall execution phase: `Pending`, `Running`, `Succeeded`, `Failed`, `Cancelled` |
+| `phase` | string | Overall execution phase: `Pending`, `Running`, `Waiting`, `Succeeded`, `Failed`, `Cancelled` |
 | `conditions` | []Condition | Standard conditions (see below) |
 | `startTime` | timestamp | When the controller began executing the FlowRun |
 | `completionTime` | timestamp | When the FlowRun reached a terminal phase |
@@ -165,12 +168,13 @@ Snapshot of the event that caused this FlowRun. The full set of fields depends o
 | Field | Type | Description |
 |---|---|---|
 | `name` | string | Step name (matches `Flow.spec.steps[].name`) |
-| `phase` | string | `Pending`, `Running`, `Succeeded`, `Failed`, `Skipped` |
+| `phase` | string | `Pending`, `Running`, `Succeeded`, `Failed`, `Skipped`, `Waiting` |
 | `startTime` | timestamp | When this step began executing |
 | `completionTime` | timestamp | When this step reached a terminal phase |
 | `attempts` | integer | Number of execution attempts (1 on first try; incremented on retry) |
 | `message` | string | Error message or skip reason |
 | `results` | []ResultValue | Output values produced by this step |
+| `resumeAfter` | timestamp | Set by wait steps: the time after which the controller will re-evaluate this step. Persisted in status so it survives controller restarts. |
 
 ### ResultValue
 
@@ -196,15 +200,42 @@ nightly-report-2026031402      gen-report     Running     30s    —
 
 ## Garbage Collection
 
-FlowRuns accumulate over time. KubeZap garbage collects completed FlowRuns based on:
+FlowRuns accumulate over time. KubeZap garbage collects completed FlowRuns through two independent mechanisms that both run on each reconcile of a terminal FlowRun:
 
-1. **`spec.ttlAfterFinished`** — if set on the FlowRun itself, takes precedence
-2. **Operator-level TTL defaults** — configured via the controller's `--flowrun-ttl-succeeded` and `--flowrun-ttl-failed` flags (defaults: `24h` succeeded, `72h` failed)
-3. **`spec.maxFlowRuns`** on the `Trigger` — keeps the N most recent FlowRuns for that trigger, deleting older ones regardless of TTL
+### TTL-Based GC (time-to-live)
 
-FlowRuns in `Pending` or `Running` phase are never garbage collected automatically.
+Priority order (highest wins):
 
-To retain a specific FlowRun indefinitely, annotate it:
+1. **`spec.ttlAfterFinished`** on the FlowRun — overrides everything; set per-FlowRun by the gateway at creation time
+2. **`spec.flowRunGC.ttlAfterSucceeded` / `ttlAfterFailed`** on the `Trigger` — per-trigger override
+3. **Operator-level defaults** — `--flowrun-ttl-succeeded` (default: `24h`) and `--flowrun-ttl-failed` (default: `72h`)
+
+Failed FlowRuns default to a longer retention window than succeeded because they are more likely to be needed for debugging.
+
+### Count-Based GC (history limit)
+
+Mirrors the Kubernetes Job history limits pattern. Configured on the `Trigger` via `spec.flowRunGC`:
+
+```yaml
+spec:
+  flowRunGC:
+    maxSucceeded: 10      # keep last 10 succeeded FlowRuns
+    maxFailed: 25         # keep last 25 failed FlowRuns (separate cap)
+    ttlAfterSucceeded: 2h # per-trigger TTL override for succeeded
+    ttlAfterFailed: 48h   # per-trigger TTL override for failed
+```
+
+Count-based and TTL-based GC are **independent** — a FlowRun is eligible for deletion when either condition is met first.
+
+Set `maxSucceeded: 0` or `maxFailed: 0` to disable count-based GC for that phase (TTL still applies).
+
+### Active FlowRuns are exempt
+
+FlowRuns in `Pending`, `Running`, or `Waiting` phase are never garbage collected automatically.
+
+### Retain annotation
+
+To exempt a specific FlowRun from all GC (TTL and count-based):
 
 ```bash
 kubectl annotate flowrun order-received-1710412335-x8k \

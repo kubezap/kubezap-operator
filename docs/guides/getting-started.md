@@ -115,8 +115,7 @@ spec:
         type: transform
         transform:
           mappings:
-            orderType: "$(trigger.body)"   # replaced with CEL/jq extraction once implemented;
-                                           # for now pass the raw field from a structured body
+            orderType: "$(trigger.body.orderType)"
 
     - name: enrich-order
       runAfter:

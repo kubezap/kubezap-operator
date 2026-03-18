@@ -198,17 +198,30 @@ func (w *Watcher) startSubscription(ctx context.Context, trigger *automationv1al
 	}
 
 	// Apply credentials if configured.
+	var credsFilePath string // set below if credentials are written; cleaned up on subscription stop
 	if spec.CredentialsSecretRef != nil {
 		credsContent, err := w.readSecretKey(ctx, trigger.Namespace, spec.CredentialsSecretRef.Name, "nats.creds")
 		if err != nil {
 			return fmt.Errorf("reading nats credentials secret: %w", err)
 		}
-		// Write credentials to a temp file as natsio.UserCredentials requires a file path.
-		credsFile := fmt.Sprintf("/tmp/nats-creds-%s.creds", trigger.Name)
-		if err := os.WriteFile(credsFile, []byte(credsContent), 0600); err != nil {
+		// Write credentials to a randomly-named temp file. Using a fixed path is a security
+		// risk (predictable name, namespace collisions). The file is removed when the
+		// subscription goroutine exits.
+		f, err := os.CreateTemp("", "nats-creds-*.creds")
+		if err != nil {
+			return fmt.Errorf("creating nats credentials temp file: %w", err)
+		}
+		credsFilePath = f.Name()
+		if _, err := f.Write([]byte(credsContent)); err != nil {
+			_ = f.Close()
+			_ = os.Remove(credsFilePath)
 			return fmt.Errorf("writing nats credentials to temp file: %w", err)
 		}
-		opts = append(opts, natsio.UserCredentials(credsFile))
+		if err := f.Close(); err != nil {
+			_ = os.Remove(credsFilePath)
+			return fmt.Errorf("closing nats credentials temp file: %w", err)
+		}
+		opts = append(opts, natsio.UserCredentials(credsFilePath))
 	} else if spec.UsernameSecretRef != nil {
 		username, err := w.readSecretKey(ctx, trigger.Namespace, spec.UsernameSecretRef.Name, spec.UsernameSecretRef.Key)
 		if err != nil {
@@ -230,7 +243,7 @@ func (w *Watcher) startSubscription(ctx context.Context, trigger *automationv1al
 		return fmt.Errorf("connect to nats for trigger %s/%s: %w", trigger.Namespace, trigger.Name, err)
 	}
 
-	subCtx, cancel := context.WithCancel(context.Background())
+	subCtx, cancel := context.WithCancel(ctx)
 	isJetStream := spec.JetStream
 
 	handler := &MessageHandler{
@@ -296,6 +309,11 @@ func (w *Watcher) startSubscription(ctx context.Context, trigger *automationv1al
 		}
 		if err := nc.Drain(); err != nil {
 			w.log.Error(err, "error draining nats connection", "trigger", key)
+		}
+		if credsFilePath != "" {
+			if err := os.Remove(credsFilePath); err != nil && !os.IsNotExist(err) {
+				w.log.Error(err, "failed to remove nats credentials temp file", "path", credsFilePath)
+			}
 		}
 		w.log.Info("nats subscription stopped", "trigger", key)
 	}()

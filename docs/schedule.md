@@ -299,7 +299,7 @@ Additional demonstration scenarios targeting acquisition/enterprise stakeholders
 
 ### Design
 
-- [ ] Design doc in `docs/design/cli.md` — full command surface, output formats, kubeconfig/context handling, kubectl plugin installation, Goreleaser distribution
+- [x] Design doc in `docs/design/cli.md` — full command surface, output formats, kubeconfig/context handling, kubectl plugin installation, Goreleaser distribution _(done 2026-03-18)_
 
 ### Core Commands — FlowRun History (primary use case)
 

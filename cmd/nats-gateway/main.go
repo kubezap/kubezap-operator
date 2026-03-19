@@ -67,7 +67,11 @@ func main() {
 		os.Exit(1)
 	}
 
-	watcher := natsgateway.NewWatcher(k8sClient, namespace, log.WithName("watcher"))
+	watcher, err := natsgateway.NewWatcher(k8sClient, cfg, namespace, log.WithName("watcher"))
+	if err != nil {
+		log.Error(err, "unable to create nats watcher")
+		os.Exit(1)
+	}
 
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()

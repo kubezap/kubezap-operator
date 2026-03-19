@@ -161,6 +161,10 @@ lint-config: golangci-lint ## Verify golangci-lint linter configuration
 build: manifests generate fmt vet ## Build manager binary.
 	go build -o bin/manager cmd/main.go
 
+.PHONY: build-cli
+build-cli: ## Build the kubezap CLI binary (bin/kubezap).
+	go build -o bin/kubezap ./cmd/kubezap
+
 .PHONY: run
 run: manifests generate fmt vet ## Run a controller from your host.
 	go run ./cmd/main.go

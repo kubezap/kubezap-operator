@@ -219,6 +219,17 @@ test/                 # Unit and E2E test infrastructure
   6. Write Ginkgo tests
 - Tests use Ginkgo BDD style: `Describe`/`Context`/`It` blocks with Gomega matchers
 
+## Code Style / Go
+
+- After any code generation or edit in Go files, always run `gofmt -w .` and `goimports -w .` before committing. Never leave formatting or import ordering for a separate fix step.
+- golangci-lint enforces style — run `make lint` before committing.
+
+## Testing
+
+- Always run `go test ./...` after implementing features or fixing bugs. Do not commit until tests pass.
+- If tests fail, triage whether failures are pre-existing or new before attempting fixes. If pre-existing, note it and move on; do not spend capacity fixing unrelated failures.
+- Unit tests use Ginkgo BDD style; E2E tests use Kind/k3s cluster. See `make test` and `make test-e2e`.
+
 ## OpenShift / OperatorHub
 
 - OLM bundle generation already scaffolded via Operator SDK
@@ -320,7 +331,7 @@ Before creating any agents, list every file each task will need to read **and wr
 
 ### Step 2 — Use worktree isolation for code-changing agents
 
-When spawning an Agent tool call that will make code changes, set `isolation: "worktree"`. This gives each agent a clean filesystem copy and prevents mid-flight conflicts.
+When spawning an Agent tool call that will make code changes, set `isolation: "worktree"`. This gives each agent a clean filesystem copy and prevents mid-flight conflicts. Each agent must work in its own git worktree or branch — never share a working directory between parallel agents.
 
 Do NOT use worktree isolation for read-only agents (research, code review, docs reading).
 
@@ -333,7 +344,7 @@ If parallel agents each add new controllers, schemes, flags, or dependencies, do
 
 ### Step 4 — Sequential merge with validation gate
 
-After all parallel agents complete, merge their work into main one branch at a time:
+After all parallel agents complete, merge their work into main one branch at a time via **sequential rebase** (not merge commits) to avoid conflicts on hot files like `cmd/main.go`:
 
 ```bash
 # after each merge:
@@ -353,3 +364,7 @@ go build ./...
 ```
 
 Running `make generate` inside parallel agents produces conflicting generated files. Only run it after all code changes are in.
+
+### API rate limit awareness in parallel agents
+
+When running parallel agents, stagger API-intensive operations (`go mod tidy`, `make test`, full test suites) so they do not all fire concurrently. If a sub-agent hits a rate limit, let the other agents complete first, then retry the failed agent.

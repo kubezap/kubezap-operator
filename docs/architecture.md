@@ -527,6 +527,8 @@ Three images, all built from the same repository:
 | `kubezap/controller` | `cmd/main.go` | `distroless/static:nonroot` |
 | `kubezap/webhook-gateway` | `cmd/webhook-gateway/main.go` | `distroless/static:nonroot` |
 | `kubezap/kafka-gateway` | `cmd/kafka-gateway/main.go` | `distroless/static:nonroot` |
+| `kubezap/amqp-gateway` | `cmd/amqp-gateway/main.go` | `distroless/static:nonroot` |
+| `kubezap/nats-gateway` | `cmd/nats-gateway/main.go` | `distroless/static:nonroot` |
 
 All images share the same version tag. The controller references gateway images by tag when creating Deployments. The image tag can be overridden at operator install time via Helm values or OLM subscription config.
 
@@ -536,6 +538,8 @@ All images share the same version tag. The controller references gateway images 
 Dockerfile                   # controller image (existing)
 Dockerfile.webhook-gateway   # webhook gateway image
 Dockerfile.kafka-gateway     # kafka gateway image
+Dockerfile.amqp-gateway      # AMQP gateway image
+Dockerfile.nats-gateway      # NATS gateway image
 ```
 
 All follow the same multi-stage pattern: build in `golang:1.24`, run in `distroless/static:nonroot`.

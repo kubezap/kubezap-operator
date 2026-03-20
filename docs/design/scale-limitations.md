@@ -72,9 +72,11 @@ processor that filters and aggregates messages before invoking workflows.
 
 ---
 
-## CLI History (Planned)
+## CLI History
 
-A `kubezap history` CLI command is planned (see schedule section 10) to provide richer querying
+The `kubezap history` command (see [CLI design](../design/cli.md)) provides richer querying
 of FlowRun history than `kubectl get flowruns` alone — filtering by trigger, phase, time range,
-and step outcome. This will query the Kubernetes API using label/field selectors and format the
+and step outcome. It queries the Kubernetes API using label/field selectors and formats the
 output ergonomically. It operates within the same CRD-based storage model.
+
+Install the CLI via `make build-cli` or download from GitHub Releases.

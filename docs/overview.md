@@ -46,7 +46,7 @@ All of this is configured through Kubernetes custom resources, meaning it is ver
 
 A `Trigger` defines the event source that starts a workflow. It specifies what to listen for and which `Flow` to execute when the event fires.
 
-Supported trigger types: **webhook**, **cron**, **pubsub** (Kafka first; additional message brokers via the `Integration` plugin model — see [Integration CRD](api/integration.md)).
+Supported trigger types: **webhook**, **cron**, **pubsub** (built-in: Kafka, AMQP, NATS; additional brokers via the `Integration` plugin model — see [Integration CRD](api/integration.md)).
 
 ### Flow
 
@@ -87,11 +87,13 @@ An `Integration` stores connection details and credentials for an external syste
   Observability: Prometheus Metrics  +  OpenTelemetry Traces
 ```
 
-KubeZap runs as three separate components — a controller and two types of gateway pods:
+KubeZap runs as a controller plus purpose-built gateway pods per broker type:
 
 - **`kubezap-controller`** — the Kubernetes operator. Reconciles all CRDs, creates and manages gateway Deployments, and executes Flows when a `FlowRun` CRD is created.
 - **`kubezap-webhook-gateway`** — a lightweight HTTP server. The controller creates one Deployment per namespace where webhook Triggers exist. It watches Trigger CRDs directly and registers/deregisters routes dynamically without restarts.
 - **`kubezap-kafka-gateway`** — a Kafka consumer. The controller creates one Deployment per Kafka cluster (Integration) per namespace. It subscribes to all topics referenced by Triggers in that namespace.
+- **`kubezap-amqp-gateway`** — an AMQP consumer. Supports AMQP 0-9-1 (RabbitMQ) and AMQP 1.0 (ActiveMQ Artemis). One Deployment per AMQP broker (Integration) per namespace.
+- **`kubezap-nats-gateway`** — a NATS consumer. Supports NATS Core and JetStream durable consumers. One Deployment per NATS cluster (Integration) per namespace.
 
 Gateways communicate trigger events to the controller by creating `FlowRun` CRDs. The controller watches FlowRuns and executes the referenced Flow. This decoupling means gateways scale independently from the controller, and every execution is a Kubernetes resource you can inspect.
 
@@ -643,8 +645,8 @@ For a full setup walkthrough including namespace configuration and RBAC see [Get
 
 - [x] Helm chart
 - [x] Multi-platform CLI binaries via Goreleaser
+- [x] Additional message brokers (AMQP, NATS)
 - [ ] OLM bundle validated and submitted to OperatorHub
-- [ ] Additional message brokers (AMQP, NATS)
 
 ### Future
 

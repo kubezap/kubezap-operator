@@ -207,7 +207,7 @@ Additional demonstration scenarios targeting acquisition/enterprise stakeholders
   - [x] `NOTES.txt` with post-install instructions
   - [x] `helm lint` and `helm template` validation pass _(verified 2026-03-20: `helm lint` 0 failures, `helm template` renders cleanly)_
   - [x] Document Helm installation in `docs/overview.md` Installation section
-- [ ] OLM bundle finalized and validated with `operator-sdk bundle validate`
+- [x] OLM bundle finalized and validated with `operator-sdk bundle validate`
 - [ ] OperatorHub submission PR
 - [x] `docs/overview.md` Installation section completed _(done 2026-03-20)_
 - [x] Compatibility matrix updated (OpenShift 4.12+) _(done 2026-03-20)_

@@ -16,9 +16,56 @@
 
 ---
 
-## 1. Testing — Targeted Coverage Gaps
+## Prioritization rationale
 
-> Ginkgo tests in `internal/controller/` or `internal/gateway/` unless otherwise noted.
+Items are ordered to minimize rework:
+
+1. **Research first** — find breaking bugs and interference issues before writing tests or building features on top of them. Tests written against broken behavior must be rewritten after the fix.
+2. **Tests before features** — tests are more stable when written against confirmed-correct behavior.
+3. **MockEndpoint replacement (docs + existing examples) before new examples** — new examples 7-9 all use mock HTTP servers. Building them with MockEndpoints and then migrating to Mockoon is double work. Write Mockoon-based examples from day 1.
+4. **`type: http` Integration before new examples** — completed examples embed credentials inline. Building examples 7-9 without `integrationRef` means updating all their manifests and READMEs again after the feature lands.
+5. **MockEndpoint code removal last** — safe to delete only after all examples, guides, and tests are migrated.
+6. **Example 6 (K8s ITSM) last among examples** — blocked on `type: resource` trigger (Future/Backlog). Other examples can proceed independently.
+
+---
+
+## 1. Research — Critical Bug Hunt (R2)
+
+> **Do this first.** Critical bugs found here could change FlowRun phase transitions, retry
+> behavior, or gateway semantics. Tests written before these fixes may test wrong behavior
+> and need to be rewritten. Identify bugs now; fix before building further.
+
+**Goal:** Read-only audit of the live codebase for critical or breaking issues. Focus on correctness bugs that could cause data loss, silent failures, or stuck resources in production.
+
+- [ ] `internal/controller/flowrun_controller.go`: scan for unhandled error paths, missing finalizer removal conditions, or incorrect phase transitions that could leave FlowRuns permanently stuck
+- [ ] `internal/controller/trigger_controller.go`: look for reconcile loops that could cause infinite requeuing or missed status updates
+- [ ] `internal/gateway/webhook/handler.go`: check request body handling edge cases — empty body, non-JSON body with `resultMappings`, body at the size limit boundary
+- [ ] `internal/gateway/kafka/watcher.go`, `amqp/watcher.go`, `nats/watcher.go`: check for goroutine leak scenarios — contexts not cancelled, subscriptions not cleaned up on watcher shutdown
+- [ ] `cmd/main.go`: verify leader election, metric registration, and scheme setup are correct for production use
+- [ ] Based on findings: add schedule items for any critical bugs; skip LOW/cosmetic issues (those belong in a general debt review)
+
+---
+
+## 2. Research — Multi-Type Interference Audit (R1)
+
+> **Do this before writing T1-T8.** Interference bugs in cron scheduling or FlowRun naming
+> affect what T1 and T4 test directly. Fixing them after tests are written means test rewrites.
+
+**Goal:** Find cases where having multiple trigger types or integration types active in the same namespace could interfere — shared resource conflicts, name collisions, owner-ref races.
+
+**Known starting point:** `kubezap-gateway` SA/Role/RoleBinding is shared by kafka/amqp/nats integrations — see `docs/tech-debt/rbac-ownership-gaps.md#issue-3` for the ownership fix (2026-03-20). Audit whether similar sharing exists elsewhere.
+
+- [ ] Audit `reconcileKafkaGateway`, `reconcileAmqpGateway`, `reconcileNatsGateway`: verify all three produce the same `kubezap-gateway` Role rules and that concurrent reconciles of different integration types in the same namespace converge correctly
+- [ ] Audit webhook gateway: if both a webhook Trigger and a pubsub Trigger exist in the same namespace, does the webhook gateway Deployment lifecycle interfere with pubsub gateway Deployments? Check `trigger_controller.go` for shared-name risk between gateway types
+- [ ] Audit cron scheduler: if two Triggers with the same `schedule` string exist in the same namespace (or across namespaces), do cron entries conflict or double-fire? Check `cron_scheduler.go` entry keying
+- [ ] Audit FlowRun naming: check for name collision risk when multiple Triggers reference the same Flow — do cron (`<trigger>-<scheduled-time>`), webhook (`<trigger>-<timestamp>-<random>`) naming schemes create collision risk under concurrent load?
+- [ ] Based on findings: add schedule items for confirmed bugs; add test items (T9+) for collision/interference scenarios with no existing coverage
+
+---
+
+## 3. Testing — Targeted Coverage Gaps (T1-T8)
+
+> Write after R1 and R2 so tests are not written against behavior that is about to change.
 
 - [ ] **T1 — Cron trigger integration test**: Create Trigger with `schedule: "*/1 * * * *"`, advance fake clock 65s (use `clock.FakeClock` from `k8s.io/utils/clock/testing`), assert exactly one FlowRun exists named `<trigger>-<scheduled-time>` and is `Succeeded`. File: `internal/controller/cron_scheduler_test.go` (extend existing).
 - [ ] **T2 — HMAC auth reject/accept E2E**: Start a real webhook gateway HTTP server in test, send request with valid HMAC → assert 202 + FlowRun created; send with wrong signature → assert 401 + no FlowRun; send with missing header → assert 401. File: `internal/gateway/webhook/handler_test.go` (new table-driven cases).
@@ -31,34 +78,63 @@
 
 ---
 
-## 2. Deployment & Distribution
+## 4. MockEndpoint Replacement — Docs and Existing Examples
 
-- [ ] OperatorHub submission PR _(PAUSED — owner request 2026-03-20; do not start until explicitly unblocked)_
+> **Complete Phases 0-3 before building Examples 7-9.** All pending examples use mock HTTP
+> servers. Building them with MockEndpoints would require full rewrites during Phase 2-3.
+> Phase 0 is already unblocked — tool selected (see note).
+
+### Phase 0 — Tool selection
+
+- [x] Choose replacement mock tool — **Mockoon** selected (see `docs/tech-debt/pending-input-required.md`, answered 2026-03-20)
+
+### Phase 1 — Write replacement documentation
+
+- [ ] Convert `docs/api/mock-endpoint.md` to `docs/guides/mocking-http-endpoints.md`: explain why MockEndpoint is removed, document Mockoon's in-cluster deployment (Docker image + Kubernetes `Deployment` + `Service`), show how to define stub responses, show how to inspect captured requests, cross-link to each example that uses it
+- [ ] Add in-cluster `Deployment` + `Service` YAML for Mockoon as a reusable snippet referenced by examples and the guide
+- [ ] Update `docs/overview.md` CRD Overview table: remove `MockEndpoint` row; add note redirecting to `docs/guides/mocking-http-endpoints.md`
+- [ ] Update `docs/architecture.md`: remove all MockEndpoint references; update the "Webhook gateway also serves `/mock/*` paths" note to reflect removal
+- [ ] Update `docs/guides/troubleshooting.md`: replace "MockEndpoint not capturing requests" section with Mockoon equivalent
+
+### Phase 2 — Update existing example manifests
+
+- [ ] `config/samples/automation_v1alpha1_mockendpoint.yaml` — delete file; remove from `config/samples/kustomization.yaml` and OLM bundle alm-examples
+- [ ] `examples/order-router/` — replace MockEndpoint resources with Mockoon stub configs; update `kustomization.yaml` and `README.md`
+- [ ] `examples/kafka-enrichment/` — replace `enterprise-sink`, `standard-sink`, `trial-sink`, `customer-profile` MockEndpoints with Mockoon stub configs; update `kustomization.yaml` and `README.md`
+- [ ] `examples/slack-router/` — replace MockEndpoint resources with Mockoon; update `kustomization.yaml` and `README.md`
+- [ ] `examples/incident-escalation/` — audit for MockEndpoint usage; update if present
+- [ ] `examples/nightly-export/` — audit for MockEndpoint usage; update if present
+
+### Phase 3 — Update existing guides
+
+- [ ] `docs/guides/getting-started.md` — replace all MockEndpoint steps with Mockoon equivalent; update every `kubectl apply` command and expected output block
 
 ---
 
-## 3. Examples — Real-World (v0.4)
+## 5. `type: http` Integration
 
-> Each example lives in `examples/<slug>/` with a `README.md` and all required manifests.
-> Completed examples: order-router, kafka-enrichment, incident-escalation, github-autolabel, slack-router, nightly-export.
+> **Implement before Examples 7-9.** Without this, examples must embed credentials (Slack
+> webhook URLs, API tokens) inline in Flow specs. Building examples that way means updating
+> all manifests and READMEs again when `type: http` lands. Build it once, correctly.
+>
+> Completed examples (github-autolabel, slack-router, nightly-export) also have inline
+> credentials — update them after this is implemented.
 
-### Example 6 — Kubernetes Resource Event → ITSM Ticket
-
-**External dependencies:**
-- A running cluster where the example namespace has Pods that can be set to `Failed` phase (easily done with an invalid image)
-- A ServiceNow developer instance **or** Jira Cloud **or** a mock HTTP server as ITSM stand-in (recommended for self-contained example)
-- Credentials for the ITSM API stored in a Kubernetes Secret (not needed if using mock)
-
-> **Blocked on:** `type: resource` Kubernetes resource-event trigger (listed in Future/Backlog). Write manifests and README assuming that feature is available; mark as `(requires kubernetes trigger type — not yet implemented)`.
-
-**What it demonstrates:** Kubernetes resource-event trigger (watches for Pod phase=Failed), extracting pod name and namespace from the event, opening a ticket via HTTP, deduplication via pod UID as FlowRun name idempotency key.
-
-**Implementation tasks:**
-- [ ] Create manifests in `examples/k8s-pod-failure-ticket/`: KubernetesTrigger (placeholder spec), Flow (transform event → http ticket create), mock HTTP server deployment
-- [ ] Create `examples/k8s-pod-failure-ticket/README.md`: applying manifests, causing a Pod failure with `kubectl run bad --image=does-not-exist`, verifying FlowRun created; note dependency on kubernetes trigger type
-- [ ] Mark README as `(requires kubernetes trigger type — not yet implemented)` at the top
+- [ ] Add `http` to the `IntegrationSpec.Type` enum in `api/v1alpha1/integration_types.go`
+- [ ] Add `HttpIntegrationSpec` struct: `baseUrl`, `auth` (types: `bearer`, `basic`, `apiKey`, `secretUrl`), `defaultHeaders`, auth `secretRef` fields
+- [ ] Add `integrationRef` field to `HTTPAction` in `api/v1alpha1/flow_types.go`; controller merges Integration auth headers before making the step request
+- [ ] Add `get` on `integrations` to RBAC markers in `flowrun_controller.go` (secrets `get` already present); run `make manifests`
+- [ ] Run `make generate && make manifests`
+- [ ] Add sample CR `config/samples/automation_v1alpha1_integration_http.yaml`
+- [ ] Update `docs/api/integration.md` with the new type, fields, and examples
+- [ ] Update completed examples to use `integrationRef`: `examples/nightly-export/` (Slack notify), `examples/github-autolabel/` (GitHub API token), `examples/slack-router/` (step-level credentials)
 
 ---
+
+## 6. Examples — Real-World (v0.4)
+
+> Build after sections 4 and 5 so examples use Mockoon and `integrationRef` from day 1.
+> Completed: order-router, kafka-enrichment, incident-escalation, github-autolabel, slack-router, nightly-export.
 
 ### Example 7 — Dead-Letter Queue Handler
 
@@ -68,23 +144,23 @@
 - A `kafka` Integration CRD pointing at the cluster
 - A Kubernetes Secret with Kafka credentials if the cluster requires SASL
 
-**What it demonstrates:** Kafka trigger on a DLQ topic, logging the failed message, attempting re-delivery via `type: publish` back to the original topic, conditional escalation step (fire webhook) if re-delivery fails, dedup key encodes partition + offset so replaying the DLQ is safe.
+**What it demonstrates:** Kafka trigger on a DLQ topic, logging the failed message, attempting re-delivery via `type: publish` back to the original topic, conditional escalation step if re-delivery fails, dedup key encodes partition + offset so replaying the DLQ is safe.
 
 **Implementation tasks:**
-- [ ] Create manifests in `examples/dlq-handler/`: Integration (kafka), Trigger (DLQ topic), Flow (log → re-publish → escalate-on-failure), mock HTTP server for escalation
-- [ ] Create `examples/dlq-handler/README.md`: create Kafka topics (commands for Strimzi), applying manifests, producing a poison message to the DLQ, watching FlowRun, verifying message re-published to original topic, testing the escalation path
+- [ ] Create manifests in `examples/dlq-handler/`: Integration (kafka), Trigger (DLQ topic), Flow (log → re-publish → escalate-on-failure), Mockoon deployment for escalation endpoint
+- [ ] Create `examples/dlq-handler/README.md`: create Kafka topics (commands for Strimzi), applying manifests, producing a poison message to the DLQ, watching FlowRun, verifying message re-published, testing the escalation path
 
 ---
 
 ### Example 8 — Multi-Tenant Webhook Fan-Out
 
 **External dependencies:**
-- No external services required — example uses a mock HTTP server as the three tenant endpoints
+- No external services required — example uses Mockoon as the three tenant endpoints
 
-**What it demonstrates:** Single inbound webhook triggers parallel execution of 3 steps (same `runAfter` set), per-tenant configuration extracted from Secrets using `$(secrets.<tenant-secret>.<key>)`, `failurePolicy: Continue` so a failure for one tenant does not block the others, per-step retry policies, FlowRun status shows all three outcomes independently.
+**What it demonstrates:** Single inbound webhook triggers parallel execution of 3 steps (same `runAfter` set), per-tenant credentials via `integrationRef` to `type: http` Integrations, `failurePolicy: Continue` so a failure for one tenant does not block others, per-step retry policies, FlowRun status shows all three outcomes independently.
 
 **Implementation tasks:**
-- [ ] Create manifests in `examples/multi-tenant-fanout/`: Trigger (no auth — note production should use HMAC/bearer), Flow (3 parallel http steps), 3 Secrets (placeholder values for tenant config), mock HTTP server deployment
+- [ ] Create manifests in `examples/multi-tenant-fanout/`: Trigger (no auth — note production should use HMAC/bearer), Flow (3 parallel http steps with `integrationRef`), 3 `type: http` Integrations, Mockoon deployment
 - [ ] Create `examples/multi-tenant-fanout/README.md`: applying manifests, sending a single webhook, inspecting parallel step execution in FlowRun, simulating a 500 on one tenant to demonstrate `Continue` policy
 
 ---
@@ -95,83 +171,48 @@
 - An OIDC provider — **Dex** (in-cluster, recommended for self-contained example), Keycloak, Okta, or any OIDC provider
 - The JWKS endpoint must be reachable from within the cluster
 
-**What it demonstrates:** OIDC/JWT authentication on a webhook trigger, JWKS background refresh (shared `jwk.Cache`), `requiredClaims` enforcement, extracting a claim value from the JWT payload in the Flow, routing based on the claim.
+**What it demonstrates:** OIDC/JWT authentication on a webhook trigger, JWKS background refresh (shared `jwk.Cache`), `requiredClaims` enforcement, extracting a claim value from the JWT payload, routing based on the claim.
 
 **Implementation tasks:**
-- [ ] Create manifests in `examples/oidc-webhook/`: Dex deployment + config, Trigger (oidc auth with issuer + audience + requiredClaims), Flow (CEL branch on claim value), mock HTTP server for each route
+- [ ] Create manifests in `examples/oidc-webhook/`: Dex deployment + config, Trigger (oidc auth with issuer + audience + requiredClaims), Flow (CEL branch on claim value), Mockoon deployment for each route
 - [ ] Create `examples/oidc-webhook/README.md`: Dex setup (Helm chart), obtaining a JWT via client credentials, calling the webhook with JWT, verifying FlowRun created, testing rejection with invalid token
 
 ---
 
-## 4. Future / Backlog
+### Example 6 — Kubernetes Resource Event → ITSM Ticket _(blocked)_
 
-- [ ] `docs/guides/amqp-setup.md` — write full AMQP setup guide (stub exists)
-- [ ] `docs/guides/nats-setup.md` — write full NATS setup guide (stub exists)
-- [ ] `Step` CRD for reusable step definitions
-- [ ] Multi-namespace flows (cross-namespace FlowRun)
-- [ ] Kubernetes resource-event trigger type (`type: resource` — dynamic informers in controller; see `docs/architecture.md#kubernetes-resource-event-triggers` for design)
-- [ ] `type: http` Integration — base URL + auth credentials (bearer/basic/apiKey) stored in Integration, referenced by Flow steps via `integrationRef`; add `HttpIntegrationSpec` to `api/v1alpha1/integration_types.go`; add `integrationRef` to `HTTPAction` in `flow_types.go`
-- [ ] Additional message brokers: GCP Pub/Sub, Solace (non-AMQP), TIBCO EMS (via plugin model)
-- [ ] Plugin catalog / marketplace in `docs/plugins/` with community registry and maturity levels
-- [ ] Reference plugin implementation in `docs/plugins/example-plugin/`
-- [ ] Web UI for flow monitoring
-- [ ] OpenLineage support
-- [ ] Multi-region HA support
-- [ ] S3/Git event trigger source
+> **Blocked on:** `type: resource` Kubernetes resource-event trigger (see Future/Backlog).
+> This example can be written as a placeholder to document the pattern, but the trigger
+> type must be implemented before the example is functional. Do this last.
+
+**External dependencies:**
+- A running cluster where the example namespace has Pods that can be set to `Failed` phase
+- A mock HTTP server (Mockoon) as ITSM stand-in for the self-contained version
+
+**What it demonstrates:** Kubernetes resource-event trigger (watches for Pod phase=Failed), extracting pod name and namespace from the event, opening a ticket via HTTP, deduplication via pod UID as FlowRun name idempotency key.
+
+**Implementation tasks:**
+- [ ] Create manifests in `examples/k8s-pod-failure-ticket/`: KubernetesTrigger (placeholder spec), Flow (transform event → http ticket create), Mockoon deployment
+- [ ] Create `examples/k8s-pod-failure-ticket/README.md`: applying manifests, causing Pod failure, verifying FlowRun created; mark as `(requires kubernetes trigger type — not yet implemented)`
 
 ---
 
-## 5. MockEndpoint Deprecation & Removal
+## 7. MockEndpoint Removal — Tests and Code
 
-> **Decision (2026-03-20):** Remove the `MockEndpoint` CRD entirely. Replace in all examples,
-> tests, and docs with a lightweight third-party mock HTTP server deployed in-cluster.
-> MockEndpoint solves a real problem but is not a KubeZap concern — operators should use
-> purpose-built mocking tools.
->
-> **Recommended replacement tool:** TBD — see `docs/tech-debt/pending-input-required.md`
-> for the tool selection question (BACKLOG-PROMPT). Do not begin Phase 2 or later until
-> that question is answered.
->
-> **Ordering constraint:** Phases must be executed in order. Code removal (Phase 5) is last.
-> Examples and tests must be updated before the CRD is deleted so the repo is never broken.
-
-### Phase 0 — Design decision (BLOCKED on pending input)
-
-- [ ] Choose replacement mock tool — see `docs/tech-debt/pending-input-required.md`; options: WireMock, Mockoon, or other. Decision gates all phases below.
-
-### Phase 1 — Write replacement documentation
-
-- [ ] Convert `docs/api/mock-endpoint.md` to `docs/guides/mocking-http-endpoints.md`: explain why MockEndpoint is removed, document the chosen tool's in-cluster deployment (Helm or raw YAML), show how to define stub responses, show how to inspect captured requests, cross-link to each example that uses it
-- [ ] Add in-cluster `Deployment` + `Service` sample YAML for the chosen tool (as a reusable snippet referenced by examples and the guide)
-- [ ] Update `docs/overview.md` CRD Overview table: remove `MockEndpoint` row; add note redirecting to `docs/guides/mocking-http-endpoints.md`
-- [ ] Update `docs/architecture.md`: remove all MockEndpoint references; update the "Webhook gateway also serves `/mock/*` paths" note to reflect removal
-- [ ] Update `docs/guides/troubleshooting.md`: replace "MockEndpoint not capturing requests" section with equivalent section for chosen tool
-
-### Phase 2 — Update example manifests
-
-- [ ] `config/samples/automation_v1alpha1_mockendpoint.yaml` — delete file; remove from `config/samples/kustomization.yaml` and OLM bundle alm-examples
-- [ ] `examples/order-router/` — replace MockEndpoint resources with chosen-tool stub configs; update `kustomization.yaml` and `README.md`
-- [ ] `examples/kafka-enrichment/` — replace `enterprise-sink`, `standard-sink`, `trial-sink`, `customer-profile` MockEndpoints with chosen-tool stub configs; update `kustomization.yaml` and `README.md`
-- [ ] `examples/slack-router/` — replace MockEndpoint resources; update `kustomization.yaml` and `README.md`
-- [ ] `examples/incident-escalation/` — audit for MockEndpoint usage; update if present
-- [ ] `examples/nightly-export/` — audit for MockEndpoint usage; update if present
-
-### Phase 3 — Update guides
-
-- [ ] `docs/guides/getting-started.md` — replace all MockEndpoint steps with chosen-tool equivalent; update every `kubectl apply` command and expected output block
-- [ ] All new examples (6–9) that reference MockEndpoints: replace with chosen tool before those examples are written
+> Complete only after all examples (section 6) are updated to use Mockoon.
+> Phases 4-5 are separated from Phases 1-3 so new examples can be built clean first.
 
 ### Phase 4 — Update tests
 
 - [ ] `internal/controller/mockendpoint_controller_test.go` — delete entire file
 - [ ] `internal/controller/suite_test.go` (or equivalent) — remove MockEndpoint type registration if present
-- [ ] `test/e2e/` — search for all MockEndpoint usage; replace with HTTP calls to chosen-tool stub server deployed in the test namespace; update `BeforeSuite` setup if the test suite relies on the webhook gateway's `/mock/*` serving
-- [ ] `test/e2e/webhook_test.go` — update the E2E scenario (webhook → transform → http step → MockEndpoint → verify FlowRun Succeeded) to target the chosen tool instead
+- [ ] `test/e2e/` — search for all MockEndpoint usage; replace with HTTP calls to Mockoon stub server deployed in the test namespace; update `BeforeSuite` setup if the test suite relies on the webhook gateway's `/mock/*` serving
+- [ ] `test/e2e/webhook_test.go` — update the E2E scenario (webhook → transform → http step → MockEndpoint → verify FlowRun Succeeded) to target Mockoon instead
 - [ ] Audit all test files: `grep -r "MockEndpoint\|mockendpoint\|mock-endpoint" --include="*.go"` — fix every hit
 
 ### Phase 5 — Remove code and CRD
 
-> Do not begin until Phases 1–4 are complete and all tests pass.
+> Do not begin until Phase 4 is complete and all tests pass.
 
 - [ ] Delete `api/v1alpha1/mockendpoint_types.go`; run `make generate && make manifests`
 - [ ] Delete `internal/controller/mockendpoint_controller.go`
@@ -183,3 +224,26 @@
 - [ ] Update `charts/kubezap/crds/` to remove MockEndpoint CRD YAML
 - [ ] Run `go build ./...`, `go vet ./...`, `go test ./... -count=1` — all must pass
 - [ ] Update `docs/overview.md` CRD table: set MockEndpoint status to "Removed — see mocking guide"
+
+---
+
+## 8. Deployment & Distribution
+
+- [ ] OperatorHub submission PR _(PAUSED — owner request 2026-03-20; do not start until explicitly unblocked)_
+
+---
+
+## 9. Future / Backlog
+
+- [ ] `docs/guides/amqp-setup.md` — write full AMQP setup guide (stub exists)
+- [ ] `docs/guides/nats-setup.md` — write full NATS setup guide (stub exists)
+- [ ] Kubernetes resource-event trigger type (`type: resource` — dynamic informers in controller; see `docs/architecture.md#kubernetes-resource-event-triggers` for design; required for Example 6)
+- [ ] `Step` CRD for reusable step definitions
+- [ ] Multi-namespace flows (cross-namespace FlowRun)
+- [ ] Additional message brokers: GCP Pub/Sub, Solace (non-AMQP), TIBCO EMS (via plugin model)
+- [ ] Plugin catalog / marketplace in `docs/plugins/` with community registry and maturity levels
+- [ ] Reference plugin implementation in `docs/plugins/example-plugin/`
+- [ ] Web UI for flow monitoring
+- [ ] OpenLineage support
+- [ ] Multi-region HA support
+- [ ] S3/Git event trigger source

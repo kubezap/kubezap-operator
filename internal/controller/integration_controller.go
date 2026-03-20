@@ -477,10 +477,13 @@ func (r *IntegrationReconciler) reconcileKafkaGateway(ctx context.Context, integ
 
 	ns := integration.Namespace
 
-	// Ensure ServiceAccount.
+	// Ensure ServiceAccount (shared kubezap-gateway SA with amqp/nats gateways).
+	// No owner reference: shared across all broker-type integrations in the namespace.
+	// Setting an owner ref to this Integration would GC the SA when this Integration
+	// is deleted, even if amqp or nats integrations still exist and need the SA.
 	sa := &corev1.ServiceAccount{ObjectMeta: metav1.ObjectMeta{Name: "kubezap-gateway", Namespace: ns}}
 	saResult, err := controllerutil.CreateOrUpdate(ctx, r.Client, sa, func() error {
-		return ctrl.SetControllerReference(integration, sa, r.Scheme)
+		return nil
 	})
 	if err != nil {
 		return "", fmt.Errorf("upserting kafka gateway ServiceAccount: %w", err)
@@ -489,15 +492,16 @@ func (r *IntegrationReconciler) reconcileKafkaGateway(ctx context.Context, integ
 		log.Info("reconciled kafka gateway ServiceAccount", "namespace", ns, "result", saResult)
 	}
 
-	// Ensure Role.
+	// Ensure Role (shared kubezap-gateway Role).
+	kafkaGatewayRules := []rbacv1.PolicyRule{
+		{APIGroups: []string{"automation.kubezap.io"}, Resources: []string{"triggers"}, Verbs: []string{"get", "list", "watch"}},
+		{APIGroups: []string{"automation.kubezap.io"}, Resources: []string{"integrations"}, Verbs: []string{"get"}},
+		{APIGroups: []string{"automation.kubezap.io"}, Resources: []string{"flowruns"}, Verbs: []string{"create"}},
+	}
 	role := &rbacv1.Role{ObjectMeta: metav1.ObjectMeta{Name: "kubezap-gateway", Namespace: ns}}
 	roleResult, err := controllerutil.CreateOrUpdate(ctx, r.Client, role, func() error {
-		role.Rules = []rbacv1.PolicyRule{
-			{APIGroups: []string{"automation.kubezap.io"}, Resources: []string{"triggers"}, Verbs: []string{"get", "list", "watch"}},
-			{APIGroups: []string{"automation.kubezap.io"}, Resources: []string{"integrations"}, Verbs: []string{"get"}},
-			{APIGroups: []string{"automation.kubezap.io"}, Resources: []string{"flowruns"}, Verbs: []string{"create"}},
-		}
-		return ctrl.SetControllerReference(integration, role, r.Scheme)
+		role.Rules = kafkaGatewayRules
+		return nil
 	})
 	if err != nil {
 		return "", fmt.Errorf("upserting kafka gateway Role: %w", err)
@@ -506,7 +510,7 @@ func (r *IntegrationReconciler) reconcileKafkaGateway(ctx context.Context, integ
 		log.Info("reconciled kafka gateway Role", "namespace", ns, "result", roleResult)
 	}
 
-	// Ensure RoleBinding.
+	// Ensure RoleBinding (shared kubezap-gateway RoleBinding).
 	// RoleRef is immutable — if it has changed the binding must be deleted and recreated.
 	kafkaDesiredRoleRef := rbacv1.RoleRef{APIGroup: "rbac.authorization.k8s.io", Kind: "Role", Name: "kubezap-gateway"}
 	kafkaDesiredSubjects := []rbacv1.Subject{{Kind: "ServiceAccount", Name: "kubezap-gateway", Namespace: ns}}
@@ -517,7 +521,7 @@ func (r *IntegrationReconciler) reconcileKafkaGateway(ctx context.Context, integ
 		}
 		rb.RoleRef = kafkaDesiredRoleRef
 		rb.Subjects = kafkaDesiredSubjects
-		return ctrl.SetControllerReference(integration, rb, r.Scheme)
+		return nil
 	})
 	if rbErr != nil {
 		if rbErr == errRoleRefChanged {
@@ -770,7 +774,10 @@ func (r *IntegrationReconciler) reconcileAmqpGateway(ctx context.Context, integr
 
 	ns := integration.Namespace
 
-	// Ensure ServiceAccount (shared kubezap-gateway SA with kafka gateway).
+	// Ensure ServiceAccount (shared kubezap-gateway SA with kafka/nats gateways).
+	// No owner reference: this SA is shared across all broker-type integrations in the
+	// namespace. Setting an owner ref to a single Integration would GC the SA when that
+	// Integration is deleted, even if other broker integrations still exist.
 	sa := &corev1.ServiceAccount{ObjectMeta: metav1.ObjectMeta{Name: "kubezap-gateway", Namespace: ns}}
 	saResult, err := controllerutil.CreateOrUpdate(ctx, r.Client, sa, func() error {
 		return nil
@@ -782,30 +789,25 @@ func (r *IntegrationReconciler) reconcileAmqpGateway(ctx context.Context, integr
 		log.Info("reconciled amqp gateway ServiceAccount", "namespace", ns, "result", saResult)
 	}
 
-	// Ensure Role.
-	role := &rbacv1.Role{
-		ObjectMeta: metav1.ObjectMeta{Name: "kubezap-gateway", Namespace: ns},
-		Rules: []rbacv1.PolicyRule{
-			{APIGroups: []string{"automation.kubezap.io"}, Resources: []string{"triggers"}, Verbs: []string{"get", "list", "watch"}},
-			{APIGroups: []string{"automation.kubezap.io"}, Resources: []string{"integrations"}, Verbs: []string{"get"}},
-			{APIGroups: []string{"automation.kubezap.io"}, Resources: []string{"flowruns"}, Verbs: []string{"create"}},
-		},
+	// Ensure Role (shared kubezap-gateway Role).
+	amqpGatewayRules := []rbacv1.PolicyRule{
+		{APIGroups: []string{"automation.kubezap.io"}, Resources: []string{"triggers"}, Verbs: []string{"get", "list", "watch"}},
+		{APIGroups: []string{"automation.kubezap.io"}, Resources: []string{"integrations"}, Verbs: []string{"get"}},
+		{APIGroups: []string{"automation.kubezap.io"}, Resources: []string{"flowruns"}, Verbs: []string{"create"}},
 	}
-	existingRole := &rbacv1.Role{}
-	if err := r.Get(ctx, client.ObjectKeyFromObject(role), existingRole); apierrors.IsNotFound(err) {
-		if err := r.Create(ctx, role); err != nil && !apierrors.IsAlreadyExists(err) {
-			return "", fmt.Errorf("creating amqp gateway Role: %w", err)
-		}
-	} else if err != nil {
-		return "", err
-	} else {
-		existingRole.Rules = role.Rules
-		if err := r.Update(ctx, existingRole); err != nil {
-			return "", fmt.Errorf("updating amqp gateway Role: %w", err)
-		}
+	role := &rbacv1.Role{ObjectMeta: metav1.ObjectMeta{Name: "kubezap-gateway", Namespace: ns}}
+	roleResult, err := controllerutil.CreateOrUpdate(ctx, r.Client, role, func() error {
+		role.Rules = amqpGatewayRules
+		return nil
+	})
+	if err != nil {
+		return "", fmt.Errorf("upserting amqp gateway Role: %w", err)
+	}
+	if roleResult != controllerutil.OperationResultNone {
+		log.Info("reconciled amqp gateway Role", "namespace", ns, "result", roleResult)
 	}
 
-	// Ensure RoleBinding.
+	// Ensure RoleBinding (shared kubezap-gateway RoleBinding).
 	amqpDesiredRoleRef := rbacv1.RoleRef{APIGroup: "rbac.authorization.k8s.io", Kind: "Role", Name: "kubezap-gateway"}
 	amqpDesiredSubjects := []rbacv1.Subject{{Kind: "ServiceAccount", Name: "kubezap-gateway", Namespace: ns}}
 	rb := &rbacv1.RoleBinding{ObjectMeta: metav1.ObjectMeta{Name: "kubezap-gateway", Namespace: ns}}
@@ -953,7 +955,8 @@ func (r *IntegrationReconciler) reconcileNatsGateway(ctx context.Context, integr
 
 	ns := integration.Namespace
 
-	// Ensure ServiceAccount.
+	// Ensure ServiceAccount (shared kubezap-gateway SA with kafka/amqp gateways).
+	// No owner reference: shared across all broker-type integrations in the namespace.
 	sa := &corev1.ServiceAccount{ObjectMeta: metav1.ObjectMeta{Name: "kubezap-gateway", Namespace: ns}}
 	saResult, err := controllerutil.CreateOrUpdate(ctx, r.Client, sa, func() error {
 		return nil
@@ -965,30 +968,25 @@ func (r *IntegrationReconciler) reconcileNatsGateway(ctx context.Context, integr
 		log.Info("reconciled nats gateway ServiceAccount", "namespace", ns, "result", saResult)
 	}
 
-	// Ensure Role.
-	role := &rbacv1.Role{
-		ObjectMeta: metav1.ObjectMeta{Name: "kubezap-gateway", Namespace: ns},
-		Rules: []rbacv1.PolicyRule{
-			{APIGroups: []string{"automation.kubezap.io"}, Resources: []string{"triggers"}, Verbs: []string{"get", "list", "watch"}},
-			{APIGroups: []string{"automation.kubezap.io"}, Resources: []string{"integrations"}, Verbs: []string{"get"}},
-			{APIGroups: []string{"automation.kubezap.io"}, Resources: []string{"flowruns"}, Verbs: []string{"create"}},
-		},
+	// Ensure Role (shared kubezap-gateway Role).
+	natsGatewayRules := []rbacv1.PolicyRule{
+		{APIGroups: []string{"automation.kubezap.io"}, Resources: []string{"triggers"}, Verbs: []string{"get", "list", "watch"}},
+		{APIGroups: []string{"automation.kubezap.io"}, Resources: []string{"integrations"}, Verbs: []string{"get"}},
+		{APIGroups: []string{"automation.kubezap.io"}, Resources: []string{"flowruns"}, Verbs: []string{"create"}},
 	}
-	existingRole := &rbacv1.Role{}
-	if err := r.Get(ctx, client.ObjectKeyFromObject(role), existingRole); apierrors.IsNotFound(err) {
-		if err := r.Create(ctx, role); err != nil && !apierrors.IsAlreadyExists(err) {
-			return "", fmt.Errorf("creating nats gateway Role: %w", err)
-		}
-	} else if err != nil {
-		return "", err
-	} else {
-		existingRole.Rules = role.Rules
-		if err := r.Update(ctx, existingRole); err != nil {
-			return "", fmt.Errorf("updating nats gateway Role: %w", err)
-		}
+	role := &rbacv1.Role{ObjectMeta: metav1.ObjectMeta{Name: "kubezap-gateway", Namespace: ns}}
+	roleResult, err := controllerutil.CreateOrUpdate(ctx, r.Client, role, func() error {
+		role.Rules = natsGatewayRules
+		return nil
+	})
+	if err != nil {
+		return "", fmt.Errorf("upserting nats gateway Role: %w", err)
+	}
+	if roleResult != controllerutil.OperationResultNone {
+		log.Info("reconciled nats gateway Role", "namespace", ns, "result", roleResult)
 	}
 
-	// Ensure RoleBinding.
+	// Ensure RoleBinding (shared kubezap-gateway RoleBinding).
 	natsDesiredRoleRef := rbacv1.RoleRef{APIGroup: "rbac.authorization.k8s.io", Kind: "Role", Name: "kubezap-gateway"}
 	natsDesiredSubjects := []rbacv1.Subject{{Kind: "ServiceAccount", Name: "kubezap-gateway", Namespace: ns}}
 	rb := &rbacv1.RoleBinding{ObjectMeta: metav1.ObjectMeta{Name: "kubezap-gateway", Namespace: ns}}

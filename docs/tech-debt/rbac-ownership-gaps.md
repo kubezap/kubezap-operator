@@ -1,7 +1,7 @@
 # Tech Debt: RBAC Ownership and Cleanup Gaps
 
 > Identified: 2026-03-18 (codebase review)
-> **RESOLVED: Both issues fixed 2026-03-18. See schedule.md section 8 for details.**
+> **RESOLVED: All issues fixed. See resolution notes below.**
 > Severity: HIGH (owner ref gap) / MEDIUM (delete verb) — resolved
 > Affects: `internal/controller/integration_controller.go`, `config/rbac/role.yaml`, `config/rbac/namespaced_role.yaml`
 
@@ -96,14 +96,22 @@ Fix Issue 2 first (it is a prerequisite for Issue 1 to work correctly with Kuber
 Steps:
 1. Update kubebuilder RBAC markers in `integration_controller.go` and `trigger_controller.go` to add `delete`
 2. Run `make manifests` to regenerate `role.yaml` and `namespaced_role.yaml`
-3. Add `ctrl.SetControllerReference` calls in `reconcileKafkaGateway` for SA, Role, RoleBinding
+3. ~~Add `ctrl.SetControllerReference` calls in `reconcileKafkaGateway` for SA, Role, RoleBinding~~ — **corrected**: shared SA/Role/RoleBinding must NOT be owned by a single Integration (see Issue 3 below)
 
-After these changes, deleting a Kafka Integration will cascade-delete all associated gateway RBAC resources via Kubernetes garbage collection.
+---
+
+## Issue 3: Kafka Gateway Owner Ref on Shared SA/Role/RoleBinding (fixed 2026-03-20)
+
+The fix applied in Issue 1 incorrectly called `ctrl.SetControllerReference(integration, sa, r.Scheme)` on the `kubezap-gateway` SA, Role, and RoleBinding. These resources are **shared** across all broker-type integrations in a namespace (kafka, amqp, nats all use the same `kubezap-gateway` SA/Role/RoleBinding). Setting an owner reference to a single Kafka Integration would cause Kubernetes GC to delete the shared SA when the Kafka Integration is deleted, even if AMQP or NATS integrations still exist in the same namespace and still need the SA.
+
+**Fix (2026-03-20):** Removed `ctrl.SetControllerReference` from the `kubezap-gateway` SA, Role, and RoleBinding in all three gateway reconcilers (kafka, amqp, nats). The gateway Deployments retain their owner references (each Deployment is owned by its specific Integration and is correctly GC'd). The shared RBAC resources persist as namespace-level resources; they are not GC'd automatically when integrations are deleted (acceptable — they are idempotent to recreate and the same permissions are needed regardless of which broker type is active).
+
+Also fixed in the same pass:
+- AMQP and NATS gateway `reconcileAmqpGateway`/`reconcileNatsGateway`: converted Role management from manual Get/Create/Update to `CreateOrUpdate` (matching the Kafka gateway pattern), ensuring idempotent rule updates without the read-modify-write race.
 
 ---
 
 ## Related Schedule Items
 
-- `docs/schedule.md` section 8 backlog line 262 (partially covers this — mentions Role/RoleBinding accumulation and missing owner references on Kafka gateway RBAC)
-- Issue 1 (owner references) is **new** — not previously tracked in schedule.md
-- Issue 2 (delete verb) was noted in backlog as affecting `config/rbac/role.yaml` but `namespaced_role.yaml` was not mentioned
+- Original issue tracked in schedule.md section 8 (now cleaned up — all resolved)
+- Issue 3 was introduced by the Issue 1 fix and corrected 2026-03-20

@@ -37,12 +37,16 @@ Items are ordered to minimize rework:
 
 **Goal:** Read-only audit of the live codebase for critical or breaking issues. Focus on correctness bugs that could cause data loss, silent failures, or stuck resources in production.
 
-- [ ] `internal/controller/flowrun_controller.go`: scan for unhandled error paths, missing finalizer removal conditions, or incorrect phase transitions that could leave FlowRuns permanently stuck
-- [ ] `internal/controller/trigger_controller.go`: look for reconcile loops that could cause infinite requeuing or missed status updates
-- [ ] `internal/gateway/webhook/handler.go`: check request body handling edge cases — empty body, non-JSON body with `resultMappings`, body at the size limit boundary
-- [ ] `internal/gateway/kafka/watcher.go`, `amqp/watcher.go`, `nats/watcher.go`: check for goroutine leak scenarios — contexts not cancelled, subscriptions not cleaned up on watcher shutdown
-- [ ] `cmd/main.go`: verify leader election, metric registration, and scheme setup are correct for production use
-- [ ] Based on findings: add schedule items for any critical bugs; skip LOW/cosmetic issues (those belong in a general debt review)
+- [x] `internal/controller/flowrun_controller.go`: scan for unhandled error paths, missing finalizer removal conditions, or incorrect phase transitions that could leave FlowRuns permanently stuck
+- [x] `internal/controller/trigger_controller.go`: look for reconcile loops that could cause infinite requeuing or missed status updates
+- [x] `internal/gateway/webhook/handler.go`: check request body handling edge cases — empty body, non-JSON body with `resultMappings`, body at the size limit boundary
+- [x] `internal/gateway/kafka/watcher.go`, `amqp/watcher.go`, `nats/watcher.go`: check for goroutine leak scenarios — contexts not cancelled, subscriptions not cleaned up on watcher shutdown
+- [x] `cmd/main.go`: verify leader election, metric registration, and scheme setup are correct for production use
+- [x] Based on findings: add schedule items for any critical bugs; skip LOW/cosmetic issues (those belong in a general debt review)
+
+### R2 Findings — Bug Fixes
+
+- [ ] **BUG — `BodyTruncated` not set on mid-range bodies** (`internal/gateway/webhook/handler.go:281-284`): bodies between 4097 bytes and 4 MB are accepted with HTTP 202, but stored truncated to 4096 chars in `TriggerData.Body` with `BodyTruncated: false`. Users relying on `$(trigger.body)` cannot detect a partial body. Fix: set `bodyTruncated = true` when `len(bodyBytes) > 4096` before truncating `bodyString`. Also add coverage to T2 (body-at-size-limit boundary).
 
 ---
 

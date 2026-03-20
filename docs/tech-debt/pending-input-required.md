@@ -46,3 +46,21 @@ spec:
 **Decision (2026-03-16): Close. Mark `[x]` in schedule.md.**
 
 Go string value capture is immutable. Reconciler re-registers on update. Bounded staleness window is inherent to any reconcile-based system — not a bug.
+
+---
+
+## Review 2026-03-20
+
+### Decisions needed from owner
+
+<!-- BACKLOG-PROMPT -->
+**Q: Should AMQP and NATS gateways be promoted to beta/stable in `docs/api/integration.md` and the overview, or remain undocumented-in-overview?**
+Why it matters: The gateways are implemented and marked `[x]` complete in schedule.md, but `docs/overview.md` architecture section previously omitted them, and `docs/api/trigger.md` PubSubTrigger only listed `kafka` — both have been fixed in this review. The remaining question is whether the integration.md "beta" label on AMQP/NATS is still appropriate or should be bumped to "available".
+Options: Keep "beta" label (conservative, given no reported production use) / Promote to "Available" in CRD overview table (matches kafka's status)
+<!-- BACKLOG-PROMPT -->
+
+<!-- BACKLOG-PROMPT -->
+**Q: `go.mod` has `github.com/spf13/cobra` listed in the second `require` block (where `go mod tidy` puts transitive deps) without the `// indirect` marker. Should it be moved to the first direct-deps block?**
+Why it matters: cobra is a direct CLI dependency; its placement in the second block is cosmetically odd and could confuse future maintainers running `go mod tidy`, which may reorder it unexpectedly.
+Options: Run `go mod tidy` to let tooling normalize it / Manually move it to the first require block
+<!-- BACKLOG-PROMPT -->

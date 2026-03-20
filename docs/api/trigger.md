@@ -90,9 +90,10 @@ Configures authentication for a webhook trigger endpoint. If omitted, the endpoi
 
 ### CronTrigger
 
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `schedule` | string | **Yes** | Cron expression in standard five-field format: `minute hour day-of-month month day-of-week` |
+| Field | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `schedule` | string | **Yes** | — | Cron expression in standard five-field format: `minute hour day-of-month month day-of-week`. Also supports `robfig/cron` extended syntax: `@daily`, `@hourly`, `@every 5m`, etc. |
+| `timezone` | string | No | `UTC` | IANA timezone name for the schedule (e.g. `America/New_York`, `Europe/Berlin`). Defaults to UTC when omitted. |
 
 **Example schedules:**
 
@@ -107,10 +108,12 @@ Configures authentication for a webhook trigger endpoint. If omitted, the endpoi
 
 | Field | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `type` | enum | **Yes** | — | Message broker type: `kafka` |
+| `type` | enum | **Yes** | — | Message broker type: `kafka`, `amqp`, or `nats` |
 | `integrationRef` | IntegrationReference | **Yes** | — | Reference to an `Integration` CR with broker connection details |
-| `topic` | string | **Yes** | — | Topic name to consume from |
-| `consumerGroup` | string | No | `kubezap-<trigger-name>` | Kafka consumer group ID |
+| `topic` | string | **Yes** | — | Topic name to consume from (Kafka and AMQP exchange name) |
+| `consumerGroup` | string | No | `kubezap-<trigger-name>` | Kafka consumer group ID. Ignored for AMQP and NATS. |
+| `routingKey` | string | No | — | AMQP routing key or binding pattern. Used when `type: amqp` only. |
+| `subject` | string | No | — | NATS subject to subscribe to. Supports wildcards (e.g. `orders.*`, `events.>`). Used when `type: nats` only. |
 
 ### FlowReference
 
@@ -210,17 +213,21 @@ The Flow receives timing metadata as parameters:
 - `$(trigger.payload.scheduledTime)` — the scheduled fire time (RFC3339)
 - `$(trigger.payload.actualTime)` — the actual fire time (RFC3339)
 
-### Pub/Sub — Kafka _(in development)_
+### Pub/Sub — Kafka, AMQP, NATS
 
-The operator creates a Kafka consumer for each `pubsub` trigger. Each message consumed from the topic fires the trigger once.
+The operator creates a gateway consumer for each `pubsub` trigger. Each message consumed from the topic fires the trigger once. Three broker types are supported:
+
+- **`kafka`** — built-in Kafka gateway (`kubezap-kafka-gateway`), one Deployment per Kafka cluster per namespace
+- **`amqp`** — built-in AMQP gateway (`kubezap-amqp-gateway`), supports AMQP 0-9-1 (RabbitMQ) and AMQP 1.0 (ActiveMQ Artemis)
+- **`nats`** — built-in NATS gateway (`kubezap-nats-gateway`), supports NATS Core and JetStream
 
 The Flow receives the message contents:
 - `$(trigger.payload.value)` — the message value (JSON-decoded if valid JSON, otherwise raw string)
-- `$(trigger.payload.key)` — the message key
-- `$(trigger.payload.topic)` — the topic name
-- `$(trigger.payload.partition)` — the partition number
-- `$(trigger.payload.offset)` — the message offset
-- `$(trigger.payload.headers.<name>)` — a Kafka message header value
+- `$(trigger.payload.key)` — the message key (Kafka)
+- `$(trigger.payload.topic)` — the topic/queue name
+- `$(trigger.payload.partition)` — the partition number (Kafka only)
+- `$(trigger.payload.offset)` — the message offset (Kafka only)
+- `$(trigger.payload.headers.<name>)` — a message header value
 
 ### Kubernetes Resource Events _(planned)_
 
@@ -532,4 +539,4 @@ Status:
 - **Webhook delivery guarantee**: Webhook triggers do not acknowledge or retry the source request. If the operator is unavailable when a request arrives, the event is lost.
 - **Kafka exactly-once**: Kafka triggers provide at-least-once delivery semantics. Design flows to be idempotent.
 - **Single topic per trigger**: Each `pubsub` trigger subscribes to one topic. Create multiple triggers to consume from multiple topics.
-- **Cron timezone**: Schedules run in UTC. Timezone support is planned for a future release.
+- **Cron timezone**: Schedules default to UTC. Set `spec.cron.timezone` to an IANA timezone name (e.g. `America/New_York`) to use a different timezone.

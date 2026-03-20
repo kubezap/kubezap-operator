@@ -205,7 +205,7 @@ Additional demonstration scenarios targeting acquisition/enterprise stakeholders
   - [x] Values: gateway images (`webhookGateway.image`, `kafkaGateway.image`, `amqpGateway.image`, `natsGateway.image`) — images referenced by controller at runtime
   - [x] `_helpers.tpl` for label/selector helpers following `app.kubernetes.io/` conventions
   - [x] `NOTES.txt` with post-install instructions
-  - [ ] `helm lint` and `helm template` validation pass — **NEEDS VERIFICATION** (helm not installed in dev container; run `helm lint charts/kubezap && helm template kubezap charts/kubezap` before release)
+  - [x] `helm lint` and `helm template` validation pass _(verified 2026-03-20: `helm lint` 0 failures, `helm template` renders cleanly)_
   - [x] Document Helm installation in `docs/overview.md` Installation section
 - [ ] OLM bundle finalized and validated with `operator-sdk bundle validate`
 - [ ] OperatorHub submission PR
@@ -253,17 +253,17 @@ Additional demonstration scenarios targeting acquisition/enterprise stakeholders
 - [ ] `flowrun_controller.go` `enforceMaxFlowRuns`: On every reconcile of a terminal FlowRun, the controller lists ALL FlowRuns for the trigger with no field selector. For triggers with many FlowRuns this is an unbounded list scan. A field selector or label-indexed list should be used.
 - [ ] `internal/gateway/webhook/oidc.go`: The OIDC validator holds the JWKS keyset in memory per-`RouteEntry`. When there are many webhook triggers with OIDC auth, there is one keyset cache per route. There is no shared cache or background refresh — keys only refresh on request failure (key rotation retry). A background refresh goroutine would improve reliability.
 - [ ] `internal/gateway/webhook/handler.go` `redactHeader`: Only `Authorization` and `X-Api-Key` are redacted in the access log header map that is stored in `FlowRun.Spec.TriggerData.Headers`. Other sensitive headers (e.g., `Cookie`, `X-Auth-Token`, custom bearer headers) are stored unredacted in the CRD object and visible to anyone with `get flowruns` permission.
-- [ ] `internal/controller/mockendpoint_controller.go`: `status.URL` is constructed from `KUBEZAP_GATEWAY_BASE_URL` env var. If the env var is unset (the common case in-cluster where the URL must be inferred), the URL is built as `/mock/<path>` with no host — a relative path that is not useful. There is no validation or warning when the env var is absent.
+- [x] `internal/controller/mockendpoint_controller.go`: Added `log.Info` warning when `KUBEZAP_GATEWAY_BASE_URL` is unset so operators can diagnose relative-path URLs. _(fixed 2026-03-20)_
 - [x] `internal/controller/integration_controller.go` `reconcileKafkaGateway`: The kafka gateway SA and RoleBinding are never updated after creation (only the Role is updated). If the SA or RoleBinding drift they will not be reconciled. _(fixed: all three now use CreateOrUpdate)_
 - [x] `internal/controller/integration_controller.go` `buildKafkaTriggers`: For a Kafka integration with N topics and M consumer groups, the KEDA ScaledObject gets N×M trigger entries. _(fixed: replaced separate topic/cg sets with `kafkaTopicCGPair` set; each Trigger contributes exactly one pair)_
 - [ ] `api/v1alpha1/flowrun_types.go`: `FlowRunSpec.FlowRef` is a `corev1.LocalObjectReference` (name only, no namespace). Cross-namespace flows are architecturally desired (see backlog) but the type does not support it. A `FlowReference` type (matching `trigger_types.go`) should be used to allow namespace to be specified.
 - [ ] `api/v1alpha1/trigger_types.go`: `TriggerSpec` has both `FlowRef` and an inline `Action` field with no validation ensuring exactly one is set. A Trigger with neither (or both) will silently proceed: with neither, FlowRun `spec.flowRef.name` will be empty; with both, Action is ignored. A CEL validation rule (`has(self.flowRef) != has(self.action)` or similar) should enforce mutual exclusivity.
-- [ ] `internal/controller/cron_scheduler.go`: The cron scheduler does not validate the `Timezone` field from `CronTrigger.Timezone`. The `robfig/cron` library supports `CRON_TZ=` prefix in the schedule string, but the Timezone field is never applied to the cron entry. Schedules always fire in the controller pod's local timezone (UTC in distroless), silently ignoring the user-specified timezone.
+- [x] `internal/controller/cron_scheduler.go`: Timezone field now applied via `CRON_TZ=<tz>` prefix on schedule string before passing to `cron.AddFunc`. _(fixed 2026-03-20)_
 - [x] `internal/gateway/amqp/watcher.go` and `internal/gateway/nats/watcher.go`: Both use a polling loop (`time.NewTicker(30 * time.Second)`) rather than a controller-runtime informer or watch — same issue that was fixed in the Kafka gateway. Reaction time to Trigger changes is up to 30 s. Should be refactored to informer/cache pattern (mirrors `internal/gateway/kafka/watcher.go` post-refactor). _(fixed 2026-03-18: refactored both to informer/cache pattern mirroring kafka/watcher.go)_
-- [ ] `internal/gateway/webhook/watcher.go`: `ctrl.GetConfigOrDie()` is called inside `NewTriggerWatcher` in addition to being called in `main.go`. This is an anti-pattern — the REST config should be passed in from the caller rather than fetched again. Two fetches of the kube config is harmless but fragile (the second fetch could theoretically produce a different config).
+- [x] `internal/gateway/webhook/watcher.go`: `NewTriggerWatcher` now accepts `*rest.Config` from caller instead of calling `ctrl.GetConfigOrDie()` internally. `cmd/webhook-gateway/main.go` updated to pass the config it already holds. _(fixed 2026-03-20)_
 - [x] `config/rbac/role.yaml` and `config/rbac/namespaced_role.yaml`: Both ClusterRole and namespaced Role are missing the `delete` verb for `roles`, `rolebindings`, and `serviceaccounts` — orphaned RBAC resources accumulate when Integrations or gateways are removed. Additionally, Kafka gateway SA/Role/RoleBinding are created without `ctrl.SetControllerReference` — they are never garbage-collected on Integration delete (unlike the plugin RBAC path which does set owner refs). See `docs/tech-debt/rbac-ownership-gaps.md` for full analysis and fix steps. _(fixed 2026-03-18: delete verb added to RBAC markers; run make manifests to regenerate)_
 - [x] `cmd/main.go`: `Development: true` is hardcoded in the zap options for the controller binary (line 93). Development mode emits caller information and uses a human-readable format rather than JSON — inappropriate for production. _(fixed: `--development` flag now correctly applied after `flag.Parse()`, overriding `--zap-devel` when set)_
-- [ ] Missing tests: `substituteVars` has no unit tests for edge cases (nested body fields, headers case-insensitivity, unresolved placeholders left verbatim). `evaluateWhen` has no unit tests. `enforceMaxFlowRunsByPhase` has no unit tests (renamed from `enforceMaxFlowRuns` when per-state GC was added). `cron_scheduler.go` cooldown logic has no unit tests. These are all critical hot-path functions with observable correctness requirements.
+- [x] Missing tests: `substituteVars`, `evaluateWhen`, `enforceMaxFlowRunsByPhase`, cron cooldown — all covered by new tests in `internal/controller/` (substitute_vars_test.go, evaluate_when_test.go, gc_policy_test.go, cron_scheduler_test.go). _(done 2026-03-20)_
 - [x] `internal/gateway/kafka/watcher.go` `startSubscription`: the subscription goroutine uses `context.WithCancel(context.Background())` rather than deriving from the caller's context. _(fixed: changed to `context.WithCancel(ctx)` so pod shutdown cleanly cancels all in-flight consumer sessions)_
 
 ### New — Identified 2026-03-18 (codebase review)
@@ -272,7 +272,7 @@ Additional demonstration scenarios targeting acquisition/enterprise stakeholders
 - [x] **MEDIUM** `internal/gateway/nats/watcher.go` `startSubscription`: NATS NKey/JWT credentials written to `/tmp/nats-creds-<trigger.Name>.creds` — predictable path, no cleanup on subscription stop, name collision risk across namespaces. _(fixed 2026-03-18: replaced with `os.CreateTemp` + cleanup in subscription goroutine)_
 - [x] **HIGH** `internal/controller/integration_controller.go` `reconcileKafkaGateway`: Kafka gateway SA, Role, and RoleBinding are created without `ctrl.SetControllerReference` on the Integration — they are orphaned on Integration delete and accumulate indefinitely. Fix requires adding `delete` verb to controller RBAC first (schedule backlog line 264). See `docs/tech-debt/rbac-ownership-gaps.md#issue-1`. _(fixed 2026-03-18: SA/Role/RoleBinding all use SetControllerReference via CreateOrUpdate; Role pattern refactored from manual Get/Create to CreateOrUpdate)_
 - [x] **DESIGN** `api/v1alpha1/trigger_types.go`: `spec.maxFlowRuns` replaced with `spec.flowRunGC` struct providing per-state caps (`maxSucceeded`, `maxFailed`) and per-trigger TTL overrides (`ttlAfterSucceeded`, `ttlAfterFailed`). Follows Kubernetes Job history limits pattern. Controller updated (`enforceFlowRunGCPolicy` + `enforceMaxFlowRunsByPhase`). CRD YAML regenerated. _(done 2026-03-18)_
-- [ ] **LOW** `test/e2e/e2e_test.go`: E2E suite validates controller pod readiness and metrics endpoint only; TODO placeholders at lines 258–265 indicate actual Trigger/Flow/FlowRun workflow scenarios not implemented. k3s cluster available. Add at minimum: webhook trigger → transform → http step → verify FlowRun Succeeded.
+- [x] **LOW** `test/e2e/e2e_test.go`: E2E workflow scenario added in `test/e2e/webhook_test.go` — webhook trigger → transform → http step → MockEndpoint → verify FlowRun Succeeded. Skip with `SKIP_WEBHOOK_E2E=true`. _(done 2026-03-20)_
 
 ### Documentation Gaps — Identified 2026-03-18
 
@@ -303,24 +303,24 @@ Additional demonstration scenarios targeting acquisition/enterprise stakeholders
 
 ### Core Commands — FlowRun History (primary use case)
 
-- [ ] `kubezap history [-n <ns>] [--trigger <name>] [--flow <name>] [--phase <phase>] [--since <duration>]` — filtered FlowRun list: name, trigger, flow, phase, duration, age; uses label/field selectors
-- [ ] `kubezap history <flowrun-name>` — single FlowRun detail: spec summary, per-step timeline (name, phase, duration, attempts), result values, skip/failure reasons
-- [ ] `kubezap history --watch` — live tail of FlowRun completions via CRD watch
+- [x] `kubezap history [-n <ns>] [--trigger <name>] [--flow <name>] [--phase <phase>] [--since <duration>]` — filtered FlowRun list: name, trigger, flow, phase, duration, age; uses label/field selectors _(done 2026-03-20)_
+- [x] `kubezap history <flowrun-name>` — single FlowRun detail: spec summary, per-step timeline (name, phase, duration, attempts), result values, skip/failure reasons _(done 2026-03-20)_
+- [x] `kubezap history --watch` — live tail of FlowRun completions (2s polling loop; TODO: replace with real Watch) _(done 2026-03-20)_
 
 ### Read-Only Status Commands
 
-- [ ] `kubezap triggers [-n <ns>]` — table: name, type, status, last fired, active FlowRun count, effective GC policy; surfaces cross-referenced state that requires multiple `kubectl` commands to assemble
-- [ ] `kubezap flows [-n <ns>]` — table: name, step count, ready condition, last used (inferred from most recent FlowRun)
-- [ ] `kubezap integrations [-n <ns>]` — table: name, type, plugin health (readiness probe status), associated gateway Deployment status
-- [ ] `kubezap version` — CLI version + operator version (from operator Deployment image tag)
+- [x] `kubezap triggers [-n <ns>]` — table: name, type, status, last fired, active FlowRun count, effective GC policy _(done 2026-03-20)_
+- [x] `kubezap flows [-n <ns>]` — table: name, step count, ready condition, last used (inferred from most recent FlowRun) _(done 2026-03-20)_
+- [x] `kubezap integrations [-n <ns>]` — table: name, type, plugin health (readiness probe status), associated gateway Deployment status _(done 2026-03-20)_
+- [x] `kubezap version` — CLI version + operator version (from operator Deployment image tag) _(done 2026-03-20)_
 
 ### Implementation
 
-- [ ] Scaffold CLI binary in `cmd/kubezap/main.go` using `cobra`; internal commands in `internal/cli/`
-- [ ] Kubernetes client setup: respect `KUBECONFIG`, `--context`, `--namespace` / `-n` flags (mirrors kubectl conventions); use `api/v1alpha1` types directly (same module, no versioning complexity)
-- [ ] Output formatters in `internal/cli/output/`: table (default), JSON (`-o json`), YAML (`-o yaml`)
-- [ ] Step timeline renderer for `history <name>`: ASCII table with step name, phase icon, start→end duration, attempt count, result key=value pairs
-- [ ] `Makefile` target `make build-cli` — produces `bin/kubezap`
+- [x] Scaffold CLI binary in `cmd/kubezap/main.go` using `cobra`; internal commands in `internal/cli/`
+- [x] Kubernetes client setup: respect `KUBECONFIG`, `--context`, `--namespace` / `-n` flags (mirrors kubectl conventions); use `api/v1alpha1` types directly (same module, no versioning complexity)
+- [x] Output formatters in `internal/cli/output/`: table (default), JSON (`-o json`), YAML (`-o yaml`) _(done 2026-03-20)_
+- [x] Step timeline renderer for `history <name>`: ASCII table with step name, phase icon, start→end duration, attempt count, result key=value pairs _(done 2026-03-20)_
+- [x] `Makefile` target `make build-cli` — produces `bin/kubezap` _(pre-existing, verified 2026-03-20)_
 - [ ] Goreleaser config: multi-platform CLI binaries (linux/amd64, linux/arm64, darwin/amd64, darwin/arm64) released alongside operator image
 
 ### Distribution

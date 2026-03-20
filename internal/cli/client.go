@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"os"
 
+	appsv1 "k8s.io/api/apps/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/client-go/tools/clientcmd"
@@ -33,6 +34,7 @@ var scheme = runtime.NewScheme()
 
 func init() {
 	utilruntime.Must(automationv1alpha1.AddToScheme(scheme))
+	utilruntime.Must(appsv1.AddToScheme(scheme))
 }
 
 // BuildClient loads a kubeconfig using the provided kubeconfig path and context

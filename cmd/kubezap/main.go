@@ -20,12 +20,15 @@ limitations under the License.
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/spf13/cobra"
 
 	"github.com/borfswitch/kubezap/internal/cli"
+	"github.com/borfswitch/kubezap/internal/cli/output"
 )
 
 // Global persistent flag values populated by cobra before each command runs.
@@ -120,27 +123,48 @@ Results are sorted newest first. Use --watch to live-tail completions.`,
   # Live-tail completions
   kubezap history --watch`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			_, namespace, err := cli.BuildClient(kubeconfigFlag, contextFlag, resolveNamespace(allNamespaces))
+			c, namespace, err := cli.BuildClient(kubeconfigFlag, contextFlag, resolveNamespace(allNamespaces))
 			if err != nil {
 				return err
 			}
-			_ = namespace
+
+			ctx := context.TODO()
 
 			if len(args) == 1 {
 				// Detail form: single FlowRun.
-				fmt.Printf("kubezap history %s: not yet implemented\n", args[0])
-				return nil
+				format, err := output.ParseFormat(outputFormat)
+				if err != nil {
+					return err
+				}
+				return cli.GetFlowRun(ctx, c, namespace, args[0], format)
 			}
 
-			// List form.
-			_ = triggerFilter
-			_ = flowFilter
-			_ = phaseFilter
-			_ = sinceFlag
-			_ = watchFlag
-			_ = outputFormat
-			fmt.Println("kubezap history: not yet implemented")
-			return nil
+			// Parse --since duration.
+			var since time.Duration
+			if sinceFlag != "" {
+				since, err = time.ParseDuration(sinceFlag)
+				if err != nil {
+					return fmt.Errorf("invalid --since value %q: %w", sinceFlag, err)
+				}
+			}
+
+			format, err := output.ParseFormat(outputFormat)
+			if err != nil {
+				return err
+			}
+
+			opts := cli.ListFlowRunOpts{
+				TriggerFilter: triggerFilter,
+				FlowFilter:    flowFilter,
+				PhaseFilter:   phaseFilter,
+				Since:         since,
+				Format:        format,
+			}
+
+			if watchFlag {
+				return cli.WatchFlowRuns(ctx, c, namespace, opts)
+			}
+			return cli.ListFlowRuns(ctx, c, namespace, opts)
 		},
 	}
 
@@ -174,14 +198,15 @@ to assemble manually.`,
   kubezap triggers -n production
   kubezap triggers -A -o json`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			_, namespace, err := cli.BuildClient(kubeconfigFlag, contextFlag, resolveNamespace(allNamespaces))
+			c, namespace, err := cli.BuildClient(kubeconfigFlag, contextFlag, resolveNamespace(allNamespaces))
 			if err != nil {
 				return err
 			}
-			_ = namespace
-			_ = outputFormat
-			fmt.Println("kubezap triggers: not yet implemented")
-			return nil
+			format, err := output.ParseFormat(outputFormat)
+			if err != nil {
+				return err
+			}
+			return cli.ListTriggers(context.TODO(), c, namespace, format)
 		},
 	}
 
@@ -207,14 +232,15 @@ and last used time (inferred from the most recent FlowRun referencing each Flow)
   kubezap flows -n staging
   kubezap flows -A -o yaml`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			_, namespace, err := cli.BuildClient(kubeconfigFlag, contextFlag, resolveNamespace(allNamespaces))
+			c, namespace, err := cli.BuildClient(kubeconfigFlag, contextFlag, resolveNamespace(allNamespaces))
 			if err != nil {
 				return err
 			}
-			_ = namespace
-			_ = outputFormat
-			fmt.Println("kubezap flows: not yet implemented")
-			return nil
+			format, err := output.ParseFormat(outputFormat)
+			if err != nil {
+				return err
+			}
+			return cli.ListFlows(context.TODO(), c, namespace, format)
 		},
 	}
 
@@ -240,14 +266,15 @@ readiness, and plugin health check status (for type: plugin integrations).`,
   kubezap integrations -n production
   kubezap integrations -A -o json`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			_, namespace, err := cli.BuildClient(kubeconfigFlag, contextFlag, resolveNamespace(allNamespaces))
+			c, namespace, err := cli.BuildClient(kubeconfigFlag, contextFlag, resolveNamespace(allNamespaces))
 			if err != nil {
 				return err
 			}
-			_ = namespace
-			_ = outputFormat
-			fmt.Println("kubezap integrations: not yet implemented")
-			return nil
+			format, err := output.ParseFormat(outputFormat)
+			if err != nil {
+				return err
+			}
+			return cli.ListIntegrations(context.TODO(), c, namespace, format)
 		},
 	}
 
@@ -266,9 +293,14 @@ func newVersionCmd() *cobra.Command {
 kubezap-controller-manager Deployment in the cluster.`,
 		Example: `  kubezap version`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			fmt.Printf("kubezap CLI:  %s (git: %s)\n", cli.Version, cli.GitCommit)
-			fmt.Println("operator version: not yet implemented")
-			return nil
+			c, namespace, err := cli.BuildClient(kubeconfigFlag, contextFlag, namespaceFlag)
+			if err != nil {
+				// version can still print CLI info without a cluster connection.
+				fmt.Fprintf(os.Stdout, "kubezap CLI:      %s (git: %s)\n", cli.Version, cli.GitCommit)
+				fmt.Fprintf(os.Stdout, "operator image:   unknown (no cluster connection: %v)\n", err)
+				return nil
+			}
+			return cli.PrintVersion(context.TODO(), c, namespace, cli.Version, cli.GitCommit, os.Stdout)
 		},
 	}
 }

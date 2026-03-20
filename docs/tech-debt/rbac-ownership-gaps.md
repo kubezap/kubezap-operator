@@ -1,7 +1,8 @@
 # Tech Debt: RBAC Ownership and Cleanup Gaps
 
 > Identified: 2026-03-18 (codebase review)
-> Severity: HIGH (owner ref gap) / MEDIUM (delete verb)
+> **RESOLVED: Both issues fixed 2026-03-18. See schedule.md section 8 for details.**
+> Severity: HIGH (owner ref gap) / MEDIUM (delete verb) — resolved
 > Affects: `internal/controller/integration_controller.go`, `config/rbac/role.yaml`, `config/rbac/namespaced_role.yaml`
 
 ---

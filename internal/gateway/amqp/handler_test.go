@@ -242,7 +242,7 @@ func buildAMQP10Message(t *testing.T, msgID string, body string) *goamqp.Message
 		Properties: &goamqp.MessageProperties{
 			MessageID: msgID,
 		},
-		Data: []goamqp.Binary{goamqp.Binary(body)},
+		Data: [][]byte{[]byte(body)},
 	}
 }
 
@@ -250,6 +250,6 @@ func buildAMQP10Message(t *testing.T, msgID string, body string) *goamqp.Message
 func buildAMQP10MessageNoID(t *testing.T, body string) *goamqp.Message {
 	t.Helper()
 	return &goamqp.Message{
-		Data: []goamqp.Binary{goamqp.Binary(body)},
+		Data: [][]byte{[]byte(body)},
 	}
 }

@@ -72,6 +72,9 @@ func (r *MockEndpointReconciler) Reconcile(ctx context.Context, req ctrl.Request
 
 	// Build status URL.
 	base := strings.TrimRight(os.Getenv("KUBEZAP_GATEWAY_BASE_URL"), "/")
+	if base == "" {
+		log.Info("KUBEZAP_GATEWAY_BASE_URL not set; status.URL will be a relative path — set this env var on the controller to expose a fully-qualified mock endpoint URL")
+	}
 	suffix := "/mock/" + strings.TrimPrefix(strings.TrimSpace(me.Spec.Path), "/")
 	url := base + suffix
 

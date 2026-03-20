@@ -75,6 +75,9 @@ func (s *CronScheduler) Register(trigger *automationv1alpha1.Trigger) error {
 	ns := trigger.Namespace
 	name := trigger.Name
 	schedule := trigger.Spec.Cron.Schedule
+	if trigger.Spec.Cron.Timezone != "" {
+		schedule = "CRON_TZ=" + trigger.Spec.Cron.Timezone + " " + schedule
+	}
 
 	s.mu.Lock()
 	defer s.mu.Unlock()

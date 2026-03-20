@@ -1,7 +1,8 @@
 # Tech Debt: Gateway Shutdown Correctness (AMQP & NATS)
 
 > Identified: 2026-03-18 (codebase review)
-> Severity: HIGH
+> **RESOLVED: All three issues fixed 2026-03-18. See schedule.md section 8 for details.**
+> Severity: HIGH (resolved)
 > Affects: `internal/gateway/amqp/watcher.go`, `internal/gateway/nats/watcher.go`
 
 ---

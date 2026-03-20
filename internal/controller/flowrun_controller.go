@@ -356,13 +356,17 @@ func (r *FlowRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		).Observe(duration.Seconds())
 	}
 	span.SetStatus(otelcodes.Ok, "")
+	// Status update must happen BEFORE the metadata Update (finalizer removal).
+	// r.Update() overwrites the local object with the server response, which still
+	// has the old phase ("Running") until Status().Update is called.
+	if err := r.Status().Update(ctx, &flowRun); err != nil {
+		return ctrl.Result{}, err
+	}
 	if containsString(flowRun.Finalizers, executingFinalizer) {
 		flowRun.Finalizers = removeString(flowRun.Finalizers, executingFinalizer)
-		if err := r.Update(ctx, &flowRun); err != nil {
-			return ctrl.Result{}, err
-		}
+		return ctrl.Result{}, r.Update(ctx, &flowRun)
 	}
-	return ctrl.Result{}, r.Status().Update(ctx, &flowRun)
+	return ctrl.Result{}, nil
 }
 
 func (r *FlowRunReconciler) executeStep(
@@ -738,13 +742,16 @@ func (r *FlowRunReconciler) failFlowRun(ctx context.Context, flowRun *automation
 		).Observe(duration.Seconds())
 	}
 	trace.SpanFromContext(ctx).SetStatus(otelcodes.Error, "FlowRun failed")
+	// Status update first — r.Update() would overwrite the local object with the
+	// server's still-Running status before Status().Update gets to persist "Failed".
+	if err := r.Status().Update(ctx, flowRun); err != nil {
+		return err
+	}
 	if containsString(flowRun.Finalizers, executingFinalizer) {
 		flowRun.Finalizers = removeString(flowRun.Finalizers, executingFinalizer)
-		if err := r.Update(ctx, flowRun); err != nil {
-			return err
-		}
+		return r.Update(ctx, flowRun)
 	}
-	return r.Status().Update(ctx, flowRun)
+	return nil
 }
 
 func setFlowRunCondition(flowRun *automationv1alpha1.FlowRun, condition metav1.Condition) {

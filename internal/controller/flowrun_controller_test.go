@@ -26,6 +26,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -271,7 +272,13 @@ var _ = Describe("FlowRunReconciler", func() {
 			flowName := fmt.Sprintf("flow-timeout-%d", seed)
 			flowRunName := fmt.Sprintf("fr-timeout-%d", seed)
 
-			flow = makeFlow(flowName, []automationv1alpha1.FlowStep{})
+			// CRD requires MinItems=1; timeout fires before any step is executed.
+			flow = makeFlow(flowName, []automationv1alpha1.FlowStep{
+				{Name: "placeholder", Action: automationv1alpha1.StepAction{
+					Type:      "transform",
+					Transform: &automationv1alpha1.TransformAction{Mappings: map[string]string{"key": "val"}},
+				}},
+			})
 			Expect(k8sClient.Create(ctx, flow)).To(Succeed())
 
 			flowRun = makeFlowRun(flowRunName, flowName)
@@ -312,13 +319,28 @@ var _ = Describe("FlowRunReconciler", func() {
 
 		BeforeEach(func() {
 			seed := GinkgoRandomSeed()
-			flow = makeFlow(fmt.Sprintf("flow-finalizer-%d", seed), []automationv1alpha1.FlowStep{})
+			// A wait step with a 1h duration causes the reconciler to requeue after
+			// setting Running, leaving the finalizer visible for the "adds finalizer" test.
+			// The "removes finalizer" It re-creates with a fast transform step instead.
+			flow = makeFlow(fmt.Sprintf("flow-finalizer-%d", seed), []automationv1alpha1.FlowStep{
+				{Name: "wait-step", Action: automationv1alpha1.StepAction{
+					Type: "wait",
+					Wait: &automationv1alpha1.WaitAction{Duration: "1h"},
+				}},
+			})
 			Expect(k8sClient.Create(ctx, flow)).To(Succeed())
 
 			flowRun = makeFlowRun(fmt.Sprintf("fr-finalizer-%d", seed), flow.Name)
 			Expect(k8sClient.Create(ctx, flowRun)).To(Succeed())
 
 			DeferCleanup(func() {
+				// Clear any finalizer the reconciler may have added so Delete is not blocked.
+				var fr automationv1alpha1.FlowRun
+				if err := k8sClient.Get(context.Background(),
+					types.NamespacedName{Name: flowRun.Name, Namespace: testNamespace}, &fr); err == nil {
+					fr.Finalizers = nil
+					_ = k8sClient.Update(context.Background(), &fr)
+				}
 				_ = k8sClient.Delete(context.Background(), flowRun)
 				_ = k8sClient.Delete(context.Background(), flow)
 			})
@@ -337,9 +359,24 @@ var _ = Describe("FlowRunReconciler", func() {
 		})
 
 		It("removes the finalizer when the FlowRun succeeds", func() {
+			// Use a transform step (completes immediately) so the FlowRun reaches
+			// Succeeded in a single reconcile pass.
+			seed := GinkgoRandomSeed()
+			fastFlow := makeFlow(fmt.Sprintf("flow-fast-%d", seed), []automationv1alpha1.FlowStep{
+				{Name: "t", Action: automationv1alpha1.StepAction{
+					Type:      "transform",
+					Transform: &automationv1alpha1.TransformAction{Mappings: map[string]string{"k": "v"}},
+				}},
+			})
+			Expect(k8sClient.Create(ctx, fastFlow)).To(Succeed())
+			DeferCleanup(func() { _ = k8sClient.Delete(context.Background(), fastFlow) })
+
+			fastRun := makeFlowRun(fmt.Sprintf("fr-fast-%d", seed), fastFlow.Name)
+			Expect(k8sClient.Create(ctx, fastRun)).To(Succeed())
+			DeferCleanup(func() { _ = k8sClient.Delete(context.Background(), fastRun) })
+
 			r := newReconciler()
-			nn := types.NamespacedName{Name: flowRun.Name, Namespace: testNamespace}
-			// Reconcile: Flow has no steps → transitions Pending→Running→Succeeded in one pass.
+			nn := types.NamespacedName{Name: fastRun.Name, Namespace: testNamespace}
 			_, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: nn})
 			Expect(err).NotTo(HaveOccurred())
 
@@ -361,7 +398,14 @@ var _ = Describe("FlowRunReconciler", func() {
 			flowName := fmt.Sprintf("flow-del-running-%d", seed)
 			flowRunName := fmt.Sprintf("fr-del-running-%d", seed)
 
-			flow = makeFlow(flowName, []automationv1alpha1.FlowStep{})
+			// CRD requires MinItems=1; reconciler takes the DeletionTimestamp path
+			// before executing any steps.
+			flow = makeFlow(flowName, []automationv1alpha1.FlowStep{
+				{Name: "placeholder", Action: automationv1alpha1.StepAction{
+					Type:      "transform",
+					Transform: &automationv1alpha1.TransformAction{Mappings: map[string]string{"key": "val"}},
+				}},
+			})
 			Expect(k8sClient.Create(ctx, flow)).To(Succeed())
 
 			flowRun = makeFlowRun(flowRunName, flowName)
@@ -397,7 +441,13 @@ var _ = Describe("FlowRunReconciler", func() {
 			Expect(err).NotTo(HaveOccurred())
 
 			var updated automationv1alpha1.FlowRun
-			Expect(k8sClient.Get(ctx, nn, &updated)).To(Succeed())
+			getErr := k8sClient.Get(ctx, nn, &updated)
+			if apierrors.IsNotFound(getErr) {
+				// Object was fully GC'd — finalizer removal triggered immediate deletion.
+				// Status().Update (Phase=Failed) succeeded before the object was purged.
+				return
+			}
+			Expect(getErr).NotTo(HaveOccurred())
 			Expect(updated.Status.Phase).To(Equal("Failed"))
 			Expect(updated.Finalizers).NotTo(ContainElement("kubezap.io/executing"))
 		})

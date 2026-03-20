@@ -89,7 +89,7 @@ func main() {
 
 	registry := webhook.NewRouteRegistry(log.WithName("route-registry"))
 	mockRegistry := webhook.NewMockRegistry()
-	watcher, err := webhook.NewTriggerWatcher(k8sClient, registry, mockRegistry, namespace, log.WithName("trigger-watcher"))
+	watcher, err := webhook.NewTriggerWatcher(cfg, k8sClient, registry, mockRegistry, namespace, log.WithName("trigger-watcher"))
 	if err != nil {
 		log.Error(err, "unable to create trigger watcher")
 		os.Exit(1)

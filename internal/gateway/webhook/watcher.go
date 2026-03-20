@@ -12,7 +12,6 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/rest"
 	toolscache "k8s.io/client-go/tools/cache"
-	ctrl "sigs.k8s.io/controller-runtime"
 	crcache "sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
@@ -37,9 +36,9 @@ type TriggerWatcher struct {
 }
 
 // NewTriggerWatcher creates a new TriggerWatcher with an informer cache.
-func NewTriggerWatcher(k8sClient client.Client, registry *RouteRegistry, mockRegistry *MockRegistry, namespace string, log logr.Logger) (*TriggerWatcher, error) {
-	cfg := ctrl.GetConfigOrDie()
-
+// cfg must be a valid *rest.Config; callers typically obtain it via ctrl.GetConfigOrDie()
+// and pass it here to avoid redundant API server round-trips.
+func NewTriggerWatcher(cfg *rest.Config, k8sClient client.Client, registry *RouteRegistry, mockRegistry *MockRegistry, namespace string, log logr.Logger) (*TriggerWatcher, error) {
 	httpClient, err := rest.HTTPClientFor(cfg)
 	if err != nil {
 		return nil, fmt.Errorf("unable to create HTTP client for REST config: %w", err)

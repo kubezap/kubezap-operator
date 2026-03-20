@@ -265,7 +265,9 @@ var _ = Describe("IntegrationReconciler", func() {
 	// ---- NATS ----
 
 	Context("when type=nats and servers list is empty", func() {
-		It("sets Ready=False, reason=InvalidSpec", func() {
+		It("is rejected by CRD validation (MinItems=1 on spec.nats.servers)", func() {
+			// The CRD enforces +kubebuilder:validation:MinItems=1 on servers,
+			// so the API server rejects the Create with a 422 before the reconciler runs.
 			name := "nats-no-servers"
 			integration := &automationv1alpha1.Integration{
 				ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace},
@@ -276,20 +278,10 @@ var _ = Describe("IntegrationReconciler", func() {
 					},
 				},
 			}
-			Expect(k8sClient.Create(ctx, integration)).To(Succeed())
-			DeferCleanup(func() {
-				_ = k8sClient.Delete(ctx, integration)
-			})
-
-			reconcile(name)
-
-			fetched := &automationv1alpha1.Integration{}
-			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: name, Namespace: namespace}, fetched)).To(Succeed())
-
-			cond := apimeta.FindStatusCondition(fetched.Status.Conditions, "Ready")
-			Expect(cond).NotTo(BeNil())
-			Expect(cond.Status).To(Equal(metav1.ConditionFalse))
-			Expect(cond.Reason).To(Equal("InvalidSpec"))
+			err := k8sClient.Create(ctx, integration)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("at least 1 items"))
+			// Object was rejected — no cleanup needed, no reconcile to trigger.
 		})
 	})
 

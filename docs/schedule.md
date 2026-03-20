@@ -491,3 +491,70 @@ Additional demonstration scenarios targeting acquisition/enterprise stakeholders
 - [ ] Plugin marketplace / integration catalog
 - [ ] S3/Git event trigger source
 - [x] Fix pre-existing `flow_controller_test.go` failure: `when spec.steps is empty` test case
+
+---
+
+## 11. MockEndpoint Deprecation & Removal
+
+> **Decision (2026-03-20):** Remove the `MockEndpoint` CRD entirely. Replace in all demos,
+> tests, and docs with a lightweight third-party mock HTTP server deployed in-cluster.
+> MockEndpoint solves a real problem but is not a KubeZap concern — operators should use
+> purpose-built mocking tools.
+>
+> **Recommended replacement tool:** TBD — see `docs/tech-debt/pending-input-required.md`
+> for the tool selection question (BACKLOG-PROMPT). Do not begin Phase 2 or later until
+> that question is answered.
+>
+> **Ordering constraint:** Phases must be executed in order. Code removal (Phase 4) is last.
+> Demos and tests must be updated before the CRD is deleted so the repo is never broken.
+
+### Phase 0 — Design decision (BLOCKED on pending input)
+
+- [ ] Choose replacement mock tool — see `docs/tech-debt/pending-input-required.md`; options: WireMock, Mockoon, or other. Decision gates all phases below.
+
+### Phase 1 — Write replacement documentation
+
+- [ ] Convert `docs/api/mock-endpoint.md` to `docs/guides/mocking-http-endpoints.md`: explain why MockEndpoint is removed, document the chosen tool's in-cluster deployment (Helm or raw YAML), show how to define stub responses, show how to inspect captured requests, cross-link to each demo that uses it
+- [ ] Add in-cluster `Deployment` + `Service` sample YAML for the chosen tool (as a reusable snippet referenced by demos and the guide)
+- [ ] Update `docs/overview.md` CRD Overview table: remove `MockEndpoint` row; add note in the `MockEndpoint` description redirecting to `docs/guides/mocking-http-endpoints.md`
+- [ ] Update `docs/architecture.md`: remove all MockEndpoint references; update the "Webhook gateway also serves `/mock/*` paths" note to reflect removal
+- [ ] Update `docs/guides/troubleshooting.md`: replace "MockEndpoint not capturing requests" section with equivalent section for chosen tool
+
+### Phase 2 — Update demo sample CRs
+
+- [ ] `config/samples/demo/mockendpoints.yaml` — delete file; remove from `config/samples/demo/kustomization.yaml`
+- [ ] `config/samples/automation_v1alpha1_mockendpoint.yaml` — delete file; remove from `config/samples/kustomization.yaml` and OLM bundle alm-examples
+- [ ] `config/samples/demo/flow.yaml` — update any step URLs that reference `/mock/*` paths to use the chosen tool's endpoint instead (e.g., `http://wiremock:8080/__admin/...`)
+- [ ] `config/samples/demo/kafka-enrichment/` — replace `enterprise-sink`, `standard-sink`, `trial-sink`, `customer-profile` MockEndpoints with chosen-tool stub configs; update `kustomization.yaml`
+- [ ] `config/samples/demo/incident-escalation/` — audit for MockEndpoint usage; update if present
+
+### Phase 3 — Update guides and walkthroughs
+
+- [ ] `docs/guides/getting-started.md` — replace all MockEndpoint steps with chosen-tool equivalent: deploy mock server, define stubs, inspect captured requests; update every `kubectl apply` command and expected output block
+- [ ] `docs/guides/kafka-enrichment.md` — replace mock sink/profile setup; update Steps 1–6 accordingly; verify `kubectl patch mockendpoint ...` commands are removed
+- [ ] `docs/guides/incident-escalation.md` — audit for MockEndpoint references; update if present
+- [ ] `docs/guides/demo-walkthrough.md` — update Demo 1 and Getting Started checklists to use chosen tool; remove any `kubectl get mockendpoint` commands
+- [ ] All new Demo guides (D4–D10) that reference MockEndpoints: replace with chosen tool before those guides are written (demos D4, D5, D6, D8, D9, D10 planned to use mocks)
+
+### Phase 4 — Update tests
+
+- [ ] `internal/controller/mockendpoint_controller_test.go` — delete entire file
+- [ ] `internal/controller/suite_test.go` (or equivalent) — remove MockEndpoint type registration if present
+- [ ] `test/e2e/` — search for all MockEndpoint usage; replace with HTTP calls to chosen-tool stub server deployed in the test namespace; update `BeforeSuite` setup if the test suite relies on the webhook gateway's `/mock/*` serving
+- [ ] `test/e2e/webhook_test.go` — update the E2E scenario (webhook → transform → http step → MockEndpoint → verify FlowRun Succeeded) to target the chosen tool instead
+- [ ] Audit all test files: `grep -r "MockEndpoint\|mockendpoint\|mock-endpoint" --include="*.go"` — fix every hit
+
+### Phase 5 — Remove code and CRD
+
+> Do not begin until Phases 1–4 are complete and all tests pass.
+
+- [ ] Delete `api/v1alpha1/mockendpoint_types.go`; run `make generate && make manifests`
+- [ ] Delete `internal/controller/mockendpoint_controller.go`
+- [ ] Remove MockEndpoint controller registration from `cmd/main.go` (scheme + `SetupWithManager` call)
+- [ ] Remove `/mock/*` route handling from `cmd/webhook-gateway/main.go` and `internal/gateway/webhook/handler.go`
+- [ ] Remove MockEndpoint RBAC markers from all controllers; run `make manifests`
+- [ ] Delete `config/crd/bases/automation.kubezap.io_mockendpoints.yaml`
+- [ ] Delete `bundle/manifests/automation.kubezap.io_mockendpoints.yaml` (if present); regenerate bundle with `make bundle`
+- [ ] Update `charts/kubezap/crds/` to remove MockEndpoint CRD YAML
+- [ ] Run `go build ./...`, `go vet ./...`, `go test ./... -count=1` — all must pass
+- [ ] Update `docs/overview.md` CRD table: set MockEndpoint status to "Removed — see mocking guide"

@@ -248,3 +248,124 @@ kubectl get flowrun $FR -n $NS \
 ```bash
 kubectl delete -k config/samples/demo/incident-escalation/
 ```
+
+---
+
+## Demo 4 — GitHub Webhook → Auto-Label PR
+
+**What it shows:** A GitHub pull_request webhook event (HMAC-signed) triggers a flow that extracts
+the PR number and action, then conditionally applies a label via the GitHub API. Opening a PR adds
+"needs-review"; closing it adds "merged". Demonstrates `$(trigger.headers.*)` access, CEL
+conditional branching, and GitHub API integration with a bearer token from a Secret.
+
+**Requires:** A GitHub repository with admin access, a Personal Access Token with `issues: write`
+scope, and the KubeZap webhook gateway exposed externally (ngrok or LoadBalancer). See
+`docs/guides/github-autolabel.md` for the full setup.
+
+### Step 1 — Create secrets
+
+```bash
+kubectl create secret generic github-webhook-secret \
+  --from-literal=secret='<your-github-webhook-secret>' -n $NS
+
+kubectl create secret generic github-api-token \
+  --from-literal=token='ghp_<your-github-personal-access-token>' -n $NS
+```
+
+### Step 2 — Patch the Flow with your repo name
+
+```bash
+# Edit flow.yaml and replace YOUR_ORG/YOUR_REPO before applying
+# Or patch after applying:
+kubectl patch flow github-autolabel -n $NS --type=json \
+  -p '[{"op":"replace","path":"/spec/steps/1/action/http/url","value":"https://api.github.com/repos/ACTUAL_ORG/ACTUAL_REPO/issues/$(steps.extract_pr.results.prNumber)/labels"},{"op":"replace","path":"/spec/steps/2/action/http/url","value":"https://api.github.com/repos/ACTUAL_ORG/ACTUAL_REPO/issues/$(steps.extract_pr.results.prNumber)/labels"}]'
+```
+
+### Step 3 — Apply CRs
+
+```bash
+kubectl apply -k config/samples/demo/github-autolabel/
+```
+
+### Step 4 — Verify Trigger is Accepted and gateway is running
+
+```bash
+kubectl get trigger github-pr-label -n $NS \
+  -o jsonpath='{.status.conditions[?(@.type=="Accepted")].status}'
+# Expected: True
+
+kubectl get deployment kubezap-webhook-gateway -n $NS
+# Expected: 1/1 READY
+```
+
+### Step 5 — Expose the gateway and configure the GitHub webhook
+
+```bash
+# Port-forward for local testing (requires ngrok or similar for GitHub to reach you)
+kubectl port-forward svc/kubezap-webhook-gateway 8080:8080 -n $NS &
+
+# With ngrok:
+# ngrok http 8080
+# Note the public URL (e.g. https://abc123.ngrok.io)
+```
+
+In GitHub repo → Settings → Webhooks → Add webhook:
+- Payload URL: `https://<your-ngrok-url>/hooks/github-pr`
+- Content type: `application/json`
+- Secret: your webhook secret
+- Events: **Pull requests** only
+
+### Step 6 — Open a test PR and watch the FlowRun appear
+
+```bash
+# Open a PR using gh CLI
+gh pr create --title "Test KubeZap auto-label" --body "Testing" --base main
+
+# Watch FlowRuns
+kubectl get flowruns -n $NS -l kubezap.io/trigger=github-pr-label -w
+# A FlowRun should appear within seconds
+```
+
+### Step 7 — Inspect step phases
+
+```bash
+FR=$(kubectl get flowruns -n $NS -l kubezap.io/trigger=github-pr-label \
+  -o jsonpath='{.items[0].metadata.name}')
+
+kubectl get flowrun $FR -n $NS \
+  -o jsonpath='{range .status.steps[*]}{.name}{"\t"}{.phase}{"\n"}{end}'
+# Expected for PR opened:
+#   extract-pr          Succeeded
+#   label-needs-review  Succeeded
+#   label-closed        Skipped
+```
+
+### Step 8 — Verify the label on GitHub
+
+```bash
+PR_NUM=$(kubectl get flowrun $FR -n $NS \
+  -o jsonpath='{.status.steps[?(@.name=="extract-pr")].results[?(@.name=="prNumber")].value}')
+
+curl -s -H "Authorization: Bearer $(kubectl get secret github-api-token -n $NS \
+  -o jsonpath='{.data.token}' | base64 -d)" \
+  https://api.github.com/repos/YOUR_ORG/YOUR_REPO/issues/${PR_NUM}/labels | jq '.[].name'
+# Expected: "needs-review"
+```
+
+### Step 9 — Test the close path
+
+```bash
+# Close the PR (without merging)
+gh pr close <pr-number>
+
+# A new FlowRun should appear; label-closed runs, label-needs-review is Skipped
+kubectl get flowruns -n $NS -l kubezap.io/trigger=github-pr-label -w
+```
+
+### Cleanup
+
+```bash
+kubectl delete -k config/samples/demo/github-autolabel/
+kubectl delete secret github-webhook-secret github-api-token -n $NS
+# Also delete the webhook in GitHub Settings → Webhooks
+```

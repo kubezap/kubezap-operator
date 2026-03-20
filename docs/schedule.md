@@ -164,9 +164,9 @@ Additional demonstration scenarios targeting acquisition/enterprise stakeholders
 **What it demonstrates:** HMAC-signed webhook auth, `$(trigger.headers.*)` access, GitHub API integration with bearer token, `resultMappings` to extract PR number and repo from payload, conditional labeling logic via CEL.
 
 **Implementation tasks:**
-- [ ] Create sample CRs in `config/samples/demo/github-autolabel/`: Trigger (hmac auth), Flow (transform → http label call), Secrets placeholder comments
-- [ ] Create guide at `docs/guides/github-autolabel.md`: GitHub webhook setup, ngrok/Ingress exposure, secret creation, applying CRs, sending a test PR event, verifying label applied
-- [ ] Add walkthrough checklist to `docs/guides/demo-walkthrough.md`
+- [x] Create sample CRs in `config/samples/demo/github-autolabel/`: Trigger (hmac auth), Flow (transform → http label call), Secrets placeholder comments
+- [x] Create guide at `docs/guides/github-autolabel.md`: GitHub webhook setup, ngrok/Ingress exposure, secret creation, applying CRs, sending a test PR event, verifying label applied
+- [x] Add walkthrough checklist to `docs/guides/demo-walkthrough.md`
 
 ---
 

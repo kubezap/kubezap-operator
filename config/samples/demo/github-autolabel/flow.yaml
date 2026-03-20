@@ -1,0 +1,67 @@
+apiVersion: automation.kubezap.io/v1alpha1
+kind: Flow
+metadata:
+  name: github-autolabel
+  namespace: default
+spec:
+  description: "Extract PR metadata and apply a label via the GitHub API"
+  timeout: 30s
+  steps:
+    # ── Step 1 ─────────────────────────────────────────────────────────────────
+    # Extract the event type (from header) and PR metadata (top-level body fields).
+    # GitHub PR webhook payload has `number` and `action` at the top level.
+    # The `X-GitHub-Event` header identifies the event type (pull_request, push, etc.)
+    - name: extract-pr
+      description: "Pull PR number, action, and event type from the webhook payload"
+      action:
+        type: transform
+        transform:
+          mappings:
+            prNumber:  "$(trigger.body.number)"
+            action:    "$(trigger.body.action)"
+            eventType: "$(trigger.headers.X-GitHub-Event)"
+
+    # ── Step 2 ─────────────────────────────────────────────────────────────────
+    # Apply the "needs-review" label when a PR is opened.
+    # Skipped for all other event actions (closed, synchronize, labeled, etc.)
+    # Replace YOUR_ORG/YOUR_REPO with your repository (e.g. acme/platform).
+    - name: label-needs-review
+      description: "Apply 'needs-review' label when a PR is opened"
+      runAfter:
+        - extract-pr
+      when:
+        - expression: 'steps.extract_pr.results.eventType == "pull_request" && steps.extract_pr.results.action == "opened"'
+      action:
+        type: http
+        http:
+          url: "https://api.github.com/repos/YOUR_ORG/YOUR_REPO/issues/$(steps.extract_pr.results.prNumber)/labels"
+          method: POST
+          headers:
+            Authorization:        "Bearer $(secrets.github-api-token.token)"
+            Content-Type:         application/vnd.github+json
+            X-GitHub-Api-Version: "2022-11-28"
+          body: '{"labels":["needs-review"]}'
+          timeoutSeconds: 15
+
+    # ── Step 3 ─────────────────────────────────────────────────────────────────
+    # Apply the "merged" label when a PR is closed (covers both merged and abandoned).
+    # To distinguish merged from abandoned you would need a second API call to fetch
+    # pull_request.merged — see the guide for details.
+    # Replace YOUR_ORG/YOUR_REPO with your repository (e.g. acme/platform).
+    - name: label-closed
+      description: "Apply 'merged' label when a PR is closed"
+      runAfter:
+        - extract-pr
+      when:
+        - expression: 'steps.extract_pr.results.eventType == "pull_request" && steps.extract_pr.results.action == "closed"'
+      action:
+        type: http
+        http:
+          url: "https://api.github.com/repos/YOUR_ORG/YOUR_REPO/issues/$(steps.extract_pr.results.prNumber)/labels"
+          method: POST
+          headers:
+            Authorization:        "Bearer $(secrets.github-api-token.token)"
+            Content-Type:         application/vnd.github+json
+            X-GitHub-Api-Version: "2022-11-28"
+          body: '{"labels":["merged"]}'
+          timeoutSeconds: 15

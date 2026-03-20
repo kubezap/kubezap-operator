@@ -1,0 +1,22 @@
+apiVersion: automation.kubezap.io/v1alpha1
+kind: Trigger
+metadata:
+  name: github-pr-label
+  namespace: default
+spec:
+  type: webhook
+  enabled: true
+  webhook:
+    path: /hooks/github-pr
+    method: POST
+    auth:
+      type: hmac
+      hmac:
+        secretRef:
+          name: github-webhook-secret
+          key: secret
+        header: "X-Hub-Signature-256"
+        algorithm: sha256
+        prefix: "sha256="
+  flowRef:
+    name: github-autolabel

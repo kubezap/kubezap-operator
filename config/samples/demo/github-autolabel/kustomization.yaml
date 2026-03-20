@@ -1,0 +1,5 @@
+# secrets.yaml is intentionally excluded — create secrets manually before applying.
+# See docs/guides/github-autolabel.md for step-by-step instructions.
+resources:
+  - flow.yaml
+  - trigger.yaml

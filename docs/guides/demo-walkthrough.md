@@ -136,7 +136,7 @@ kubectl delete -k config/samples/demo/kafka-enrichment/
 
 ---
 
-## Demo 3 — Incident Response Escalation
+## Demo 2 — Incident Response Escalation
 
 **What it shows:** An alert webhook triggers a flow that pages on-call and fires auto-mitigation
 in parallel, then waits 2 minutes, checks health, and conditionally escalates.
@@ -251,7 +251,7 @@ kubectl delete -k config/samples/demo/incident-escalation/
 
 ---
 
-## Demo 4 — GitHub Webhook → Auto-Label PR
+## Demo 3 — GitHub Webhook → Auto-Label PR
 
 **What it shows:** A GitHub pull_request webhook event (HMAC-signed) triggers a flow that extracts
 the PR number and action, then conditionally applies a label via the GitHub API. Opening a PR adds

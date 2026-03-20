@@ -196,8 +196,8 @@ Runnable examples targeting acquisition/enterprise stakeholders. Each example li
 **What it demonstrates:** Cron trigger (timezone-aware), chaining step results across 3 steps (export → upload → notify), `retryPolicy` on the upload step, secrets for AWS/MinIO credentials, `$(trigger.scheduledTime)` in the export URL, `failurePolicy: Continue` so the summary posts even on partial failure.
 
 **Implementation tasks:**
-- [ ] Create manifests in `examples/nightly-export/`: CronTrigger, Flow (3 steps), Integration or Secrets placeholders, MinIO Deployment + Service (for local testing)
-- [ ] Create `examples/nightly-export/README.md`: MinIO setup (in-cluster option), secret creation, applying manifests, manually triggering via FlowRun, verifying S3 object created, checking Slack summary
+- [x] Create manifests in `examples/nightly-export/`: CronTrigger, Flow (3 steps), Integration or Secrets placeholders, MinIO Deployment + Service (for local testing)
+- [x] Create `examples/nightly-export/README.md`: MinIO setup (in-cluster option), secret creation, applying manifests, manually triggering via FlowRun, verifying S3 object created, checking Slack summary
 
 ---
 

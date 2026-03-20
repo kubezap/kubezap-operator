@@ -1,0 +1,5 @@
+resources:
+  - minio.yaml
+  - mockendpoints.yaml
+  - flow.yaml
+  - trigger.yaml

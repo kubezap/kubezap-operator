@@ -400,6 +400,12 @@ Runnable examples targeting acquisition/enterprise stakeholders. Each example li
 - [x] Missing tests: `substituteVars`, `evaluateWhen`, `enforceMaxFlowRunsByPhase`, cron cooldown — all covered by new tests in `internal/controller/` (substitute_vars_test.go, evaluate_when_test.go, gc_policy_test.go, cron_scheduler_test.go). _(done 2026-03-20)_
 - [x] `internal/gateway/kafka/watcher.go` `startSubscription`: the subscription goroutine uses `context.WithCancel(context.Background())` rather than deriving from the caller's context. _(fixed: changed to `context.WithCancel(ctx)` so pod shutdown cleanly cancels all in-flight consumer sessions)_
 
+### New — Identified 2026-03-20 (examples gap)
+
+- [ ] **HIGH** `internal/controller/flowrun_controller.go` `substituteVars`: No `$(secrets.<name>.<key>)` substitution is implemented. Flow steps that need credentials (e.g. Slack webhook URLs, S3 keys, API tokens) must embed them as plaintext in the manifest or rely on out-of-band injection (Helm/kustomize). This is a first-class security gap — secrets should be resolvable in step headers, URLs, and body using the same `$(...)` syntax already used for trigger data and step results. Implementation: controller fetches the named Secret from the step's namespace at reconcile time and substitutes the value; Secret name/key must be whitelisted in a new `spec.secretRefs` field on the Flow (mirrors plugin secretRefs pattern). RBAC marker for `get` on `secrets` already exists in the controller ClusterRole.
+
+---
+
 ### New — Identified 2026-03-18 (codebase review)
 
 - [x] **HIGH** `internal/gateway/amqp/watcher.go` and `internal/gateway/nats/watcher.go` `startSubscription`: both use `context.WithCancel(context.Background())` instead of `context.WithCancel(ctx)`. _(fixed 2026-03-18: both changed to `context.WithCancel(ctx)`)_

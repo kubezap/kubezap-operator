@@ -37,3 +37,4 @@ coredns.yaml
 /webhook-gateway
 /amqp-gateway
 /nats-gateway
+/kubezap

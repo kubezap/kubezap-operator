@@ -138,14 +138,14 @@ Additional demonstration scenarios targeting acquisition/enterprise stakeholders
 - [x] Guide at `docs/guides/kafka-enrichment.md` (setup, produce messages, inspect FlowRuns, retry demo)
 - [x] `type: publish` PublishAction documented in `docs/api/flow.md`
 
-### Demo 3 — Incident Response Escalation
+### Demo 2 — Incident Response Escalation
 - [x] Design wait/requeue primitive (delayed step re-evaluation without blocking)
 - [x] Sample CRs in `config/samples/demo/incident-escalation/`
 - [x] Guide at `docs/guides/incident-escalation.md`
 
 ### Demo Validation
 - [x] Manual walkthrough checklist for Demo 1 (Kafka Event Enrichment Pipeline) — step-by-step kubectl commands to apply CRs, produce a Kafka message, inspect FlowRun, verify results
-- [x] Manual walkthrough checklist for Demo 3 (Incident Response Escalation) — step-by-step kubectl commands to apply CRs, send alert webhook, observe Waiting phase, verify escalation step skipped
+- [x] Manual walkthrough checklist for Demo 2 (Incident Response Escalation) — step-by-step kubectl commands to apply CRs, send alert webhook, observe Waiting phase, verify escalation step skipped
 
 ---
 
@@ -154,7 +154,7 @@ Additional demonstration scenarios targeting acquisition/enterprise stakeholders
 > These demos target acquisition/enterprise stakeholders with real integration patterns.
 > Each requires: sample CRs in `config/samples/demo/<slug>/`, a step-by-step guide in `docs/guides/<slug>.md`, and a walkthrough checklist entry in `docs/guides/demo-walkthrough.md`.
 
-### Demo 4 — GitHub Webhook → Auto-Label PR
+### Demo 3 — GitHub Webhook → Auto-Label PR
 
 **External dependencies:**
 - A GitHub repository with admin access (to configure webhooks and create a GitHub App or Personal Access Token with `pull_requests: write` scope)
@@ -164,13 +164,13 @@ Additional demonstration scenarios targeting acquisition/enterprise stakeholders
 **What it demonstrates:** HMAC-signed webhook auth, `$(trigger.headers.*)` access, GitHub API integration with bearer token, `resultMappings` to extract PR number and repo from payload, conditional labeling logic via CEL.
 
 **Implementation tasks:**
-- [ ] Create sample CRs in `config/samples/demo/github-autolabel/`: Trigger (hmac auth), Flow (transform → http label call), Secrets placeholder comments
-- [ ] Create guide at `docs/guides/github-autolabel.md`: GitHub webhook setup, ngrok/Ingress exposure, secret creation, applying CRs, sending a test PR event, verifying label applied
-- [ ] Add walkthrough checklist to `docs/guides/demo-walkthrough.md`
+- [x] Create sample CRs in `config/samples/demo/github-autolabel/`: Trigger (hmac auth), Flow (transform → http label call), Secrets placeholder comments
+- [x] Create guide at `docs/guides/github-autolabel.md`: GitHub webhook setup, ngrok/Ingress exposure, secret creation, applying CRs, sending a test PR event, verifying label applied
+- [x] Add walkthrough checklist to `docs/guides/demo-walkthrough.md`
 
 ---
 
-### Demo 5 — Slack Slash Command Router
+### Demo 4 — Slack Slash Command Router
 
 **External dependencies:**
 - A Slack workspace with permission to create a Slash Command app (free tier sufficient)
@@ -187,7 +187,7 @@ Additional demonstration scenarios targeting acquisition/enterprise stakeholders
 
 ---
 
-### Demo 6 — Nightly Database Export + S3 Upload
+### Demo 5 — Nightly Database Export + S3 Upload
 
 **External dependencies:**
 - An internal or mock export API (can use MockEndpoint as the export source in the demo)
@@ -204,7 +204,7 @@ Additional demonstration scenarios targeting acquisition/enterprise stakeholders
 
 ---
 
-### Demo 7 — Kubernetes Resource Event → ITSM Ticket
+### Demo 6 — Kubernetes Resource Event → ITSM Ticket
 
 **External dependencies:**
 - A running cluster where the demo namespace has Pods that can be set to `Failed` phase (easily done with an invalid image)
@@ -223,7 +223,7 @@ Additional demonstration scenarios targeting acquisition/enterprise stakeholders
 
 ---
 
-### Demo 8 — Dead-Letter Queue Handler
+### Demo 7 — Dead-Letter Queue Handler
 
 **External dependencies:**
 - A Kafka cluster accessible from within the cluster (same as Demo 1 — Strimzi or in-cluster Kafka)
@@ -240,7 +240,7 @@ Additional demonstration scenarios targeting acquisition/enterprise stakeholders
 
 ---
 
-### Demo 9 — Multi-Tenant Webhook Fan-Out
+### Demo 8 — Multi-Tenant Webhook Fan-Out
 
 **External dependencies:**
 - No external services required — demo uses MockEndpoints as the three tenant endpoints
@@ -255,7 +255,7 @@ Additional demonstration scenarios targeting acquisition/enterprise stakeholders
 
 ---
 
-### Demo 10 — OIDC-Secured API Gateway Webhook
+### Demo 9 — OIDC-Secured API Gateway Webhook
 
 **External dependencies:**
 - An OIDC provider. Options (in order of ease for local testing):

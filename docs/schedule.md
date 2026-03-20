@@ -207,8 +207,8 @@ Additional demonstration scenarios targeting acquisition/enterprise stakeholders
   - [x] `NOTES.txt` with post-install instructions
   - [x] `helm lint` and `helm template` validation pass _(verified 2026-03-20: `helm lint` 0 failures, `helm template` renders cleanly)_
   - [x] Document Helm installation in `docs/overview.md` Installation section
-- [x] OLM bundle finalized and validated with `operator-sdk bundle validate`
-- [ ] OperatorHub submission PR
+- [x] OLM bundle finalized and validated with `operator-sdk bundle validate` _(done 2026-03-20: alm-examples populated, minKubeVersion set, zero warnings)_
+- [ ] OperatorHub submission PR _(PAUSED — owner request 2026-03-20; do not start until explicitly unblocked)_
 - [x] `docs/overview.md` Installation section completed _(done 2026-03-20)_
 - [x] Compatibility matrix updated (OpenShift 4.12+) _(done 2026-03-20)_
 
@@ -335,8 +335,10 @@ Additional demonstration scenarios targeting acquisition/enterprise stakeholders
 - [x] `docs/guides/using-the-cli.md` — user guide for the `kubezap` CLI _(created 2026-03-20)_
 - [x] `docs/guides/cron-triggers.md` — how-to guide for scheduled workflows _(created 2026-03-20)_
 - [x] `docs/guides/troubleshooting.md` — consolidated troubleshooting guide _(created 2026-03-20)_
-- [ ] `docs/guides/amqp-setup.md` — AMQP gateway setup guide (see pending-input-required.md)
-- [ ] `docs/guides/nats-setup.md` — NATS gateway setup guide (see pending-input-required.md)
+- [x] `docs/guides/amqp-setup.md` stub created _(2026-03-20)_
+- [ ] `docs/guides/amqp-setup.md` — write full AMQP setup guide (stub exists)
+- [x] `docs/guides/nats-setup.md` stub created _(2026-03-20)_
+- [ ] `docs/guides/nats-setup.md` — write full NATS setup guide (stub exists)
 - [ ] `Step` CRD for reusable step definitions
 - [ ] Multi-namespace flows (cross-namespace FlowRun)
 - [ ] Additional message brokers: GCP Pub/Sub, Solace (non-AMQP), TIBCO EMS (via plugin model)

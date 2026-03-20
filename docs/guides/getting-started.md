@@ -191,9 +191,10 @@ spec:
 The `responseSequence` cycles on each call — so the first webhook fires an express path
 and the second fires a standard path, letting you see both branches in one demo session.
 
+The `enrich-order` MockEndpoint is included in `config/samples/demo/mockendpoints.yaml` alongside the other two mocks. If you applied that file in Step 1, it's already created.
+
 ```bash
 kubectl apply -f config/samples/demo/flow.yaml
-kubectl apply -f config/samples/demo/enrich-mockendpoint.yaml
 
 # Confirm Flow is valid
 kubectl get flow order-router -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}'

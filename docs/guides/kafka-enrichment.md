@@ -318,4 +318,4 @@ Triggers remain that reference the `customer-kafka` Integration.
 - **Add a dead-letter step**: add a final step with `when: steps.enrich_profile.status == "Failed"` that publishes to a `customer-events-dlq` topic.
 - **Replace mocks with real services**: swap MockEndpoint URLs for your actual enrichment API and routing targets.
 - **Replace mock sinks with publish steps**: route-enterprise could use `type: publish` to write directly to an `enterprise-events` Kafka topic.
-- **[GitOps deployment gate demo](gitops-deploy-gate.md)** ← coming soon
+- **GitOps deployment gate demo** ← planned (see [Future / Backlog](../../docs/schedule.md#10-future--backlog))

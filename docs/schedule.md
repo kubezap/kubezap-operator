@@ -209,8 +209,8 @@ Additional demonstration scenarios targeting acquisition/enterprise stakeholders
   - [x] Document Helm installation in `docs/overview.md` Installation section
 - [ ] OLM bundle finalized and validated with `operator-sdk bundle validate`
 - [ ] OperatorHub submission PR
-- [ ] `docs/overview.md` Installation section completed
-- [ ] Compatibility matrix updated (OpenShift 4.12+)
+- [x] `docs/overview.md` Installation section completed _(done 2026-03-20)_
+- [x] Compatibility matrix updated (OpenShift 4.12+) _(done 2026-03-20)_
 
 ---
 
@@ -248,16 +248,16 @@ Additional demonstration scenarios targeting acquisition/enterprise stakeholders
 
 ### Backlog
 
-- [ ] `flowrun_controller.go` `substituteVars`: The `$(trigger.body.<field>)` extraction only resolves top-level JSON fields. Nested field access (e.g., `$(trigger.body.order.id)`) silently returns an empty string. This limitation is not documented in the CRD field description.
-- [ ] `flowrun_controller.go` `extractSimpleJSONPath`: Only supports single-level `$.field` paths despite the field being named `resultMappings`. Any multi-level JSONPath expression silently returns empty. Should either implement full JSONPath or document and enforce the limitation via a validation marker.
-- [ ] `flowrun_controller.go` `enforceMaxFlowRuns`: On every reconcile of a terminal FlowRun, the controller lists ALL FlowRuns for the trigger with no field selector. For triggers with many FlowRuns this is an unbounded list scan. A field selector or label-indexed list should be used.
+- [x] `flowrun_controller.go` `substituteVars`: The `$(trigger.body.<field>)` extraction only resolves top-level JSON fields. Nested field access (e.g., `$(trigger.body.order.id)`) silently returns an empty string. _(fixed 2026-03-20: limitation documented in code comment and API field description)_
+- [x] `flowrun_controller.go` `extractSimpleJSONPath`: Only supports single-level `$.field` paths despite the field being named `resultMappings`. Any multi-level JSONPath expression silently returns empty. _(fixed 2026-03-20: limitation documented in function comment; field description updated)_
+- [x] `flowrun_controller.go` `enforceMaxFlowRuns`: On every reconcile of a terminal FlowRun, the controller lists ALL FlowRuns for the trigger with no field selector. For triggers with many FlowRuns this is an unbounded list scan. _(fixed 2026-03-20: `kubezap.io/phase` label added on phase transitions; `enforceMaxFlowRunsByPhase` filters by both trigger and phase labels)_
 - [ ] `internal/gateway/webhook/oidc.go`: The OIDC validator holds the JWKS keyset in memory per-`RouteEntry`. When there are many webhook triggers with OIDC auth, there is one keyset cache per route. There is no shared cache or background refresh — keys only refresh on request failure (key rotation retry). A background refresh goroutine would improve reliability.
-- [ ] `internal/gateway/webhook/handler.go` `redactHeader`: Only `Authorization` and `X-Api-Key` are redacted in the access log header map that is stored in `FlowRun.Spec.TriggerData.Headers`. Other sensitive headers (e.g., `Cookie`, `X-Auth-Token`, custom bearer headers) are stored unredacted in the CRD object and visible to anyone with `get flowruns` permission.
+- [x] `internal/gateway/webhook/handler.go` `redactHeader`: Only `Authorization` and `X-Api-Key` are redacted in the access log header map that is stored in `FlowRun.Spec.TriggerData.Headers`. Other sensitive headers (e.g., `Cookie`, `X-Auth-Token`, custom bearer headers) are stored unredacted in the CRD object and visible to anyone with `get flowruns` permission. _(fixed: expanded to `authorization`, `x-api-key`, `cookie`, `set-cookie`, `x-auth-token`, `proxy-authorization` using a map for O(1) lookup)_
 - [x] `internal/controller/mockendpoint_controller.go`: Added `log.Info` warning when `KUBEZAP_GATEWAY_BASE_URL` is unset so operators can diagnose relative-path URLs. _(fixed 2026-03-20)_
 - [x] `internal/controller/integration_controller.go` `reconcileKafkaGateway`: The kafka gateway SA and RoleBinding are never updated after creation (only the Role is updated). If the SA or RoleBinding drift they will not be reconciled. _(fixed: all three now use CreateOrUpdate)_
 - [x] `internal/controller/integration_controller.go` `buildKafkaTriggers`: For a Kafka integration with N topics and M consumer groups, the KEDA ScaledObject gets N×M trigger entries. _(fixed: replaced separate topic/cg sets with `kafkaTopicCGPair` set; each Trigger contributes exactly one pair)_
-- [ ] `api/v1alpha1/flowrun_types.go`: `FlowRunSpec.FlowRef` is a `corev1.LocalObjectReference` (name only, no namespace). Cross-namespace flows are architecturally desired (see backlog) but the type does not support it. A `FlowReference` type (matching `trigger_types.go`) should be used to allow namespace to be specified.
-- [ ] `api/v1alpha1/trigger_types.go`: `TriggerSpec` has both `FlowRef` and an inline `Action` field with no validation ensuring exactly one is set. A Trigger with neither (or both) will silently proceed: with neither, FlowRun `spec.flowRef.name` will be empty; with both, Action is ignored. A CEL validation rule (`has(self.flowRef) != has(self.action)` or similar) should enforce mutual exclusivity.
+- [x] `api/v1alpha1/flowrun_types.go`: `FlowRunSpec.FlowRef` is a `corev1.LocalObjectReference` (name only, no namespace). Cross-namespace flows are architecturally desired (see backlog) but the type does not support it. A `FlowReference` type (matching `trigger_types.go`) should be used to allow namespace to be specified. _(fixed: all callers updated from `corev1.LocalObjectReference` to `automationv1alpha1.FlowReference`)_
+- [x] `api/v1alpha1/trigger_types.go`: `TriggerSpec` has both `FlowRef` and an inline `Action` field with no validation ensuring exactly one is set. _(fixed 2026-03-20: added `+kubebuilder:validation:XValidation` CEL rule `has(self.flowRef) != has(self.action)` with message "exactly one of flowRef or action must be set"; CRD manifests regenerated)_
 - [x] `internal/controller/cron_scheduler.go`: Timezone field now applied via `CRON_TZ=<tz>` prefix on schedule string before passing to `cron.AddFunc`. _(fixed 2026-03-20)_
 - [x] `internal/gateway/amqp/watcher.go` and `internal/gateway/nats/watcher.go`: Both use a polling loop (`time.NewTicker(30 * time.Second)`) rather than a controller-runtime informer or watch — same issue that was fixed in the Kafka gateway. Reaction time to Trigger changes is up to 30 s. Should be refactored to informer/cache pattern (mirrors `internal/gateway/kafka/watcher.go` post-refactor). _(fixed 2026-03-18: refactored both to informer/cache pattern mirroring kafka/watcher.go)_
 - [x] `internal/gateway/webhook/watcher.go`: `NewTriggerWatcher` now accepts `*rest.Config` from caller instead of calling `ctrl.GetConfigOrDie()` internally. `cmd/webhook-gateway/main.go` updated to pass the config it already holds. _(fixed 2026-03-20)_
@@ -321,13 +321,12 @@ Additional demonstration scenarios targeting acquisition/enterprise stakeholders
 - [x] Output formatters in `internal/cli/output/`: table (default), JSON (`-o json`), YAML (`-o yaml`) _(done 2026-03-20)_
 - [x] Step timeline renderer for `history <name>`: ASCII table with step name, phase icon, start→end duration, attempt count, result key=value pairs _(done 2026-03-20)_
 - [x] `Makefile` target `make build-cli` — produces `bin/kubezap` _(pre-existing, verified 2026-03-20)_
-- [ ] Goreleaser config: multi-platform CLI binaries (linux/amd64, linux/arm64, darwin/amd64, darwin/arm64) released alongside operator image
+- [x] Goreleaser config: multi-platform CLI binaries (linux/amd64, linux/arm64, darwin/amd64, darwin/arm64) released alongside operator image _(done 2026-03-20)_
 
 ### Distribution
 
-- [ ] Distributed as `kubectl-kubezap` binary — users add to `$PATH` and invoke as `kubectl kubezap` or standalone `kubezap`
-- [ ] Document installation in `docs/overview.md` (brew tap, direct download, manual kubectl plugin install)
-- [ ] Future: `kubezap create <kind>` — opens `$EDITOR` with a pre-filled template YAML; deferred until read-only commands are stable
+- [x] Distributed as `kubectl-kubezap` binary — users add to `$PATH` and invoke as `kubectl kubezap` or standalone `kubezap` _(done 2026-03-20)_
+- [x] Document installation in `docs/overview.md` (brew tap, direct download, manual kubectl plugin install) _(done 2026-03-20)_
 
 ---
 

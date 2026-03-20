@@ -559,6 +559,39 @@ helm install kubezap ./charts/kubezap \
 
 See `charts/kubezap/values.yaml` for all configurable options.
 
+### kubezap CLI
+
+The `kubezap` CLI provides rich FlowRun history and operator status views beyond what `kubectl get` offers.
+
+**Direct download (linux/darwin/windows)**
+
+Download the latest release from [GitHub Releases](https://github.com/kubezap/kubezap/releases) and place the binary in your `$PATH`:
+
+```bash
+# Linux amd64
+curl -Lo kubezap https://github.com/kubezap/kubezap/releases/latest/download/kubezap_linux_amd64.tar.gz \
+  | tar -xz kubezap && chmod +x kubezap && mv kubezap /usr/local/bin/
+
+# macOS (arm64)
+curl -Lo kubezap.tar.gz https://github.com/kubezap/kubezap/releases/latest/download/kubezap_darwin_arm64.tar.gz \
+  && tar -xz -f kubezap.tar.gz kubezap && chmod +x kubezap && mv kubezap /usr/local/bin/
+```
+
+**kubectl plugin installation**
+
+`kubectl-kubezap` is shipped alongside `kubezap` in each release. Rename or symlink it to invoke as `kubectl kubezap`:
+
+```bash
+mv kubectl-kubezap /usr/local/bin/kubectl-kubezap
+kubectl kubezap version
+```
+
+**Build from source**
+
+```bash
+make build-cli   # produces bin/kubezap
+```
+
 ### OperatorHub / OLM _(coming in v0.3)_
 
 Install via the OpenShift OperatorHub catalog or the community OperatorHub.
@@ -573,7 +606,7 @@ For a full setup walkthrough including namespace configuration and RBAC see [Get
 |----------|--------|
 | Kubernetes 1.27+ | Supported |
 | Kubernetes 1.28+ (Gateway API) | Supported |
-| OpenShift 4.12+ | Planned |
+| OpenShift 4.12+ | Supported (tested on OpenShift 4.12+; OLM bundle in progress) |
 | k3s | Tested (local development) |
 | EKS / GKE / AKS | Compatible (no cloud-specific dependencies) |
 
@@ -608,7 +641,8 @@ For a full setup walkthrough including namespace configuration and RBAC see [Get
 
 ### v0.3 — Distribution _(in progress)_
 
-- [ ] Helm chart
+- [x] Helm chart
+- [x] Multi-platform CLI binaries via Goreleaser
 - [ ] OLM bundle validated and submitted to OperatorHub
 - [ ] Additional message brokers (AMQP, NATS)
 

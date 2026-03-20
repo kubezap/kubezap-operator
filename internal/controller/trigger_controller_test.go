@@ -148,6 +148,7 @@ var _ = Describe("TriggerReconciler", func() {
 						Path:   "/hook/disabled",
 						Method: "POST",
 					},
+					FlowRef: &automationv1alpha1.FlowReference{Name: "example-flow"},
 				},
 			)
 			Expect(k8sClient.Create(ctx, trigger)).To(Succeed())

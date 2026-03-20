@@ -445,6 +445,9 @@ spec:
             required:
             - type
             type: object
+            x-kubernetes-validations:
+            - message: exactly one of flowRef or action must be set
+              rule: has(self.flowRef) != has(self.action)
           status:
             description: TriggerStatus defines the observed state of Trigger.
             properties:

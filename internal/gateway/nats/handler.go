@@ -10,7 +10,6 @@ import (
 
 	"github.com/go-logr/logr"
 	natsio "github.com/nats-io/nats.go"
-	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -84,7 +83,7 @@ func (h *MessageHandler) handleMessage(msg *natsio.Msg) error {
 			},
 		},
 		Spec: automationv1alpha1.FlowRunSpec{
-			FlowRef: corev1.LocalObjectReference{Name: h.flowRefName},
+			FlowRef: automationv1alpha1.FlowReference{Name: h.flowRefName},
 			TriggerRef: &automationv1alpha1.TriggerReference{
 				Name: h.triggerName,
 				Type: "pubsub",

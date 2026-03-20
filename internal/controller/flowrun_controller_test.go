@@ -25,7 +25,6 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -66,7 +65,7 @@ var _ = Describe("FlowRunReconciler", func() {
 				Namespace: testNamespace,
 			},
 			Spec: automationv1alpha1.FlowRunSpec{
-				FlowRef: corev1.LocalObjectReference{Name: flowName},
+				FlowRef: automationv1alpha1.FlowReference{Name: flowName},
 			},
 		}
 	}

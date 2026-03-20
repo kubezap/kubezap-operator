@@ -17,7 +17,6 @@ limitations under the License.
 package v1alpha1
 
 import (
-	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -49,8 +48,9 @@ type TriggerData struct {
 
 // FlowRunSpec defines the desired state of FlowRun.
 type FlowRunSpec struct {
-	// Reference to the Flow.
-	FlowRef corev1.LocalObjectReference `json:"flowRef"`
+	// Reference to the Flow. Namespace may be set for cross-namespace flows;
+	// if omitted the FlowRun's own namespace is used.
+	FlowRef FlowReference `json:"flowRef"`
 
 	// Optional runtime parameters.
 	Params []ParamValue `json:"params,omitempty"`

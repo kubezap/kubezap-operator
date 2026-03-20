@@ -16,7 +16,6 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
-	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -53,9 +52,19 @@ func randomHex(length int) string {
 	return hexString
 }
 
+// sensitiveHeaders is a set of lowercase header names that must be redacted before
+// storing header values in FlowRun.Spec.TriggerData.Headers. Use a map for O(1) lookup.
+var sensitiveHeaders = map[string]struct{}{
+	"authorization":       {},
+	"x-api-key":           {},
+	"cookie":              {},
+	"set-cookie":          {},
+	"x-auth-token":        {},
+	"proxy-authorization": {},
+}
+
 func redactHeader(name string, values []string) string {
-	lower := strings.ToLower(name)
-	if lower == "authorization" || lower == "x-api-key" {
+	if _, sensitive := sensitiveHeaders[strings.ToLower(name)]; sensitive {
 		return "[redacted]"
 	}
 	return strings.Join(values, ",")
@@ -287,7 +296,7 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			},
 		},
 		Spec: automationv1alpha1.FlowRunSpec{
-			FlowRef: corev1.LocalObjectReference{Name: entry.FlowRef},
+			FlowRef: automationv1alpha1.FlowReference{Name: entry.FlowRef},
 			TriggerRef: &automationv1alpha1.TriggerReference{
 				Name: entry.TriggerName,
 				Type: "webhook",

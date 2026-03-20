@@ -55,19 +55,20 @@ spec:
             description: FlowRunSpec defines the desired state of FlowRun.
             properties:
               flowRef:
-                description: Reference to the Flow.
+                description: |-
+                  Reference to the Flow. Namespace may be set for cross-namespace flows;
+                  if omitted the FlowRun's own namespace is used.
                 properties:
                   name:
-                    default: ""
-                    description: |-
-                      Name of the referent.
-                      This field is effectively required, but due to backwards compatibility is
-                      allowed to be empty. Instances of this type with an empty value here are
-                      almost certainly wrong.
-                      More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                    description: Name of the Flow CR to execute
                     type: string
+                  namespace:
+                    description: Namespace of the Flow CR. If omitted the Trigger's
+                      namespace is used.
+                    type: string
+                required:
+                - name
                 type: object
-                x-kubernetes-map-type: atomic
               params:
                 description: Optional runtime parameters.
                 items:

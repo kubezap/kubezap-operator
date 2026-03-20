@@ -1,0 +1,137 @@
+version: 2
+
+project_name: kubezap
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: kubezap
+    binary: kubezap
+    main: ./cmd/kubezap
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    # windows/arm64 is excluded — uncommon and untested
+    ignore:
+      - goos: windows
+        goarch: arm64
+    ldflags:
+      - -s -w
+      - -X github.com/borfswitch/kubezap/internal/cli.Version={{.Version}}
+      - -X github.com/borfswitch/kubezap/internal/cli.GitCommit={{.Commit}}
+    mod_timestamp: "{{ .CommitTimestamp }}"
+
+  - id: kubectl-kubezap
+    binary: kubectl-kubezap
+    main: ./cmd/kubezap
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ignore:
+      - goos: windows
+        goarch: arm64
+    ldflags:
+      - -s -w
+      - -X github.com/borfswitch/kubezap/internal/cli.Version={{.Version}}
+      - -X github.com/borfswitch/kubezap/internal/cli.GitCommit={{.Commit}}
+    mod_timestamp: "{{ .CommitTimestamp }}"
+
+archives:
+  - id: kubezap-archive
+    builds:
+      - kubezap
+      - kubectl-kubezap
+    # .tar.gz for linux/darwin; .zip for windows
+    format_overrides:
+      - goos: windows
+        format: zip
+    name_template: >-
+      {{ .ProjectName }}_
+      {{- .Os }}_
+      {{- if eq .Arch "amd64" }}amd64
+      {{- else if eq .Arch "arm64" }}arm64
+      {{- else }}{{ .Arch }}{{ end }}
+    files:
+      - README.md
+      - LICENSE
+
+checksum:
+  name_template: "checksums.txt"
+  algorithm: sha256
+
+changelog:
+  use: git
+  sort: asc
+  groups:
+    - title: "New Features"
+      regexp: "^feat[(\\[]"
+      order: 0
+    - title: "Bug Fixes"
+      regexp: "^fix[(\\[]"
+      order: 1
+    - title: "Performance Improvements"
+      regexp: "^perf[(\\[]"
+      order: 2
+    - title: "Refactoring"
+      regexp: "^refactor[(\\[]"
+      order: 3
+    - title: "Documentation"
+      regexp: "^docs[(\\[]"
+      order: 4
+    - title: "Other Changes"
+      order: 999
+  filters:
+    exclude:
+      - "^chore(deps)"
+      - "^ci[(\\[]"
+      - "^test[(\\[]"
+
+release:
+  # GitHub release is auto-detected from the git remote.
+  # Both kubezap and kubectl-kubezap binaries are included via the archive above.
+  draft: false
+  prerelease: auto
+  name_template: "KubeZap {{.Tag}}"
+  header: |
+    ## KubeZap {{.Tag}}
+
+    ### Installation
+
+    Download binaries from the assets below, or see [docs/overview.md](https://github.com/borfswitch/kubezap/blob/main/docs/overview.md#kubezap-cli) for install instructions.
+
+    Both `kubezap` and `kubectl-kubezap` are included in each archive. Place either binary in your `$PATH`.
+    `kubectl-kubezap` enables invocation as `kubectl kubezap` via the kubectl plugin convention.
+
+# Homebrew tap — configure once kubezap/homebrew-tap is created
+# brews:
+#   - name: kubezap
+#     ids:
+#       - kubezap-archive
+#     homepage: https://github.com/kubezap/kubezap
+#     description: "CLI for inspecting KubeZap Kubernetes workflow automation resources"
+#     license: "Apache-2.0"
+#     repository:
+#       owner: kubezap
+#       name: homebrew-tap
+#     commit_author:
+#       name: kubezap-bot
+#       email: bot@kubezap.io
+#     install: |
+#       bin.install "kubezap"
+#       bin.install "kubectl-kubezap"
+#     test: |
+#       system "#{bin}/kubezap", "version"

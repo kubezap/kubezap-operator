@@ -136,11 +136,16 @@ func (r *FlowRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return ctrl.Result{}, nil
 	}
 
-	// Fetch referenced Flow.
+	// Fetch referenced Flow. FlowRef.Namespace allows cross-namespace flows;
+	// fall back to the FlowRun's own namespace when not specified.
 	var flow automationv1alpha1.Flow
+	flowNS := flowRun.Namespace
+	if flowRun.Spec.FlowRef.Namespace != "" {
+		flowNS = flowRun.Spec.FlowRef.Namespace
+	}
 	if err := r.Get(ctx, types.NamespacedName{
 		Name:      flowRun.Spec.FlowRef.Name,
-		Namespace: flowRun.Namespace,
+		Namespace: flowNS,
 	}, &flow); err != nil {
 		if apierrors.IsNotFound(err) {
 			return ctrl.Result{}, r.failFlowRun(ctx, &flowRun, "Flow not found: "+flowRun.Spec.FlowRef.Name)
@@ -362,11 +367,16 @@ func (r *FlowRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	if err := r.Status().Update(ctx, &flowRun); err != nil {
 		return ctrl.Result{}, err
 	}
+	// Always update metadata to persist the kubezap.io/phase label (and remove
+	// the executing finalizer when present).
+	if flowRun.Labels == nil {
+		flowRun.Labels = make(map[string]string)
+	}
+	flowRun.Labels["kubezap.io/phase"] = "Succeeded"
 	if containsString(flowRun.Finalizers, executingFinalizer) {
 		flowRun.Finalizers = removeString(flowRun.Finalizers, executingFinalizer)
-		return ctrl.Result{}, r.Update(ctx, &flowRun)
 	}
-	return ctrl.Result{}, nil
+	return ctrl.Result{}, r.Update(ctx, &flowRun)
 }
 
 func (r *FlowRunReconciler) executeStep(
@@ -725,6 +735,10 @@ func (r *FlowRunReconciler) retryDelay(policy *automationv1alpha1.RetryPolicy, a
 
 func (r *FlowRunReconciler) failFlowRun(ctx context.Context, flowRun *automationv1alpha1.FlowRun, msg string) error {
 	now := metav1.Now()
+	if flowRun.Labels == nil {
+		flowRun.Labels = make(map[string]string)
+	}
+	flowRun.Labels["kubezap.io/phase"] = "Failed"
 	flowRun.Status.Phase = "Failed"
 	flowRun.Status.CompletionTime = &now
 	flowRun.Status.Message = msg
@@ -747,11 +761,12 @@ func (r *FlowRunReconciler) failFlowRun(ctx context.Context, flowRun *automation
 	if err := r.Status().Update(ctx, flowRun); err != nil {
 		return err
 	}
+	// Always update metadata to persist the kubezap.io/phase label (and remove
+	// the executing finalizer when present).
 	if containsString(flowRun.Finalizers, executingFinalizer) {
 		flowRun.Finalizers = removeString(flowRun.Finalizers, executingFinalizer)
-		return r.Update(ctx, flowRun)
 	}
-	return nil
+	return r.Update(ctx, flowRun)
 }
 
 func setFlowRunCondition(flowRun *automationv1alpha1.FlowRun, condition metav1.Condition) {
@@ -869,13 +884,17 @@ func (r *FlowRunReconciler) enforceMaxFlowRunsByPhase(ctx context.Context, trigg
 	var list automationv1alpha1.FlowRunList
 	if err := r.List(ctx, &list,
 		client.InNamespace(namespace),
-		client.MatchingLabels{"kubezap.io/trigger": triggerName},
+		client.MatchingLabels{
+			"kubezap.io/trigger": triggerName,
+			"kubezap.io/phase":   phase,
+		},
 	); err != nil {
 		return err
 	}
 
 	var matching []automationv1alpha1.FlowRun
 	for _, fr := range list.Items {
+		// Safety fallback: filter by status phase in case older FlowRuns predate the label.
 		if fr.Status.Phase != phase {
 			continue
 		}
@@ -1140,6 +1159,8 @@ func substituteVars(s string, stepResults map[string]map[string]string, triggerD
 	}
 
 	// Handle $(trigger.body.<field>) BEFORE $(trigger.body) to avoid partial replacement.
+	// NOTE: Only top-level JSON fields are supported. Nested access (e.g., $(trigger.body.order.id))
+	// silently returns an empty string. This limitation is documented in the FlowRun API reference.
 	if triggerData.Body != "" {
 		var bodyFields map[string]interface{}
 		if jsonErr := json.Unmarshal([]byte(triggerData.Body), &bodyFields); jsonErr == nil {
@@ -1199,8 +1220,9 @@ func substituteVars(s string, stepResults map[string]map[string]string, triggerD
 	return s
 }
 
-// extractSimpleJSONPath extracts a top-level field value from a JSON object using a "$.field" path.
-// Only single-level paths (e.g., "$.tier") are supported.
+// extractSimpleJSONPath extracts a value from a JSON object using a simple "$.field" path.
+// Only single-level paths are supported (e.g., "$.tier"). Multi-level paths (e.g., "$.order.id")
+// silently return empty string. This limitation is documented in the FlowRun API reference.
 func extractSimpleJSONPath(path string, obj map[string]interface{}) string {
 	field := strings.TrimPrefix(path, "$.")
 	val, ok := obj[field]

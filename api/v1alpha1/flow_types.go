@@ -141,7 +141,9 @@ type HTTPAction struct {
 	// +kubebuilder:default=30
 	TimeoutSeconds int32 `json:"timeoutSeconds,omitempty"`
 
-	// Map names for result extraction.
+	// Map names for result extraction. Keys are result names; values are JSONPath
+	// expressions of the form "$.field". Only single-level paths (e.g., "$.tier")
+	// are supported — multi-level paths (e.g., "$.order.id") silently return empty string.
 	ResultMappings map[string]string `json:"resultMappings,omitempty"`
 }
 

@@ -23,7 +23,6 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 
@@ -55,10 +54,11 @@ var _ = Describe("enforceMaxFlowRunsByPhase", func() {
 				Namespace: testNamespace,
 				Labels: map[string]string{
 					"kubezap.io/trigger": triggerName,
+					"kubezap.io/phase":   phase,
 				},
 			},
 			Spec: automationv1alpha1.FlowRunSpec{
-				FlowRef: corev1.LocalObjectReference{Name: "some-flow"},
+				FlowRef: automationv1alpha1.FlowReference{Name: "some-flow"},
 			},
 		}
 		Expect(k8sClient.Create(ctx, fr)).To(Succeed())
@@ -77,13 +77,14 @@ var _ = Describe("enforceMaxFlowRunsByPhase", func() {
 				Namespace: testNamespace,
 				Labels: map[string]string{
 					"kubezap.io/trigger": triggerName,
+					"kubezap.io/phase":   phase,
 				},
 				Annotations: map[string]string{
 					retainAnnotation: "true",
 				},
 			},
 			Spec: automationv1alpha1.FlowRunSpec{
-				FlowRef: corev1.LocalObjectReference{Name: "some-flow"},
+				FlowRef: automationv1alpha1.FlowReference{Name: "some-flow"},
 			},
 		}
 		Expect(k8sClient.Create(ctx, fr)).To(Succeed())

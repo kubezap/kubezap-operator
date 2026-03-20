@@ -39,7 +39,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
-	automationv1alpha1 "github.com/yourname/kubezap/api/v1alpha1"
+	automationv1alpha1 "github.com/borfswitch/kubezap/api/v1alpha1"
 )
 
 // +kubebuilder:rbac:groups=automation.kubezap.io,resources=integrations,verbs=get;list;watch;update;patch

@@ -11,7 +11,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
-	automationv1alpha1 "github.com/yourname/kubezap/api/v1alpha1"
+	automationv1alpha1 "github.com/borfswitch/kubezap/api/v1alpha1"
 )
 
 func newTestScheme() *runtime.Scheme {
@@ -27,7 +27,7 @@ type mockAcknowledger struct {
 	nacked bool
 }
 
-func (m *mockAcknowledger) Ack(_ uint64, _ bool) error  { m.acked = true; return nil }
+func (m *mockAcknowledger) Ack(_ uint64, _ bool) error          { m.acked = true; return nil }
 func (m *mockAcknowledger) Nack(_ uint64, _ bool, _ bool) error { m.nacked = true; return nil }
 func (m *mockAcknowledger) Reject(_ uint64, _ bool) error       { return nil }
 

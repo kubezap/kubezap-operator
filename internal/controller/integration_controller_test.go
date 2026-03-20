@@ -29,7 +29,7 @@ import (
 	"k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
 
-	automationv1alpha1 "github.com/yourname/kubezap/api/v1alpha1"
+	automationv1alpha1 "github.com/borfswitch/kubezap/api/v1alpha1"
 )
 
 var _ = Describe("IntegrationReconciler", func() {

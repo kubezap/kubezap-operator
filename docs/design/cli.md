@@ -412,8 +412,8 @@ internal/cli/
 ```
 cmd/kubezap/main.go
   → github.com/spf13/cobra
-  → github.com/yourname/kubezap/internal/cli
-      → github.com/yourname/kubezap/api/v1alpha1
+  → github.com/borfswitch/kubezap/internal/cli
+      → github.com/borfswitch/kubezap/api/v1alpha1
       → sigs.k8s.io/controller-runtime/pkg/client
       → k8s.io/client-go/tools/clientcmd
 ```
@@ -445,8 +445,8 @@ builds:
     goarch: [amd64, arm64]
     ldflags:
       - -s -w
-      - -X github.com/yourname/kubezap/internal/cli.Version={{.Version}}
-      - -X github.com/yourname/kubezap/internal/cli.GitCommit={{.ShortCommit}}
+      - -X github.com/borfswitch/kubezap/internal/cli.Version={{.Version}}
+      - -X github.com/borfswitch/kubezap/internal/cli.GitCommit={{.ShortCommit}}
 
 archives:
   - id: kubezap-cli
@@ -464,7 +464,7 @@ archives:
 
 ```bash
 # Linux amd64
-curl -Lo kubectl-kubezap https://github.com/yourname/kubezap/releases/latest/download/kubectl-kubezap_linux_amd64.tar.gz
+curl -Lo kubectl-kubezap https://github.com/borfswitch/kubezap/releases/latest/download/kubectl-kubezap_linux_amd64.tar.gz
 tar -xzf kubectl-kubezap_linux_amd64.tar.gz kubectl-kubezap
 chmod +x kubectl-kubezap
 sudo mv kubectl-kubezap /usr/local/bin/

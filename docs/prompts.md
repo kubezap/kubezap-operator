@@ -320,7 +320,7 @@ In the cron job function, after the cooldown check:
      metrics.StepDuration.WithLabelValues(flowRun.Namespace, flowRun.Spec.FlowRef.Name,
          step.Action.Type, stepStatus.Phase).Observe(time.Since(start).Seconds())
 
-Import "github.com/yourname/kubezap/internal/metrics" in both files.
+Import "github.com/borfswitch/kubezap/internal/metrics" in both files.
 
 Run go build ./.... Commit:
 "Observability: Prometheus metrics for trigger firings, FlowRun duration, step outcomes"
@@ -756,7 +756,7 @@ Push: git push -u origin claude/review-docs-schedule-LlDeD
 ## Notes
 
 - All Go types in `api/v1alpha1/` require `make generate && make manifests` after changes.
-- Module path is `github.com/yourname/kubezap` (placeholder — rename before OperatorHub submission).
+- Module path is `github.com/borfswitch/kubezap` (placeholder — rename before OperatorHub submission).
 - Run `make lint` before committing to catch golangci-lint issues early.
 - See `docs/api/` for full CRD specs and `docs/architecture.md` for runtime design context.
 - Prompts 23–27 are all safe to run in parallel (no file conflicts between them).

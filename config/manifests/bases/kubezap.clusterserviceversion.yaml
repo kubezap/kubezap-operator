@@ -9,7 +9,7 @@ metadata:
     description: Declarative workflow automation for Kubernetes — Zapier meets Camunda,
       but Kubernetes-native.
     operatorframework.io/suggested-namespace: kubezap-system
-    repository: https://github.com/yourname/kubezap
+    repository: https://github.com/borfswitch/kubezap
     support: KubeZap Community
   name: kubezap.v0.0.1
   namespace: placeholder
@@ -411,9 +411,9 @@ spec:
   - operator
   links:
   - name: KubeZap Documentation
-    url: https://github.com/yourname/kubezap/docs
+    url: https://github.com/borfswitch/kubezap/docs
   maturity: alpha
   provider:
     name: KubeZap Community
-    url: https://github.com/yourname/kubezap
+    url: https://github.com/borfswitch/kubezap
   version: 0.0.1

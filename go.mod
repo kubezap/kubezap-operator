@@ -1,4 +1,4 @@
-module github.com/yourname/kubezap
+module github.com/borfswitch/kubezap
 
 go 1.24.0
 

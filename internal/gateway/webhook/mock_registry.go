@@ -4,7 +4,7 @@ import (
 	"strings"
 	"sync"
 
-	automationv1alpha1 "github.com/yourname/kubezap/api/v1alpha1"
+	automationv1alpha1 "github.com/borfswitch/kubezap/api/v1alpha1"
 )
 
 // MockEntry stores configuration for a registered mock route.

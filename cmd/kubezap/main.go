@@ -25,7 +25,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/yourname/kubezap/internal/cli"
+	"github.com/borfswitch/kubezap/internal/cli"
 )
 
 // Global persistent flag values populated by cobra before each command runs.

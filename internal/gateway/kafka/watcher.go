@@ -28,7 +28,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
 
-	automationv1alpha1 "github.com/yourname/kubezap/api/v1alpha1"
+	automationv1alpha1 "github.com/borfswitch/kubezap/api/v1alpha1"
 )
 
 var controllerScheme = runtime.NewScheme()

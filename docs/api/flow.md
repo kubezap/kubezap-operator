@@ -69,33 +69,38 @@ KubeZap infers the payload format from the `Content-Type` of the triggering even
 
 | Content-Type | Parsed as | Access pattern |
 |---|---|---|
-| `application/json` | JSON object | `$(trigger.payload.user.id)`, `trigger.payload.items[0].name` in CEL |
-| `application/xml`, `text/xml` | XML → map | `$(trigger.payload.order.id)`, attributes via `$(trigger.payload.order.@status)` |
-| `application/x-www-form-urlencoded` | Key-value map | `$(trigger.payload.fieldName)` |
-| `text/plain` | Raw string | `$(trigger.payload._raw)` |
-| Other / binary | Raw bytes | `$(trigger.payload._raw)` (base64-encoded) |
+| `application/json` | JSON object | `$(trigger.body.userId)` — top-level fields only (see Limitations) |
+| `application/xml`, `text/xml` | raw string | `$(trigger.body)` — full body as string |
+| `application/x-www-form-urlencoded` | raw string | `$(trigger.body)` — full body as string |
+| `text/plain` | raw string | `$(trigger.body)` |
+| Other / binary | raw string | `$(trigger.body)` |
 
-### XML Payload Handling
+> **Current limitation**: `$(trigger.body.<field>)` resolves **top-level JSON fields only**. Nested access like `$(trigger.body.order.id)` is not supported and returns an empty string. For nested fields, use a `type: transform` step to extract the value first. Full JSONPath access via `$(trigger.payload.*)` is planned for a future release.
 
-XML payloads are automatically converted to a navigable map structure before the flow runs. Given this XML:
+### Accessing Trigger Body Fields
 
-```xml
-<order status="pending">
-  <id>ORD-123</id>
-  <customer>
-    <name>Acme Corp</name>
-  </customer>
-</order>
+Use `$(trigger.body)` for the raw body and `$(trigger.body.<field>)` for a top-level JSON field:
+
+```yaml
+steps:
+  - name: extract
+    action:
+      type: transform
+      transform:
+        mappings:
+          orderId: "$(trigger.body.orderId)"
+          raw: "$(trigger.body)"
 ```
 
-You can access fields as:
-- `$(trigger.payload.order.id)` → `ORD-123`
-- `$(trigger.payload.order.@status)` → `pending` (attributes use `@` prefix)
-- `$(trigger.payload.order.customer.name)` → `Acme Corp`
+For nested fields, use a `type: transform` step to extract top-level values first, then chain to downstream steps that reference `$(steps.<step>.results.*)`.
 
-And in CEL conditions:
-```
-trigger.payload.order.@status == "pending"
+### Using Trigger Data in CEL Conditions
+
+CEL `when` expressions can access trigger body fields via `trigger.body`:
+
+```yaml
+when:
+  - expression: 'trigger.body.eventType == "order.placed"'
 ```
 
 ### HTTP Response Formats
@@ -155,7 +160,8 @@ Use `$(syntax)` to reference dynamic values in string fields (URLs, headers, bod
 | `$(trigger.name)` | Name of the Trigger that fired |
 | `$(trigger.namespace)` | Namespace of the Trigger |
 | `$(trigger.type)` | Type of the Trigger (webhook, cron, pubsub) |
-| `$(trigger.payload.<field>)` | A field from the trigger event payload (JSON dot-path) |
+| `$(trigger.body)` | Raw trigger event body (webhook request body or Kafka message value) |
+| `$(trigger.body.<field>)` | A top-level JSON field from the trigger body (nested fields not supported — see Limitations) |
 | `$(steps.<stepName>.results.<resultName>)` | A result produced by a previous step |
 | `$(secrets.<secretName>.<key>)` | A value from a Kubernetes Secret in the same namespace |
 
@@ -163,7 +169,7 @@ Use `$(syntax)` to reference dynamic values in string fields (URLs, headers, bod
 ```yaml
 params:
   - name: userId
-    value: "$(trigger.payload.user.id)"
+    value: "$(trigger.body.userId)"
 
 steps:
   - name: fetch-user

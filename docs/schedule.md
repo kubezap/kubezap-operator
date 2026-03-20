@@ -149,6 +149,147 @@ Additional demonstration scenarios targeting acquisition/enterprise stakeholders
 
 ---
 
+## Demo Scenarios — Real-World (v0.4)
+
+> These demos target acquisition/enterprise stakeholders with real integration patterns.
+> Each requires: sample CRs in `config/samples/demo/<slug>/`, a step-by-step guide in `docs/guides/<slug>.md`, and a walkthrough checklist entry in `docs/guides/demo-walkthrough.md`.
+
+### Demo 4 — GitHub Webhook → Auto-Label PR
+
+**External dependencies:**
+- A GitHub repository with admin access (to configure webhooks and create a GitHub App or Personal Access Token with `pull_requests: write` scope)
+- The KubeZap webhook gateway exposed externally (ngrok, LoadBalancer, or Ingress) — GitHub cannot reach an in-cluster-only endpoint
+- A Kubernetes Secret containing the GitHub webhook secret (for HMAC) and the GitHub API token (for the label call)
+
+**What it demonstrates:** HMAC-signed webhook auth, `$(trigger.headers.*)` access, GitHub API integration with bearer token, `resultMappings` to extract PR number and repo from payload, conditional labeling logic via CEL.
+
+**Implementation tasks:**
+- [ ] Create sample CRs in `config/samples/demo/github-autolabel/`: Trigger (hmac auth), Flow (transform → http label call), Secrets placeholder comments
+- [ ] Create guide at `docs/guides/github-autolabel.md`: GitHub webhook setup, ngrok/Ingress exposure, secret creation, applying CRs, sending a test PR event, verifying label applied
+- [ ] Add walkthrough checklist to `docs/guides/demo-walkthrough.md`
+
+---
+
+### Demo 5 — Slack Slash Command Router
+
+**External dependencies:**
+- A Slack workspace with permission to create a Slash Command app (free tier sufficient)
+- The KubeZap webhook gateway exposed externally — Slack POSTs to a public URL
+- The Slack signing secret (for HMAC verification of `X-Slack-Signature`) stored in a Kubernetes Secret
+- Optional: a Slack incoming webhook URL for posting responses
+
+**What it demonstrates:** `application/x-www-form-urlencoded` payload parsing, IP allowlist (Slack's published IP ranges), HMAC signature validation using Slack's signing algorithm, multi-branch CEL routing based on command text, fire-and-forget response pattern.
+
+**Implementation tasks:**
+- [ ] Create sample CRs in `config/samples/demo/slack-router/`: Trigger (hmac + ip allowlist), Flow (transform → branch A / branch B / fallback), MockEndpoints for each branch
+- [ ] Create guide at `docs/guides/slack-router.md`: Slack app creation, slash command config, applying CRs, sending `/kubezap <command>` from Slack, inspecting FlowRun + MockEndpoint
+- [ ] Add walkthrough checklist to `docs/guides/demo-walkthrough.md`
+
+---
+
+### Demo 6 — Nightly Database Export + S3 Upload
+
+**External dependencies:**
+- An internal or mock export API (can use MockEndpoint as the export source in the demo)
+- An S3-compatible bucket (AWS S3 or MinIO in-cluster for local testing); MinIO is preferred for the sample CRs so the demo is self-contained
+- AWS credentials or MinIO access key/secret stored in Kubernetes Secrets
+- Optional: a Slack incoming webhook for the summary notification step
+
+**What it demonstrates:** Cron trigger (timezone-aware), chaining step results across 3 steps (export → upload → notify), `retryPolicy` on the upload step, secrets for AWS/MinIO credentials, `$(trigger.scheduledTime)` in the export URL, `failurePolicy: Continue` so the summary posts even on partial failure.
+
+**Implementation tasks:**
+- [ ] Create sample CRs in `config/samples/demo/nightly-export/`: CronTrigger, Flow (3 steps), Integration or Secrets placeholders, MinIO Deployment + Service (for local testing)
+- [ ] Create guide at `docs/guides/nightly-export.md`: MinIO setup (in-cluster option), secret creation, applying CRs, manually triggering via FlowRun, verifying S3 object created, checking Slack summary
+- [ ] Add walkthrough checklist to `docs/guides/demo-walkthrough.md`
+
+---
+
+### Demo 7 — Kubernetes Resource Event → ITSM Ticket
+
+**External dependencies:**
+- A running cluster where the demo namespace has Pods that can be set to `Failed` phase (easily done with an invalid image)
+- A ServiceNow developer instance (free at developer.servicenow.com) **or** a Jira Cloud instance **or** a MockEndpoint as the ITSM stand-in (recommended for self-contained demo)
+- Credentials for the ITSM API stored in a Kubernetes Secret (not needed if using MockEndpoint)
+
+> **Note:** This demo depends on the `kubernetes` resource-event trigger type, which is in the Future/Backlog section of the schedule. The demo CRs and guide should be written assuming that feature is available, and marked as `(requires kubernetes trigger type)` so they can be activated once implemented.
+
+**What it demonstrates:** Kubernetes resource-event trigger (watches for Pod phase=Failed), extracting pod name and namespace from the event, opening a ticket via HTTP, deduplication (same pod failure should not open duplicate tickets — use pod UID as idempotency key in FlowRun name).
+
+**Implementation tasks:**
+- [ ] Create sample CRs in `config/samples/demo/k8s-pod-failure-ticket/`: KubernetesTrigger (placeholder spec), Flow (transform event → http ticket create), MockEndpoint as ITSM
+- [ ] Create guide at `docs/guides/k8s-pod-failure-ticket.md`: applying CRs, causing a Pod failure with `kubectl run bad --image=does-not-exist`, verifying FlowRun created, inspecting MockEndpoint capture; note dependency on kubernetes trigger type
+- [ ] Add walkthrough checklist to `docs/guides/demo-walkthrough.md`
+- [ ] Mark guide as `(requires kubernetes trigger type — not yet implemented)` at the top
+
+---
+
+### Demo 8 — Dead-Letter Queue Handler
+
+**External dependencies:**
+- A Kafka cluster accessible from within the cluster (same as Demo 1 — Strimzi or in-cluster Kafka)
+- Two Kafka topics: a DLQ topic (e.g., `orders.dlq`) and the original delivery topic (e.g., `orders`)
+- A `kafka` Integration CRD pointing at the cluster
+- A Kubernetes Secret with Kafka credentials if the cluster requires SASL
+
+**What it demonstrates:** Kafka trigger on a DLQ topic, logging the failed message to a MockEndpoint, attempting re-delivery via `type: publish` back to the original topic, conditional escalation step (fire webhook) if re-delivery fails, dedup key encodes partition + offset so replaying the DLQ is safe.
+
+**Implementation tasks:**
+- [ ] Create sample CRs in `config/samples/demo/dlq-handler/`: Integration (kafka), Trigger (DLQ topic), Flow (log → re-publish → escalate-on-failure), MockEndpoint for escalation
+- [ ] Create guide at `docs/guides/dlq-handler.md`: create Kafka topics (commands for Strimzi), applying CRs, producing a poison message to the DLQ, watching FlowRun, verifying message re-published to original topic, testing the escalation path
+- [ ] Add walkthrough checklist to `docs/guides/demo-walkthrough.md`
+
+---
+
+### Demo 9 — Multi-Tenant Webhook Fan-Out
+
+**External dependencies:**
+- No external services required — demo uses MockEndpoints as the three tenant endpoints
+- Optional: real per-tenant API URLs substituted for MockEndpoints in the production adaptation section of the guide
+
+**What it demonstrates:** Single inbound webhook triggers parallel execution of 3 steps (same `runAfter` set), per-tenant configuration extracted from Secrets using `$(secrets.<tenant-secret>.<key>)`, `failurePolicy: Continue` so a failure for one tenant does not block the others, per-step retry policies, FlowRun status shows all three outcomes independently.
+
+**Implementation tasks:**
+- [ ] Create sample CRs in `config/samples/demo/multi-tenant-fanout/`: Trigger (no auth — add note that production should use HMAC/bearer), Flow (3 parallel http steps), 3 MockEndpoints, 3 Secrets (placeholder values for tenant config)
+- [ ] Create guide at `docs/guides/multi-tenant-fanout.md`: applying CRs, sending a single webhook, inspecting parallel step execution in FlowRun, patching one MockEndpoint to return 500 to demonstrate `Continue` policy, verifying other tenants still succeed
+- [ ] Add walkthrough checklist to `docs/guides/demo-walkthrough.md`
+
+---
+
+### Demo 10 — OIDC-Secured API Gateway Webhook
+
+**External dependencies:**
+- An OIDC provider. Options (in order of ease for local testing):
+  - **Dex** (in-cluster, no external dependency — recommended for sample CRs)
+  - **Keycloak** (in-cluster via Helm)
+  - **Okta developer account** (free, cloud-hosted)
+  - Any OIDC-compliant provider
+- A client that can obtain a JWT from the provider (a simple Go/Python script or `curl` with client credentials flow)
+- The JWKS endpoint of the provider must be reachable from within the cluster
+
+**What it demonstrates:** OIDC/JWT authentication on a webhook trigger, JWKS background refresh (the shared `jwk.Cache`), `requiredClaims` enforcement (e.g., `roles: kubezap-caller`), extracting a claim value from the JWT payload in the Flow, routing based on the claim.
+
+**Implementation tasks:**
+- [ ] Create sample CRs in `config/samples/demo/oidc-webhook/`: Dex deployment + config (in-cluster OIDC provider), Trigger (oidc auth with issuer + audience + requiredClaims), Flow (CEL branch on claim value), MockEndpoints for each route
+- [ ] Create guide at `docs/guides/oidc-webhook.md`: Dex setup (apply Helm chart, configure client), obtaining a JWT via client credentials curl command, applying CRs, calling the webhook with the JWT in Authorization header, verifying FlowRun created, testing rejection with an invalid token
+- [ ] Add walkthrough checklist to `docs/guides/demo-walkthrough.md`
+
+---
+
+## 6b. Additional Tests (targeted coverage gaps)
+
+> Ginkgo tests in `internal/controller/` or `internal/gateway/` unless otherwise noted.
+
+- [ ] **T1 — Cron trigger integration test**: Create Trigger with `schedule: "*/1 * * * *"`, advance fake clock 65s (use `clock.FakeClock` from `k8s.io/utils/clock/testing`), assert exactly one FlowRun exists named `<trigger>-<scheduled-time>` and is `Succeeded`. File: `internal/controller/cron_scheduler_test.go` (extend existing).
+- [ ] **T2 — HMAC auth reject/accept E2E**: Start a real webhook gateway HTTP server in test, send request with valid HMAC → assert 202 + FlowRun created; send with wrong signature → assert 401 + no FlowRun; send with missing header → assert 401. File: `internal/gateway/webhook/handler_test.go` (new table-driven cases).
+- [ ] **T3 — CEL skip cascade test**: Flow with steps A → B → C where B has `when` that is false and C has `runAfter: [B]`. Assert: B=Skipped, C=Skipped (cascade), overall phase=Succeeded. File: `internal/controller/flowrun_controller_test.go`.
+- [ ] **T4 — FlowRun GC maxSucceeded enforcement**: Create trigger with `flowRunGC.maxSucceeded: 3`. Create 5 Succeeded FlowRuns. Trigger reconcile. Assert only 3 remain (oldest 2 deleted). Assert a FlowRun annotated `kubezap.io/retain=true` is never deleted even when over limit. File: `internal/controller/gc_policy_test.go` (extend existing).
+- [ ] **T5 — Cooldown window suppression**: Trigger with `maxInvocations: 2, window: 10s`. Fire 5 requests in sequence. Assert 2 FlowRuns created, 3 suppressed (metric `kubezap_webhook_rate_limited_total` incremented by 3). File: `internal/gateway/webhook/handler_test.go`.
+- [ ] **T6 — FlowRun orphan recovery**: Create FlowRun in `Running` phase with finalizer set, no active execution context. Advance time past the orphan timeout (`--flowrun-ttl-failed` default). Assert controller transitions phase to `Failed` with reason `OrphanTimeout` and removes finalizer. File: `internal/controller/flowrun_controller_test.go`.
+- [ ] **T7 — Step retry with exponential backoff**: Mock HTTP server that returns 503 for first 2 calls, 200 on 3rd. Step has `retryPolicy: {maxRetries: 3, backoffType: Exponential, initialDelay: 10ms, maxDelay: 100ms}`. Assert: step `attempts == 3`, step phase `Succeeded`, delay durations recorded in step status. File: `internal/controller/flowrun_controller_test.go`.
+- [ ] **T8 — Transform step + result chaining**: Flow with `type: transform` step that maps `$(trigger.body.orderId)` to result `orderId`, followed by HTTP step using `$(steps.transform.results.orderId)` in URL. Assert the HTTP call URL contains the correct substituted value. Use `httptest.NewServer` for the target. File: `internal/controller/flowrun_controller_test.go`.
+
+---
+
 ## 3. Plugin System
 
 - [x] Plugin contract documented in `docs/api/plugin-contract.md` (subscriber + publisher roles, dedup keys, observability, security)
@@ -207,8 +348,8 @@ Additional demonstration scenarios targeting acquisition/enterprise stakeholders
   - [x] `NOTES.txt` with post-install instructions
   - [x] `helm lint` and `helm template` validation pass _(verified 2026-03-20: `helm lint` 0 failures, `helm template` renders cleanly)_
   - [x] Document Helm installation in `docs/overview.md` Installation section
-- [x] OLM bundle finalized and validated with `operator-sdk bundle validate`
-- [ ] OperatorHub submission PR
+- [x] OLM bundle finalized and validated with `operator-sdk bundle validate` _(done 2026-03-20: alm-examples populated, minKubeVersion set, zero warnings)_
+- [ ] OperatorHub submission PR _(PAUSED — owner request 2026-03-20; do not start until explicitly unblocked)_
 - [x] `docs/overview.md` Installation section completed _(done 2026-03-20)_
 - [x] Compatibility matrix updated (OpenShift 4.12+) _(done 2026-03-20)_
 
@@ -332,6 +473,13 @@ Additional demonstration scenarios targeting acquisition/enterprise stakeholders
 
 ## 10. Future / Backlog
 
+- [x] `docs/guides/using-the-cli.md` — user guide for the `kubezap` CLI _(created 2026-03-20)_
+- [x] `docs/guides/cron-triggers.md` — how-to guide for scheduled workflows _(created 2026-03-20)_
+- [x] `docs/guides/troubleshooting.md` — consolidated troubleshooting guide _(created 2026-03-20)_
+- [x] `docs/guides/amqp-setup.md` stub created _(2026-03-20)_
+- [ ] `docs/guides/amqp-setup.md` — write full AMQP setup guide (stub exists)
+- [x] `docs/guides/nats-setup.md` stub created _(2026-03-20)_
+- [ ] `docs/guides/nats-setup.md` — write full NATS setup guide (stub exists)
 - [ ] `Step` CRD for reusable step definitions
 - [ ] Multi-namespace flows (cross-namespace FlowRun)
 - [ ] Additional message brokers: GCP Pub/Sub, Solace (non-AMQP), TIBCO EMS (via plugin model)
@@ -343,3 +491,70 @@ Additional demonstration scenarios targeting acquisition/enterprise stakeholders
 - [ ] Plugin marketplace / integration catalog
 - [ ] S3/Git event trigger source
 - [x] Fix pre-existing `flow_controller_test.go` failure: `when spec.steps is empty` test case
+
+---
+
+## 11. MockEndpoint Deprecation & Removal
+
+> **Decision (2026-03-20):** Remove the `MockEndpoint` CRD entirely. Replace in all demos,
+> tests, and docs with a lightweight third-party mock HTTP server deployed in-cluster.
+> MockEndpoint solves a real problem but is not a KubeZap concern — operators should use
+> purpose-built mocking tools.
+>
+> **Recommended replacement tool:** TBD — see `docs/tech-debt/pending-input-required.md`
+> for the tool selection question (BACKLOG-PROMPT). Do not begin Phase 2 or later until
+> that question is answered.
+>
+> **Ordering constraint:** Phases must be executed in order. Code removal (Phase 4) is last.
+> Demos and tests must be updated before the CRD is deleted so the repo is never broken.
+
+### Phase 0 — Design decision (BLOCKED on pending input)
+
+- [ ] Choose replacement mock tool — see `docs/tech-debt/pending-input-required.md`; options: WireMock, Mockoon, or other. Decision gates all phases below.
+
+### Phase 1 — Write replacement documentation
+
+- [ ] Convert `docs/api/mock-endpoint.md` to `docs/guides/mocking-http-endpoints.md`: explain why MockEndpoint is removed, document the chosen tool's in-cluster deployment (Helm or raw YAML), show how to define stub responses, show how to inspect captured requests, cross-link to each demo that uses it
+- [ ] Add in-cluster `Deployment` + `Service` sample YAML for the chosen tool (as a reusable snippet referenced by demos and the guide)
+- [ ] Update `docs/overview.md` CRD Overview table: remove `MockEndpoint` row; add note in the `MockEndpoint` description redirecting to `docs/guides/mocking-http-endpoints.md`
+- [ ] Update `docs/architecture.md`: remove all MockEndpoint references; update the "Webhook gateway also serves `/mock/*` paths" note to reflect removal
+- [ ] Update `docs/guides/troubleshooting.md`: replace "MockEndpoint not capturing requests" section with equivalent section for chosen tool
+
+### Phase 2 — Update demo sample CRs
+
+- [ ] `config/samples/demo/mockendpoints.yaml` — delete file; remove from `config/samples/demo/kustomization.yaml`
+- [ ] `config/samples/automation_v1alpha1_mockendpoint.yaml` — delete file; remove from `config/samples/kustomization.yaml` and OLM bundle alm-examples
+- [ ] `config/samples/demo/flow.yaml` — update any step URLs that reference `/mock/*` paths to use the chosen tool's endpoint instead (e.g., `http://wiremock:8080/__admin/...`)
+- [ ] `config/samples/demo/kafka-enrichment/` — replace `enterprise-sink`, `standard-sink`, `trial-sink`, `customer-profile` MockEndpoints with chosen-tool stub configs; update `kustomization.yaml`
+- [ ] `config/samples/demo/incident-escalation/` — audit for MockEndpoint usage; update if present
+
+### Phase 3 — Update guides and walkthroughs
+
+- [ ] `docs/guides/getting-started.md` — replace all MockEndpoint steps with chosen-tool equivalent: deploy mock server, define stubs, inspect captured requests; update every `kubectl apply` command and expected output block
+- [ ] `docs/guides/kafka-enrichment.md` — replace mock sink/profile setup; update Steps 1–6 accordingly; verify `kubectl patch mockendpoint ...` commands are removed
+- [ ] `docs/guides/incident-escalation.md` — audit for MockEndpoint references; update if present
+- [ ] `docs/guides/demo-walkthrough.md` — update Demo 1 and Getting Started checklists to use chosen tool; remove any `kubectl get mockendpoint` commands
+- [ ] All new Demo guides (D4–D10) that reference MockEndpoints: replace with chosen tool before those guides are written (demos D4, D5, D6, D8, D9, D10 planned to use mocks)
+
+### Phase 4 — Update tests
+
+- [ ] `internal/controller/mockendpoint_controller_test.go` — delete entire file
+- [ ] `internal/controller/suite_test.go` (or equivalent) — remove MockEndpoint type registration if present
+- [ ] `test/e2e/` — search for all MockEndpoint usage; replace with HTTP calls to chosen-tool stub server deployed in the test namespace; update `BeforeSuite` setup if the test suite relies on the webhook gateway's `/mock/*` serving
+- [ ] `test/e2e/webhook_test.go` — update the E2E scenario (webhook → transform → http step → MockEndpoint → verify FlowRun Succeeded) to target the chosen tool instead
+- [ ] Audit all test files: `grep -r "MockEndpoint\|mockendpoint\|mock-endpoint" --include="*.go"` — fix every hit
+
+### Phase 5 — Remove code and CRD
+
+> Do not begin until Phases 1–4 are complete and all tests pass.
+
+- [ ] Delete `api/v1alpha1/mockendpoint_types.go`; run `make generate && make manifests`
+- [ ] Delete `internal/controller/mockendpoint_controller.go`
+- [ ] Remove MockEndpoint controller registration from `cmd/main.go` (scheme + `SetupWithManager` call)
+- [ ] Remove `/mock/*` route handling from `cmd/webhook-gateway/main.go` and `internal/gateway/webhook/handler.go`
+- [ ] Remove MockEndpoint RBAC markers from all controllers; run `make manifests`
+- [ ] Delete `config/crd/bases/automation.kubezap.io_mockendpoints.yaml`
+- [ ] Delete `bundle/manifests/automation.kubezap.io_mockendpoints.yaml` (if present); regenerate bundle with `make bundle`
+- [ ] Update `charts/kubezap/crds/` to remove MockEndpoint CRD YAML
+- [ ] Run `go build ./...`, `go vet ./...`, `go test ./... -count=1` — all must pass
+- [ ] Update `docs/overview.md` CRD table: set MockEndpoint status to "Removed — see mocking guide"

@@ -62,3 +62,23 @@ Why it matters: The gateways are implemented and marked `[x]` complete in schedu
 **Q: `go.mod` has `github.com/spf13/cobra` listed in the second `require` block (where `go mod tidy` puts transitive deps) without the `// indirect` marker. Should it be moved to the first direct-deps block?**
 Why it matters: cobra is a direct CLI dependency; its placement in the second block is cosmetically odd and could confuse future maintainers running `go mod tidy`, which may reorder it unexpectedly.
 **Answer (2026-03-20): Run `go mod tidy` to let tooling normalize it.**
+
+## Review 2026-03-20 (doc focus)
+
+### Decisions needed from owner
+
+<!-- BACKLOG-PROMPT -->
+**Q: Should user guides be created for AMQP and NATS gateway setup (mirroring the Kafka enrichment guide)?**
+Why it matters: AMQP and NATS gateways are fully implemented and marked `[x]` in schedule.md, but there are no user guides for setting them up beyond the API reference. Users who want to use these brokers have to piece together the steps themselves. The Kafka enrichment guide is the model.
+Options: Create `docs/guides/amqp-setup.md` and `docs/guides/nats-setup.md` now (full guides, similar to kafka-enrichment.md) / Add TODO stubs and defer until the beta label is promoted / Leave undocumented (API docs in integration.md are sufficient for experienced users)
+<!-- BACKLOG-PROMPT -->
+
+## Review 2026-03-20 (MockEndpoint removal)
+
+### Decisions needed from owner
+
+<!-- BACKLOG-PROMPT -->
+**Q: Which third-party tool should replace MockEndpoint in demos, tests, and docs?**
+Why it matters: MockEndpoint removal (schedule section 11) is blocked on this decision. All demo updates, guide rewrites, and test changes depend on which tool is chosen. The tool will be deployed in-cluster (Kubernetes Deployment + Service) and must handle basic HTTP request capture/inspection.
+Options: WireMock (Helm chart available, industry standard, Java-based, full standalone mode) / Mockoon (Docker image, simpler to configure, Node.js-based) / MockServer (Helm chart, Java, rich expectation API) / other (specify)
+<!-- BACKLOG-PROMPT -->

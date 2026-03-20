@@ -425,19 +425,19 @@ For re-encrypt TLS (TLS all the way to the operator pod) or passthrough (mTLS), 
 
 ## Payload Formats
 
-KubeZap infers the payload format from the `Content-Type` header of the incoming request or message. The parsed payload is then available via `$(trigger.payload.<field>)` interpolation and as variables in CEL conditions.
+The trigger body is available in flow steps and CEL conditions via `$(trigger.body)` (raw) and `$(trigger.body.<field>)` (top-level JSON field).
 
-| Content-Type | Behavior |
+| Expression | Description |
 |---|---|
-| `application/json` | Parsed as JSON. Fields navigable via dot-path: `$(trigger.payload.user.id)` |
-| `application/xml`, `text/xml` | Parsed as XML and converted to a navigable map. Elements: `$(trigger.payload.order.id)`, attributes: `$(trigger.payload.order.@status)` |
-| `application/x-www-form-urlencoded` | Parsed as key-value pairs. Fields: `$(trigger.payload.fieldName)` |
-| `text/plain` | Available as `$(trigger.payload._raw)` |
-| other / unknown | Available as `$(trigger.payload._raw)` (base64 encoded for binary) |
+| `$(trigger.body)` | The full raw request body (string) |
+| `$(trigger.body.<field>)` | A top-level JSON field from the body |
+| `$(trigger.headers.<header>)` | A request header value (webhook only) |
 
-For HTTP step responses, the response body is parsed the same way using the response `Content-Type`. Result mappings support both **JSONPath** (e.g., `$.user.id`) for JSON responses and **XPath** (e.g., `/response/user/id`) for XML responses — the syntax is auto-detected.
+> **Current limitation**: `$(trigger.body.<field>)` only resolves **top-level JSON fields**. Nested access returns an empty string. For nested fields, use a `type: transform` step to extract them first. Full dot-path access is planned for a future release.
 
-See [Flow CRD → Payload Formats](api/flow.md#payload-formats) for details on using XML data in flows.
+For HTTP step responses, `resultMappings` support **JSONPath** (e.g., `$.user.id`) for JSON and **XPath** (e.g., `/response/user/id`) for XML — the syntax is auto-detected from the expression prefix.
+
+See [Flow CRD → Payload Formats](api/flow.md#payload-formats) for the full reference.
 
 ---
 

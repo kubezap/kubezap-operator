@@ -57,7 +57,7 @@ Items are ordered to minimize rework:
 
 **Goal:** Find cases where having multiple trigger types or integration types active in the same namespace could interfere — shared resource conflicts, name collisions, owner-ref races.
 
-**Known starting point:** `kubezap-gateway` SA/Role/RoleBinding is shared by kafka/amqp/nats integrations — see `docs/tech-debt/rbac-ownership-gaps.md#issue-3` for the ownership fix (2026-03-20). Audit whether similar sharing exists elsewhere.
+**Known starting point:** `kubezap-gateway` SA/Role/RoleBinding is shared by kafka/amqp/nats integrations (owner-ref bug fixed 2026-03-20; shared RBAC intentionally not owned by any single Integration). Audit whether similar sharing exists elsewhere.
 
 - [ ] Audit `reconcileKafkaGateway`, `reconcileAmqpGateway`, `reconcileNatsGateway`: verify all three produce the same `kubezap-gateway` Role rules and that concurrent reconciles of different integration types in the same namespace converge correctly
 - [ ] Audit webhook gateway: if both a webhook Trigger and a pubsub Trigger exist in the same namespace, does the webhook gateway Deployment lifecycle interfere with pubsub gateway Deployments? Check `trigger_controller.go` for shared-name risk between gateway types

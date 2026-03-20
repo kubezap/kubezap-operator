@@ -33,7 +33,7 @@ KubeZap is composed of three distinct runtime components, each with its own bina
 
   HTTP Request  ────────► webhook-gateway ──┐            kubezap-controller
                           (one per ns)      │               │
-  Kafka Message ────────► kafka-gateway   ──┼──► FlowRun ──┤ watches & executes
+  Kafka Message ────────► kafka-gateway   ──┼──► FlowRun ───┤ watches & executes
                           (one per cluster) │    CRDs       │
                                 │           │               │ creates & manages
                                 │ watch     │               ▼
@@ -43,11 +43,11 @@ KubeZap is composed of three distinct runtime components, each with its own bina
                           Prometheus metrics + OpenTelemetry traces
 ```
 
-| Component | Binary | Purpose |
-|---|---|---|
-| `kubezap-controller` | `cmd/main.go` | Kubernetes operator. Reconciles all CRDs, manages gateway Deployments, executes Flows via FlowRun. |
+| Component                 | Binary                        | Purpose                                                                                                      |
+| ------------------------- | ----------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| `kubezap-controller`      | `cmd/main.go`                 | Kubernetes operator. Reconciles all CRDs, manages gateway Deployments, executes Flows via FlowRun.           |
 | `kubezap-webhook-gateway` | `cmd/webhook-gateway/main.go` | HTTP server. Watches Trigger CRDs and dynamically registers webhook routes. Creates FlowRun on each request. |
-| `kubezap-kafka-gateway` | `cmd/kafka-gateway/main.go` | Kafka consumer. Watches Trigger CRDs and manages topic subscriptions. Creates FlowRun on each message. |
+| `kubezap-kafka-gateway`   | `cmd/kafka-gateway/main.go`   | Kafka consumer. Watches Trigger CRDs and manages topic subscriptions. Creates FlowRun on each message.       |
 
 The controller and gateways are separate processes deployed as separate Kubernetes `Deployment` resources. The controller creates and manages the gateway Deployments.
 
@@ -73,20 +73,20 @@ The webhook gateway is a lightweight HTTP server that handles all inbound webhoo
 ### How it works
 
 ```
-  Controller        Webhook Gateway       Trigger CRD      FlowRun CRD     HTTP Client
-      │                    │                   │                │               │
-      │── create Dep. ────►│                   │                │               │
-      │                    │── watch ─────────►│                │               │
-      │                    │◄── Trigger added ─┤                │               │
-      │                    │   path=/hooks/orders               │               │
-      │                    │   [registers route]                │               │
-      │                    │                   │                │               │
-      │                    │◄── POST /hooks/orders {"orderId": "123"} ──────────┤
-      │                    │── lookup Trigger ►│                │               │
-      │                    │── create FlowRun ─────────────────►│               │
-      │                    │── 202 Accepted ───────────────────────────────────►│
-      │◄── watch FlowRun ──────────────────────────────────────┤│               │
-      │── execute Flow ────►                                    │               │
+  Controller        Webhook Gateway           Trigger CRD      FlowRun CRD     HTTP Client
+      │                    │                       │                │               │
+      │── create Dep. ────►│                       │                │               │
+      │                    │── watch ─────────────►│                │               │
+      │                    │◄── Trigger added ─────┤                │               │
+      │                    │   path=/hooks/orders  |                │               │
+      │                    │   [registers route]   |                │               │
+      │                    │                       │                │               │
+      │                    │◄── POST /hooks/orders {"orderId": "123"} ──────────────┤
+      │                    │── lookup Trigger ────►│                │               │
+      │                    │── create FlowRun ─────────────────────►│               │
+      │                    │── 202 Accepted ───────────────────────────────────────►│
+      │◄── watch FlowRun ───────────────────────────────────────────│               │
+      │── execute Flow ────►                                        │               │
 ```
 
 ### Route registration
@@ -122,18 +122,18 @@ The Kafka gateway manages consumer subscriptions for all Kafka pub/sub triggers 
 ### How it works
 
 ```
-  Controller        Kafka Gateway         Trigger CRD      Kafka Broker     FlowRun CRD
-      │                   │                   │                │                │
-      │── create Dep. ───►│                   │                │                │
-      │                   │── watch ─────────►│                │                │
-      │                   │◄── Trigger added ─┤                │                │
-      │                   │   topic=orders.created             │                │
-      │                   │── subscribe ──────────────────────►│                │
-      │                   │                   │                │                │
-      │                   │◄── message received ───────────────┤                │
-      │                   │── create FlowRun ──────────────────────────────────►│
+  Controller        Kafka Gateway          Trigger CRD      Kafka Broker     FlowRun CRD
+      │                   │                    │                │                │
+      │── create Dep. ───►│                    │                │                │
+      │                   │── watch ──────────►│                │                │
+      │                   │◄── Trigger added ──┤                │                │
+      │                   │   topic=orders.created              │                │
+      │                   │── subscribe ───────────────────────►│                │
+      │                   │                    │                │                │
+      │                   │◄── message received ────────────────┤                │
+      │                   │── create FlowRun ───────────────────────────────────►│
       │                   │   [commit offset]  │                │                │
-      │◄── watch FlowRun ──────────────────────────────────────────────────────┤│
+      │◄── watch FlowRun ────────────────────────────────────────────────────────│
       │── execute Flow ───►                                                      │
 ```
 
@@ -163,11 +163,11 @@ Gateways are configured by watching `Trigger` CRDs directly — there is no inte
 
 **Why CRD-watching instead of a ConfigMap:**
 
-| Approach | Pros | Cons |
-|---|---|---|
-| **CRD-watching** (chosen) | Single source of truth, reactive, no sync lag, no intermediate state | Gateway needs K8s API access, slightly more complex |
-| ConfigMap push | Simple gateway | Controller must keep ConfigMap in sync, eventual consistency, extra reconciler logic |
-| gRPC/REST from controller | Rich protocol | Tight coupling, harder to run gateways independently |
+| Approach                  | Pros                                                                 | Cons                                                                                 |
+| ------------------------- | -------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| **CRD-watching** (chosen) | Single source of truth, reactive, no sync lag, no intermediate state | Gateway needs K8s API access, slightly more complex                                  |
+| ConfigMap push            | Simple gateway                                                       | Controller must keep ConfigMap in sync, eventual consistency, extra reconciler logic |
+| gRPC/REST from controller | Rich protocol                                                        | Tight coupling, harder to run gateways independently                                 |
 
 The gateway RBAC needs `get/list/watch` on `Trigger` resources in its namespace. The operator creates a `ServiceAccount`, `Role`, and `RoleBinding` for each gateway Deployment it provisions.
 
@@ -184,12 +184,12 @@ ServiceAccount. The controller creates these resources alongside the gateway Dep
 
 **Role permissions required:**
 
-| API Group | Resource | Verbs | Why |
-|---|---|---|---|
-| `automation.kubezap.io` | `triggers` | `get, list, watch` | Route registration from Trigger CRDs |
-| `automation.kubezap.io` | `flowruns` | `create` | FlowRun creation on webhook arrival |
-| `automation.kubezap.io` | `mockendpoints` | `get, list, watch` | Mock route registration |
-| `automation.kubezap.io` | `mockendpoints/status` | `get, update, patch` | Captured request storage |
+| API Group               | Resource               | Verbs                | Why                                  |
+| ----------------------- | ---------------------- | -------------------- | ------------------------------------ |
+| `automation.kubezap.io` | `triggers`             | `get, list, watch`   | Route registration from Trigger CRDs |
+| `automation.kubezap.io` | `flowruns`             | `create`             | FlowRun creation on webhook arrival  |
+| `automation.kubezap.io` | `mockendpoints`        | `get, list, watch`   | Mock route registration              |
+| `automation.kubezap.io` | `mockendpoints/status` | `get, update, patch` | Captured request storage             |
 
 The controller creates a `Role` (not `ClusterRole`) with these permissions and a
 `RoleBinding` to the gateway ServiceAccount. This keeps the gateway's blast radius
@@ -338,13 +338,13 @@ The controller uses leader election and should run with 2–3 replicas. Only the
 
 ## Namespace Isolation
 
-| Resource | Scope | Notes |
-|---|---|---|
-| Trigger, Flow, FlowRun | Namespaced | Each namespace has independent CRDs |
-| Webhook Gateway Deployment | Namespaced | One per namespace where webhook Triggers exist |
+| Resource                   | Scope      | Notes                                                               |
+| -------------------------- | ---------- | ------------------------------------------------------------------- |
+| Trigger, Flow, FlowRun     | Namespaced | Each namespace has independent CRDs                                 |
+| Webhook Gateway Deployment | Namespaced | One per namespace where webhook Triggers exist                      |
 | Pub/Sub gateway Deployment | Namespaced | One per (namespace × broker Integration); `kafka-gateway` for Kafka |
-| Controller | Cluster | Watches all namespaces; runs in `kubezap-system` |
-| MockEndpoint | Namespaced | Served by the webhook gateway in the same namespace |
+| Controller                 | Cluster    | Watches all namespaces; runs in `kubezap-system`                    |
+| MockEndpoint               | Namespaced | Served by the webhook gateway in the same namespace                 |
 
 The controller watches CRDs in all namespaces and creates gateway Deployments within each namespace where they are needed. If all Triggers in a namespace are deleted, the controller garbage-collects the gateway Deployments.
 
@@ -364,12 +364,12 @@ For teams within the same organization (separate namespaces for dev/staging/prod
 
 KubeZap supports four watch modes controlled by the `WATCH_NAMESPACES` environment variable on the controller Deployment (standard Operator SDK / controller-runtime pattern):
 
-| Mode | `WATCH_NAMESPACES` value | Use case |
-|---|---|---|
-| **AllNamespaces** | `""` (empty) | Single-org cluster, shared platform team manages operator |
-| **MultiNamespace** | `"ns1,ns2,ns3"` | Operator serves a defined set of tenant namespaces |
-| **SingleNamespace** | `"tenant-a"` | One operator installation per tenant group |
-| **OwnNamespace** | Same namespace operator runs in | Maximum isolation; operator and CRDs in same namespace |
+| Mode                | `WATCH_NAMESPACES` value        | Use case                                                  |
+| ------------------- | ------------------------------- | --------------------------------------------------------- |
+| **AllNamespaces**   | `""` (empty)                    | Single-org cluster, shared platform team manages operator |
+| **MultiNamespace**  | `"ns1,ns2,ns3"`                 | Operator serves a defined set of tenant namespaces        |
+| **SingleNamespace** | `"tenant-a"`                    | One operator installation per tenant group                |
+| **OwnNamespace**    | Same namespace operator runs in | Maximum isolation; operator and CRDs in same namespace    |
 
 These map directly to [OLM install modes](https://olm.operatorframework.io/docs/advanced-tasks/operator-scoping-with-operatorgroups/), which is required for OperatorHub certification.
 
@@ -427,11 +427,11 @@ Complete isolation at the infrastructure level. Not a KubeZap concern but worth 
 
 ### RBAC implications by mode
 
-| Mode | Controller needs | Gateway needs |
-|---|---|---|
-| AllNamespaces | `ClusterRole` with namespace-wide resource access | `Role` in each managed namespace |
-| MultiNamespace | `ClusterRole` scoped to listed namespaces, or per-namespace `Roles` | `Role` in each managed namespace |
-| SingleNamespace / OwnNamespace | Namespace-scoped `Role` only — no ClusterRole needed | `Role` in the watched namespace |
+| Mode                           | Controller needs                                                    | Gateway needs                    |
+| ------------------------------ | ------------------------------------------------------------------- | -------------------------------- |
+| AllNamespaces                  | `ClusterRole` with namespace-wide resource access                   | `Role` in each managed namespace |
+| MultiNamespace                 | `ClusterRole` scoped to listed namespaces, or per-namespace `Roles` | `Role` in each managed namespace |
+| SingleNamespace / OwnNamespace | Namespace-scoped `Role` only — no ClusterRole needed                | `Role` in the watched namespace  |
 
 When `WATCH_NAMESPACES` is set to a single namespace, the Helm chart and OLM bundle automatically use `Role`/`RoleBinding` instead of `ClusterRole`/`ClusterRoleBinding`. This is important for OpenShift environments where cluster admins are reluctant to grant ClusterRoles to tenant-managed operators.
 
@@ -522,13 +522,13 @@ spec:
 
 Three images, all built from the same repository:
 
-| Image | Entry point | Base |
-|---|---|---|
-| `kubezap/controller` | `cmd/main.go` | `distroless/static:nonroot` |
+| Image                     | Entry point                   | Base                        |
+| ------------------------- | ----------------------------- | --------------------------- |
+| `kubezap/controller`      | `cmd/main.go`                 | `distroless/static:nonroot` |
 | `kubezap/webhook-gateway` | `cmd/webhook-gateway/main.go` | `distroless/static:nonroot` |
-| `kubezap/kafka-gateway` | `cmd/kafka-gateway/main.go` | `distroless/static:nonroot` |
-| `kubezap/amqp-gateway` | `cmd/amqp-gateway/main.go` | `distroless/static:nonroot` |
-| `kubezap/nats-gateway` | `cmd/nats-gateway/main.go` | `distroless/static:nonroot` |
+| `kubezap/kafka-gateway`   | `cmd/kafka-gateway/main.go`   | `distroless/static:nonroot` |
+| `kubezap/amqp-gateway`    | `cmd/amqp-gateway/main.go`    | `distroless/static:nonroot` |
+| `kubezap/nats-gateway`    | `cmd/nats-gateway/main.go`    | `distroless/static:nonroot` |
 
 All images share the same version tag. The controller references gateway images by tag when creating Deployments. The image tag can be overridden at operator install time via Helm values or OLM subscription config.
 
@@ -590,18 +590,18 @@ Kubernetes resource event triggers — firing a Flow when a Pod is created, a Co
 The controller already maintains an informer cache connected to the Kubernetes API server via `controller-runtime`. Adding resource event triggers means extending the controller to also watch arbitrary resource types declared in Trigger CRDs, and creating a `FlowRun` when a matching event occurs.
 
 ```
-  User              Kubernetes API        kubezap-controller      FlowRun CRD
-    │                     │                       │                    │
-    │── kubectl apply ───►│ Trigger CR created    │                    │
-    │   type: resource    │── inform controller ─►│                    │
-    │   kind: Pod         │                       │── add Pod informer ►│(k8s API)
-    │   event: create     │                       │                    │
-    │                     │                       │                    │
-    │                     │── Pod "my-pod" added ─►│                    │
-    │                     │                       │ match against       │
-    │                     │                       │ Trigger selectors   │
-    │                     │                       │── create FlowRun ──►│
-    │                     │                       │   params: {name, namespace, labels...}
+  User              Kubernetes API         kubezap-controller        FlowRun CRD
+    │                     │                        │                      │
+    │── kubectl apply ───►│ Trigger CR created     │                      │
+    │   type: resource    │── inform controller ──►│                      │
+    │   kind: Pod         │                        │── add Pod informer ─►│(k8s API)
+    │   event: create     │                        │                      │
+    │                     │                        │                      │
+    │                     │── Pod "my-pod" added ─►│                      │
+    │                     │                        │ match against        │
+    │                     │                        │ Trigger selectors    │
+    │                     │                        │── create FlowRun ───►│
+    │                     │                        │   params: {name, namespace, labels...}
 ```
 
 **Why no separate gateway:**
@@ -650,15 +650,15 @@ The trigger payload will include the full resource object, previous object (for 
 
 ## Future Trigger Types
 
-| Type | Implementation | Notes |
-|---|---|---|
-| Kubernetes resource events | Controller extension (no new gateway) | Watches arbitrary K8s resources via dynamic informers |
-| NATS | `kubezap-nats-gateway` | Separate image; NATS client library |
-| RabbitMQ / ActiveMQ | `kubezap-amqp-gateway` | Could share one image for AMQP-based brokers |
-| Solace | `kubezap-solace-gateway` | Solace Go API; likely separate image |
-| S3 / GCS events | `kubezap-s3-gateway` | Polls or uses bucket notifications |
-| Git (GitHub/GitLab webhooks) | Webhook gateway (existing) | Standard webhook with HMAC verification; no new gateway needed |
-| Remote cluster events | `kubezap-remote-cluster-gateway` | Future; requires cross-cluster API server access |
+| Type                         | Implementation                        | Notes                                                          |
+| ---------------------------- | ------------------------------------- | -------------------------------------------------------------- |
+| Kubernetes resource events   | Controller extension (no new gateway) | Watches arbitrary K8s resources via dynamic informers          |
+| NATS                         | `kubezap-nats-gateway`                | Separate image; NATS client library                            |
+| RabbitMQ / ActiveMQ          | `kubezap-amqp-gateway`                | Could share one image for AMQP-based brokers                   |
+| Solace                       | `kubezap-solace-gateway`              | Solace Go API; likely separate image                           |
+| S3 / GCS events              | `kubezap-s3-gateway`                  | Polls or uses bucket notifications                             |
+| Git (GitHub/GitLab webhooks) | Webhook gateway (existing)            | Standard webhook with HMAC verification; no new gateway needed |
+| Remote cluster events        | `kubezap-remote-cluster-gateway`      | Future; requires cross-cluster API server access               |
 
 ---
 
@@ -672,10 +672,10 @@ The trigger payload will include the full resource object, previous object (for 
 
 The two components have different HA requirements and are treated separately:
 
-| Component | Model | Rationale |
-|---|---|---|
+| Component                                           | Model          | Rationale                                                                                                        |
+| --------------------------------------------------- | -------------- | ---------------------------------------------------------------------------------------------------------------- |
 | **Controller** (FlowRun execution, cron scheduling) | Active-passive | Cron must not fire twice; FlowRun execution must have a single owner. Cross-region leader election handles this. |
-| **Webhook / Kafka gateway** | Active-active | Stateless — trivial to run in multiple regions. Lower latency for geographically distributed senders. |
+| **Webhook / Kafka gateway**                         | Active-active  | Stateless — trivial to run in multiple regions. Lower latency for geographically distributed senders.            |
 
 ```
 Region A (primary)              Region B (standby)

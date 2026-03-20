@@ -369,3 +369,143 @@ kubectl delete -k config/samples/demo/github-autolabel/
 kubectl delete secret github-webhook-secret github-api-token -n $NS
 # Also delete the webhook in GitHub Settings → Webhooks
 ```
+
+---
+
+## Demo 4 — Slack Slash Command Router
+
+**What it shows:** A Slack slash command (`/kubezap <text>`) triggers a flow that
+extracts the command text and routes to one of three branches: **deploy**, **status**,
+or a **fallback** for unrecognised text. Demonstrates `application/x-www-form-urlencoded`
+payload handling, Slack HMAC signature verification + IP allowlist in a single auth block,
+multi-branch CEL routing, and the fire-and-forget response pattern.
+
+**Requires:** A Slack workspace with a slash command app, and the KubeZap webhook gateway
+exposed externally (ngrok or LoadBalancer). See `docs/guides/slack-router.md` for full setup.
+
+### Step 1 — Create the signing secret
+
+```bash
+kubectl create secret generic slack-signing-secret \
+  --from-literal=signingSecret='<your-slack-signing-secret>' -n $NS
+```
+
+### Step 2 — Apply CRs
+
+```bash
+kubectl apply -k config/samples/demo/slack-router/
+```
+
+### Step 3 — Verify Trigger is Accepted and gateway is running
+
+```bash
+kubectl get trigger slack-slash-command -n $NS \
+  -o jsonpath='{.status.conditions[?(@.type=="Accepted")].status}'
+# Expected: True
+
+kubectl get deployment kubezap-webhook-gateway -n $NS
+# Expected: 1/1 READY
+
+kubectl get mockendpoints -n $NS
+# Should show: deploy-sink, fallback-sink, status-sink
+```
+
+### Step 4 — Expose the gateway and configure the Slack slash command
+
+```bash
+# Port-forward for local testing with ngrok
+kubectl port-forward svc/kubezap-webhook-gateway 8080:8080 -n $NS &
+ngrok http 8080
+# Note the HTTPS URL (e.g. https://abc123.ngrok.io)
+```
+
+In the Slack app dashboard → Slash Commands → `/kubezap` → Edit:
+- Request URL: `https://<your-ngrok-url>/hooks/slack-slash`
+- Click **Save**
+
+### Step 5 — Send a test slash command (deploy branch)
+
+```bash
+TIMESTAMP=$(date +%s)
+BODY="command=%2Fkubezap&text=deploy+staging&user_name=alice&channel_id=C123ABC&response_url=https%3A%2F%2Fhooks.slack.com%2Fcommands%2Ffake"
+SIGNING_SECRET="<your-slack-signing-secret>"
+SIG_BASE="v0:${TIMESTAMP}:${BODY}"
+SIGNATURE="v0=$(echo -n "$SIG_BASE" | openssl dgst -sha256 -hmac "$SIGNING_SECRET" | awk '{print $2}')"
+
+curl -s -o /dev/null -w '%{http_code}' \
+  -X POST http://localhost:8080/hooks/slack-slash \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  -H "X-Slack-Signature: ${SIGNATURE}" \
+  -H "X-Slack-Request-Timestamp: ${TIMESTAMP}" \
+  -d "${BODY}"
+# Expected: 201
+```
+
+Or type `/kubezap deploy staging` directly in your Slack workspace.
+
+### Step 6 — Watch the FlowRun appear
+
+```bash
+kubectl get flowruns -n $NS -l kubezap.io/trigger=slack-slash-command -w
+# A FlowRun named slack-slash-command-<timestamp>-<random> should appear within seconds
+```
+
+### Step 7 — Inspect step phases
+
+```bash
+FR=$(kubectl get flowruns -n $NS -l kubezap.io/trigger=slack-slash-command \
+  --sort-by=.metadata.creationTimestamp \
+  -o jsonpath='{.items[-1:].metadata.name}')
+
+kubectl get flowrun $FR -n $NS \
+  -o jsonpath='{range .status.steps[*]}{.name}{"\t"}{.phase}{"\n"}{end}'
+# Expected for "deploy staging":
+#   parse-command   Succeeded
+#   handle-deploy   Succeeded
+#   handle-status   Skipped
+#   handle-unknown  Skipped
+```
+
+### Step 8 — Inspect captured MockEndpoint request
+
+```bash
+kubectl get mockendpoint deploy-sink -n $NS \
+  -o jsonpath='{.status.recentRequests[-1:]}'
+# Expected: JSON body with action=deploy, env=deploy staging, requestedBy=alice
+```
+
+### Step 9 — Test the fallback branch
+
+```bash
+# Send "/kubezap help" (unrecognised command)
+BODY="command=%2Fkubezap&text=help&user_name=charlie&channel_id=C123ABC&response_url=https%3A%2F%2Fhooks.slack.com%2Fcommands%2Ffake"
+SIG_BASE="v0:${TIMESTAMP}:${BODY}"
+SIGNATURE="v0=$(echo -n "$SIG_BASE" | openssl dgst -sha256 -hmac "$SIGNING_SECRET" | awk '{print $2}')"
+
+curl -s -o /dev/null -w '%{http_code}' \
+  -X POST http://localhost:8080/hooks/slack-slash \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  -H "X-Slack-Signature: ${SIGNATURE}" \
+  -H "X-Slack-Request-Timestamp: ${TIMESTAMP}" \
+  -d "${BODY}"
+
+FR=$(kubectl get flowruns -n $NS -l kubezap.io/trigger=slack-slash-command \
+  --sort-by=.metadata.creationTimestamp \
+  -o jsonpath='{.items[-1:].metadata.name}')
+
+kubectl get flowrun $FR -n $NS \
+  -o jsonpath='{range .status.steps[*]}{.name}{"\t"}{.phase}{"\n"}{end}'
+# Expected:
+#   parse-command   Succeeded
+#   handle-deploy   Skipped
+#   handle-status   Skipped
+#   handle-unknown  Succeeded
+```
+
+### Cleanup
+
+```bash
+kubectl delete -k config/samples/demo/slack-router/
+kubectl delete secret slack-signing-secret -n $NS
+# Also delete the Slack app at api.slack.com/apps if no longer needed
+```

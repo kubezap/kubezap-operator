@@ -181,9 +181,9 @@ Additional demonstration scenarios targeting acquisition/enterprise stakeholders
 **What it demonstrates:** `application/x-www-form-urlencoded` payload parsing, IP allowlist (Slack's published IP ranges), HMAC signature validation using Slack's signing algorithm, multi-branch CEL routing based on command text, fire-and-forget response pattern.
 
 **Implementation tasks:**
-- [ ] Create sample CRs in `config/samples/demo/slack-router/`: Trigger (hmac + ip allowlist), Flow (transform → branch A / branch B / fallback), MockEndpoints for each branch
-- [ ] Create guide at `docs/guides/slack-router.md`: Slack app creation, slash command config, applying CRs, sending `/kubezap <command>` from Slack, inspecting FlowRun + MockEndpoint
-- [ ] Add walkthrough checklist to `docs/guides/demo-walkthrough.md`
+- [x] Create sample CRs in `config/samples/demo/slack-router/`: Trigger (hmac + ip allowlist), Flow (transform → branch A / branch B / fallback), MockEndpoints for each branch
+- [x] Create guide at `docs/guides/slack-router.md`: Slack app creation, slash command config, applying CRs, sending `/kubezap <command>` from Slack, inspecting FlowRun + MockEndpoint
+- [x] Add walkthrough checklist to `docs/guides/demo-walkthrough.md`
 
 ---
 

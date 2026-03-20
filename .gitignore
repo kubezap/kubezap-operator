@@ -30,7 +30,11 @@ go.work
 before
 after
 coredns.yaml
-.claude/
+.claude/*
+!.claude/settings.json
+!.claude/hooks/
+.claude/hooks/*
+!.claude/hooks/pre-commit.sh
 
 # gateway binaries (built at repo root during development)
 /kafka-gateway

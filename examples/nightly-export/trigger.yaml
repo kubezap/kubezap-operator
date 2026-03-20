@@ -1,0 +1,21 @@
+apiVersion: automation.kubezap.io/v1alpha1
+kind: Trigger
+metadata:
+  name: nightly-export
+  namespace: default
+spec:
+  type: cron
+  enabled: true
+  cron:
+    # Runs at 02:00 every night in the America/New_York timezone.
+    # Adjust schedule and timezone for your environment.
+    schedule: "0 2 * * *"
+    timezone: "America/New_York"
+  flowRef:
+    name: nightly-db-export
+  flowRunGC:
+    # Keep 30 days of successful run history, 10 days of failed runs.
+    maxSucceeded: 30
+    maxFailed: 10
+    ttlAfterSucceeded: 720h  # 30 days
+    ttlAfterFailed:   240h   # 10 days

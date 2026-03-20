@@ -1,0 +1,101 @@
+apiVersion: automation.kubezap.io/v1alpha1
+kind: Flow
+metadata:
+  name: nightly-db-export
+  namespace: default
+spec:
+  description: >-
+    Nightly database export: call the export API → upload manifest to MinIO →
+    post summary to Slack. The flow continues even if the upload fails so that
+    Slack is always notified of the outcome.
+  timeout: 30m
+  # Continue executing subsequent steps even when an earlier step fails.
+  # This ensures the notify-slack step always runs, even on upload failure.
+  failurePolicy: Continue
+  steps:
+    # ── Step 1 ─────────────────────────────────────────────────────────────────
+    # Trigger the database export.  In this demo the mock endpoint at
+    # /mock/export-api simulates the export service.  Replace the URL with your
+    # real export service in production.
+    # $(trigger.scheduledTime) is injected as an RFC 3339 timestamp so the
+    # export service knows which nightly window to process.
+    - name: export-data
+      description: "Call the export API to trigger a nightly snapshot"
+      action:
+        type: http
+        http:
+          url: >-
+            http://kubezap-webhook-gateway.default.svc.cluster.local:8080/mock/export-api
+          method: POST
+          headers:
+            Content-Type: application/json
+          body: >-
+            {
+              "exportDate": "$(trigger.scheduledTime)",
+              "tables": ["orders", "customers", "products"]
+            }
+          timeoutSeconds: 300
+          resultMappings:
+            exportId:  "$.exportId"
+            rowCount:  "$.rowCount"
+            status:    "$.status"
+
+    # ── Step 2 ─────────────────────────────────────────────────────────────────
+    # Upload the export manifest to MinIO.  The manifest is a small JSON object
+    # that records what was exported and when — useful for audit trails.
+    # retryPolicy handles transient MinIO connectivity issues.
+    #
+    # Prerequisites:
+    #   - MinIO is deployed in the cluster (see minio.yaml)
+    #   - The `exports` bucket exists and is writable (see README setup steps)
+    - name: upload-to-minio
+      description: "Upload export manifest to MinIO object storage"
+      runAfter:
+        - export-data
+      retryPolicy:
+        maxRetries: 3
+        backoffType: Exponential
+        initialDelay: 10s
+        maxDelay: 2m
+      action:
+        type: http
+        http:
+          url: "http://minio.default.svc.cluster.local:9000/exports/nightly-$(trigger.scheduledTime).json"
+          method: PUT
+          headers:
+            Content-Type: application/json
+          body: >-
+            {
+              "exportDate": "$(trigger.scheduledTime)",
+              "exportId":   "$(steps.export_data.results.exportId)",
+              "rowCount":   "$(steps.export_data.results.rowCount)",
+              "status":     "$(steps.export_data.results.status)"
+            }
+          timeoutSeconds: 120
+
+    # ── Step 3 ─────────────────────────────────────────────────────────────────
+    # Post a summary to Slack.  onFailure: Continue means a Slack delivery
+    # failure does not fail the overall FlowRun.
+    # The flow-level failurePolicy: Continue ensures this step runs even if
+    # the upload step above failed.
+    #
+    # Replace REPLACE_WITH_SLACK_WEBHOOK_URL with your Slack incoming webhook
+    # URL before applying the manifests, or remove this step if Slack is not
+    # needed.
+    - name: notify-slack
+      description: "Post nightly export summary to Slack"
+      runAfter:
+        - upload-to-minio
+      onFailure: Continue
+      action:
+        type: http
+        http:
+          url: "https://hooks.slack.com/services/REPLACE_WITH_SLACK_WEBHOOK_URL"
+          method: POST
+          headers:
+            Content-Type: application/json
+          body: >-
+            {
+              "text": ":floppy_disk: *Nightly export complete* (`$(trigger.scheduledTime)`)\nExport ID: `$(steps.export_data.results.exportId)` | Rows: $(steps.export_data.results.rowCount) | Status: $(steps.export_data.results.status)"
+            }
+          timeoutSeconds: 10

@@ -196,8 +196,8 @@ Runnable examples targeting acquisition/enterprise stakeholders. Each example li
 **What it demonstrates:** Cron trigger (timezone-aware), chaining step results across 3 steps (export → upload → notify), `retryPolicy` on the upload step, secrets for AWS/MinIO credentials, `$(trigger.scheduledTime)` in the export URL, `failurePolicy: Continue` so the summary posts even on partial failure.
 
 **Implementation tasks:**
-- [ ] Create manifests in `examples/nightly-export/`: CronTrigger, Flow (3 steps), Integration or Secrets placeholders, MinIO Deployment + Service (for local testing)
-- [ ] Create `examples/nightly-export/README.md`: MinIO setup (in-cluster option), secret creation, applying manifests, manually triggering via FlowRun, verifying S3 object created, checking Slack summary
+- [x] Create manifests in `examples/nightly-export/`: CronTrigger, Flow (3 steps), Integration or Secrets placeholders, MinIO Deployment + Service (for local testing)
+- [x] Create `examples/nightly-export/README.md`: MinIO setup (in-cluster option), secret creation, applying manifests, manually triggering via FlowRun, verifying S3 object created, checking Slack summary
 
 ---
 
@@ -399,6 +399,21 @@ Runnable examples targeting acquisition/enterprise stakeholders. Each example li
 - [x] `cmd/main.go`: `Development: true` is hardcoded in the zap options for the controller binary (line 93). Development mode emits caller information and uses a human-readable format rather than JSON — inappropriate for production. _(fixed: `--development` flag now correctly applied after `flag.Parse()`, overriding `--zap-devel` when set)_
 - [x] Missing tests: `substituteVars`, `evaluateWhen`, `enforceMaxFlowRunsByPhase`, cron cooldown — all covered by new tests in `internal/controller/` (substitute_vars_test.go, evaluate_when_test.go, gc_policy_test.go, cron_scheduler_test.go). _(done 2026-03-20)_
 - [x] `internal/gateway/kafka/watcher.go` `startSubscription`: the subscription goroutine uses `context.WithCancel(context.Background())` rather than deriving from the caller's context. _(fixed: changed to `context.WithCancel(ctx)` so pod shutdown cleanly cancels all in-flight consumer sessions)_
+
+### New — Identified 2026-03-20 (examples gap)
+
+- [ ] **HIGH** `api/v1alpha1/integration_types.go`: No generic `type: http` Integration exists. The current enum is `kafka;amqp;nats;plugin`. Flow steps that call external REST APIs (Slack, GitHub, PagerDuty, etc.) have no way to reference credentials declaratively — they must embed URLs and tokens as plaintext in the Flow manifest. A `type: http` Integration would follow the same pattern as `type: kafka`: credentials live in the Integration, flows reference them via `integrationRef`, and swapping dev/prod credentials requires no Flow changes.
+  - Add `http` to the `IntegrationSpec.Type` enum in `api/v1alpha1/integration_types.go`
+  - Add `HttpIntegrationSpec` struct: `baseUrl`, `auth` (types: `bearer`, `basic`, `apiKey`, `secretUrl` — for webhook-URL-as-credential patterns like Slack), `defaultHeaders`, auth `secretRef` fields
+  - Add `integrationRef` field to `HTTPAction` in `api/v1alpha1/flow_types.go` so steps can reference an http Integration; controller merges Integration auth headers before making the request
+  - Controller: add `get` on `integrations` to the RBAC markers in `flowrun_controller.go` (secrets `get` is already present)
+  - Run `make generate && make manifests`
+  - Add sample CR `config/samples/automation_v1alpha1_integration_http.yaml`
+  - Update `docs/api/integration.md` with the new type
+  - _After implementation: update `examples/nightly-export/` (Slack notify step), `examples/github-autolabel/` (GitHub API token), and `examples/slack-router/` (any step-level credentials) to use `integrationRef` instead of plaintext placeholders_
+  - _Named service integrations (Slack, GitHub, PagerDuty, etc.) should be deferred to the plugin catalog (section 10) — `type: http` covers all HTTP-based services generically without per-service CRD additions_
+
+---
 
 ### New — Identified 2026-03-18 (codebase review)
 

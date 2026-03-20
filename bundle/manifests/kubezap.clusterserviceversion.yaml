@@ -2,13 +2,153 @@ apiVersion: operators.coreos.com/v1alpha1
 kind: ClusterServiceVersion
 metadata:
   annotations:
-    alm-examples: '[]'
+    alm-examples: |-
+      [
+        {
+          "apiVersion": "automation.kubezap.io/v1alpha1",
+          "kind": "Flow",
+          "metadata": {
+            "name": "handle-order"
+          },
+          "spec": {
+            "params": [
+              {
+                "description": "Order identifier",
+                "name": "orderId",
+                "required": true
+              }
+            ],
+            "steps": [
+              {
+                "action": {
+                  "http": {
+                    "method": "GET",
+                    "resultMappings": {
+                      "customerName": "$.customerName",
+                      "id": "$.id"
+                    },
+                    "timeoutSeconds": 30,
+                    "url": "https://orders.internal/api/orders/$(params.orderId)"
+                  },
+                  "type": "http"
+                },
+                "name": "enrich-order"
+              },
+              {
+                "action": {
+                  "http": {
+                    "body": "{\"text\": \"Order $(steps.enrich_order.results.customerName) processed\"}",
+                    "headers": {
+                      "Content-Type": "application/json"
+                    },
+                    "method": "POST",
+                    "url": "https://hooks.slack.com/services/REPLACE_ME"
+                  },
+                  "type": "http"
+                },
+                "name": "notify-slack",
+                "runAfter": [
+                  "enrich-order"
+                ],
+                "when": [
+                  {
+                    "expression": "steps.enrich_order.status == \"Succeeded\""
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "apiVersion": "automation.kubezap.io/v1alpha1",
+          "kind": "FlowRun",
+          "metadata": {
+            "name": "handle-order-manual-test"
+          },
+          "spec": {
+            "flowRef": {
+              "name": "handle-order"
+            },
+            "params": [
+              {
+                "name": "orderId",
+                "value": "12345"
+              }
+            ],
+            "triggerRef": {
+              "name": "order-received",
+              "type": "webhook"
+            },
+            "ttlAfterFinished": "24h"
+          }
+        },
+        {
+          "apiVersion": "automation.kubezap.io/v1alpha1",
+          "kind": "Integration",
+          "metadata": {
+            "name": "kafka-cluster"
+          },
+          "spec": {
+            "kafka": {
+              "bootstrapServers": [
+                "kafka.default.svc.cluster.local:9092"
+              ],
+              "sasl": {
+                "mechanism": "PLAIN",
+                "passwordSecretRef": {
+                  "key": "password",
+                  "name": "kafka-credentials"
+                },
+                "usernameSecretRef": {
+                  "key": "username",
+                  "name": "kafka-credentials"
+                }
+              }
+            },
+            "type": "kafka"
+          }
+        },
+        {
+          "apiVersion": "automation.kubezap.io/v1alpha1",
+          "kind": "MockEndpoint",
+          "metadata": {
+            "name": "mock-slack"
+          },
+          "spec": {
+            "maxRequestHistory": 10,
+            "path": "slack",
+            "response": {
+              "body": "{\"ok\":true}",
+              "statusCode": 200
+            }
+          }
+        },
+        {
+          "apiVersion": "automation.kubezap.io/v1alpha1",
+          "kind": "Trigger",
+          "metadata": {
+            "name": "example-trigger"
+          },
+          "spec": {
+            "flowRef": {
+              "name": "example-flow"
+            },
+            "type": "webhook",
+            "webhook": {
+              "path": "/hooks/example"
+            }
+          }
+        }
+      ]
     capabilities: Basic Install
     categories: Integration & Delivery
     containerImage: docker.io/kubezap/controller:latest
+    createdAt: "2026-03-20T20:16:39Z"
     description: Declarative workflow automation for Kubernetes — Zapier meets Camunda,
       but Kubernetes-native.
     operatorframework.io/suggested-namespace: kubezap-system
+    operators.operatorframework.io/builder: operator-sdk-v1.42.0
+    operators.operatorframework.io/project_layout: go.kubebuilder.io/v4
     repository: https://github.com/borfswitch/kubezap
     support: KubeZap Community
   name: kubezap.v0.0.1
@@ -17,17 +157,17 @@ spec:
   apiservicedefinitions: {}
   customresourcedefinitions:
     owned:
-    - description: Flow defines an ordered workflow of steps with conditional logic
-        and data transforms.
-      displayName: Flow
-      kind: Flow
-      name: flows.automation.kubezap.io
-      version: v1alpha1
     - description: FlowRun is an execution instance of a Flow, created by a gateway
         when a trigger fires.
       displayName: FlowRun
       kind: FlowRun
       name: flowruns.automation.kubezap.io
+      version: v1alpha1
+    - description: Flow defines an ordered workflow of steps with conditional logic
+        and data transforms.
+      displayName: Flow
+      kind: Flow
+      name: flows.automation.kubezap.io
       version: v1alpha1
     - description: Integration connects KubeZap to an external system (Kafka, plugin,
         etc.).
@@ -86,7 +226,25 @@ spec:
         - apiGroups:
           - ""
           resources:
+          - namespaces
+          verbs:
+          - get
+        - apiGroups:
+          - ""
+          resources:
           - serviceaccounts
+          verbs:
+          - create
+          - delete
+          - get
+          - list
+          - patch
+          - update
+          - watch
+        - apiGroups:
+          - ""
+          resources:
+          - services
           verbs:
           - create
           - get
@@ -181,15 +339,28 @@ spec:
           - roles
           verbs:
           - create
+          - delete
           - get
           - list
           - patch
           - update
           - watch
-        serviceAccountName: controller-manager
+        - apiGroups:
+          - authentication.k8s.io
+          resources:
+          - tokenreviews
+          verbs:
+          - create
+        - apiGroups:
+          - authorization.k8s.io
+          resources:
+          - subjectaccessreviews
+          verbs:
+          - create
+        serviceAccountName: kubezap-controller-manager
       deployments:
       - label:
-          app.kubernetes.io/managed-by: operator-lifecycle-manager
+          app.kubernetes.io/managed-by: kustomize
           app.kubernetes.io/name: kubezap
           control-plane: controller-manager
         name: kubezap-controller-manager
@@ -209,14 +380,19 @@ spec:
                 control-plane: controller-manager
             spec:
               containers:
-              - command:
+              - args:
+                - --metrics-bind-address=:8443
+                - --leader-elect
+                - --health-probe-bind-address=:8081
+                command:
                 - /manager
                 env:
-                - name: WATCH_NAMESPACES
-                  valueFrom:
-                    fieldRef:
-                      fieldPath: metadata.annotations['olm.targetNamespaces']
-                image: kubezap.io/kubezap/controller:v0.0.1
+                - name: WEBHOOK_GATEWAY_IMAGE
+                  value: kubezap/webhook-gateway:latest
+                - name: KAFKA_GATEWAY_IMAGE
+                  value: kubezap/kafka-gateway:latest
+                image: docker.io/kubezap/controller:latest
+                imagePullPolicy: IfNotPresent
                 livenessProbe:
                   httpGet:
                     path: /healthz
@@ -246,7 +422,7 @@ spec:
                 runAsNonRoot: true
                 seccompProfile:
                   type: RuntimeDefault
-              serviceAccountName: controller-manager
+              serviceAccountName: kubezap-controller-manager
               terminationGracePeriodSeconds: 10
       permissions:
       - rules:
@@ -281,110 +457,7 @@ spec:
           verbs:
           - create
           - patch
-        - apiGroups:
-          - ""
-          resources:
-          - serviceaccounts
-          verbs:
-          - create
-          - get
-          - list
-          - patch
-          - update
-          - watch
-        - apiGroups:
-          - apps
-          resources:
-          - deployments
-          verbs:
-          - create
-          - delete
-          - get
-          - list
-          - patch
-          - update
-          - watch
-        - apiGroups:
-          - automation.kubezap.io
-          resources:
-          - flowruns
-          - triggers
-          verbs:
-          - create
-          - delete
-          - get
-          - list
-          - patch
-          - update
-          - watch
-        - apiGroups:
-          - automation.kubezap.io
-          resources:
-          - flowruns/finalizers
-          - triggers/finalizers
-          verbs:
-          - update
-        - apiGroups:
-          - automation.kubezap.io
-          resources:
-          - flowruns/status
-          - flows/status
-          - integrations/status
-          - mockendpoints/status
-          - triggers/status
-          verbs:
-          - get
-          - patch
-          - update
-        - apiGroups:
-          - automation.kubezap.io
-          resources:
-          - flows
-          - integrations
-          - mockendpoints
-          verbs:
-          - get
-          - list
-          - patch
-          - update
-          - watch
-        - apiGroups:
-          - autoscaling
-          resources:
-          - horizontalpodautoscalers
-          verbs:
-          - create
-          - delete
-          - get
-          - list
-          - patch
-          - update
-          - watch
-        - apiGroups:
-          - keda.sh
-          resources:
-          - scaledobjects
-          verbs:
-          - create
-          - delete
-          - get
-          - list
-          - patch
-          - update
-          - watch
-        - apiGroups:
-          - rbac.authorization.k8s.io
-          resources:
-          - rolebindings
-          - roles
-          verbs:
-          - create
-          - get
-          - list
-          - patch
-          - update
-          - watch
-        serviceAccountName: controller-manager
+        serviceAccountName: kubezap-controller-manager
     strategy: deployment
   installModes:
   - supported: true

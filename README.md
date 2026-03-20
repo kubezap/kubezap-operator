@@ -121,7 +121,7 @@ kubectl get flowruns -n default
 kubectl get flowrun <name> -o jsonpath='{.status.phase}'
 ```
 
-For a full walkthrough see [docs/guides/getting-started.md](docs/guides/getting-started.md).
+For a full walkthrough see [examples/order-router/](examples/order-router/).
 
 ---
 
@@ -130,14 +130,13 @@ For a full walkthrough see [docs/guides/getting-started.md](docs/guides/getting-
 | Document | Description |
 |----------|-------------|
 | [Overview](docs/overview.md) | Architecture, core concepts, CRD reference |
-| [Getting Started](docs/guides/getting-started.md) | Step-by-step guide: webhook → transform → conditional notify |
+| [Getting Started](examples/order-router/) | Step-by-step guide: webhook → transform → conditional notify |
+| [Examples](examples/) | Runnable examples with manifests and step-by-step instructions |
 | [Flow CRD](docs/api/flow.md) | Full step action reference (http, transform, publish, wait) |
 | [FlowRun CRD](docs/api/flowrun.md) | Execution model, GC, status fields |
 | [Integration CRD](docs/api/integration.md) | Kafka, plugin protocol |
 | [Webhook Security](docs/guides/webhook-security.md) | HMAC, bearer, OIDC, API-key, IP allowlist, mTLS |
 | [Observability](docs/guides/observability.md) | Prometheus metrics, OpenTelemetry traces, access logs |
-| [Demo: Kafka Enrichment](docs/guides/kafka-enrichment.md) | Kafka → enrich → conditional route → publish |
-| [Demo: Incident Escalation](docs/guides/incident-escalation.md) | Alert webhook → parallel actions → wait → escalate |
 
 ---
 

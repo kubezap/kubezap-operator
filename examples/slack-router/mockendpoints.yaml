@@ -1,0 +1,51 @@
+---
+# MockEndpoint: deploy-sink
+# Captures requests from handle-deploy step (stand-in for a real deploy pipeline API).
+apiVersion: automation.kubezap.io/v1alpha1
+kind: MockEndpoint
+metadata:
+  name: deploy-sink
+  namespace: default
+spec:
+  path: /mock/deploy-sink
+  methods:
+    - POST
+  response:
+    statusCode: 200
+    body: '{"ok":true,"message":"deploy queued"}'
+    headers:
+      Content-Type: application/json
+---
+# MockEndpoint: status-sink
+# Captures requests from handle-status step.
+apiVersion: automation.kubezap.io/v1alpha1
+kind: MockEndpoint
+metadata:
+  name: status-sink
+  namespace: default
+spec:
+  path: /mock/status-sink
+  methods:
+    - POST
+  response:
+    statusCode: 200
+    body: '{"ok":true,"status":"healthy"}'
+    headers:
+      Content-Type: application/json
+---
+# MockEndpoint: fallback-sink
+# Captures requests from handle-unknown step.
+apiVersion: automation.kubezap.io/v1alpha1
+kind: MockEndpoint
+metadata:
+  name: fallback-sink
+  namespace: default
+spec:
+  path: /mock/fallback-sink
+  methods:
+    - POST
+  response:
+    statusCode: 200
+    body: '{"ok":true,"message":"unknown command received"}'
+    headers:
+      Content-Type: application/json

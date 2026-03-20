@@ -1,12 +1,12 @@
 # Incident Response Escalation
 
-This guide walks you through a complete working example that demonstrates KubeZap's
-incident response automation: a Kubernetes-native on-call escalation policy defined
-entirely as code.
+This example walks you through a complete working scenario that demonstrates
+KubeZap's incident response automation: a Kubernetes-native on-call escalation
+policy defined entirely as code.
 
-Instead of a runbook stored in a wiki (and ignored at 3 AM), the escalation logic lives
-in a `Flow` CRD checked into source control, versioned, and executed reliably by the
-operator every time an alert fires.
+Instead of a runbook stored in a wiki (and ignored at 3 AM), the escalation
+logic lives in a `Flow` CRD checked into source control, versioned, and
+executed reliably by the operator every time an alert fires.
 
 By the end you will have:
 
@@ -18,7 +18,7 @@ By the end you will have:
 
 ---
 
-## What You'll Build
+## What you'll build
 
 ```
 Alert webhook  POST /hooks/alert
@@ -44,15 +44,15 @@ for parallel side effects ahead of a wait step.
 
 - A running Kubernetes cluster (k3s, kind, or any cluster with CRD support)
 - `kubectl` configured to reach the cluster
-- KubeZap operator deployed (see [Installation](../overview.md#installation))
+- KubeZap operator deployed (see [Installation](../../docs/overview.md#installation))
 - The webhook gateway accessible — either via `kubectl port-forward` or a Service of type LoadBalancer
 
 ---
 
-## Step 1: Apply the CRs
+## Step 1: Apply the manifests
 
 ```bash
-kubectl apply -k config/samples/demo/incident-escalation/
+kubectl apply -k examples/incident-escalation/
 ```
 
 This creates two resources in the `default` namespace:
@@ -62,7 +62,7 @@ This creates two resources in the `default` namespace:
 
 ---
 
-## Step 2: Verify the Trigger is Accepted
+## Step 2: Verify the Trigger is accepted
 
 The operator reconciles the Trigger and registers the route with the webhook gateway:
 
@@ -80,7 +80,7 @@ kubectl logs -l control-plane=controller-manager -n kubezap-system
 
 ---
 
-## Step 3: Send a Test Alert
+## Step 3: Send a test alert
 
 Forward the webhook gateway port if not already externally accessible:
 
@@ -114,7 +114,7 @@ responds immediately). The FlowRun then enters `Waiting` phase as
 
 ---
 
-## Step 5: Observe the Waiting Phase
+## Step 5: Observe the Waiting phase
 
 While the flow is paused, inspect the wait step status:
 
@@ -135,40 +135,35 @@ kubectl get flowrun <name> \
 
 ---
 
-## Step 6: Observe Completion and the Skipped Escalation
+## Step 6: Observe completion and the skipped escalation
 
 After 2 minutes, the operator resumes the flow. `check-health` runs (a GET to
-httpbin), and then `escalate` is evaluated. Because the demo uses
+httpbin), and then `escalate` is evaluated. Because the example uses
 `"true" == "false"` as the `when` condition, `escalate` is always `Skipped`.
 
 Inspect all step phases once the FlowRun completes:
 
 ```bash
-# Step names
 kubectl get flowrun <name> \
-  -o jsonpath='{.status.steps[*].name}' | tr ' ' '\n'
-
-# Step phases
-kubectl get flowrun <name> \
-  -o jsonpath='{.status.steps[*].phase}' | tr ' ' '\n'
+  -o jsonpath='{range .status.steps[*]}{.name}{"\t"}{.phase}{"\n"}{end}'
 ```
 
 Expected output:
 
 ```
-page-oncall          → Succeeded
-trigger-mitigation   → Succeeded
-wait-for-resolution  → Succeeded
-check-health         → Succeeded
-escalate             → Skipped    # when condition was false
+page-oncall          Succeeded
+trigger-mitigation   Succeeded
+wait-for-resolution  Succeeded
+check-health         Succeeded
+escalate             Skipped    ← when condition was false
 ```
 
 ---
 
-## What This Demonstrates
+## What this demonstrates
 
 | Feature | How it shows up |
-|---|---|
+|---------|-----------------|
 | Webhook trigger | `curl` to `/hooks/alert` creates a FlowRun |
 | Parallel steps | `page-oncall` and `trigger-mitigation` run concurrently |
 | Wait step | `wait-for-resolution` pauses the flow for 2 minutes |
@@ -178,7 +173,7 @@ escalate             → Skipped    # when condition was false
 
 ---
 
-## Adapting for Production
+## Adapting for production
 
 **Replace httpbin URLs with real endpoints**
 
@@ -211,7 +206,7 @@ resultMappings:
 
 **Update the escalation condition**
 
-Change the `when` expression on `escalate` from the demo stub to a real check
+Change the `when` expression on `escalate` from the example stub to a real check
 against the health step result:
 
 ```yaml
@@ -236,7 +231,7 @@ the wait.
 ## Cleanup
 
 ```bash
-kubectl delete -k config/samples/demo/incident-escalation/
+kubectl delete -k examples/incident-escalation/
 ```
 
 ---
@@ -248,7 +243,8 @@ kubectl delete -k config/samples/demo/incident-escalation/
 The parallel steps may be failing. Check which step is stuck:
 
 ```bash
-kubectl get flowrun <name> -o jsonpath='{.status.steps[*].phase}' | tr ' ' '\n'
+kubectl get flowrun <name> \
+  -o jsonpath='{range .status.steps[*]}{.name}{"\t"}{.phase}{"\n"}{end}'
 ```
 
 Then check the controller logs for error details:
@@ -283,9 +279,9 @@ kubectl logs -l app=kubezap-webhook-gateway -n default | grep incident-escalatio
 
 ---
 
-## Next Steps
+## Next steps
 
-- Add [HMAC authentication](webhook-security.md) to restrict who can fire the alert webhook
+- Add [HMAC authentication](../../docs/guides/webhook-security.md) to restrict who can fire the alert webhook
 - Add a `retryPolicy` to `page-oncall` and `trigger-mitigation` so transient network errors don't silently drop the page
 - Replace the httpbin mock with real Slack and PagerDuty endpoints
-- Set up [Prometheus metrics](observability.md) to track FlowRun durations and escalation rates
+- Set up [Prometheus metrics](../../docs/guides/observability.md) to track FlowRun durations and escalation rates

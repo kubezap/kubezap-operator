@@ -598,7 +598,7 @@ make build-cli   # produces bin/kubezap
 
 Install via the OpenShift OperatorHub catalog or the community OperatorHub.
 
-For a full setup walkthrough including namespace configuration and RBAC see [Getting Started](guides/getting-started.md).
+For a full setup walkthrough including namespace configuration and RBAC see [Getting Started](../examples/order-router/).
 
 ---
 

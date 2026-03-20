@@ -1,12 +1,11 @@
-# Demo: Slack Slash Command Router
+# Slack Slash Command Router
 
-This guide walks through the **Slack slash command router** demo — a real-world
-pattern where a Slack slash command (`/kubezap <subcommand>`) is POSTed to
-KubeZap's webhook gateway, the flow extracts the command text, and the request is
-routed to one of three branches: **deploy**, **status**, or a **fallback** for
-unrecognised commands.
+This example walks through the **Slack slash command router** pattern — a Slack
+slash command (`/kubezap <subcommand>`) is POSTed to KubeZap's webhook gateway,
+the flow extracts the command text, and the request is routed to one of three
+branches: **deploy**, **status**, or a **fallback** for unrecognised commands.
 
-This demo showcases features that are hard to replicate without an operator:
+This example showcases features that are hard to replicate without an operator:
 `application/x-www-form-urlencoded` payload handling, Slack HMAC signature
 verification + IP allowlist in a single auth block, multi-branch CEL routing, and
 a fire-and-forget response pattern — all declared as Kubernetes resources.
@@ -147,10 +146,10 @@ kubectl patch trigger slack-slash-command -n default --type=json \
 
 ---
 
-## Apply the demo CRs
+## Apply the manifests
 
 ```bash
-kubectl apply -k config/samples/demo/slack-router/
+kubectl apply -k examples/slack-router/
 ```
 
 Verify:
@@ -314,7 +313,7 @@ Note: the `response_url` is only valid for 30 minutes after the original request
 ## Cleanup
 
 ```bash
-kubectl delete -k config/samples/demo/slack-router/
+kubectl delete -k examples/slack-router/
 kubectl delete secret slack-signing-secret -n default
 # Also delete the Slack app at api.slack.com/apps if no longer needed
 ```

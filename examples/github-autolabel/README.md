@@ -1,11 +1,11 @@
-# Demo: GitHub Webhook → Auto-Label PR
+# GitHub Webhook → Auto-Label PR
 
-This guide walks through the **GitHub PR auto-label** demo — a real-world pattern
-where GitHub sends a `pull_request` event to KubeZap's webhook gateway, the flow
-extracts the relevant fields, and a label is automatically applied to the PR via
-the GitHub API based on the PR's current state.
+This example walks through the **GitHub PR auto-label** pattern — GitHub sends a
+`pull_request` event to KubeZap's webhook gateway, the flow extracts the relevant
+fields, and a label is automatically applied to the PR via the GitHub API based on
+the PR's current state.
 
-This demo showcases three things that are hard to do without an operator: HMAC
+This example showcases three things that are hard to do without an operator: HMAC
 signature verification at the gateway layer, header extraction in a transform
 step, and parallel conditional branches that each make an authenticated API call —
 all declared as Kubernetes resources with no custom code to run or operate.
@@ -68,14 +68,14 @@ Key properties:
   in-cluster-only ClusterIP endpoint
 - `kubectl` configured for the target namespace
 
-This guide uses the namespace `default`. Change the `namespace:` field in the
+This example uses the namespace `default`. Change the `namespace:` field in the
 manifests if you prefer a dedicated namespace.
 
 ---
 
 ## Step 1 — Create the required Secrets
 
-The demo needs two Secrets: one holding the HMAC secret you will register in
+The example needs two Secrets: one holding the HMAC secret you will register in
 GitHub's webhook settings, and one holding a Personal Access Token (PAT) that
 the label steps use to call the GitHub API.
 
@@ -100,9 +100,8 @@ the Issues API even when applied to pull requests.
 
 ## Step 2 — Customize the Flow
 
-Before applying the manifests, open
-`config/samples/demo/github-autolabel/flow.yaml` and replace the placeholder
-repository with your actual repository path:
+Before applying the manifests, open `examples/github-autolabel/flow.yaml` and
+replace the placeholder repository with your actual repository path:
 
 ```yaml
 # flow.yaml — find and replace both occurrences
@@ -145,10 +144,10 @@ https://<your-gateway-url>/hooks/github-pr
 
 ---
 
-## Step 4 — Apply the demo manifests
+## Step 4 — Apply the manifests
 
 ```bash
-kubectl apply -k config/samples/demo/github-autolabel/
+kubectl apply -k examples/github-autolabel/
 ```
 
 This creates:
@@ -159,7 +158,7 @@ This creates:
 - `Flow/github-autolabel` — three-step workflow: `extract-pr`, `label-needs-review`,
   `label-closed`
 
-> **No Integration needed**: this demo calls the GitHub API via plain HTTP steps
+> **No Integration needed**: this example calls the GitHub API via plain HTTP steps
 > using the PAT from the Secret. An `Integration` CRD is only required when
 > KubeZap manages a long-lived connection (e.g., a Kafka cluster or a plugin
 > Deployment).
@@ -195,7 +194,7 @@ In your GitHub repository, go to **Settings → Webhooks → Add webhook** and f
 in the following fields:
 
 | Field | Value |
-|---|---|
+|-------|-------|
 | Payload URL | `https://<your-gateway-url>/hooks/github-pr` |
 | Content type | `application/json` |
 | Secret | the value you used in `github-webhook-secret` (Step 1) |
@@ -327,7 +326,7 @@ curl -s \
 
 If the label does not exist in the repository yet, GitHub creates it
 automatically with a default colour. You can pre-create the labels with your
-preferred colours in **Settings → Labels** before running the demo.
+preferred colours in **Settings → Labels** before running the example.
 
 ---
 
@@ -441,14 +440,14 @@ attributes. If you have Jaeger or a compatible collector configured via
 `OTEL_EXPORTER_OTLP_ENDPOINT`, search by the FlowRun name to see the complete
 execution trace including step timings.
 
-See the [Observability guide](observability.md) for full setup instructions.
+See the [Observability guide](../../docs/guides/observability.md) for full setup instructions.
 
 ---
 
-## Cleaning up
+## Cleanup
 
 ```bash
-kubectl delete -k config/samples/demo/github-autolabel/
+kubectl delete -k examples/github-autolabel/
 kubectl delete secret github-webhook-secret github-api-token
 ```
 
@@ -465,12 +464,10 @@ remain in the namespace.
 
 ## What's next
 
-- **Incident escalation demo** — receive a PagerDuty webhook, conditionally
-  page an on-call engineer, and acknowledge the incident via an API call.
-  See the planned demo in [`docs/schedule.md`](../schedule.md).
 - **Webhook security** — explore all supported auth methods (bearer token,
   OIDC/JWT, mTLS, API-key header, IP allowlist) in the
-  [Webhook Security guide](webhook-security.md).
+  [Webhook Security guide](../../docs/guides/webhook-security.md).
 - **Flow API reference** — full spec for steps, `when` conditions, `runAfter`
   dependencies, `resultMappings`, and retry policies in
-  [`docs/api/flow.md`](../api/flow.md).
+  [`docs/api/flow.md`](../../docs/api/flow.md).
+- Explore the [slack-router example](../slack-router/) for a more complex webhook routing pattern.

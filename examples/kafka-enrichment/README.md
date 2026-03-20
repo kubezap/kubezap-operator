@@ -1,9 +1,8 @@
-# Demo: Kafka Event Enrichment Pipeline
+# Kafka Event Enrichment Pipeline
 
-This guide walks through the **customer event enrichment** demo — a real-world
-pattern where raw events arrive on a Kafka topic, are enriched by an API call,
-conditionally routed by customer tier, and re-published to an output topic with
-the enriched payload.
+This example walks through the **customer event enrichment** pattern — raw events
+arrive on a Kafka topic, are enriched by an API call, conditionally routed by
+customer tier, and re-published to an output topic with the enriched payload.
 
 This is one of KubeZap's strongest differentiators: the entire pipeline is
 declared as Kubernetes resources — no custom consumers, no Kafka Streams
@@ -58,15 +57,15 @@ Key properties:
 - A Kafka cluster accessible from within the cluster
 - `kubectl` configured with access to the target namespace
 
-This guide uses the namespace `default`. Change the `namespace:` field in the
+This example uses the namespace `default`. Change the `namespace:` field in the
 manifests if you prefer a dedicated namespace.
 
 ---
 
-## Step 1 — Apply the demo manifests
+## Step 1 — Apply the manifests
 
 ```bash
-kubectl apply -k config/samples/demo/kafka-enrichment/
+kubectl apply -k examples/kafka-enrichment/
 ```
 
 This creates:
@@ -170,14 +169,16 @@ Because the mock profile API returns `tier: enterprise`, the
 
 ```bash
 kubectl get flowrun customer-events-p0-offset-0 \
-  -o jsonpath='{.status.steps[*]}'
+  -o jsonpath='{range .status.steps[*]}{.name}{"\t"}{.phase}{"\n"}{end}'
 ```
 
 ```
-route-enterprise → Succeeded
-route-standard   → Skipped  (when: tier == "standard" was false)
-route-trial      → Skipped  (when: tier == "trial" was false)
-publish-enriched → Succeeded
+extract-customer  Succeeded
+enrich-profile    Succeeded
+route-enterprise  Succeeded
+route-standard    Skipped  (when: tier == "standard" was false)
+route-trial       Skipped  (when: tier == "trial" was false)
+publish-enriched  Succeeded
 ```
 
 Check what the enterprise sink captured:
@@ -298,14 +299,14 @@ Each FlowRun produces a root span `flowrun.execute` with child spans per step.
 If you have Jaeger or a compatible backend configured via `OTEL_EXPORTER_OTLP_ENDPOINT`,
 you can search by `flowrun.name = customer-events-p0-offset-0` to see the full trace.
 
-See [Observability guide](observability.md) for full setup.
+See the [Observability guide](../../docs/guides/observability.md) for full setup.
 
 ---
 
-## Cleaning up
+## Cleanup
 
 ```bash
-kubectl delete -k config/samples/demo/kafka-enrichment/
+kubectl delete -k examples/kafka-enrichment/
 ```
 
 The controller will also remove the `kubezap-kafka-gateway` Deployment once no
@@ -318,4 +319,4 @@ Triggers remain that reference the `customer-kafka` Integration.
 - **Add a dead-letter step**: add a final step with `when: steps.enrich_profile.status == "Failed"` that publishes to a `customer-events-dlq` topic.
 - **Replace mocks with real services**: swap MockEndpoint URLs for your actual enrichment API and routing targets.
 - **Replace mock sinks with publish steps**: route-enterprise could use `type: publish` to write directly to an `enterprise-events` Kafka topic.
-- **GitOps deployment gate demo** ← planned (see [Future / Backlog](../../docs/schedule.md#10-future--backlog))
+- Explore the [incident-escalation example](../incident-escalation/) for a wait/resume pattern.

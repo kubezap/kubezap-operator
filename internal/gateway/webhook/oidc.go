@@ -3,112 +3,106 @@ package webhook
 import (
 	"context"
 	"fmt"
-	"sync"
 	"time"
 
 	"github.com/lestrrat-go/jwx/v2/jwk"
 	"github.com/lestrrat-go/jwx/v2/jwt"
 )
 
-const jwksCacheTTL = 5 * time.Minute
+const (
+	// jwksRefreshInterval is how often the background goroutine re-fetches each JWKS URL.
+	// Must be larger than jwksCacheWindow (the frequency at which the cache checks for due refreshes).
+	jwksRefreshInterval = 15 * time.Minute
+
+	// jwksMinRefreshInterval is the floor enforced even when HTTP Cache-Control headers
+	// indicate a shorter TTL.
+	jwksMinRefreshInterval = 30 * time.Second
+
+	// jwksCacheWindow is how often jwk.Cache checks whether any registered URLs are due
+	// for a background refresh. Must be <= jwksRefreshInterval.
+	jwksCacheWindow = time.Minute
+)
 
 // oidcValidator validates JWT tokens against a remote JWKS endpoint.
-// It caches the JWKS keyset for jwksCacheTTL to avoid fetching on every request.
+// It uses a shared jwk.Cache for background refresh and deduplication across
+// multiple routes that share the same JWKS URL.
 type oidcValidator struct {
-	jwksURL     string
-	issuer      string
-	audience    string
-	cachedSet   jwk.Set
-	cacheExpiry time.Time
-	mu          sync.Mutex
+	jwksURL  string
+	issuer   string
+	audience string
+	cache    *jwk.Cache
 }
 
-// newOIDCValidator creates a new oidcValidator for the given JWKS URL, issuer, and audience.
-// The issuer and audience are optional but recommended for production use.
-func newOIDCValidator(jwksURL, issuer, audience string) *oidcValidator {
+// newOIDCValidator creates an oidcValidator backed by the provided shared jwk.Cache.
+// The cache must already have the JWKS URL registered (see RegisterJWKSURL).
+func newOIDCValidator(jwksURL, issuer, audience string, cache *jwk.Cache) *oidcValidator {
 	return &oidcValidator{
 		jwksURL:  jwksURL,
 		issuer:   issuer,
 		audience: audience,
+		cache:    cache,
 	}
 }
 
-// fetchJWKS fetches the JWKS from the remote endpoint and caches the result.
-// The caller must hold v.mu.
-func (v *oidcValidator) fetchJWKS(ctx context.Context) error {
-	set, err := jwk.Fetch(ctx, v.jwksURL)
-	if err != nil {
-		return fmt.Errorf("fetching JWKS from %s: %w", v.jwksURL, err)
+// NewJWKSCache creates the shared jwk.Cache used by all oidcValidators in this gateway.
+// The context must remain live for the duration of the gateway; cancelling it stops background refreshes.
+func NewJWKSCache(ctx context.Context) *jwk.Cache {
+	return jwk.NewCache(ctx, jwk.WithRefreshWindow(jwksCacheWindow))
+}
+
+// RegisterJWKSURL registers a JWKS URL with the shared cache if not already registered.
+// Safe to call multiple times for the same URL — jwk.Cache is idempotent on re-registration.
+func RegisterJWKSURL(ctx context.Context, cache *jwk.Cache, jwksURL string) error {
+	if err := cache.Register(jwksURL,
+		jwk.WithRefreshInterval(jwksRefreshInterval),
+		jwk.WithMinRefreshInterval(jwksMinRefreshInterval),
+	); err != nil {
+		return fmt.Errorf("registering JWKS URL %s: %w", jwksURL, err)
 	}
-	v.cachedSet = set
-	v.cacheExpiry = time.Now().Add(jwksCacheTTL)
+	// Trigger an initial fetch so the cache is warm before the first request arrives.
+	if _, err := cache.Refresh(ctx, jwksURL); err != nil {
+		return fmt.Errorf("initial JWKS fetch from %s: %w", jwksURL, err)
+	}
 	return nil
 }
 
-// getKeyset returns the cached keyset, refreshing it if expired or not yet loaded.
-func (v *oidcValidator) getKeyset(ctx context.Context) (jwk.Set, error) {
-	v.mu.Lock()
-	defer v.mu.Unlock()
-
-	if v.cachedSet == nil || time.Now().After(v.cacheExpiry) {
-		if err := v.fetchJWKS(ctx); err != nil {
-			return nil, err
-		}
-	}
-	return v.cachedSet, nil
-}
-
-// validate validates a JWT token string. It verifies the signature against the JWKS,
-// and checks iss/aud claims if configured. Expiry is validated automatically by jwt.Parse.
-// On signature verification failure the JWKS is re-fetched once to handle key rotation.
+// validate validates a JWT token string. It verifies the signature against the JWKS
+// retrieved from the shared cache, and checks iss/aud claims if configured.
+// Expiry is validated automatically by jwt.Parse.
+// On signature verification failure the cache is force-refreshed once to handle key rotation.
 func (v *oidcValidator) validate(ctx context.Context, tokenString string) error {
-	keyset, err := v.getKeyset(ctx)
+	keyset, err := v.cache.Get(ctx, v.jwksURL)
 	if err != nil {
 		return fmt.Errorf("unable to load JWKS: %w", err)
 	}
 
-	parseOpts := []jwt.ParseOption{
+	parseOpts := v.buildParseOpts(keyset)
+	_, err = jwt.ParseString(tokenString, parseOpts...)
+	if err != nil {
+		// On failure, force-refresh once to handle key rotation then retry.
+		freshSet, refreshErr := v.cache.Refresh(ctx, v.jwksURL)
+		if refreshErr != nil {
+			// Return the original parse error — the refresh is a best-effort rotation attempt.
+			return fmt.Errorf("token validation failed: %w", err)
+		}
+		if _, retryErr := jwt.ParseString(tokenString, v.buildParseOpts(freshSet)...); retryErr != nil {
+			return fmt.Errorf("token validation failed: %w", retryErr)
+		}
+	}
+	return nil
+}
+
+// buildParseOpts assembles the jwt.ParseOption slice for the given keyset.
+func (v *oidcValidator) buildParseOpts(keyset jwk.Set) []jwt.ParseOption {
+	opts := []jwt.ParseOption{
 		jwt.WithKeySet(keyset),
 		jwt.WithValidate(true),
 	}
 	if v.issuer != "" {
-		parseOpts = append(parseOpts, jwt.WithIssuer(v.issuer))
+		opts = append(opts, jwt.WithIssuer(v.issuer))
 	}
 	if v.audience != "" {
-		parseOpts = append(parseOpts, jwt.WithAudience(v.audience))
+		opts = append(opts, jwt.WithAudience(v.audience))
 	}
-
-	token, err := jwt.ParseString(tokenString, parseOpts...)
-	if err != nil {
-		// On failure, attempt a single key-rotation retry with a fresh JWKS fetch.
-		v.mu.Lock()
-		fetchErr := v.fetchJWKS(ctx)
-		freshSet := v.cachedSet
-		v.mu.Unlock()
-
-		if fetchErr != nil {
-			// Return the original parse error — the refetch is a best-effort rotation attempt.
-			return fmt.Errorf("token validation failed: %w", err)
-		}
-
-		retryOpts := []jwt.ParseOption{
-			jwt.WithKeySet(freshSet),
-			jwt.WithValidate(true),
-		}
-		if v.issuer != "" {
-			retryOpts = append(retryOpts, jwt.WithIssuer(v.issuer))
-		}
-		if v.audience != "" {
-			retryOpts = append(retryOpts, jwt.WithAudience(v.audience))
-		}
-
-		token, err = jwt.ParseString(tokenString, retryOpts...)
-		if err != nil {
-			return fmt.Errorf("token validation failed: %w", err)
-		}
-	}
-
-	// Suppress unused variable warning — token is parsed and validated above.
-	_ = token
-	return nil
+	return opts
 }

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
+	"github.com/lestrrat-go/jwx/v2/jwk"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -33,12 +34,14 @@ type TriggerWatcher struct {
 	mockRegistry *MockRegistry
 	namespace    string
 	log          logr.Logger
+	jwksCache    *jwk.Cache
 }
 
 // NewTriggerWatcher creates a new TriggerWatcher with an informer cache.
 // cfg must be a valid *rest.Config; callers typically obtain it via ctrl.GetConfigOrDie()
 // and pass it here to avoid redundant API server round-trips.
-func NewTriggerWatcher(cfg *rest.Config, k8sClient client.Client, registry *RouteRegistry, mockRegistry *MockRegistry, namespace string, log logr.Logger) (*TriggerWatcher, error) {
+// jwksCache is the shared JWKS key cache; callers create it via jwk.NewCache(ctx) in main.
+func NewTriggerWatcher(cfg *rest.Config, k8sClient client.Client, registry *RouteRegistry, mockRegistry *MockRegistry, namespace string, log logr.Logger, jwksCache *jwk.Cache) (*TriggerWatcher, error) {
 	httpClient, err := rest.HTTPClientFor(cfg)
 	if err != nil {
 		return nil, fmt.Errorf("unable to create HTTP client for REST config: %w", err)
@@ -59,7 +62,7 @@ func NewTriggerWatcher(cfg *rest.Config, k8sClient client.Client, registry *Rout
 		return nil, fmt.Errorf("unable to create cache: %w", err)
 	}
 
-	return &TriggerWatcher{k8sClient: k8sClient, cache: watchCache, registry: registry, mockRegistry: mockRegistry, namespace: namespace, log: log}, nil
+	return &TriggerWatcher{k8sClient: k8sClient, cache: watchCache, registry: registry, mockRegistry: mockRegistry, namespace: namespace, log: log, jwksCache: jwksCache}, nil
 }
 
 // Start launches the cache and informer and stays running until ctx is cancelled.
@@ -267,7 +270,10 @@ func (w *TriggerWatcher) buildRouteEntry(ctx context.Context, trigger *automatio
 		// OIDCAudience is optional; OIDCIssuer is optional but recommended.
 		// JWKS URL is derived from the issuer using the standard well-known path.
 		jwksURL := auth.OIDCIssuer + "/.well-known/jwks.json"
-		entry.OIDCValidator = newOIDCValidator(jwksURL, auth.OIDCIssuer, auth.OIDCAudience)
+		if err := RegisterJWKSURL(ctx, w.jwksCache, jwksURL); err != nil {
+			return RouteEntry{}, fmt.Errorf("registering OIDC JWKS URL: %w", err)
+		}
+		entry.OIDCValidator = newOIDCValidator(jwksURL, auth.OIDCIssuer, auth.OIDCAudience, w.jwksCache)
 	}
 
 	return entry, nil

@@ -94,6 +94,17 @@ func newJWKSServer(t *testing.T, set jwk.Set) *httptest.Server {
 	}))
 }
 
+// newTestValidator creates a shared jwk.Cache, registers the given JWKS URL, and returns
+// an oidcValidator backed by that cache. The test is failed immediately on any setup error.
+func newTestValidator(t *testing.T, jwksURL, issuer, audience string) *oidcValidator {
+	t.Helper()
+	cache := NewJWKSCache(t.Context())
+	if err := RegisterJWKSURL(t.Context(), cache, jwksURL); err != nil {
+		t.Fatalf("registering JWKS URL: %v", err)
+	}
+	return newOIDCValidator(jwksURL, issuer, audience, cache)
+}
+
 // TestOIDCValidToken verifies that a valid RS256 token with matching issuer and audience passes validation.
 func TestOIDCValidToken(t *testing.T) {
 	kp := generateTestKeyPair(t)
@@ -103,7 +114,7 @@ func TestOIDCValidToken(t *testing.T) {
 	issuer := "https://issuer.example.com"
 	audience := "kubezap"
 
-	v := newOIDCValidator(srv.URL, issuer, audience)
+	v := newTestValidator(t, srv.URL, issuer, audience)
 
 	tok := buildToken(t, jwt.NewBuilder().
 		Issuer(issuer).
@@ -127,7 +138,7 @@ func TestOIDCExpiredToken(t *testing.T) {
 	issuer := "https://issuer.example.com"
 	audience := "kubezap"
 
-	v := newOIDCValidator(srv.URL, issuer, audience)
+	v := newTestValidator(t, srv.URL, issuer, audience)
 
 	tok := buildToken(t, jwt.NewBuilder().
 		Issuer(issuer).
@@ -149,7 +160,7 @@ func TestOIDCWrongIssuer(t *testing.T) {
 	srv := newJWKSServer(t, kp.jwks)
 	defer srv.Close()
 
-	v := newOIDCValidator(srv.URL, "https://expected-issuer.example.com", "kubezap")
+	v := newTestValidator(t, srv.URL, "https://expected-issuer.example.com", "kubezap")
 
 	tok := buildToken(t, jwt.NewBuilder().
 		Issuer("https://wrong-issuer.example.com").
@@ -170,7 +181,7 @@ func TestOIDCWrongAudience(t *testing.T) {
 	srv := newJWKSServer(t, kp.jwks)
 	defer srv.Close()
 
-	v := newOIDCValidator(srv.URL, "https://issuer.example.com", "expected-audience")
+	v := newTestValidator(t, srv.URL, "https://issuer.example.com", "expected-audience")
 
 	tok := buildToken(t, jwt.NewBuilder().
 		Issuer("https://issuer.example.com").
@@ -195,7 +206,7 @@ func TestOIDCInvalidSignature(t *testing.T) {
 	issuer := "https://issuer.example.com"
 	audience := "kubezap"
 
-	v := newOIDCValidator(srv.URL, issuer, audience)
+	v := newTestValidator(t, srv.URL, issuer, audience)
 
 	// Sign with the key that is NOT in the JWKS served by the mock server.
 	tok := buildToken(t, jwt.NewBuilder().

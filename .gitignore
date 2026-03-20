@@ -33,8 +33,9 @@ coredns.yaml
 .claude/*
 !.claude/settings.json
 !.claude/hooks/
-.claude/hooks/*
 !.claude/hooks/pre-commit.sh
+!.claude/skills/
+!.claude/commands/
 
 # gateway binaries (built at repo root during development)
 /kafka-gateway

@@ -183,3 +183,32 @@
 - [ ] Update `charts/kubezap/crds/` to remove MockEndpoint CRD YAML
 - [ ] Run `go build ./...`, `go vet ./...`, `go test ./... -count=1` — all must pass
 - [ ] Update `docs/overview.md` CRD table: set MockEndpoint status to "Removed — see mocking guide"
+
+---
+
+## 6. Research Tasks
+
+### R1 — Multi-Type Interference Audit
+
+**Goal:** Find cases where having multiple trigger types or integration types active in the same namespace could interfere with each other — shared resource conflicts, name collisions, owner-ref fights, or reconcile-loop races.
+
+**Known starting point:** `kubezap-gateway` SA/Role/RoleBinding is shared by kafka/amqp/nats integrations — see `docs/tech-debt/rbac-ownership-gaps.md#issue-3` for the ownership fix applied 2026-03-20. Audit whether similar sharing exists elsewhere and whether the current shared-but-unowned approach has gaps.
+
+**Scope:**
+- [ ] Audit `reconcileKafkaGateway`, `reconcileAmqpGateway`, `reconcileNatsGateway`: verify all three produce the same `kubezap-gateway` Role rules and that concurrent reconciles of different integration types in the same namespace converge to the same SA/Role/RoleBinding state
+- [ ] Audit webhook gateway: if both a webhook Trigger and a pubsub Trigger exist in the same namespace, does the webhook gateway Deployment lifecycle interfere with the pubsub gateway Deployment? Check `trigger_controller.go` for any shared-name risk between gateway types
+- [ ] Audit cron scheduler: if two Triggers with the same `schedule` string exist in the same namespace (or across namespaces), do cron entries conflict or double-fire? Check `cron_scheduler.go` entry keying
+- [ ] Audit FlowRun naming: check for name collision risk when multiple Triggers reference the same Flow — do any naming schemes (cron `<trigger>-<scheduled-time>`, webhook `<trigger>-<timestamp>-<random>`) create collision risk under concurrent load?
+- [ ] Based on findings: add schedule items to fix any confirmed bugs; add test items (T9+) for any collision/interference scenarios that have no existing test coverage
+
+### R2 — Critical / Breaking Bug Hunt
+
+**Goal:** Read-only audit of the live codebase looking for critical or breaking issues not yet tracked. Focus on correctness bugs that could cause data loss, silent failures, or incorrect behavior in production.
+
+**Scope:**
+- [ ] `internal/controller/flowrun_controller.go`: scan for any unhandled error paths, missing finalizer removal conditions, or incorrect phase transitions that could leave FlowRuns permanently stuck
+- [ ] `internal/controller/trigger_controller.go`: look for reconcile loops that could cause infinite requeuing or missed status updates
+- [ ] `internal/gateway/webhook/handler.go`: check for request body handling edge cases (empty body, non-JSON body with `resultMappings`, very large body at boundary of limit)
+- [ ] `internal/gateway/kafka/watcher.go`, `amqp/watcher.go`, `nats/watcher.go`: check for goroutine leak scenarios — contexts not cancelled, subscriptions not cleaned up on watcher shutdown
+- [ ] `cmd/main.go`: verify leader election, metric registration, and scheme setup are correct for production use
+- [ ] Based on findings: add schedule items for any critical bugs found; skip LOW/cosmetic issues (those belong in a general debt review)

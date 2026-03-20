@@ -402,7 +402,16 @@ Runnable examples targeting acquisition/enterprise stakeholders. Each example li
 
 ### New — Identified 2026-03-20 (examples gap)
 
-- [ ] **HIGH** `internal/controller/flowrun_controller.go` `substituteVars`: No `$(secrets.<name>.<key>)` substitution is implemented. Flow steps that need credentials (e.g. Slack webhook URLs, S3 keys, API tokens) must embed them as plaintext in the manifest or rely on out-of-band injection (Helm/kustomize). This is a first-class security gap — secrets should be resolvable in step headers, URLs, and body using the same `$(...)` syntax already used for trigger data and step results. Implementation: controller fetches the named Secret from the step's namespace at reconcile time and substitutes the value; Secret name/key must be whitelisted in a new `spec.secretRefs` field on the Flow (mirrors plugin secretRefs pattern). RBAC marker for `get` on `secrets` already exists in the controller ClusterRole. _After implementation: update `examples/nightly-export/` (Slack webhook URL), `examples/github-autolabel/` (GitHub API token header), and `examples/slack-router/` (any step-level credentials) to replace plaintext placeholders with `$(secrets.*)` references._
+- [ ] **HIGH** `api/v1alpha1/integration_types.go`: No generic `type: http` Integration exists. The current enum is `kafka;amqp;nats;plugin`. Flow steps that call external REST APIs (Slack, GitHub, PagerDuty, etc.) have no way to reference credentials declaratively — they must embed URLs and tokens as plaintext in the Flow manifest. A `type: http` Integration would follow the same pattern as `type: kafka`: credentials live in the Integration, flows reference them via `integrationRef`, and swapping dev/prod credentials requires no Flow changes.
+  - Add `http` to the `IntegrationSpec.Type` enum in `api/v1alpha1/integration_types.go`
+  - Add `HttpIntegrationSpec` struct: `baseUrl`, `auth` (types: `bearer`, `basic`, `apiKey`, `secretUrl` — for webhook-URL-as-credential patterns like Slack), `defaultHeaders`, auth `secretRef` fields
+  - Add `integrationRef` field to `HTTPAction` in `api/v1alpha1/flow_types.go` so steps can reference an http Integration; controller merges Integration auth headers before making the request
+  - Controller: add `get` on `integrations` to the RBAC markers in `flowrun_controller.go` (secrets `get` is already present)
+  - Run `make generate && make manifests`
+  - Add sample CR `config/samples/automation_v1alpha1_integration_http.yaml`
+  - Update `docs/api/integration.md` with the new type
+  - _After implementation: update `examples/nightly-export/` (Slack notify step), `examples/github-autolabel/` (GitHub API token), and `examples/slack-router/` (any step-level credentials) to use `integrationRef` instead of plaintext placeholders_
+  - _Named service integrations (Slack, GitHub, PagerDuty, etc.) should be deferred to the plugin catalog (section 10) — `type: http` covers all HTTP-based services generically without per-service CRD additions_
 
 ---
 

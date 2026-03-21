@@ -24,6 +24,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/google/cel-go/cel"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -38,12 +39,18 @@ var _ = Describe("FlowRunReconciler", func() {
 	const testNamespace = "default"
 
 	newReconciler := func() *FlowRunReconciler {
+		env, err := cel.NewEnv(
+			cel.Variable("trigger", cel.MapType(cel.StringType, cel.DynType)),
+			cel.Variable("steps", cel.MapType(cel.StringType, cel.DynType)),
+		)
+		Expect(err).NotTo(HaveOccurred(), "failed to initialize CEL env in test reconciler")
 		return &FlowRunReconciler{
 			Client:       k8sClient,
 			Scheme:       k8sClient.Scheme(),
 			HTTPClient:   http.DefaultClient,
 			TTLSucceeded: 24 * time.Hour,
 			TTLFailed:    72 * time.Hour,
+			celEnv:       env,
 		}
 	}
 

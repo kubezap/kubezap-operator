@@ -173,6 +173,13 @@ trigger:
 
 ### AMQP (`type: amqp`) _(beta)_
 
+> **Beta stability definition:** The AMQP gateway is fully implemented and included in production examples. The CRD API is stable — no breaking field changes are planned. "Beta" indicates the following known limitations that may affect some deployments:
+>
+> - **Consumer flow control:** The gateway consumes messages at full speed regardless of downstream FlowRun processing rate. High-volume queues may accumulate in-flight FlowRuns faster than the controller processes them. Mitigate with a smaller `spec.amqp.prefetchCount` (not yet exposed — tracked for a future release).
+> - **Azure Service Bus long-lived connections:** The AMQP 1.0 gateway establishes a persistent connection. Azure Service Bus issues short-lived SAS tokens; token refresh on connections older than ~1 hour is not yet implemented. Workaround: set a short reconnect interval or use a Managed Identity credential provider via a custom plugin.
+> - **IBM MQ:** Listed as supported (AMQP 1.0 wire protocol) but not validated in CI against a live IBM MQ instance. RabbitMQ and ActiveMQ Artemis are the primary tested targets.
+> - **No publisher confirm mode:** The gateway uses auto-ack; there is no AMQP publisher confirm / mandatory flag for outbound publish steps.
+
 Uses the `kubezap/amqp-gateway` image. Covers:
 
 | Broker            | Protocol version     |
@@ -189,6 +196,13 @@ Select the wire protocol via `spec.amqp.version: "0-9-1"` or `"1.0"` (default: `
 > **Note on JMS:** JMS is a Java API layer, not a wire protocol. For brokers typically accessed via JMS in Java environments, use the AMQP type with the appropriate version. ActiveMQ Artemis and IBM MQ both support AMQP 1.0 natively. TIBCO EMS and other JMS-only brokers have no AMQP support — use `type: plugin` with the vendor's Go SDK.
 
 ### NATS (`type: nats`) _(beta)_
+
+> **Beta stability definition:** The NATS gateway is fully implemented and included in production examples. The CRD API is stable. "Beta" indicates the following known limitations:
+>
+> - **Core NATS (no JetStream):** Without `spec.nats.jetStream: true`, the gateway uses Core NATS (at-most-once delivery). There is no dedup key guarantee — a FlowRun is created for every message, with no replay protection on controller restart.
+> - **Single subject per Trigger:** Each Trigger subscribes to exactly one subject (or wildcard pattern). To fan out across multiple distinct subjects, use multiple Triggers.
+> - **NATS Server version:** Tested with NATS Server 2.10+. Older servers are not validated. JetStream requires NATS Server 2.2+.
+> - **No flow control:** The gateway delivers messages to FlowRun creation without back-pressure against downstream controller throughput. For high-volume subjects, tune `--max-concurrent-flowruns` on the controller.
 
 Uses the `kubezap/nats-gateway` image with the official [nats.go](https://github.com/nats-io/nats.go) client.
 
@@ -359,8 +373,8 @@ The operator uses this for the Deployment readiness probe.
 | -------- | --------------------- | -------- | ------- | ---------------------------------------------------------------- |
 | `type`   | string                | **Yes**  | —       | `kafka`, `amqp`, `nats`, `plugin`, or `http`                     |
 | `kafka`  | KafkaIntegrationSpec  | No       | —       | Kafka connection details. Required when `type: kafka`.           |
-| `amqp`   | AmqpIntegrationSpec   | No       | —       | AMQP connection details. Required when `type: amqp`. _(planned)_ |
-| `nats`   | NatsIntegrationSpec   | No       | —       | NATS connection details. Required when `type: nats`. _(planned)_ |
+| `amqp`   | AmqpIntegrationSpec   | No       | —       | AMQP connection details. Required when `type: amqp`. _(beta)_ |
+| `nats`   | NatsIntegrationSpec   | No       | —       | NATS connection details. Required when `type: nats`. _(beta)_ |
 | `plugin` | PluginIntegrationSpec | No       | —       | Plugin configuration. Required when `type: plugin`.              |
 | `http`   | HttpIntegrationSpec   | No       | —       | HTTP endpoint config. Required when `type: http`.                |
 

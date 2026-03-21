@@ -6,9 +6,11 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -312,6 +314,73 @@ func TestHMACAuth(t *testing.T) {
 				t.Fatalf("expected no FlowRun to be created, but found %d", count)
 			}
 		})
+	}
+}
+
+// TestFlowRunNameUniqueness fires 500 concurrent webhook requests at the same Trigger
+// and asserts that all 500 FlowRuns are created with unique names. This validates that
+// randomHex(8) provides sufficient entropy to avoid AlreadyExists collisions under load.
+func TestFlowRunNameUniqueness(t *testing.T) {
+	h, k8s := newTestHandler(t)
+
+	const concurrency = 500
+	var wg sync.WaitGroup
+	wg.Add(concurrency)
+
+	type result struct {
+		status  int
+		flowRun string
+	}
+	results := make([]result, concurrency)
+
+	for i := 0; i < concurrency; i++ {
+		go func(idx int) {
+			defer wg.Done()
+			body := fmt.Sprintf(`{"seq":%d}`, idx)
+			req := httptest.NewRequest(http.MethodPost, "/hooks/test", bytes.NewBufferString(body))
+			rr := httptest.NewRecorder()
+			h.ServeHTTP(rr, req)
+
+			var resp map[string]string
+			_ = json.NewDecoder(rr.Body).Decode(&resp)
+			results[idx] = result{status: rr.Code, flowRun: resp["flowRun"]}
+		}(i)
+	}
+	wg.Wait()
+
+	// Assert all responses are 202.
+	for i, r := range results {
+		if r.status != http.StatusAccepted {
+			t.Errorf("request %d: expected 202, got %d", i, r.status)
+		}
+	}
+
+	// Assert all FlowRun names from responses are unique.
+	seen := make(map[string]struct{}, concurrency)
+	for i, r := range results {
+		if _, dup := seen[r.flowRun]; dup {
+			t.Errorf("duplicate FlowRun name in response %d: %s", i, r.flowRun)
+		}
+		seen[r.flowRun] = struct{}{}
+	}
+
+	// Assert the fake client has exactly 500 FlowRuns.
+	count := flowRunCount(t, k8s)
+	if count != concurrency {
+		t.Fatalf("expected %d FlowRuns in fake client, got %d", concurrency, count)
+	}
+
+	// Double-check uniqueness from the server side.
+	list := &automationv1alpha1.FlowRunList{}
+	if err := k8s.List(t.Context(), list); err != nil {
+		t.Fatalf("listing FlowRuns: %v", err)
+	}
+	serverNames := make(map[string]struct{}, len(list.Items))
+	for _, fr := range list.Items {
+		if _, dup := serverNames[fr.Name]; dup {
+			t.Errorf("duplicate FlowRun name in fake client: %s", fr.Name)
+		}
+		serverNames[fr.Name] = struct{}{}
 	}
 }
 

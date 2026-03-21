@@ -297,10 +297,10 @@ Items are ordered to minimize rework:
 - [x] **MISSING FEATURE (alpha)** — Resource triggers have no cooldown/rate-limit mechanism. Other trigger types have `maxInvocations`/`window`; resource triggers have no equivalent. Add `cooldown` field to `ResourceTriggerSpec`.
 - [x] **DOCS** — Update `examples/k8s-pod-failure-ticket/README.md`: remove "not yet implemented" warning; add note that resource trigger is alpha with known limitations (link to `docs/tech-debt/`). Do after pluralization bug is fixed.
 - [x] **DOCS** — Add `docs/contributing.md` link to `docs/overview.md` (done 2026-03-21 review pass).
-- [ ] **DOCS** — Clarify AMQP/NATS stability in `docs/api/integration.md`: headings say "_(beta)_" but both gateways are fully implemented and in examples. Either define what "beta" means (known limitations) or upgrade the label.
-- [ ] **TECH DEBT (Medium)** — Kafka producer pool (`kafkaProducers` map in `flowrun_controller.go`) has no TTL or health check. Stale connections survive indefinitely and are not detected until the next publish attempt fails. Add idle TTL eviction or a periodic health-check probe.
-- [ ] **TECH DEBT (Low)** — `type: http` Integration is fetched from the API server on every step execution (no per-reconcile caching). Adds unnecessary latency and load on the API server for Flows with many HTTP steps. Cache the Integration object for the lifetime of a single reconcile pass.
-- [ ] **TECH DEBT (Low)** — CEL environment init failure is cached permanently via `sync.Once` in `flowrun_controller.go`. A transient error at startup (e.g., missing CEL extension) permanently disables `when` evaluation for the pod lifetime. Replace with a re-initializable init path or log a clear fatal on startup failure.
+- [x] **DOCS** — Clarify AMQP/NATS stability in `docs/api/integration.md`: headings say "_(beta)_" but both gateways are fully implemented and in examples. Either define what "beta" means (known limitations) or upgrade the label.
+- [x] **TECH DEBT (Medium)** — Kafka producer pool (`kafkaProducers` map in `flowrun_controller.go`) has no TTL or health check. Stale connections survive indefinitely and are not detected until the next publish attempt fails. Add idle TTL eviction or a periodic health-check probe.
+- [x] **TECH DEBT (Low)** — `type: http` Integration is fetched from the API server on every step execution (no per-reconcile caching). Adds unnecessary latency and load on the API server for Flows with many HTTP steps. Cache the Integration object for the lifetime of a single reconcile pass.
+- [x] **TECH DEBT (Low)** — CEL environment init failure is cached permanently via `sync.Once` in `flowrun_controller.go`. A transient error at startup (e.g., missing CEL extension) permanently disables `when` evaluation for the pod lifetime. Replace with a re-initializable init path or log a clear fatal on startup failure.
 
 ---
 

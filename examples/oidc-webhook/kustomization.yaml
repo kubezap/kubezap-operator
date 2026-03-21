@@ -1,0 +1,5 @@
+resources:
+  - dex.yaml
+  - mockoon.yaml
+  - flow.yaml
+  - trigger.yaml

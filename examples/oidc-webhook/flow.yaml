@@ -1,0 +1,21 @@
+apiVersion: automation.kubezap.io/v1alpha1
+kind: Flow
+metadata:
+  name: handle-authenticated
+  namespace: default
+spec:
+  timeout: 30s
+  steps:
+    # ── Step 1 ─────────────────────────────────────────────────────────────────
+    # Forward the authenticated request payload to the downstream service.
+    # If this step runs, the OIDC gate was passed — the JWT was valid, the
+    # audience matched, and the required claims were present.
+    - name: handle-authenticated-request
+      action:
+        type: http
+        http:
+          url: http://mockoon.default.svc.cluster.local:3000/authenticated-request
+          method: POST
+          headers:
+            Content-Type: application/json
+          body: '{"message":"$(trigger.body.message)","status":"authenticated"}'

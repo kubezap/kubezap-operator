@@ -162,8 +162,8 @@ Items are ordered to minimize rework:
 **What it demonstrates:** Kafka trigger on a DLQ topic, logging the failed message, attempting re-delivery via `type: publish` back to the original topic, conditional escalation step if re-delivery fails, dedup key encodes partition + offset so replaying the DLQ is safe.
 
 **Implementation tasks:**
-- [ ] Create manifests in `examples/dlq-handler/`: Integration (kafka), Trigger (DLQ topic), Flow (log → re-publish → escalate-on-failure), Mockoon deployment for escalation endpoint
-- [ ] Create `examples/dlq-handler/README.md`: create Kafka topics (commands for Strimzi), applying manifests, producing a poison message to the DLQ, watching FlowRun, verifying message re-published, testing the escalation path
+- [x] Create manifests in `examples/dlq-handler/`: Integration (kafka), Trigger (DLQ topic), Flow (log → re-publish → escalate-on-failure), Mockoon deployment for escalation endpoint
+- [x] Create `examples/dlq-handler/README.md`: create Kafka topics (commands for Strimzi), applying manifests, producing a poison message to the DLQ, watching FlowRun, verifying message re-published, testing the escalation path
 
 ---
 
@@ -175,8 +175,8 @@ Items are ordered to minimize rework:
 **What it demonstrates:** Single inbound webhook triggers parallel execution of 3 steps (same `runAfter` set), per-tenant credentials via `integrationRef` to `type: http` Integrations, `failurePolicy: Continue` so a failure for one tenant does not block others, per-step retry policies, FlowRun status shows all three outcomes independently.
 
 **Implementation tasks:**
-- [ ] Create manifests in `examples/multi-tenant-fanout/`: Trigger (no auth — note production should use HMAC/bearer), Flow (3 parallel http steps with `integrationRef`), 3 `type: http` Integrations, Mockoon deployment
-- [ ] Create `examples/multi-tenant-fanout/README.md`: applying manifests, sending a single webhook, inspecting parallel step execution in FlowRun, simulating a 500 on one tenant to demonstrate `Continue` policy
+- [x] Create manifests in `examples/multi-tenant-fanout/`: Trigger (no auth — note production should use HMAC/bearer), Flow (3 parallel http steps with `integrationRef`), 3 `type: http` Integrations, Mockoon deployment
+- [x] Create `examples/multi-tenant-fanout/README.md`: applying manifests, sending a single webhook, inspecting parallel step execution in FlowRun, simulating a 500 on one tenant to demonstrate `Continue` policy
 
 ---
 
@@ -189,8 +189,8 @@ Items are ordered to minimize rework:
 **What it demonstrates:** OIDC/JWT authentication on a webhook trigger, JWKS background refresh (shared `jwk.Cache`), `requiredClaims` enforcement, extracting a claim value from the JWT payload, routing based on the claim.
 
 **Implementation tasks:**
-- [ ] Create manifests in `examples/oidc-webhook/`: Dex deployment + config, Trigger (oidc auth with issuer + audience + requiredClaims), Flow (CEL branch on claim value), Mockoon deployment for each route
-- [ ] Create `examples/oidc-webhook/README.md`: Dex setup (Helm chart), obtaining a JWT via client credentials, calling the webhook with JWT, verifying FlowRun created, testing rejection with invalid token
+- [x] Create manifests in `examples/oidc-webhook/`: Dex deployment + config, Trigger (oidc auth with issuer + audience + requiredClaims), Flow (CEL branch on claim value), Mockoon deployment for each route
+- [x] Create `examples/oidc-webhook/README.md`: Dex setup (Helm chart), obtaining a JWT via client credentials, calling the webhook with JWT, verifying FlowRun created, testing rejection with invalid token
 
 ---
 

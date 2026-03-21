@@ -1,0 +1,65 @@
+apiVersion: automation.kubezap.io/v1alpha1
+kind: Flow
+metadata:
+  name: handle-dlq-message
+  namespace: default
+spec:
+  timeout: 120s
+  steps:
+    # ── Step 1 ─────────────────────────────────────────────────────────────────
+    # Extract error context from the dead-lettered message.
+    # The Kafka gateway sets trigger.body to the message value (JSON).
+    - name: extract-error
+      action:
+        type: transform
+        transform:
+          mappings:
+            orderId:         "$(trigger.body.orderId)"
+            retryCount:      "$(trigger.body.retry_count)"
+            errorReason:     "$(trigger.body.error)"
+            originalPayload: "$(trigger.body)"
+
+    # ── Step 2 ─────────────────────────────────────────────────────────────────
+    # Re-publish the original message back to the orders topic for re-processing.
+    # Headers carry retry metadata so downstream consumers can track DLQ replays.
+    - name: republish-order
+      runAfter:
+        - extract-error
+      action:
+        type: publish
+        publish:
+          integrationRef:
+            name: orders-kafka
+          topic: orders
+          headers:
+            X-Retry-Attempt: "$(steps.extract_error.results.retryCount)"
+            X-DLQ-Reason:    "$(steps.extract_error.results.errorReason)"
+          body: "$(steps.extract_error.results.originalPayload)"
+
+    # ── Step 3 ─────────────────────────────────────────────────────────────────
+    # Escalate if the message has been retried more than 3 times.
+    # This fires only when retry_count exceeds the threshold — messages on their
+    # first few retries are silently re-published without escalation.
+    - name: escalate
+      runAfter:
+        - republish-order
+      when:
+        - expression: "steps.extract_error.results.retryCount|int > 3"
+      retryPolicy:
+        maxRetries: 2
+        backoffType: Exponential
+        initialDelay: 1s
+        maxDelay: 10s
+      action:
+        type: http
+        http:
+          url: http://mockoon.default.svc.cluster.local:3000/escalate
+          method: POST
+          headers:
+            Content-Type: application/json
+          body: >-
+            {
+              "orderId": "$(steps.extract_error.results.orderId)",
+              "retryCount": $(steps.extract_error.results.retryCount),
+              "reason": "$(steps.extract_error.results.errorReason)"
+            }

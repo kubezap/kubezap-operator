@@ -1,0 +1,5 @@
+resources:
+  - integration.yaml
+  - mockoon.yaml
+  - flow.yaml
+  - trigger.yaml

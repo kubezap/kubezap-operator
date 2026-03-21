@@ -1,0 +1,149 @@
+# Dex in-cluster OIDC provider for the oidc-webhook example.
+#
+# Provides a lightweight OIDC identity provider so you can obtain real JWTs
+# without configuring an external IdP. In production, replace Dex with your
+# existing provider (Keycloak, Okta, Auth0, Azure AD, etc.).
+#
+# Apply with the rest of the example:
+#   kubectl apply -k examples/oidc-webhook/
+#
+# ─────────────────────────────────────────────────────────────────────────────
+# 1. ConfigMap
+# ─────────────────────────────────────────────────────────────────────────────
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: dex-config
+  namespace: default
+  labels:
+    app: dex
+    app.kubernetes.io/component: oidc-provider
+    app.kubernetes.io/part-of: oidc-webhook-example
+data:
+  config.yaml: |
+    issuer: http://dex.default.svc.cluster.local:5556/dex
+
+    storage:
+      type: memory
+
+    web:
+      http: 0.0.0.0:5556
+
+    oauth2:
+      skipApprovalScreen: true
+
+    staticClients:
+      - id: kubezap-demo
+        secret: kubezap-demo-secret
+        name: KubeZap Demo
+        redirectURIs:
+          - http://localhost:8080/callback
+
+    enablePasswordDB: true
+
+    staticPasswords:
+      - email: "admin@example.com"
+        hash: "$2a$10$2b2cU8CPhOTaGrs1HRQuAueS7JTT5ZHsHSzYiFPm1leZck7Mc8T4W"
+        username: "admin"
+        userID: "08a8684b-db88-4b73-90a9-3cd1661f5466"
+---
+# ─────────────────────────────────────────────────────────────────────────────
+# 2. Deployment
+# ─────────────────────────────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dex
+  namespace: default
+  labels:
+    app: dex
+    app.kubernetes.io/component: oidc-provider
+    app.kubernetes.io/part-of: oidc-webhook-example
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: dex
+  template:
+    metadata:
+      labels:
+        app: dex
+        app.kubernetes.io/component: oidc-provider
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: dex
+          image: ghcr.io/dexidp/dex:v2.39.1
+          imagePullPolicy: IfNotPresent
+          args:
+            - "dex"
+            - "serve"
+            - "/etc/dex/config.yaml"
+          ports:
+            - name: http
+              containerPort: 5556
+              protocol: TCP
+          volumeMounts:
+            - name: dex-config
+              mountPath: /etc/dex
+              readOnly: true
+          readinessProbe:
+            httpGet:
+              path: /dex/healthz
+              port: http
+            initialDelaySeconds: 3
+            periodSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /dex/healthz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "64Mi"
+            limits:
+              cpu: "200m"
+              memory: "128Mi"
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+      volumes:
+        - name: dex-config
+          configMap:
+            name: dex-config
+      restartPolicy: Always
+---
+# ─────────────────────────────────────────────────────────────────────────────
+# 3. Service
+# ─────────────────────────────────────────────────────────────────────────────
+apiVersion: v1
+kind: Service
+metadata:
+  name: dex
+  namespace: default
+  labels:
+    app: dex
+    app.kubernetes.io/component: oidc-provider
+    app.kubernetes.io/part-of: oidc-webhook-example
+spec:
+  selector:
+    app: dex
+  ports:
+    - name: http
+      port: 5556
+      targetPort: http
+      protocol: TCP
+  type: ClusterIP

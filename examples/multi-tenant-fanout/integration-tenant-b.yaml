@@ -1,0 +1,17 @@
+apiVersion: automation.kubezap.io/v1alpha1
+kind: Integration
+metadata:
+  name: tenant-b-api
+  namespace: default
+spec:
+  type: http
+  http:
+    baseUrl: "http://mockoon.default.svc.cluster.local:3000"
+    auth:
+      type: bearer
+      bearer:
+        tokenSecretRef:
+          name: tenant-b-secret
+          key: token
+    defaultHeaders:
+      Content-Type: "application/json"

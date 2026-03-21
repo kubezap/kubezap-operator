@@ -1,0 +1,211 @@
+# Mockoon in-cluster mock server for the dlq-handler example.
+#
+# Provides one stub route:
+#   POST /escalate  → 202 {"ticketCreated":true,"orderId":"mock-escalation"}
+#
+# Apply with the rest of the example:
+#   kubectl apply -k examples/dlq-handler/
+#
+# Inspect captured requests:
+#   kubectl exec -n default \
+#     $(kubectl get pod -n default -l app=mockoon -o jsonpath='{.items[0].metadata.name}') \
+#     -- wget -q -O - http://localhost:3001/api/logs | jq .
+#
+# See docs/guides/mocking-http-endpoints.md for the full Mockoon guide.
+# ─────────────────────────────────────────────────────────────────────────────
+# 1. ConfigMap
+# ─────────────────────────────────────────────────────────────────────────────
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mockoon-env
+  namespace: default
+  labels:
+    app: mockoon
+    app.kubernetes.io/component: mock-server
+    app.kubernetes.io/part-of: dlq-handler-example
+data:
+  environment.json: |
+    {
+      "uuid": "dh-env-uuid",
+      "lastMigration": 32,
+      "name": "dlq-handler mocks",
+      "endpointPrefix": "",
+      "latency": 0,
+      "port": 3000,
+      "hostname": "",
+      "folders": [],
+      "routes": [
+        {
+          "uuid": "dh-r0001-escalate",
+          "type": "http",
+          "documentation": "Simulates a ticket/escalation endpoint. Returns 202 when a DLQ message exceeds the retry threshold.",
+          "method": "post",
+          "endpoint": "escalate",
+          "responses": [
+            {
+              "uuid": "dh-resp-escalate-202",
+              "body": "{\"ticketCreated\":true,\"orderId\":\"mock-escalation\"}",
+              "latency": 0,
+              "statusCode": 202,
+              "label": "Ticket created",
+              "headers": [
+                { "key": "Content-Type", "value": "application/json" }
+              ],
+              "bodyType": "INLINE",
+              "filePath": "",
+              "databucketID": "",
+              "sendFileAsBody": false,
+              "rules": [],
+              "rulesOperator": "OR",
+              "disableTemplating": false,
+              "fallbackTo404": false,
+              "default": true,
+              "crudKey": "id",
+              "callbacks": []
+            }
+          ],
+          "enabled": true,
+          "responseMode": null,
+          "streamingMode": null
+        }
+      ],
+      "rootChildren": [
+        { "type": "route", "uuid": "dh-r0001-escalate" }
+      ],
+      "proxyMode": false,
+      "proxyHost": "",
+      "proxyRemovePrefix": false,
+      "tlsOptions": {
+        "enabled": false,
+        "type": "CERT",
+        "pfxPath": "",
+        "certPath": "",
+        "keyPath": "",
+        "caPath": "",
+        "passphrase": ""
+      },
+      "cors": true,
+      "headers": [
+        { "key": "Content-Type", "value": "application/json" },
+        { "key": "Access-Control-Allow-Origin", "value": "*" },
+        { "key": "Access-Control-Allow-Methods", "value": "GET,POST,PUT,PATCH,DELETE,HEAD,OPTIONS" },
+        { "key": "Access-Control-Allow-Headers", "value": "Content-Type, Origin, Accept, Authorization, Content-Length, X-Requested-With" }
+      ],
+      "proxyReqHeaders": [{ "key": "", "value": "" }],
+      "proxyResHeaders": [{ "key": "", "value": "" }],
+      "data": [],
+      "callbacks": [],
+      "initialDatabuckets": []
+    }
+---
+# ─────────────────────────────────────────────────────────────────────────────
+# 2. Deployment
+# ─────────────────────────────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mockoon
+  namespace: default
+  labels:
+    app: mockoon
+    app.kubernetes.io/component: mock-server
+    app.kubernetes.io/part-of: dlq-handler-example
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mockoon
+  template:
+    metadata:
+      labels:
+        app: mockoon
+        app.kubernetes.io/component: mock-server
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: mockoon
+          image: mockoon/mockoon:latest
+          imagePullPolicy: IfNotPresent
+          args:
+            - "--data"
+            - "/config/environment.json"
+            - "--port"
+            - "3000"
+            - "--admin-api-port"
+            - "3001"
+          ports:
+            - name: mock
+              containerPort: 3000
+              protocol: TCP
+            - name: admin
+              containerPort: 3001
+              protocol: TCP
+          volumeMounts:
+            - name: mockoon-config
+              mountPath: /config
+              readOnly: true
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: admin
+            initialDelaySeconds: 2
+            periodSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: admin
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "64Mi"
+            limits:
+              cpu: "200m"
+              memory: "128Mi"
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+      volumes:
+        - name: mockoon-config
+          configMap:
+            name: mockoon-env
+      restartPolicy: Always
+---
+# ─────────────────────────────────────────────────────────────────────────────
+# 3. Service
+# ─────────────────────────────────────────────────────────────────────────────
+apiVersion: v1
+kind: Service
+metadata:
+  name: mockoon
+  namespace: default
+  labels:
+    app: mockoon
+    app.kubernetes.io/component: mock-server
+    app.kubernetes.io/part-of: dlq-handler-example
+spec:
+  selector:
+    app: mockoon
+  ports:
+    - name: mock
+      port: 3000
+      targetPort: mock
+      protocol: TCP
+    - name: admin
+      port: 3001
+      targetPort: admin
+      protocol: TCP
+  type: ClusterIP

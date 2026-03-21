@@ -345,7 +345,11 @@ metadata:
 
 ## Exposing Webhook Triggers
 
-The KubeZap operator runs a webhook HTTP server as a Kubernetes `Service`. In-cluster services can call it directly. For external access, front it with an Ingress, Gateway API route, or OpenShift Route.
+The KubeZap operator runs a webhook HTTP server as a Kubernetes `Service` (`kubezap-webhook-gateway`, one per namespace). In-cluster services can call it directly. For external access, front it with an Ingress, Gateway API HTTPRoute, or OpenShift Route.
+
+See **[Exposing the Webhook Gateway](guides/exposing-the-webhook-gateway.md)** for the full guide covering LoadBalancer, nginx Ingress, Gateway API, OpenShift Route, TLS, cert-manager integration, mTLS passthrough, source IP preservation, and multi-namespace deployments.
+
+Quick-reference examples below:
 
 ### Kubernetes Ingress
 
@@ -364,7 +368,7 @@ spec:
             pathType: Prefix
             backend:
               service:
-                name: kubezap-webhook-service
+                name: kubezap-webhook-gateway
                 port:
                   number: 8080
   tls:
@@ -393,7 +397,7 @@ spec:
             type: PathPrefix
             value: /hooks/
       backendRefs:
-        - name: kubezap-webhook-service
+        - name: kubezap-webhook-gateway
           port: 8080
 ```
 
@@ -410,7 +414,7 @@ spec:
   path: /hooks/
   to:
     kind: Service
-    name: kubezap-webhook-service
+    name: kubezap-webhook-gateway
   port:
     targetPort: 8080
   tls:

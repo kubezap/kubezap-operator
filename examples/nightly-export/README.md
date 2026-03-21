@@ -118,17 +118,20 @@ If you want real Slack notifications, create a Slack app with an incoming webhoo
 4. Click **Add New Webhook to Workspace**, select a channel, and copy the webhook
    URL (format: `https://hooks.slack.com/services/T.../B.../...`).
 
-Edit `examples/nightly-export/flow.yaml` and replace the placeholder:
+Create a Secret named `slack-webhook-secret` with key `url` containing your
+Slack incoming webhook URL:
 
 ```bash
-# Replace REPLACE_WITH_SLACK_WEBHOOK_URL with your actual URL
-sed -i 's|REPLACE_WITH_SLACK_WEBHOOK_URL|T.../B.../...|g' \
-  examples/nightly-export/flow.yaml
+kubectl create secret generic slack-webhook-secret \
+  --from-literal=url='https://hooks.slack.com/services/T.../B.../...'
 ```
 
-If you skip this step, the `notify-slack` step will fail (HTTP 4xx to the
-placeholder URL) but the FlowRun will still succeed because that step has
-`onFailure: Continue`.
+The `slack-webhook` Integration (defined in `integration.yaml`) references this
+Secret using `type: secretUrl`, which replaces the step URL entirely with the
+secret value at runtime.
+
+If you skip this step, the `notify-slack` step will fail (secret not found)
+but the FlowRun will still succeed because that step has `onFailure: Continue`.
 
 ---
 
@@ -358,17 +361,10 @@ export service endpoint. The flow expects the response to contain at minimum:
 
 ### Slack secrets
 
-For better secret hygiene, store the Slack webhook URL in a Kubernetes Secret and
-inject it at deploy time (for example via Helm `values.yaml`):
-
-```bash
-kubectl create secret generic slack-nightly-webhook \
-  --from-literal=url='https://hooks.slack.com/services/T.../B.../...' \
-  -n default
-```
-
-Then reference it in your Helm-templated flow manifest or replace via
-`kustomize secretGenerator`.
+The Slack webhook URL is stored in the `slack-webhook-secret` Secret and
+referenced by the `slack-webhook` Integration via `type: secretUrl`. This
+keeps credentials out of the Flow manifest entirely. To rotate the URL,
+update the Secret — no Flow changes needed.
 
 ---
 

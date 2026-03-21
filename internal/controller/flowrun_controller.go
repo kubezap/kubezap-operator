@@ -19,6 +19,7 @@ package controller
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -36,6 +37,7 @@ import (
 	otelcodes "go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/trace"
+	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -59,6 +61,7 @@ const executingFinalizer = "kubezap.io/executing"
 // +kubebuilder:rbac:groups=automation.kubezap.io,resources=flows,verbs=get;list;watch
 // +kubebuilder:rbac:groups=automation.kubezap.io,resources=triggers,verbs=get;list;watch
 // +kubebuilder:rbac:groups=automation.kubezap.io,resources=integrations,verbs=get
+// +kubebuilder:rbac:groups="",resources=secrets,verbs=get
 
 // FlowRunReconciler reconciles a FlowRun object.
 type FlowRunReconciler struct {
@@ -408,7 +411,7 @@ func (r *FlowRunReconciler) executeStep(
 
 	switch step.Action.Type {
 	case "http":
-		results, msg, err := r.executeHTTPStep(ctx, log, step, stepResults, triggerData)
+		results, msg, err := r.executeHTTPStep(ctx, log, step, stepResults, triggerData, flowRun.Namespace)
 		completionTime := metav1.Now()
 		status.CompletionTime = &completionTime
 		if err != nil {
@@ -460,6 +463,7 @@ func (r *FlowRunReconciler) executeHTTPStep(
 	step *automationv1alpha1.FlowStep,
 	stepResults map[string]map[string]string,
 	triggerData *automationv1alpha1.TriggerData,
+	namespace string,
 ) (map[string]string, string, error) {
 	if step.Action.HTTP == nil {
 		return nil, "", fmt.Errorf("step %q has type=http but no http spec", step.Name)
@@ -478,6 +482,15 @@ func (r *FlowRunReconciler) executeHTTPStep(
 	headers := make(map[string]string, len(h.Headers))
 	for k, v := range h.Headers {
 		headers[k] = substituteVars(v, stepResults, triggerData)
+	}
+
+	// If an HTTP Integration is referenced, merge its base URL, auth headers, and default headers.
+	if h.IntegrationRef != nil && h.IntegrationRef.Name != "" {
+		var err error
+		url, err = r.applyHTTPIntegration(ctx, h.IntegrationRef.Name, namespace, url, headers, stepResults, triggerData)
+		if err != nil {
+			return nil, "", err
+		}
 	}
 
 	method := h.Method
@@ -663,6 +676,117 @@ func (r *FlowRunReconciler) executePublishStep(
 	}
 
 	return map[string]string{}, nil
+}
+
+func (r *FlowRunReconciler) fetchSecretValue(ctx context.Context, namespace string, ref corev1.SecretKeySelector) (string, error) {
+	var secret corev1.Secret
+	if err := r.Get(ctx, types.NamespacedName{Name: ref.Name, Namespace: namespace}, &secret); err != nil {
+		return "", fmt.Errorf("secret %q not found: %w", ref.Name, err)
+	}
+	val, ok := secret.Data[ref.Key]
+	if !ok {
+		return "", fmt.Errorf("key %q not found in secret %q", ref.Key, ref.Name)
+	}
+	return string(val), nil
+}
+
+// applyHTTPIntegration fetches the named HTTP Integration and merges its base URL,
+// default headers, and auth into the provided url and headers. Step-level headers
+// take precedence over integration defaults.
+func (r *FlowRunReconciler) applyHTTPIntegration(
+	ctx context.Context,
+	integrationName string,
+	namespace string,
+	url string,
+	headers map[string]string,
+	stepResults map[string]map[string]string,
+	triggerData *automationv1alpha1.TriggerData,
+) (string, error) {
+	var integration automationv1alpha1.Integration
+	if err := r.Get(ctx, types.NamespacedName{
+		Name:      integrationName,
+		Namespace: namespace,
+	}, &integration); err != nil {
+		return "", fmt.Errorf("fetching http integration %q: %w", integrationName, err)
+	}
+	if integration.Spec.HTTP == nil {
+		return url, nil
+	}
+	httpInteg := integration.Spec.HTTP
+
+	// Apply defaultHeaders first (step headers override).
+	for k, v := range httpInteg.DefaultHeaders {
+		if _, exists := headers[k]; !exists {
+			headers[k] = substituteVars(v, stepResults, triggerData)
+		}
+	}
+
+	// Apply baseUrl: prepend if step URL is a path (not already absolute).
+	if httpInteg.BaseURL != "" && !strings.HasPrefix(url, "http://") && !strings.HasPrefix(url, "https://") {
+		url = strings.TrimRight(httpInteg.BaseURL, "/") + "/" + strings.TrimLeft(url, "/")
+	}
+
+	// Apply auth.
+	if httpInteg.Auth != nil {
+		var err error
+		url, err = r.applyHTTPAuth(ctx, httpInteg.Auth, integrationName, namespace, url, headers)
+		if err != nil {
+			return "", err
+		}
+	}
+
+	return url, nil
+}
+
+// applyHTTPAuth resolves the auth configuration from an HTTP Integration and
+// sets the appropriate headers or replaces the URL.
+func (r *FlowRunReconciler) applyHTTPAuth(
+	ctx context.Context,
+	auth *automationv1alpha1.HttpAuthSpec,
+	integrationName string,
+	namespace string,
+	url string,
+	headers map[string]string,
+) (string, error) {
+	switch auth.Type {
+	case automationv1alpha1.HttpAuthBearer:
+		if auth.Bearer != nil {
+			token, err := r.fetchSecretValue(ctx, namespace, auth.Bearer.TokenSecretRef)
+			if err != nil {
+				return "", fmt.Errorf("fetching bearer token for integration %q: %w", integrationName, err)
+			}
+			headers["Authorization"] = "Bearer " + token
+		}
+	case automationv1alpha1.HttpAuthBasic:
+		if auth.Basic != nil {
+			username, err := r.fetchSecretValue(ctx, namespace, auth.Basic.UsernameSecretRef)
+			if err != nil {
+				return "", fmt.Errorf("fetching basic auth username for integration %q: %w", integrationName, err)
+			}
+			password, err := r.fetchSecretValue(ctx, namespace, auth.Basic.PasswordSecretRef)
+			if err != nil {
+				return "", fmt.Errorf("fetching basic auth password for integration %q: %w", integrationName, err)
+			}
+			headers["Authorization"] = "Basic " + base64.StdEncoding.EncodeToString([]byte(username+":"+password))
+		}
+	case automationv1alpha1.HttpAuthAPIKey:
+		if auth.APIKey != nil {
+			apiKey, err := r.fetchSecretValue(ctx, namespace, auth.APIKey.ValueSecretRef)
+			if err != nil {
+				return "", fmt.Errorf("fetching api key for integration %q: %w", integrationName, err)
+			}
+			headers[auth.APIKey.HeaderName] = apiKey
+		}
+	case automationv1alpha1.HttpAuthSecretURL:
+		if auth.SecretURL != nil {
+			secretURL, err := r.fetchSecretValue(ctx, namespace, auth.SecretURL.URLSecretRef)
+			if err != nil {
+				return "", fmt.Errorf("fetching secret URL for integration %q: %w", integrationName, err)
+			}
+			url = secretURL
+		}
+	}
+	return url, nil
 }
 
 func (r *FlowRunReconciler) executeWaitStep(

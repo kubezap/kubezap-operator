@@ -90,10 +90,10 @@ spec:
       action:
         type: http
         http:
-          url: "https://hooks.slack.com/services/REPLACE_WITH_SLACK_WEBHOOK_URL"
+          integrationRef:
+            name: slack-webhook
+          url: ""
           method: POST
-          headers:
-            Content-Type: application/json
           body: >-
             {
               "text": ":floppy_disk: *Nightly export complete* (`$(trigger.scheduledTime)`)\nExport ID: `$(steps.export_data.results.exportId)` | Rows: $(steps.export_data.results.rowCount) | Status: $(steps.export_data.results.status)"

@@ -2,15 +2,15 @@
 
 ## Prerequisites
 
-| Tool | Version | Purpose |
-|------|---------|---------|
-| Go | 1.24+ | Build and test |
-| Docker | any recent | Build container images |
-| kubectl | 1.27+ | Cluster interaction |
-| kustomize | v5+ | Manifest generation |
-| kind | any recent | E2E test cluster |
-| k3s | any recent | Local development cluster (optional) |
-| make | any | Build targets |
+| Tool      | Version    | Purpose                              |
+| --------- | ---------- | ------------------------------------ |
+| Go        | 1.24+      | Build and test                       |
+| Docker    | any recent | Build container images               |
+| kubectl   | 1.27+      | Cluster interaction                  |
+| kustomize | v5+        | Manifest generation                  |
+| kind      | any recent | E2E test cluster                     |
+| k3s       | any recent | Local development cluster (optional) |
+| make      | any        | Build targets                        |
 
 Install the pinned code-generation tools used by the Makefile:
 
@@ -72,11 +72,11 @@ KIND_CLUSTER=kubezap-test-e2e go test ./test/e2e/ -v -ginkgo.v
 
 ### Skipping optional scenarios
 
-| Env var | Effect |
-|---------|--------|
-| `CERT_MANAGER_INSTALL_SKIP=true` | Skip CertManager install (if already present in the cluster) |
-| `KAFKA_BOOTSTRAP_SERVERS=` _(unset)_ | Kafka Trigger tests are skipped automatically |
-| `SKIP_WEBHOOK_E2E=true` | Skip the Webhook→Transform→HTTP→MockEndpoint scenario |
+| Env var                              | Effect                                                       |
+| ------------------------------------ | ------------------------------------------------------------ |
+| `CERT_MANAGER_INSTALL_SKIP=true`     | Skip CertManager install (if already present in the cluster) |
+| `KAFKA_BOOTSTRAP_SERVERS=` _(unset)_ | Kafka Trigger tests are skipped automatically                |
+| `SKIP_WEBHOOK_E2E=true`              | Skip the Webhook→Transform→HTTP→MockEndpoint scenario        |
 
 ## Local development with k3s
 

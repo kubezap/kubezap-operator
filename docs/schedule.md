@@ -73,7 +73,7 @@ Items are ordered to minimize rework:
 
 ### R1 Findings — Bug Fixes
 
-- [ ] **BUG — Webhook FlowRun random suffix too short** (`internal/gateway/webhook/handler.go`): `randomHex(4)` produces 4 hex chars (2 bytes = 65 536 values per second per Trigger). Birthday collision probability at 100 req/s on the same Trigger is ~7.5%/second. On collision the handler returns HTTP 202 with the existing FlowRun name — but that FlowRun contains the body/headers of the **first** request, not the colliding one. Silent data loss for the colliding request. Fix: change `randomHex(4)` → `randomHex(8)` (4 bytes → 1/4 294 967 296 collision rate).
+- [x] **BUG — Webhook FlowRun random suffix too short** (`internal/gateway/webhook/handler.go`): `randomHex(4)` produces 4 hex chars (2 bytes = 65 536 values per second per Trigger). Birthday collision probability at 100 req/s on the same Trigger is ~7.5%/second. On collision the handler returns HTTP 202 with the existing FlowRun name — but that FlowRun contains the body/headers of the **first** request, not the colliding one. Silent data loss for the colliding request. Fix: change `randomHex(4)` → `randomHex(8)` (4 bytes → 1/4 294 967 296 collision rate).
 
 ---
 

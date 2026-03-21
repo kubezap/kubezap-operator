@@ -284,7 +284,7 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		bodyString = bodyString[:4096]
 	}
 
-	flowRunName = fmt.Sprintf("%s-%d-%s", entry.TriggerName, time.Now().Unix(), randomHex(4))
+	flowRunName = fmt.Sprintf("%s-%d-%s", entry.TriggerName, time.Now().Unix(), randomHex(8))
 
 	flowRun := &automationv1alpha1.FlowRun{
 		ObjectMeta: metav1.ObjectMeta{

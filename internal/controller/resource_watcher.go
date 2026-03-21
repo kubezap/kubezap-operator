@@ -32,6 +32,7 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/watch"
+	"k8s.io/client-go/discovery"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/dynamic/dynamicinformer"
 	toolscache "k8s.io/client-go/tools/cache"
@@ -51,21 +52,27 @@ import (
 // It mirrors the CronScheduler pattern: the TriggerReconciler calls Register/Deregister
 // and ResourceWatcher owns the informer lifecycle.
 type ResourceWatcher struct {
-	client        client.Client
-	dynamicClient dynamic.Interface
-	log           logr.Logger
+	client          client.Client
+	dynamicClient   dynamic.Interface
+	discoveryClient discovery.DiscoveryInterface
+	log             logr.Logger
 
-	mu       sync.Mutex
-	watchers map[string]context.CancelFunc // key: "namespace/name"
+	mu              sync.Mutex
+	watchers        map[string]context.CancelFunc // key: "namespace/name"
+	cooldownTracker map[string]time.Time          // key: "triggerNS/triggerName/resourceNS/resourceName/eventType"
 }
 
 // NewResourceWatcher creates a new ResourceWatcher.
-func NewResourceWatcher(c client.Client, dynClient dynamic.Interface, log logr.Logger) *ResourceWatcher {
+// discoveryClient is used to resolve the canonical plural form of resource kinds.
+// Pass nil to fall back to naive `+s` pluralization for all kinds.
+func NewResourceWatcher(c client.Client, dynClient dynamic.Interface, discoveryClient discovery.DiscoveryInterface, log logr.Logger) *ResourceWatcher {
 	return &ResourceWatcher{
-		client:        c,
-		dynamicClient: dynClient,
-		log:           log.WithName("resource-watcher"),
-		watchers:      make(map[string]context.CancelFunc),
+		client:          c,
+		dynamicClient:   dynClient,
+		discoveryClient: discoveryClient,
+		log:             log.WithName("resource-watcher"),
+		watchers:        make(map[string]context.CancelFunc),
+		cooldownTracker: make(map[string]time.Time),
 	}
 }
 
@@ -104,15 +111,38 @@ func (rw *ResourceWatcher) Deregister(key string) {
 	}
 }
 
+// resolvePlural attempts to look up the canonical plural form of a resource kind
+// via the discovery API. Falls back to naive `strings.ToLower(kind) + "s"` if
+// discovery is unavailable or the kind is not found.
+func (rw *ResourceWatcher) resolvePlural(apiVersion, kind string) string {
+	naivePlural := strings.ToLower(kind) + "s"
+	if rw.discoveryClient == nil {
+		return naivePlural
+	}
+	list, err := rw.discoveryClient.ServerResourcesForGroupVersion(apiVersion)
+	if err != nil {
+		rw.log.V(1).Info("discovery call failed, using naive plural",
+			"apiVersion", apiVersion, "kind", kind, "error", err)
+		return naivePlural
+	}
+	for _, r := range list.APIResources {
+		if r.Kind == kind {
+			return r.Name
+		}
+	}
+	rw.log.V(1).Info("kind not found in discovery results, using naive plural",
+		"apiVersion", apiVersion, "kind", kind)
+	return naivePlural
+}
+
 func (rw *ResourceWatcher) runWatcher(ctx context.Context, trigger *automationv1alpha1.Trigger) {
 	spec := trigger.Spec.Resource
 	triggerKey := trigger.Namespace + "/" + trigger.Name
 
 	// Parse GVR from apiVersion + kind.
 	group, version := parseAPIVersion(spec.APIVersion)
-	// Use lowercased + pluralised kind as resource name.
-	// For well-known types this is correct; custom resources may need the exact plural.
-	resource := strings.ToLower(spec.Kind) + "s"
+	// Resolve the canonical plural form via the discovery API (fail-open).
+	resource := rw.resolvePlural(spec.APIVersion, spec.Kind)
 
 	gvr := schema.GroupVersionResource{Group: group, Version: version, Resource: resource}
 	watchNS := spec.Namespace
@@ -120,52 +150,83 @@ func (rw *ResourceWatcher) runWatcher(ctx context.Context, trigger *automationv1
 		watchNS = trigger.Namespace
 	}
 
-	factory := dynamicinformer.NewFilteredDynamicSharedInformerFactory(
-		rw.dynamicClient, 30*time.Second, watchNS, nil,
-	)
-	informer := factory.ForResource(gvr).Informer()
-
 	allowedEvents := allowedEventSet(spec.Events)
 
-	_, err := informer.AddEventHandler(toolscache.ResourceEventHandlerFuncs{
-		AddFunc: func(obj interface{}) {
-			if !allowedEvents["create"] {
-				return
-			}
-			rw.handleEvent(ctx, trigger, obj, watch.Added)
-		},
-		UpdateFunc: func(oldObj, newObj interface{}) {
-			if !allowedEvents["update"] {
-				return
-			}
-			if len(spec.WatchFields) > 0 && !fieldsChanged(oldObj, newObj, spec.WatchFields) {
-				return
-			}
-			rw.handleEvent(ctx, trigger, newObj, watch.Modified)
-		},
-		DeleteFunc: func(obj interface{}) {
-			if !allowedEvents["delete"] {
-				return
-			}
-			rw.handleEvent(ctx, trigger, obj, watch.Deleted)
-		},
-	})
-	if err != nil {
-		rw.log.Error(err, "failed to add event handler", "trigger", triggerKey)
-		return
+	const maxAttempts = 5
+	backoff := time.Second
+
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		factory := dynamicinformer.NewFilteredDynamicSharedInformerFactory(
+			rw.dynamicClient, 30*time.Second, watchNS, nil,
+		)
+		informer := factory.ForResource(gvr).Informer()
+
+		_, err := informer.AddEventHandler(toolscache.ResourceEventHandlerFuncs{
+			AddFunc: func(obj interface{}) {
+				if !allowedEvents["create"] {
+					return
+				}
+				rw.handleEvent(ctx, trigger, obj, watch.Added)
+			},
+			UpdateFunc: func(oldObj, newObj interface{}) {
+				if !allowedEvents["update"] {
+					return
+				}
+				if len(spec.WatchFields) > 0 && !fieldsChanged(oldObj, newObj, spec.WatchFields) {
+					return
+				}
+				rw.handleEvent(ctx, trigger, newObj, watch.Modified)
+			},
+			DeleteFunc: func(obj interface{}) {
+				if !allowedEvents["delete"] {
+					return
+				}
+				rw.handleEvent(ctx, trigger, obj, watch.Deleted)
+			},
+		})
+		if err != nil {
+			rw.log.Error(err, "failed to add event handler", "trigger", triggerKey)
+			return
+		}
+
+		factory.Start(ctx.Done())
+		syncResults := factory.WaitForCacheSync(ctx.Done())
+
+		// If ctx was cancelled during sync, exit cleanly.
+		select {
+		case <-ctx.Done():
+			rw.log.Info("resource watcher stopped during cache sync", "trigger", triggerKey)
+			return
+		default:
+		}
+
+		if synced, ok := syncResults[gvr]; ok && synced {
+			rw.log.Info("resource watcher started", "trigger", triggerKey, "gvr", gvr, "namespace", watchNS)
+			<-ctx.Done()
+			rw.log.Info("resource watcher stopped", "trigger", triggerKey)
+			return
+		}
+
+		rw.log.Error(fmt.Errorf("cache sync failed"), "cache sync failed for resource watcher, will retry",
+			"trigger", triggerKey, "gvr", gvr.String(), "attempt", attempt, "maxAttempts", maxAttempts)
+
+		if attempt == maxAttempts {
+			break
+		}
+
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(backoff):
+			backoff *= 2
+		}
 	}
 
-	factory.Start(ctx.Done())
-	syncResults := factory.WaitForCacheSync(ctx.Done())
-	if synced, ok := syncResults[gvr]; !ok || !synced {
-		rw.log.Error(fmt.Errorf("cache sync failed"), "cache sync failed for resource watcher",
-			"trigger", triggerKey, "gvr", gvr.String())
-		return
-	}
-
-	rw.log.Info("resource watcher started", "trigger", triggerKey, "gvr", gvr, "namespace", watchNS)
-	<-ctx.Done()
-	rw.log.Info("resource watcher stopped", "trigger", triggerKey)
+	// Permanent failure: remove from watchers map so the next Trigger reconcile
+	// will re-register and try again, rather than leaving a dead entry in the map.
+	rw.log.Error(fmt.Errorf("cache sync permanently failed"), "resource watcher giving up after retries; deregistering so next reconcile can retry",
+		"trigger", triggerKey, "gvr", gvr.String())
+	rw.Deregister(triggerKey)
 }
 
 func (rw *ResourceWatcher) handleEvent(
@@ -189,6 +250,25 @@ func (rw *ResourceWatcher) handleEvent(
 
 	resName := u.GetName()
 	resNS := u.GetNamespace()
+	eventStr := strings.ToLower(string(eventType))
+
+	// Enforce per-resource cooldown if configured.
+	if trigger.Spec.Resource.Cooldown != nil && trigger.Spec.Resource.Cooldown.Duration > 0 {
+		cooldownKey := trigger.Namespace + "/" + trigger.Name + "/" + resNS + "/" + resName + "/" + eventStr
+		rw.mu.Lock()
+		if last, hit := rw.cooldownTracker[cooldownKey]; hit && time.Since(last) < trigger.Spec.Resource.Cooldown.Duration {
+			rw.mu.Unlock()
+			rw.log.V(1).Info("resource event suppressed by cooldown",
+				"trigger", trigger.Namespace+"/"+trigger.Name,
+				"resource", resNS+"/"+resName,
+				"event", eventType,
+				"cooldown", trigger.Spec.Resource.Cooldown.Duration,
+			)
+			return
+		}
+		rw.cooldownTracker[cooldownKey] = time.Now()
+		rw.mu.Unlock()
+	}
 
 	bodyJSON, _ := json.Marshal(u.Object)
 
@@ -204,7 +284,6 @@ func (rw *ResourceWatcher) handleEvent(
 		return
 	}
 
-	eventStr := strings.ToLower(string(eventType))
 	// FlowRun name: <trigger>-<resource-name>-<eventtype>-<timestamp>-<random>
 	// The random suffix prevents name collisions when two events for the same
 	// resource and event type arrive within the same second.

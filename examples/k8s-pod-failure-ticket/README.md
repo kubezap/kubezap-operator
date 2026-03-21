@@ -1,8 +1,10 @@
 # Example: Kubernetes Pod Failure -> ITSM Ticket
 
-> **This example requires `type: resource` trigger which is not yet implemented.**
-> The manifests document the intended pattern. Apply them only for reference --
-> the Trigger will not function until the feature is available.
+> **Alpha feature:** `type: resource` triggers are implemented but alpha-quality.
+> Known limitations apply — see [docs/tech-debt/](../../docs/tech-debt/) for details.
+> Notable limitations: naive pluralization fallback for irregular resource kinds
+> (e.g. `Ingress`, `NetworkPolicy`) and no guarantee of exactly-once FlowRun
+> creation under very high event rates. Not recommended for production use.
 
 ## Overview
 
@@ -12,8 +14,6 @@ and trigger automated workflows in response. When a Pod transitions to the
 failure reason, and a deduplication key derived from the pod UID.
 
 ## What it demonstrates
-
-Once `type: resource` triggers are implemented, this example will show:
 
 - **Kubernetes resource-event trigger** -- watching Pods for `phase == "Failed"`
 - **Event metadata extraction** -- pulling pod name, namespace, UID, and failure
@@ -26,10 +26,13 @@ Once `type: resource` triggers are implemented, this example will show:
 
 ## Prerequisites
 
-- KubeZap operator installed and running
-- `type: resource` trigger implemented (future -- not yet available)
+- KubeZap operator installed and running (v0.4+)
+- The controller's ServiceAccount must have `get/list/watch` on `pods` in the
+  target namespace (resource triggers require explicit RBAC for each watched
+  kind — see [docs/api/trigger.md](../../docs/api/trigger.md))
+- Mockoon deployed as the ITSM stand-in (manifests included)
 
-## Intended usage (once implemented)
+## Usage
 
 1. **Apply the example manifests:**
 
@@ -49,14 +52,10 @@ Once `type: resource` triggers are implemented, this example will show:
    kubectl get flowruns -n default -w
    ```
 
-   A FlowRun should be created with the pod UID as part of its name.
+   A FlowRun should be created within a few seconds. The name contains the
+   pod name, event type, and a timestamp.
 
-4. **Verify deduplication:**
-
-   Re-running the same pod failure should NOT create a second FlowRun because
-   the `dedupKeyExpression` uses the pod UID as the dedup key.
-
-5. **Verify Mockoon captured the ticket creation request:**
+4. **Verify Mockoon captured the ticket creation request:**
 
    ```bash
    kubectl exec -n default \
@@ -66,12 +65,26 @@ Once `type: resource` triggers are implemented, this example will show:
 
    The log should show a POST to `/tickets` with the pod metadata in the body.
 
-6. **Cleanup:**
+5. **Cleanup:**
 
    ```bash
    kubectl delete -k examples/k8s-pod-failure-ticket/
    kubectl delete pod fail-test --ignore-not-found
    ```
+
+## Known alpha limitations
+
+- **Naive pluralization fallback**: The controller uses the Kubernetes discovery
+  API to resolve canonical plural names (e.g. `Pod` → `pods`). If the discovery
+  call fails, it falls back to appending `s` to the lowercased kind, which is
+  incorrect for irregular plurals (`Ingress` → `ingresss`,
+  `NetworkPolicy` → `networkpolicys`). Most core kinds work correctly.
+- **No rate limiting**: High-churn resources can produce a FlowRun per event.
+  Use `spec.resource.cooldown` (e.g. `"30s"`) to suppress bursts.
+- **Cache sync retry**: If the informer fails to sync on startup (transient RBAC
+  or API server issue), the watcher retries with exponential backoff (up to 5
+  attempts, starting at 1s). If all attempts fail, the watcher deregisters and
+  will be retried on the next Trigger reconcile.
 
 ## Implementation notes
 

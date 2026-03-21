@@ -47,7 +47,7 @@ var _ = Describe("ResourceWatcher", func() {
 
 		It("tracks watchers by key and removes them on Deregister", func() {
 			logger := logf.FromContext(ctx)
-			rw := NewResourceWatcher(k8sClient, dynClient, logger)
+			rw := NewResourceWatcher(k8sClient, dynClient, nil, logger)
 
 			trigger := &automationv1alpha1.Trigger{
 				ObjectMeta: metav1.ObjectMeta{
@@ -81,7 +81,7 @@ var _ = Describe("ResourceWatcher", func() {
 
 		It("is a no-op when deregistering a non-existent key", func() {
 			logger := logf.FromContext(ctx)
-			rw := NewResourceWatcher(k8sClient, dynClient, logger)
+			rw := NewResourceWatcher(k8sClient, dynClient, nil, logger)
 
 			Expect(func() {
 				rw.Deregister("nonexistent/trigger")
@@ -90,7 +90,7 @@ var _ = Describe("ResourceWatcher", func() {
 
 		It("replaces an existing watcher on re-Register", func() {
 			logger := logf.FromContext(ctx)
-			rw := NewResourceWatcher(k8sClient, dynClient, logger)
+			rw := NewResourceWatcher(k8sClient, dynClient, nil, logger)
 
 			trigger := &automationv1alpha1.Trigger{
 				ObjectMeta: metav1.ObjectMeta{
@@ -120,7 +120,7 @@ var _ = Describe("ResourceWatcher", func() {
 
 		It("skips registration when resource spec is nil", func() {
 			logger := logf.FromContext(ctx)
-			rw := NewResourceWatcher(k8sClient, dynClient, logger)
+			rw := NewResourceWatcher(k8sClient, dynClient, nil, logger)
 
 			trigger := &automationv1alpha1.Trigger{
 				ObjectMeta: metav1.ObjectMeta{
@@ -144,7 +144,7 @@ var _ = Describe("ResourceWatcher", func() {
 
 		It("skips registration when dynamicClient is nil", func() {
 			logger := logf.FromContext(ctx)
-			rw := NewResourceWatcher(k8sClient, nil, logger)
+			rw := NewResourceWatcher(k8sClient, nil, nil, logger)
 
 			trigger := &automationv1alpha1.Trigger{
 				ObjectMeta: metav1.ObjectMeta{

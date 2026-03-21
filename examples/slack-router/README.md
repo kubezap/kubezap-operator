@@ -164,9 +164,9 @@ kubectl get trigger slack-slash-command -n default \
 kubectl get deployment kubezap-webhook-gateway -n default
 # Expected: 1/1 READY
 
-# MockEndpoints registered
-kubectl get mockendpoints -n default
-# Should show: deploy-sink, fallback-sink, status-sink
+# Mockoon mock server running
+kubectl get deployment mockoon -n default
+# Expected: 1/1 READY
 ```
 
 ---
@@ -228,13 +228,14 @@ kubectl get flowrun $FR -n default \
 
 ---
 
-## Inspect captured MockEndpoint requests
+## Inspect captured Mockoon requests
 
 ```bash
 # View what the handle-deploy step posted to the deploy-sink mock
-kubectl get mockendpoint deploy-sink -n default \
-  -o jsonpath='{.status.recentRequests[-1:]}'
-# Expected: JSON body with action=deploy, env=deploy staging, requestedBy=alice
+kubectl exec -n default \
+  $(kubectl get pod -n default -l app=mockoon -o jsonpath='{.items[0].metadata.name}') \
+  -- wget -q -O - http://localhost:3001/api/logs | jq .
+# Expected: entries showing POST /deploy-sink with action=deploy, env=deploy staging, requestedBy=alice
 ```
 
 ---

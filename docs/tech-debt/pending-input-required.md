@@ -62,3 +62,47 @@ The only genuine leak scenario is continuous deployment of Flows with unique, th
 
 File: `internal/controller/resource_watcher.go` (line ~113), `cmd/main.go` (constructor wiring).
 <!-- ANSWERED -->
+
+---
+
+## Architecture Review — 2026-03-21
+
+<!-- ANSWERED -->
+**Q1: FlowRun reconciler execution model — execute one step per reconcile or keep current all-steps-in-one-loop?**
+
+**Answer (2026-03-21):** Do before OperatorHub submission. Refactor to one-step-per-reconcile.
+
+Schedule: §12b
+<!-- ANSWERED -->
+
+<!-- ANSWERED -->
+**Q2: Parallel steps — fix implementation to match docs, or update docs to document sequential behavior?**
+
+**Answer (2026-03-21):** Fix the implementation. Steps with the same `runAfter` set should execute in parallel as documented.
+
+Schedule: §12b
+<!-- ANSWERED -->
+
+<!-- ANSWERED -->
+**Q3: `type: pubsub` refactor timing — do before OperatorHub (v1alpha1 is unstable) or defer to v1beta1?**
+
+**Answer (2026-03-21):** Do before submission. Promote `kafka`/`amqp`/`nats` to top-level trigger types now while the API is explicitly unstable.
+
+Schedule: §12a
+<!-- ANSWERED -->
+
+<!-- ANSWERED -->
+**Q4: Secret value in FlowRun status error messages — P0 (block public release) or P1 (fix before GA)?**
+
+**Answer (2026-03-21):** P0. Must fix before any public or OperatorHub release.
+
+Schedule: §12c
+<!-- ANSWERED -->
+
+<!-- ANSWERED -->
+**Q5: Dashboard / monitoring UI — CLI-based, web-based, or both? Read-only.**
+
+**Answer (2026-03-21):** Option 3 — Both. CLI for day-to-day operator use; minimal web UI for demos and stakeholder visibility. Build CLI first, then web UI.
+
+Schedule: §15
+<!-- ANSWERED -->

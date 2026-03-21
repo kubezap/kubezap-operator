@@ -244,7 +244,16 @@ Items are ordered to minimize rework:
 
 ## 8. Deployment & Distribution
 
-- [ ] OperatorHub submission PR _(PAUSED — owner request 2026-03-20; do not start until explicitly unblocked)_
+> **Unblocked 2026-03-21.** OperatorHub submission is now a target, but gated on §12 architecture blockers and OLM readiness tasks below.
+
+- [ ] OperatorHub submission PR — gates on §12 completion and OLM readiness tasks below
+
+### OLM Readiness (required before submission)
+
+- [ ] **OLM** — Complete required CSV fields in `bundle/manifests/kubezap.clusterserviceversion.yaml`: `spec.description` (full feature overview), `spec.icon` (base64 PNG), `spec.maintainers`, `spec.provider.name`, `spec.maturity` (`alpha`), `spec.links` (docs, source). These are required for OperatorHub acceptance.
+- [ ] **OLM** — Run `operator-sdk bundle validate ./bundle` and fix all failures. Must pass before submission.
+- [ ] **OLM** — Run `operator-sdk scorecard ./bundle` against a live cluster and fix all failures. Both `basic` and `olm` suites must pass.
+- [ ] **OLM** — Add resource trigger RBAC caveat to CSV description: in AllNamespaces mode, user-configured `type: resource` triggers may require the controller SA to have broad watch permissions on target resource types. Users must grant these explicitly.
 
 ---
 
@@ -301,6 +310,73 @@ Items are ordered to minimize rework:
 - [x] **TECH DEBT (Medium)** — Kafka producer pool (`kafkaProducers` map in `flowrun_controller.go`) has no TTL or health check. Stale connections survive indefinitely and are not detected until the next publish attempt fails. Add idle TTL eviction or a periodic health-check probe.
 - [x] **TECH DEBT (Low)** — `type: http` Integration is fetched from the API server on every step execution (no per-reconcile caching). Adds unnecessary latency and load on the API server for Flows with many HTTP steps. Cache the Integration object for the lifetime of a single reconcile pass.
 - [x] **TECH DEBT (Low)** — CEL environment init failure is cached permanently via `sync.Once` in `flowrun_controller.go`. A transient error at startup (e.g., missing CEL extension) permanently disables `when` evaluation for the pod lifetime. Replace with a re-initializable init path or log a clear fatal on startup failure.
+
+---
+
+---
+
+## 12. Architecture Review — Pre-Submission Blockers (v0.4)
+
+> Items from the 2026-03-21 architecture review that must be resolved before OperatorHub submission.
+> Ordered by dependency: API changes first (§12a), then execution model (§12b), then security (§12c), then cleanup (§12d).
+
+### 12a — API: Promote `type: pubsub` to individual trigger types
+
+> **Breaking change, but v1alpha1 is explicitly unstable. Do before submission to avoid a post-GA migration.**
+
+- [ ] **API** — Rename `type: pubsub` → individual trigger types `kafka`, `amqp`, `nats` in `TriggerSpec.Type` enum (`api/v1alpha1/trigger_types.go`). Update kubebuilder validation marker: `+kubebuilder:validation:Enum=webhook;cron;kafka;amqp;nats;resource`
+- [ ] **API** — Split `PubSubTrigger` struct into dedicated `KafkaTrigger`, `AmqpTrigger`, `NatsTrigger` structs, each with only their own fields. Add top-level `spec.kafka`, `spec.amqp`, `spec.nats` fields to `TriggerSpec` (mirroring the `spec.webhook`, `spec.cron`, `spec.resource` pattern). Remove `spec.pubsub`.
+- [ ] **API** — Run `make generate && make manifests` after type changes.
+- [ ] **API** — Update `internal/controller/trigger_controller.go` and `internal/controller/integration_controller.go` wherever `spec.PubSub` or `trigger.Spec.PubSub.Type` is referenced.
+- [ ] **API** — Update all gateway watchers (`internal/gateway/kafka/watcher.go`, `amqp/watcher.go`, `nats/watcher.go`) that read `trigger.Spec.PubSub.*` fields.
+- [ ] **API** — Update all example manifests and docs referencing `type: pubsub`.
+- [ ] **API** — Update `config/samples/` and `docs/api/trigger.md` spec reference.
+
+### 12b — Architecture: FlowRun execution model
+
+> **Current model executes all steps in a single reconcile loop (blocking goroutine for entire flow duration). Fix: one step per reconcile.**
+> Also fixes the doc/implementation mismatch: parallel steps (same `runAfter`) are documented but run sequentially.
+
+- [ ] **ARCHITECTURE** — Refactor `flowrun_controller.go` `Reconcile()` to execute exactly one ready step per call, then return `ctrl.Result{Requeue: true}`. Steps that are already `Succeeded`/`Skipped`/`Failed` are skipped cheaply. When all steps are terminal, transition the FlowRun to its final phase. This frees the reconcile goroutine between steps and prevents starvation under load. File: `internal/controller/flowrun_controller.go`
+- [ ] **ARCHITECTURE** — Implement true parallel execution of steps with the same `runAfter` set. When multiple steps are simultaneously ready (all their `runAfter` deps satisfied and none yet started), launch them as goroutines within a single reconcile and collect results before updating status. This aligns the implementation with the documented behavior. File: `internal/controller/flowrun_controller.go`
+- [ ] **SCALABILITY** — Increase `--max-concurrent-flowruns` default from `10` to `25`. The bottleneck is API server writes (one per step), not CPU; 10 is too conservative for an enterprise-grade operator. Add tuning guidance to `docs/guides/` or `docs/architecture.md`. File: `cmd/main.go`
+- [ ] **TESTING** — Update Ginkgo tests for the new one-step-per-reconcile model. Multi-step flows will require multiple reconcile calls in tests; update test helpers accordingly. File: `internal/controller/flowrun_controller_test.go`
+
+### 12c — Security: Secret value redaction
+
+> **P0 — must fix before any public or OperatorHub release.**
+> `$(secrets.name.key)` is substituted before HTTP calls. On failure, the resolved URL/headers/body (containing the secret value) is written to `StepRunStatus.Message` in the FlowRun, persisted in etcd, and visible to anyone with `kubectl get flowrun`.
+
+- [ ] **SECURITY (P0)** — Track which segments of URLs and header values originated from secret interpolation. Redact those segments in `StepRunStatus.Message` and any error strings passed to `r.failFlowRun()`. Pattern: replace secret-origin values with `[REDACTED]` after substitution but before use in error messages. File: `internal/controller/flowrun_controller.go` (`substituteVars`, `executeHTTPStep`, `executePublishStep`)
+- [ ] **SECURITY (P0)** — Add test coverage: assert that a failed HTTP step with a secret-bearing URL does NOT store the raw secret value in FlowRun status. File: `internal/controller/flowrun_controller_test.go`
+
+### 12d — Cleanup: Stale API fields
+
+- [ ] **CLEANUP** — Remove the dead `Target *TargetResource` field from `TriggerSpec` (`api/v1alpha1/trigger_types.go` lines ~63-64). This field is superseded by `Resource *ResourceTrigger` and its presence is confusing. Run `make generate && make manifests` after removal.
+
+---
+
+## 13. Observability Gaps (from architecture review)
+
+- [ ] **OBSERVABILITY** — Add `kubezap_flowruns_active` gauge: number of FlowRuns currently in `Running` or `Pending` phase. Most useful metric for capacity planning, alerting, and HPA decisions on the controller. Files: `internal/metrics/metrics.go`, `internal/controller/flowrun_controller.go`
+- [ ] **OBSERVABILITY** — Add `kubezap_flowrun_queue_duration_seconds` histogram: time between FlowRun creation and first transition to `Running`. Measures controller queue backpressure. Files: `internal/metrics/metrics.go`, `internal/controller/flowrun_controller.go`
+- [ ] **OBSERVABILITY** — Propagate `traceparent` W3C header from inbound webhook HTTP request to the FlowRun `kubezap.io/traceparent` annotation. Currently the gateway trace and the controller execution trace are disconnected; this links them into a single end-to-end trace. File: `internal/gateway/webhook/handler.go`
+- [ ] **OBSERVABILITY** — Add webhook gateway request latency histogram: `kubezap_webhook_request_duration_seconds` labeled by `trigger` and `result` (accepted/rejected/rate_limited). File: `internal/gateway/webhook/handler.go`
+
+---
+
+## 14. UX Improvements (from architecture review)
+
+- [ ] **UX** — Implement full dot-path access in `$()` variable interpolation: `$(trigger.body.order.id)` should recursively traverse nested JSON, not silently return empty string. This is the most common evaluation complaint and a likely dealbreaker in demos. File: `internal/controller/flowrun_controller.go` (`substituteVars` function and callers)
+- [ ] **UX** — Add Ginkgo tests for nested dot-path access: `$(trigger.body.a.b.c)`, `$(trigger.body.arr.0)`, missing path returns empty string, non-object traversal returns empty string. File: `internal/controller/flowrun_controller_test.go`
+
+---
+
+## 15. Dashboard / Monitoring UI
+
+> **Decision (2026-03-21):** Build a read-only monitoring UI before OperatorHub submission. See `docs/tech-debt/pending-input-required.md` for CLI-vs-Web decision.
+
+- [ ] _(pending owner input on CLI-vs-Web approach — see pending-input-required.md)_
 
 ---
 

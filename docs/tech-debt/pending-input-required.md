@@ -62,3 +62,54 @@ The only genuine leak scenario is continuous deployment of Flows with unique, th
 
 File: `internal/controller/resource_watcher.go` (line ~113), `cmd/main.go` (constructor wiring).
 <!-- ANSWERED -->
+
+---
+
+## Architecture Review — 2026-03-21
+
+<!-- ANSWERED -->
+**Q1: FlowRun reconciler execution model — execute one step per reconcile or keep current all-steps-in-one-loop?**
+
+**Answer (2026-03-21):** Do before OperatorHub submission. Refactor to one-step-per-reconcile.
+
+Schedule: §12b
+<!-- ANSWERED -->
+
+<!-- ANSWERED -->
+**Q2: Parallel steps — fix implementation to match docs, or update docs to document sequential behavior?**
+
+**Answer (2026-03-21):** Fix the implementation. Steps with the same `runAfter` set should execute in parallel as documented.
+
+Schedule: §12b
+<!-- ANSWERED -->
+
+<!-- ANSWERED -->
+**Q3: `type: pubsub` refactor timing — do before OperatorHub (v1alpha1 is unstable) or defer to v1beta1?**
+
+**Answer (2026-03-21):** Do before submission. Promote `kafka`/`amqp`/`nats` to top-level trigger types now while the API is explicitly unstable.
+
+Schedule: §12a
+<!-- ANSWERED -->
+
+<!-- ANSWERED -->
+**Q4: Secret value in FlowRun status error messages — P0 (block public release) or P1 (fix before GA)?**
+
+**Answer (2026-03-21):** P0. Must fix before any public or OperatorHub release.
+
+Schedule: §12c
+<!-- ANSWERED -->
+
+<!-- BACKLOG-PROMPT -->
+**Q5: Dashboard / monitoring UI — CLI-based, web-based, or both? Read-only.**
+
+Why it matters: A monitoring UI is the highest-ROI feature for acquisition positioning. The `kubezap` CLI already exists (`cmd/kubezap/`). A read-only web UI served by the controller (like Argo Workflows) would be more impactful for demos but requires more effort.
+
+Options:
+1. **Richer CLI only** — extend the existing `kubezap` CLI with a `watch` command showing a live FlowRun execution timeline in the terminal (box-drawing chars, per-step status, duration). Lower effort, natural for operators, composable with shell tools.
+2. **Minimal web UI** — a simple read-only dashboard served by the controller on a dedicated port (`:8082`). Shows active/recent FlowRuns with step timelines. Built with server-side rendering (Go templates + htmx) to keep it dependency-light. Higher demo impact.
+3. **Both** — CLI for day-to-day operator use, web UI for demos and stakeholder visibility. Most value, most effort.
+
+Fallback assumption: Option 1 (richer CLI) — lower risk, faster to ship, strong for the OperatorHub story. Web UI can follow once the CLI UX is validated.
+
+Owner decision needed: CLI only, web only, or both?
+<!-- BACKLOG-PROMPT -->

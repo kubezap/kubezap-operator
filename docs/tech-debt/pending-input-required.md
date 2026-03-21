@@ -27,8 +27,25 @@ Investigation findings from `internal/controller/resource_watcher.go`:
 
 **Action taken:** Updated `CLAUDE.md` Trigger Types section to label resource trigger as "(alpha)". Added known issues to `docs/schedule.md` §11. `docs/architecture.md` already updated to "implemented, status under review". Example 6 README can be updated once the pluralization bug is fixed.
 
-<!-- BACKLOG-PROMPT -->
-**Q: Should a CEL expression cache eviction policy be added to `flowrun_controller.go`?**
-Why it matters: The CEL compiled-program cache (`sync.Map`) in `flowrun_controller.go` has no size bound or TTL. In long-running operators with many distinct `when` expressions, this is a slow memory leak. The fix (LRU cache or TTL eviction) is non-trivial and carries risk of cache-miss performance regression if implemented incorrectly.
-Options: Add LRU eviction with configurable max-size flag (e.g. `--cel-cache-size`, default 1000) / Add TTL-based eviction (entries expire after N minutes) / Leave unbounded cache (acceptable for current scale) / Disable cache entirely and recompile on each reconcile (simplest but slower)
-<!-- BACKLOG-PROMPT -->
+**Q3 — RESOLVED (2026-03-21):** CEL cache stays unbounded. `--disable-cel-cache` flag added as escape hatch.
+
+**Decision:** Leave the cache unbounded. Add `--disable-cel-cache` bool flag for debugging/edge-case override.
+
+**Rationale:**
+The cache grows to one entry per distinct `when` expression across all deployed Flows.
+For typical deployments this is bounded by the total number of Flow steps and converges to a stable size once Flows stabilise. A compiled `cel.Program` holds only the compiled AST and plan — typically a few KB each. At 10 000 distinct expressions that is ~50–100 MB worst case, which is well within normal operator memory budgets.
+
+The only genuine leak scenario is continuous deployment of Flows with unique, throwaway `when` expressions that are never cleaned up — an atypical usage pattern.
+
+**Trade-offs considered:**
+
+| Option | Pro | Con |
+|---|---|---|
+| Unbounded cache (chosen) | Zero complexity, zero new deps, optimal hit rate | Grows unboundedly under throwaway-expression workloads (unlikely) |
+| LRU eviction | Strict memory bound | Adds dependency (`golang-lru`), recompile cost on eviction, per-access lock contention |
+| TTL eviction | Handles deleted/replaced Flows naturally | Recompile cost for infrequent Flows (e.g. daily crons), more complex implementation |
+| Disable cache (`--disable-cel-cache`) | Zero memory, simplest code path | Recompile on every reconcile — negligible CPU cost (~µs), acceptable for debugging |
+
+**Implementation:** `DisableCELCache bool` field on `FlowRunReconciler` + `--disable-cel-cache` flag in `cmd/main.go`. When true, cache reads and writes are both skipped; every `when` evaluation recompiles from source.
+
+**Files changed:** `internal/controller/flowrun_controller.go`, `cmd/main.go`.

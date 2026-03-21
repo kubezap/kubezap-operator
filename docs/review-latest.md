@@ -13,7 +13,7 @@
 
 - **BUG (High)** — `internal/controller/flow_controller.go` `validateFlowSpec()` missing `case "wait":` — Flows with `action.type: wait` fail admission even though the schema and runtime support the type fully. Scheduled for fix in §11.
 - **Testing gap (Medium)** — No Ginkgo tests for `executeWaitStep` or wait step timeout/requeue behavior. Scheduled in §11.
-- **Tech debt (Medium)** — CEL expression cache (`sync.Map`) in `flowrun_controller.go` has no eviction policy; unbounded memory growth in long-running operators with diverse `when` expressions. Decision pending (Q3).
+- **Tech debt (Medium)** — CEL expression cache (`sync.Map`) in `flowrun_controller.go` has no eviction policy. Decision resolved (Q3): cache stays unbounded; `--disable-cel-cache` flag added as escape hatch. See `docs/tech-debt/pending-input-required.md` for full trade-off analysis.
 - **Tech debt (Medium)** — Kafka producer pool (`kafkaProducers` map) has no TTL or health check; stale connections not detected until next publish attempt.
 - **Tech debt (Low)** — HTTP Integration fetched from API server on every step execution; no per-reconcile caching.
 - **Tech debt (Low)** — CEL environment init failure cached forever via `sync.Once`; silent degradation instead of controlled restart.

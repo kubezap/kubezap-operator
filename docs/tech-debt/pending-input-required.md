@@ -99,17 +99,10 @@ Schedule: §12a
 Schedule: §12c
 <!-- ANSWERED -->
 
-<!-- BACKLOG-PROMPT -->
+<!-- ANSWERED -->
 **Q5: Dashboard / monitoring UI — CLI-based, web-based, or both? Read-only.**
 
-Why it matters: A monitoring UI is the highest-ROI feature for acquisition positioning. The `kubezap` CLI already exists (`cmd/kubezap/`). A read-only web UI served by the controller (like Argo Workflows) would be more impactful for demos but requires more effort.
+**Answer (2026-03-21):** Option 3 — Both. CLI for day-to-day operator use; minimal web UI for demos and stakeholder visibility. Build CLI first, then web UI.
 
-Options:
-1. **Richer CLI only** — extend the existing `kubezap` CLI with a `watch` command showing a live FlowRun execution timeline in the terminal (box-drawing chars, per-step status, duration). Lower effort, natural for operators, composable with shell tools.
-2. **Minimal web UI** — a simple read-only dashboard served by the controller on a dedicated port (`:8082`). Shows active/recent FlowRuns with step timelines. Built with server-side rendering (Go templates + htmx) to keep it dependency-light. Higher demo impact.
-3. **Both** — CLI for day-to-day operator use, web UI for demos and stakeholder visibility. Most value, most effort.
-
-Fallback assumption: Option 1 (richer CLI) — lower risk, faster to ship, strong for the OperatorHub story. Web UI can follow once the CLI UX is validated.
-
-Owner decision needed: CLI only, web only, or both?
-<!-- BACKLOG-PROMPT -->
+Schedule: §15
+<!-- ANSWERED -->

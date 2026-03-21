@@ -20,6 +20,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
+	ctrlmetrics "sigs.k8s.io/controller-runtime/pkg/metrics"
 
 	automationv1alpha1 "github.com/borfswitch/kubezap/api/v1alpha1"
 	"github.com/borfswitch/kubezap/internal/metrics"
@@ -497,4 +498,235 @@ func TestCooldownWindowSuppression(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestTraceparentPropagation verifies that the W3C traceparent header is stored as an
+// annotation on the created FlowRun, and that requests without it create FlowRuns
+// with no traceparent annotation.
+func TestTraceparentPropagation(t *testing.T) {
+	const sampleTraceparent = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
+	const sampleTracestate = "rojo=00f067aa0ba902b7,congo=t61rcWkgMzE"
+
+	tests := []struct {
+		name              string
+		traceparentHeader string
+		tracestateHeader  string
+		wantTraceparent   string
+		wantTracestate    string
+	}{
+		{
+			name:              "traceparent and tracestate both present",
+			traceparentHeader: sampleTraceparent,
+			tracestateHeader:  sampleTracestate,
+			wantTraceparent:   sampleTraceparent,
+			wantTracestate:    sampleTracestate,
+		},
+		{
+			name:              "traceparent only",
+			traceparentHeader: sampleTraceparent,
+			wantTraceparent:   sampleTraceparent,
+			wantTracestate:    "",
+		},
+		{
+			name:            "no trace headers",
+			wantTraceparent: "",
+			wantTracestate:  "",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			h, k8s := newTestHandler(t)
+
+			req := httptest.NewRequest(http.MethodPost, "/hooks/test", bytes.NewBufferString(`{}`))
+			if tc.traceparentHeader != "" {
+				req.Header.Set("Traceparent", tc.traceparentHeader)
+			}
+			if tc.tracestateHeader != "" {
+				req.Header.Set("Tracestate", tc.tracestateHeader)
+			}
+
+			rr := httptest.NewRecorder()
+			h.ServeHTTP(rr, req)
+
+			if rr.Code != http.StatusAccepted {
+				t.Fatalf("expected 202, got %d; body: %s", rr.Code, rr.Body.String())
+			}
+
+			fr := lastCreatedFlowRun(t, k8s)
+
+			gotTraceparent := fr.Annotations["kubezap.io/traceparent"]
+			if gotTraceparent != tc.wantTraceparent {
+				t.Errorf("kubezap.io/traceparent: want %q, got %q", tc.wantTraceparent, gotTraceparent)
+			}
+
+			gotTracestate := fr.Annotations["kubezap.io/tracestate"]
+			if gotTracestate != tc.wantTracestate {
+				t.Errorf("kubezap.io/tracestate: want %q, got %q", tc.wantTracestate, gotTracestate)
+			}
+		})
+	}
+}
+
+// TestTraceparentCaseInsensitive verifies that lowercase "traceparent" header is also accepted,
+// since Go's net/http canonicalises header names automatically.
+func TestTraceparentCaseInsensitive(t *testing.T) {
+	const sampleTraceparent = "00-abcdef1234567890abcdef1234567890-1234567890abcdef-01"
+
+	h, k8s := newTestHandler(t)
+
+	req := httptest.NewRequest(http.MethodPost, "/hooks/test", bytes.NewBufferString(`{}`))
+	// Set using lowercase — Go's http package will canonicalise to "Traceparent".
+	req.Header.Set("traceparent", sampleTraceparent)
+
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusAccepted {
+		t.Fatalf("expected 202, got %d", rr.Code)
+	}
+
+	fr := lastCreatedFlowRun(t, k8s)
+	if got := fr.Annotations["kubezap.io/traceparent"]; got != sampleTraceparent {
+		t.Errorf("expected kubezap.io/traceparent=%q, got %q", sampleTraceparent, got)
+	}
+}
+
+// TestWebhookRequestDurationHistogram verifies that the kubezap_webhook_request_duration_seconds
+// histogram is observed with the correct result label for accepted and rejected requests.
+func TestWebhookRequestDurationHistogram(t *testing.T) {
+	tests := []struct {
+		name         string
+		setupHandler func(t *testing.T) (*WebhookHandler, client.Client)
+		buildRequest func() *http.Request
+		wantResult   string
+		wantStatus   int
+	}{
+		{
+			name:         "accepted request increments accepted histogram",
+			setupHandler: newTestHandler,
+			buildRequest: func() *http.Request {
+				return httptest.NewRequest(http.MethodPost, "/hooks/test", bytes.NewBufferString(`{}`))
+			},
+			wantResult: "accepted",
+			wantStatus: http.StatusAccepted,
+		},
+		{
+			name: "auth failure increments rejected histogram",
+			setupHandler: func(t *testing.T) (*WebhookHandler, client.Client) {
+				t.Helper()
+				return newTestHandlerWithHMAC(t, "secret")
+			},
+			buildRequest: func() *http.Request {
+				req := httptest.NewRequest(http.MethodPost, "/hooks/hmac-test", bytes.NewBufferString(`{}`))
+				req.Header.Set("X-Hub-Signature-256", "sha256=badhash")
+				return req
+			},
+			wantResult: "rejected",
+			wantStatus: http.StatusUnauthorized,
+		},
+		{
+			name: "rate limited request increments rate_limited histogram",
+			setupHandler: func(t *testing.T) (*WebhookHandler, client.Client) {
+				t.Helper()
+				scheme := newWebhookTestScheme()
+				fakeClient := fake.NewClientBuilder().WithScheme(scheme).Build()
+				log := zap.New()
+				registry := NewRouteRegistry(log)
+				registry.Register("/hooks/rl-hist", RouteEntry{
+					TriggerName:      "rl-trigger",
+					TriggerNamespace: "default",
+					FlowRef:          "test-flow",
+					AllowedMethod:    "POST",
+					MaxInvocations:   1,
+					CooldownWindow:   10 * time.Second,
+				})
+				return NewWebhookHandler(fakeClient, registry, log), fakeClient
+			},
+			buildRequest: func() *http.Request {
+				// Second request will be rate-limited; the test sends two below.
+				return httptest.NewRequest(http.MethodPost, "/hooks/rl-hist", bytes.NewBufferString(`{}`))
+			},
+			wantResult: "rate_limited",
+			wantStatus: http.StatusTooManyRequests,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			h, _ := tc.setupHandler(t)
+
+			// For the rate-limited case, fire a first request (should be accepted) then
+			// a second (should be rate-limited). We only care about the second one's label.
+			if tc.wantResult == "rate_limited" {
+				first := httptest.NewRequest(http.MethodPost, "/hooks/rl-hist", bytes.NewBufferString(`{}`))
+				rr := httptest.NewRecorder()
+				h.ServeHTTP(rr, first)
+				if rr.Code != http.StatusAccepted {
+					t.Fatalf("first request: expected 202, got %d", rr.Code)
+				}
+			}
+
+			triggerLabel := func() string {
+				switch tc.wantResult {
+				case "rate_limited":
+					return "rl-trigger"
+				case "rejected":
+					return "hmac-trigger"
+				default:
+					return "test-trigger"
+				}
+			}()
+
+			// Snapshot SampleCount before the request under test.
+			countBefore := webhookDurationSampleCount(t, triggerLabel, tc.wantResult)
+
+			req := tc.buildRequest()
+			rr := httptest.NewRecorder()
+			h.ServeHTTP(rr, req)
+
+			if rr.Code != tc.wantStatus {
+				t.Fatalf("expected status %d, got %d; body: %s", tc.wantStatus, rr.Code, rr.Body.String())
+			}
+
+			countAfter := webhookDurationSampleCount(t, triggerLabel, tc.wantResult)
+			if countAfter <= countBefore {
+				t.Errorf("expected kubezap_webhook_request_duration_seconds{trigger=%q,result=%q} sample_count to increase; before=%d after=%d",
+					triggerLabel, tc.wantResult, countBefore, countAfter)
+			}
+		})
+	}
+}
+
+// webhookDurationSampleCount gathers the kubezap_webhook_request_duration_seconds histogram
+// from the controller-runtime registry and returns the sample_count for the given label pair.
+// Returns 0 if the time series does not yet exist.
+func webhookDurationSampleCount(t *testing.T, trigger, result string) uint64 {
+	t.Helper()
+	mfs, err := ctrlmetrics.Registry.Gather()
+	if err != nil {
+		t.Fatalf("gathering metrics: %v", err)
+	}
+	for _, mf := range mfs {
+		if mf.GetName() != "kubezap_webhook_request_duration_seconds" {
+			continue
+		}
+		for _, m := range mf.GetMetric() {
+			var gotTrigger, gotResult string
+			for _, lp := range m.GetLabel() {
+				switch lp.GetName() {
+				case "trigger":
+					gotTrigger = lp.GetValue()
+				case "result":
+					gotResult = lp.GetValue()
+				}
+			}
+			if gotTrigger == trigger && gotResult == result {
+				if h := m.GetHistogram(); h != nil {
+					return h.GetSampleCount()
+				}
+			}
+		}
+	}
+	return 0
 }

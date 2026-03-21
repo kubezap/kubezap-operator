@@ -194,11 +194,11 @@ Items are ordered to minimize rework:
 
 ---
 
-### Example 6 — Kubernetes Resource Event → ITSM Ticket _(blocked)_
+### Example 6 — Kubernetes Resource Event → ITSM Ticket _(partially blocked)_
 
-> **Blocked on:** `type: resource` Kubernetes resource-event trigger (see Future/Backlog).
-> This example can be written as a placeholder to document the pattern, but the trigger
-> type must be implemented before the example is functional. Do this last.
+> **Partially blocked:** `type: resource` trigger is implemented but alpha-quality. Known bugs
+> (naive pluralization, FlowRun name collision — see §11) must be fixed before the README
+> can be updated to remove the alpha warning. Placeholder manifests are already complete.
 
 **External dependencies:**
 - A running cluster where the example namespace has Pods that can be set to `Failed` phase
@@ -290,14 +290,17 @@ Items are ordered to minimize rework:
 
 - [ ] **BUG** — Add `case "wait":` to `validateFlowSpec()` in `internal/controller/flow_controller.go` (lines ~107–129); Flow resources with `action.type: wait` currently fail admission even though the schema and runtime support it. Add Ginkgo test in `internal/controller/flowrun_controller_test.go` covering wait step timeout + requeue behavior.
 - [ ] **CLEANUP** — Remove stale TODO comment (lines 48–53) in `internal/controller/trigger_controller.go`; ResourceWatcher wiring is already done in `cmd/main.go`.
-- [ ] **DOCS** — Resolve `docs/api/mock-endpoint.md` status: file still exists as a full doc page after MockEndpoint removal; decide: delete / redirect stub / archived reference (see `docs/tech-debt/pending-input-required.md` Q1).
+- [x] **DOCS** — Resolve `docs/api/mock-endpoint.md` status: deleted (Q1 resolved 2026-03-21).
 - [ ] **BUG (alpha)** — Resource watcher naive pluralization (`resource_watcher.go:113`): `strings.ToLower(kind) + "s"` silently fails for irregular plurals (`Ingress`, `NetworkPolicy`, etc.). Fix: use discovery API to resolve correct plural form. Blocked on design decision (adds API server roundtrip at registration time).
 - [ ] **BUG (alpha)** — Resource watcher FlowRun name collision: timestamp has second precision, no random suffix. Two events for same resource+eventtype within one second → second FlowRun silently dropped. Fix: add `randomHex(4)` suffix (same fix pattern as R1 webhook bug).
 - [ ] **RELIABILITY (alpha)** — Resource watcher no retry on cache sync failure: goroutine exits permanently if sync times out. Fix: add backoff retry loop before exiting, or signal the TriggerReconciler to re-register.
 - [ ] **MISSING FEATURE (alpha)** — Resource triggers have no cooldown/rate-limit mechanism. Other trigger types have `maxInvocations`/`window`; resource triggers have no equivalent. Add `cooldown` field to `ResourceTriggerSpec`.
 - [ ] **DOCS** — Update `examples/k8s-pod-failure-ticket/README.md`: remove "not yet implemented" warning; add note that resource trigger is alpha with known limitations (link to `docs/tech-debt/`). Do after pluralization bug is fixed.
-- [ ] **DOCS** — Add `docs/contributing.md` link to `docs/overview.md` (currently not cross-linked from any doc page).
+- [x] **DOCS** — Add `docs/contributing.md` link to `docs/overview.md` (done 2026-03-21 review pass).
 - [ ] **DOCS** — Clarify AMQP/NATS stability in `docs/api/integration.md`: headings say "_(beta)_" but both gateways are fully implemented and in examples. Either define what "beta" means (known limitations) or upgrade the label.
+- [ ] **TECH DEBT (Medium)** — Kafka producer pool (`kafkaProducers` map in `flowrun_controller.go`) has no TTL or health check. Stale connections survive indefinitely and are not detected until the next publish attempt fails. Add idle TTL eviction or a periodic health-check probe.
+- [ ] **TECH DEBT (Low)** — `type: http` Integration is fetched from the API server on every step execution (no per-reconcile caching). Adds unnecessary latency and load on the API server for Flows with many HTTP steps. Cache the Integration object for the lifetime of a single reconcile pass.
+- [ ] **TECH DEBT (Low)** — CEL environment init failure is cached permanently via `sync.Once` in `flowrun_controller.go`. A transient error at startup (e.g., missing CEL extension) permanently disables `when` evaluation for the pod lifetime. Replace with a re-initializable init path or log a clear fatal on startup failure.
 
 ---
 

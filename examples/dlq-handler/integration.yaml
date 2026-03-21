@@ -1,0 +1,25 @@
+apiVersion: automation.kubezap.io/v1alpha1
+kind: Integration
+metadata:
+  name: orders-kafka
+  namespace: default
+spec:
+  type: kafka
+  kafka:
+    bootstrapServers:
+      - my-cluster-kafka-bootstrap.kafka.svc.cluster.local:9092
+    # Optional TLS — uncomment for production
+    # tls:
+    #   enabled: true
+    #   caCertSecret:
+    #     name: kafka-ca-cert
+    #     key: ca.crt
+    # Optional SASL — uncomment for production
+    # sasl:
+    #   mechanism: SCRAM-SHA-512
+    #   usernameSecret:
+    #     name: kafka-credentials
+    #     key: username
+    #   passwordSecret:
+    #     name: kafka-credentials
+    #     key: password

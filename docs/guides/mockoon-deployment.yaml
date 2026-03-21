@@ -1,0 +1,332 @@
+# Reusable Mockoon in-cluster Deployment + Service
+#
+# Apply this to your development namespace to stand up a Mockoon mock server.
+# Mockoon serves stub responses on port 3000 and exposes an admin API on port 3001.
+#
+# Usage:
+#   kubectl apply -f docs/guides/mockoon-deployment.yaml -n <your-namespace>
+#
+# See docs/guides/mocking-http-endpoints.md for the full setup guide.
+#
+# ─────────────────────────────────────────────────────────────────────────────
+# 1. ConfigMap — Mockoon environment file (edit to add your stub routes)
+# ─────────────────────────────────────────────────────────────────────────────
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mockoon-env
+  # Change this to match your namespace.
+  namespace: default
+  labels:
+    app: mockoon
+    app.kubernetes.io/component: mock-server
+    app.kubernetes.io/managed-by: kubezap
+data:
+  # Mockoon environment file. This is standard Mockoon JSON format.
+  # See https://mockoon.com/docs/latest/mockoon-data-files/data-storage-location/
+  #
+  # To generate this file from the Mockoon GUI:
+  #   File → Export current environment → save as environment.json
+  #
+  # The example below defines four routes that mirror the three services used
+  # in the KubeZap examples (order-router, kafka-enrichment, slack-router):
+  #   POST /notify-express      → 200 {"notified":true,"tier":"express"}
+  #   POST /notify-standard     → 200 {"notified":true,"tier":"standard"}
+  #   GET  /customer-profile    → 200 customer profile JSON
+  #   POST /deploy-sink         → 200 {"ok":true,"message":"deploy queued"}
+  environment.json: |
+    {
+      "uuid": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+      "lastMigration": 32,
+      "name": "KubeZap Dev Mocks",
+      "endpointPrefix": "",
+      "latency": 0,
+      "port": 3000,
+      "hostname": "",
+      "folders": [],
+      "routes": [
+        {
+          "uuid": "r0001-notify-express",
+          "type": "http",
+          "documentation": "Captures express-tier order notifications",
+          "method": "post",
+          "endpoint": "notify-express",
+          "responses": [
+            {
+              "uuid": "resp-notify-express-200",
+              "body": "{\"notified\":true,\"tier\":\"express\"}",
+              "latency": 0,
+              "statusCode": 200,
+              "label": "Success",
+              "headers": [
+                { "key": "Content-Type", "value": "application/json" }
+              ],
+              "bodyType": "INLINE",
+              "filePath": "",
+              "databucketID": "",
+              "sendFileAsBody": false,
+              "rules": [],
+              "rulesOperator": "OR",
+              "disableTemplating": false,
+              "fallbackTo404": false,
+              "default": true,
+              "crudKey": "id",
+              "callbacks": []
+            }
+          ],
+          "enabled": true,
+          "responseMode": null,
+          "streamingMode": null
+        },
+        {
+          "uuid": "r0002-notify-standard",
+          "type": "http",
+          "documentation": "Captures standard-tier order notifications",
+          "method": "post",
+          "endpoint": "notify-standard",
+          "responses": [
+            {
+              "uuid": "resp-notify-standard-200",
+              "body": "{\"notified\":true,\"tier\":\"standard\"}",
+              "latency": 0,
+              "statusCode": 200,
+              "label": "Success",
+              "headers": [
+                { "key": "Content-Type", "value": "application/json" }
+              ],
+              "bodyType": "INLINE",
+              "filePath": "",
+              "databucketID": "",
+              "sendFileAsBody": false,
+              "rules": [],
+              "rulesOperator": "OR",
+              "disableTemplating": false,
+              "fallbackTo404": false,
+              "default": true,
+              "crudKey": "id",
+              "callbacks": []
+            }
+          ],
+          "enabled": true,
+          "responseMode": null,
+          "streamingMode": null
+        },
+        {
+          "uuid": "r0003-customer-profile",
+          "type": "http",
+          "documentation": "Simulates the customer profile enrichment API",
+          "method": "get",
+          "endpoint": "customer-profile",
+          "responses": [
+            {
+              "uuid": "resp-customer-profile-200",
+              "body": "{\n  \"customerId\": \"{{body 'customerId' 'unknown'}}\",\n  \"tier\": \"enterprise\",\n  \"region\": \"us-east-1\",\n  \"accountManager\": \"alice@example.com\"\n}",
+              "latency": 0,
+              "statusCode": 200,
+              "label": "Enterprise customer",
+              "headers": [
+                { "key": "Content-Type", "value": "application/json" }
+              ],
+              "bodyType": "INLINE",
+              "filePath": "",
+              "databucketID": "",
+              "sendFileAsBody": false,
+              "rules": [],
+              "rulesOperator": "OR",
+              "disableTemplating": false,
+              "fallbackTo404": false,
+              "default": true,
+              "crudKey": "id",
+              "callbacks": []
+            }
+          ],
+          "enabled": true,
+          "responseMode": null,
+          "streamingMode": null
+        },
+        {
+          "uuid": "r0004-deploy-sink",
+          "type": "http",
+          "documentation": "Captures deploy action requests (stand-in for a real deploy API)",
+          "method": "post",
+          "endpoint": "deploy-sink",
+          "responses": [
+            {
+              "uuid": "resp-deploy-sink-200",
+              "body": "{\"ok\":true,\"message\":\"deploy queued\"}",
+              "latency": 0,
+              "statusCode": 200,
+              "label": "Queued",
+              "headers": [
+                { "key": "Content-Type", "value": "application/json" }
+              ],
+              "bodyType": "INLINE",
+              "filePath": "",
+              "databucketID": "",
+              "sendFileAsBody": false,
+              "rules": [],
+              "rulesOperator": "OR",
+              "disableTemplating": false,
+              "fallbackTo404": false,
+              "default": true,
+              "crudKey": "id",
+              "callbacks": []
+            }
+          ],
+          "enabled": true,
+          "responseMode": null,
+          "streamingMode": null
+        }
+      ],
+      "rootChildren": [
+        { "type": "route", "uuid": "r0001-notify-express" },
+        { "type": "route", "uuid": "r0002-notify-standard" },
+        { "type": "route", "uuid": "r0003-customer-profile" },
+        { "type": "route", "uuid": "r0004-deploy-sink" }
+      ],
+      "proxyMode": false,
+      "proxyHost": "",
+      "proxyRemovePrefix": false,
+      "tlsOptions": {
+        "enabled": false,
+        "type": "CERT",
+        "pfxPath": "",
+        "certPath": "",
+        "keyPath": "",
+        "caPath": "",
+        "passphrase": ""
+      },
+      "cors": true,
+      "headers": [
+        { "key": "Content-Type", "value": "application/json" },
+        { "key": "Access-Control-Allow-Origin", "value": "*" },
+        { "key": "Access-Control-Allow-Methods", "value": "GET,POST,PUT,PATCH,DELETE,HEAD,OPTIONS" },
+        { "key": "Access-Control-Allow-Headers", "value": "Content-Type, Origin, Accept, Authorization, Content-Length, X-Requested-With" }
+      ],
+      "proxyReqHeaders": [
+        { "key": "", "value": "" }
+      ],
+      "proxyResHeaders": [
+        { "key": "", "value": "" }
+      ],
+      "data": [],
+      "callbacks": [],
+      "initialDatabuckets": []
+    }
+---
+# ─────────────────────────────────────────────────────────────────────────────
+# 2. Deployment — Mockoon server
+# ─────────────────────────────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mockoon
+  namespace: default
+  labels:
+    app: mockoon
+    app.kubernetes.io/component: mock-server
+    app.kubernetes.io/managed-by: kubezap
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mockoon
+  template:
+    metadata:
+      labels:
+        app: mockoon
+        app.kubernetes.io/component: mock-server
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: mockoon
+          image: mockoon/mockoon:latest
+          imagePullPolicy: IfNotPresent
+          args:
+            # Load the environment file from the ConfigMap mount.
+            # --data must point to a Mockoon environment JSON file.
+            # --port overrides the port declared inside the file (use 3000 here).
+            # --admin-api-port exposes the admin API for request log retrieval.
+            - "--data"
+            - "/config/environment.json"
+            - "--port"
+            - "3000"
+            - "--admin-api-port"
+            - "3001"
+          ports:
+            - name: mock
+              containerPort: 3000
+              protocol: TCP
+            - name: admin
+              containerPort: 3001
+              protocol: TCP
+          volumeMounts:
+            - name: mockoon-config
+              mountPath: /config
+              readOnly: true
+          # Mockoon starts in well under a second but wait for the HTTP server
+          # to be ready before marking the pod Ready.
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: admin
+            initialDelaySeconds: 2
+            periodSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: admin
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "64Mi"
+            limits:
+              cpu: "200m"
+              memory: "128Mi"
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+      volumes:
+        - name: mockoon-config
+          configMap:
+            name: mockoon-env
+      restartPolicy: Always
+---
+# ─────────────────────────────────────────────────────────────────────────────
+# 3. Service — exposes the mock server and admin API in-cluster
+# ─────────────────────────────────────────────────────────────────────────────
+apiVersion: v1
+kind: Service
+metadata:
+  name: mockoon
+  namespace: default
+  labels:
+    app: mockoon
+    app.kubernetes.io/component: mock-server
+    app.kubernetes.io/managed-by: kubezap
+spec:
+  selector:
+    app: mockoon
+  ports:
+    - name: mock
+      port: 3000
+      targetPort: mock
+      protocol: TCP
+    - name: admin
+      port: 3001
+      targetPort: admin
+      protocol: TCP
+  type: ClusterIP

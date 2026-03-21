@@ -46,7 +46,7 @@ Items are ordered to minimize rework:
 
 ### R2 Findings — Bug Fixes
 
-- [ ] **BUG — `BodyTruncated` not set on mid-range bodies** (`internal/gateway/webhook/handler.go:281-284`): bodies between 4097 bytes and 4 MB are accepted with HTTP 202, but stored truncated to 4096 chars in `TriggerData.Body` with `BodyTruncated: false`. Users relying on `$(trigger.body)` cannot detect a partial body. Fix: set `bodyTruncated = true` when `len(bodyBytes) > 4096` before truncating `bodyString`. Also add coverage to T2 (body-at-size-limit boundary).
+- [x] **BUG — `BodyTruncated` not set on mid-range bodies** (`internal/gateway/webhook/handler.go:281-284`): bodies between 4097 bytes and 4 MB are accepted with HTTP 202, but stored truncated to 4096 chars in `TriggerData.Body` with `BodyTruncated: false`. Users relying on `$(trigger.body)` cannot detect a partial body. Fix: set `bodyTruncated = true` when `len(bodyBytes) > 4096` before truncating `bodyString`. Also add coverage to T2 (body-at-size-limit boundary).
 
 ---
 

@@ -119,25 +119,7 @@ Create or overwrite `docs/review-latest.md` with a concise summary:
 - (list)
 ```
 
-## 5. Schedule prioritization
-
-After all findings are written, re-read `docs/schedule.md` holistically and apply these prioritization rules. Reorder sections or move items **only when a clear dependency would cause rework** if violated — do not reorder for style:
-
-**Rules (highest precedence first):**
-
-1. **Research/audits before tests** — tests written against buggy behavior need rewriting after the bug is fixed. Any new R-type research items found in this review must precede T-type test items that touch the same code paths.
-2. **Bug fixes before features that depend on the same code** — a confirmed bug in component X must be scheduled before new work that builds on X. If a bug fix item was added in step 4c, check whether any existing feature items downstream of that code should move after it.
-3. **Prerequisites before dependents** — if item B requires a type, API, or behavior introduced by item A, A must come first. Common patterns: type changes before tests, integration type before examples using it, MockEndpoint replacement docs before new examples that would use mock servers.
-4. **Tests before new feature development in the same area** — once an area has confirmed-correct behavior, test it before adding more features on top.
-5. **Shared infrastructure before consumers** — shared gateway RBAC, shared SA/Role, shared webhook infra must be correct before example or test items that exercise those paths.
-
-**What to update:**
-- Move newly-added items to the correct position relative to existing items.
-- Update the **Prioritization rationale** section at the top of `docs/schedule.md` if any new principle was applied that is not already documented there.
-- Do NOT renumber sections — insert items within the appropriate existing section or add a new section with the next available number.
-- Record any reordering in the review summary under a new **Schedule reordering** heading.
-
-## 6. Validate (docs only — no code was changed)
+## 5. Validate (docs only — no code was changed)
 
 Run a quick sanity check:
 
@@ -147,9 +129,9 @@ go build ./...
 
 If this fails, note it in the review summary but do NOT attempt to fix code — that belongs in a `/backlog` session.
 
-## 7. Commit and push
+## 6. Commit and push
 
-Stage only the files you changed in Phase 4 and 5. Commit with:
+Stage only the files you changed in Phase 4. Commit with:
 
 ```
 docs: periodic review findings $(date +%Y-%m-%d)
@@ -176,9 +158,6 @@ Periodic project health review — doc fixes, schedule corrections, and tech deb
 ## Schedule corrections
 <what was corrected>
 
-## Schedule reordering
-<any items moved for dependency/rework-avoidance reasons>
-
 ## Decisions needed from owner
 <copy the questions added to pending-input-required.md, each tagged clearly>
 
@@ -188,7 +167,7 @@ Periodic project health review — doc fixes, schedule corrections, and tech deb
 🤖 Generated with [Claude Code](https://claude.com/claude-code)
 ```
 
-## 8. Report
+## 7. Report
 
 Print a concise summary of:
 - **Branch**: name of the working branch
@@ -196,6 +175,5 @@ Print a concise summary of:
 - **Doc issues found**: count and severity
 - **Code issues found**: count and severity
 - **Schedule corrections**: what changed
-- **Schedule reordering**: any items moved and why
 - **Decisions needed**: how many, brief topic list — these are in the PR description and in `docs/tech-debt/pending-input-required.md` tagged `<!-- BACKLOG-PROMPT -->` so `/backlog` will surface them next session
-- **Next suggested `/backlog` item**: based on what you found
+- **Suggested next step**: run `/groom` to reprioritize the schedule based on these new findings

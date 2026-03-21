@@ -280,6 +280,7 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	bodyString := string(bodyBytes)
 	if len(bodyString) > 4096 {
+		bodyTruncated = true
 		bodyString = bodyString[:4096]
 	}
 

@@ -84,12 +84,12 @@ A FlowRun is `Succeeded` only when all non-skipped steps reach `Succeeded`. A si
 
 FlowRuns are always created by KubeZap components — never directly by users (though you can create them manually for testing).
 
-| Creator | Trigger Type | FlowRun Naming Pattern |
-|---|---|---|
-| `kubezap-webhook-gateway` | `spec.type: webhook` | `<trigger-name>-<timestamp>-<random>` |
-| `kubezap-kafka-gateway` | `spec.type: pubsub` (Kafka) | `<trigger-name>-p<partition>-offset-<offset>` |
-| `kubezap-controller` | `spec.type: cron` | `<trigger-name>-<scheduled-time>` |
-| `kubezap-controller` | Kubernetes resource events _(planned)_ | `<trigger-name>-<object-uid>-<resourceVersion>` |
+| Creator                   | Trigger Type                           | FlowRun Naming Pattern                          |
+| ------------------------- | -------------------------------------- | ----------------------------------------------- |
+| `kubezap-webhook-gateway` | `spec.type: webhook`                   | `<trigger-name>-<timestamp>-<random>`           |
+| `kubezap-kafka-gateway`   | `spec.type: pubsub` (Kafka)            | `<trigger-name>-p<partition>-offset-<offset>`   |
+| `kubezap-controller`      | `spec.type: cron`                      | `<trigger-name>-<scheduled-time>`               |
+| `kubezap-controller`      | Kubernetes resource events _(planned)_ | `<trigger-name>-<object-uid>-<resourceVersion>` |
 
 The Kafka naming convention (`-p0-offset-12345`) is the deduplication key — see [Deduplication](#deduplication).
 
@@ -99,46 +99,46 @@ The Kafka naming convention (`-p0-offset-12345`) is the deduplication key — se
 
 ### FlowRunSpec
 
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `flowRef` | LocalObjectReference | **Yes** | Name of the `Flow` to execute. Must be in the same namespace. |
-| `params` | []ParamValue | No | Input parameters passed to the Flow. Must satisfy the Flow's `params` declarations. |
-| `triggerRef` | TriggerReference | No | Reference to the Trigger that created this FlowRun. |
-| `triggerData` | TriggerData | No | Snapshot of the triggering event (payload, metadata). |
-| `ttlAfterFinished` | duration | No | How long to retain the FlowRun after it reaches a terminal phase. Overrides the operator-level default. Examples: `24h`, `7d`. Set to `0` to delete immediately. |
+| Field              | Type                 | Required | Description                                                                                                                                                      |
+| ------------------ | -------------------- | -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `flowRef`          | LocalObjectReference | **Yes**  | Name of the `Flow` to execute. Must be in the same namespace.                                                                                                    |
+| `params`           | []ParamValue         | No       | Input parameters passed to the Flow. Must satisfy the Flow's `params` declarations.                                                                              |
+| `triggerRef`       | TriggerReference     | No       | Reference to the Trigger that created this FlowRun.                                                                                                              |
+| `triggerData`      | TriggerData          | No       | Snapshot of the triggering event (payload, metadata).                                                                                                            |
+| `ttlAfterFinished` | duration             | No       | How long to retain the FlowRun after it reaches a terminal phase. Overrides the operator-level default. Examples: `24h`, `7d`. Set to `0` to delete immediately. |
 
 ### TriggerReference
 
-| Field | Type | Description |
-|---|---|---|
+| Field  | Type   | Description                                   |
+| ------ | ------ | --------------------------------------------- |
 | `name` | string | Name of the Trigger that created this FlowRun |
-| `type` | string | Trigger type: `webhook`, `cron`, `pubsub` |
+| `type` | string | Trigger type: `webhook`, `cron`, `pubsub`     |
 
 ### TriggerData
 
 Snapshot of the event that caused this FlowRun. The full set of fields depends on the trigger type; unpopulated fields are omitted.
 
-| Field | Type | Description |
-|---|---|---|
-| `source` | string | `webhook`, `cron`, `kafka`, `kubernetes-event` |
-| `method` | string | HTTP method (webhook only) |
-| `path` | string | URL path (webhook only) |
-| `headers` | map[string]string | Request headers (webhook only; sensitive headers redacted) |
-| `topic` | string | Kafka topic (pubsub only) |
-| `partition` | integer | Kafka partition (pubsub only) |
-| `offset` | integer | Kafka message offset (pubsub only) |
-| `kafkaHeaders` | map[string]string | Kafka message headers (pubsub only) |
-| `scheduledTime` | timestamp | Scheduled fire time (cron only) |
-| `body` | string | Request or message body (truncated at 4KB) |
-| `bodyTruncated` | boolean | `true` if the body exceeded 4KB and was truncated |
-| `contentType` | string | Content-Type of the body |
+| Field           | Type              | Description                                                |
+| --------------- | ----------------- | ---------------------------------------------------------- |
+| `source`        | string            | `webhook`, `cron`, `kafka`, `kubernetes-event`             |
+| `method`        | string            | HTTP method (webhook only)                                 |
+| `path`          | string            | URL path (webhook only)                                    |
+| `headers`       | map[string]string | Request headers (webhook only; sensitive headers redacted) |
+| `topic`         | string            | Kafka topic (pubsub only)                                  |
+| `partition`     | integer           | Kafka partition (pubsub only)                              |
+| `offset`        | integer           | Kafka message offset (pubsub only)                         |
+| `kafkaHeaders`  | map[string]string | Kafka message headers (pubsub only)                        |
+| `scheduledTime` | timestamp         | Scheduled fire time (cron only)                            |
+| `body`          | string            | Request or message body (truncated at 4KB)                 |
+| `bodyTruncated` | boolean           | `true` if the body exceeded 4KB and was truncated          |
+| `contentType`   | string            | Content-Type of the body                                   |
 
 ### ParamValue
 
-| Field | Type | Description |
-|---|---|---|
-| `name` | string | Parameter name (must match a `Flow.spec.params` declaration) |
-| `value` | string | Parameter value |
+| Field   | Type   | Description                                                  |
+| ------- | ------ | ------------------------------------------------------------ |
+| `name`  | string | Parameter name (must match a `Flow.spec.params` declaration) |
+| `value` | string | Parameter value                                              |
 
 ---
 
@@ -146,42 +146,42 @@ Snapshot of the event that caused this FlowRun. The full set of fields depends o
 
 ### FlowRunStatus
 
-| Field | Type | Description |
-|---|---|---|
-| `phase` | string | Overall execution phase: `Pending`, `Running`, `Waiting`, `Succeeded`, `Failed`, `Cancelled` |
-| `conditions` | []Condition | Standard conditions (see below) |
-| `startTime` | timestamp | When the controller began executing the FlowRun |
-| `completionTime` | timestamp | When the FlowRun reached a terminal phase |
-| `steps` | []StepRunStatus | Per-step execution status (see below) |
-| `message` | string | Human-readable summary, especially on failure |
+| Field            | Type            | Description                                                                                  |
+| ---------------- | --------------- | -------------------------------------------------------------------------------------------- |
+| `phase`          | string          | Overall execution phase: `Pending`, `Running`, `Waiting`, `Succeeded`, `Failed`, `Cancelled` |
+| `conditions`     | []Condition     | Standard conditions (see below)                                                              |
+| `startTime`      | timestamp       | When the controller began executing the FlowRun                                              |
+| `completionTime` | timestamp       | When the FlowRun reached a terminal phase                                                    |
+| `steps`          | []StepRunStatus | Per-step execution status (see below)                                                        |
+| `message`        | string          | Human-readable summary, especially on failure                                                |
 
 ### Conditions
 
-| Type | Status | Meaning |
-|---|---|---|
-| `Succeeded` | `True` | All steps completed successfully |
-| `Succeeded` | `False` | One or more steps failed |
-| `Running` | `True` | Execution is in progress |
+| Type        | Status  | Meaning                          |
+| ----------- | ------- | -------------------------------- |
+| `Succeeded` | `True`  | All steps completed successfully |
+| `Succeeded` | `False` | One or more steps failed         |
+| `Running`   | `True`  | Execution is in progress         |
 
 ### StepRunStatus
 
-| Field | Type | Description |
-|---|---|---|
-| `name` | string | Step name (matches `Flow.spec.steps[].name`) |
-| `phase` | string | `Pending`, `Running`, `Succeeded`, `Failed`, `Skipped`, `Waiting` |
-| `startTime` | timestamp | When this step began executing |
-| `completionTime` | timestamp | When this step reached a terminal phase |
-| `attempts` | integer | Number of execution attempts (1 on first try; incremented on retry) |
-| `message` | string | Error message or skip reason |
-| `results` | []ResultValue | Output values produced by this step |
-| `resumeAfter` | timestamp | Set by wait steps: the time after which the controller will re-evaluate this step. Persisted in status so it survives controller restarts. |
+| Field            | Type          | Description                                                                                                                                |
+| ---------------- | ------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| `name`           | string        | Step name (matches `Flow.spec.steps[].name`)                                                                                               |
+| `phase`          | string        | `Pending`, `Running`, `Succeeded`, `Failed`, `Skipped`, `Waiting`                                                                          |
+| `startTime`      | timestamp     | When this step began executing                                                                                                             |
+| `completionTime` | timestamp     | When this step reached a terminal phase                                                                                                    |
+| `attempts`       | integer       | Number of execution attempts (1 on first try; incremented on retry)                                                                        |
+| `message`        | string        | Error message or skip reason                                                                                                               |
+| `results`        | []ResultValue | Output values produced by this step                                                                                                        |
+| `resumeAfter`    | timestamp     | Set by wait steps: the time after which the controller will re-evaluate this step. Persisted in status so it survives controller restarts. |
 
 ### ResultValue
 
-| Field | Type | Description |
-|---|---|---|
-| `name` | string | Result name (matches `Flow.spec.steps[].results[].name`) |
-| `value` | string | Result value captured from the step output |
+| Field   | Type   | Description                                              |
+| ------- | ------ | -------------------------------------------------------- |
+| `name`  | string | Result name (matches `Flow.spec.steps[].results[].name`) |
+| `value` | string | Result value captured from the step output               |
 
 ### Printer Columns
 
@@ -400,16 +400,16 @@ spec:
 
 ## kubectl Reference
 
-| Command | Description |
-|---|---|
-| `kubectl get flowruns -n <ns>` | List all FlowRuns with phase and age |
-| `kubectl get flowrun <name> -n <ns> -o yaml` | Full spec and status |
-| `kubectl get flowrun <name> -n <ns> -o jsonpath='{.status.steps}'` | Step statuses |
-| `kubectl get flowruns -n <ns> -l kubezap.io/trigger=<trigger-name>` | All FlowRuns for a trigger |
-| `kubectl get flowruns -n <ns> --field-selector=status.phase=Failed` | All failed FlowRuns |
-| `kubectl annotate flowrun <name> -n <ns> kubezap.io/cancel=true` | Cancel a running FlowRun |
-| `kubectl annotate flowrun <name> -n <ns> kubezap.io/retain=true` | Exempt from garbage collection |
-| `kubectl delete flowrun <name> -n <ns>` | Delete a FlowRun manually |
+| Command                                                             | Description                          |
+| ------------------------------------------------------------------- | ------------------------------------ |
+| `kubectl get flowruns -n <ns>`                                      | List all FlowRuns with phase and age |
+| `kubectl get flowrun <name> -n <ns> -o yaml`                        | Full spec and status                 |
+| `kubectl get flowrun <name> -n <ns> -o jsonpath='{.status.steps}'`  | Step statuses                        |
+| `kubectl get flowruns -n <ns> -l kubezap.io/trigger=<trigger-name>` | All FlowRuns for a trigger           |
+| `kubectl get flowruns -n <ns> --field-selector=status.phase=Failed` | All failed FlowRuns                  |
+| `kubectl annotate flowrun <name> -n <ns> kubezap.io/cancel=true`    | Cancel a running FlowRun             |
+| `kubectl annotate flowrun <name> -n <ns> kubezap.io/retain=true`    | Exempt from garbage collection       |
+| `kubectl delete flowrun <name> -n <ns>`                             | Delete a FlowRun manually            |
 
 ### Watch a FlowRun execute in real time
 

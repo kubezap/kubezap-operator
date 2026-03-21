@@ -162,14 +162,14 @@ escalate             Skipped    ← when condition was false
 
 ## What this demonstrates
 
-| Feature | How it shows up |
-|---------|-----------------|
-| Webhook trigger | `curl` to `/hooks/alert` creates a FlowRun |
-| Parallel steps | `page-oncall` and `trigger-mitigation` run concurrently |
-| Wait step | `wait-for-resolution` pauses the flow for 2 minutes |
-| Step result passing | `resultMappings` captures the health check response |
-| Conditional escalation | `when` expression determines whether `escalate` runs |
-| Skipped steps | `escalate` is `Skipped` when the condition is false |
+| Feature                | How it shows up                                         |
+| ---------------------- | ------------------------------------------------------- |
+| Webhook trigger        | `curl` to `/hooks/alert` creates a FlowRun              |
+| Parallel steps         | `page-oncall` and `trigger-mitigation` run concurrently |
+| Wait step              | `wait-for-resolution` pauses the flow for 2 minutes     |
+| Step result passing    | `resultMappings` captures the health check response     |
+| Conditional escalation | `when` expression determines whether `escalate` runs    |
+| Skipped steps          | `escalate` is `Skipped` when the condition is false     |
 
 ---
 

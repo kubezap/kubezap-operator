@@ -10,17 +10,29 @@ The contract is versioned. Breaking changes will increment the version and be an
 
 ## Contents
 
-- [Overview](#overview)
-- [Subscriber Contract](#subscriber-contract)
-- [Publisher Contract](#publisher-contract)
-- [Health Check](#health-check)
-- [Environment](#environment)
-- [FlowRun Schema](#flowrun-schema)
-- [Dedup Key Requirements](#dedup-key-requirements)
-- [Observability](#observability)
-- [Security Considerations](#security-considerations)
-- [Graduation Path](#graduation-path)
-- [Reference Implementation](#reference-implementation)
+- [KubeZap Plugin Contract](#kubezap-plugin-contract)
+  - [Contents](#contents)
+  - [Overview](#overview)
+  - [Subscriber Contract](#subscriber-contract)
+    - [Trigger selection](#trigger-selection)
+    - [FlowRun creation](#flowrun-creation)
+    - [Handling duplicates](#handling-duplicates)
+    - [Offset/cursor commit](#offsetcursor-commit)
+    - [Dynamic subscription management](#dynamic-subscription-management)
+  - [Publisher Contract](#publisher-contract)
+    - [`POST /publish`](#post-publish)
+    - [Idempotency](#idempotency)
+  - [Health Check](#health-check)
+  - [Environment](#environment)
+    - [In-cluster Kubernetes access](#in-cluster-kubernetes-access)
+  - [FlowRun Schema](#flowrun-schema)
+  - [Dedup Key Requirements](#dedup-key-requirements)
+  - [Observability](#observability)
+    - [Logging](#logging)
+    - [Trace context propagation](#trace-context-propagation)
+  - [Security Considerations](#security-considerations)
+  - [Graduation Path](#graduation-path)
+  - [Reference Implementation](#reference-implementation)
 
 ---
 
@@ -196,12 +208,12 @@ The operator uses this as the Deployment readiness probe. The plugin should retu
 
 The operator injects these environment variables into the plugin container:
 
-| Variable | Description |
-|---|---|
-| `KUBEZAP_NAMESPACE` | The namespace this plugin instance serves |
-| `KUBEZAP_INTEGRATION_NAME` | Name of the `Integration` CRD |
-| `KUBEZAP_PUBLISHER_PORT` | Port to listen on for publisher calls (default: `8090`) |
-| `KUBEZAP_LOG_LEVEL` | `debug`, `info`, `warn`, or `error` |
+| Variable                   | Description                                             |
+| -------------------------- | ------------------------------------------------------- |
+| `KUBEZAP_NAMESPACE`        | The namespace this plugin instance serves               |
+| `KUBEZAP_INTEGRATION_NAME` | Name of the `Integration` CRD                           |
+| `KUBEZAP_PUBLISHER_PORT`   | Port to listen on for publisher calls (default: `8090`) |
+| `KUBEZAP_LOG_LEVEL`        | `debug`, `info`, `warn`, or `error`                     |
 
 Secrets referenced in `spec.plugin.secretRefs` are injected as the environment variable names you define in `envVarMappings`. Non-sensitive config values in `spec.plugin.config` are also injected directly as environment variables.
 
@@ -227,15 +239,15 @@ The plugin must use in-cluster config (`rest.InClusterConfig()`) to access the K
 
 Reference the full FlowRun spec in [docs/api/flowrun.md](./flowrun.md). Key fields for plugin authors:
 
-| Field | Type | Description |
-|---|---|---|
-| `spec.flowRef.name` | string | Name of the Flow to execute. Copy from `trigger.spec.flowRef.name`. |
-| `spec.triggerRef.name` | string | Name of the Trigger that caused this FlowRun. |
-| `spec.params` | []ParamValue | Input parameters extracted from the message payload. |
-| `spec.triggerData.source` | string | Set to `"pubsub"` for all plugin-created FlowRuns. |
-| `spec.triggerData.body` | string | Raw message body. |
-| `spec.triggerData.headers` | map[string]string | Message headers or properties. |
-| `spec.ttlAfterFinished` | Duration | Optional. Override the operator-level TTL for this FlowRun. |
+| Field                      | Type              | Description                                                         |
+| -------------------------- | ----------------- | ------------------------------------------------------------------- |
+| `spec.flowRef.name`        | string            | Name of the Flow to execute. Copy from `trigger.spec.flowRef.name`. |
+| `spec.triggerRef.name`     | string            | Name of the Trigger that caused this FlowRun.                       |
+| `spec.params`              | []ParamValue      | Input parameters extracted from the message payload.                |
+| `spec.triggerData.source`  | string            | Set to `"pubsub"` for all plugin-created FlowRuns.                  |
+| `spec.triggerData.body`    | string            | Raw message body.                                                   |
+| `spec.triggerData.headers` | map[string]string | Message headers or properties.                                      |
+| `spec.ttlAfterFinished`    | Duration          | Optional. Override the operator-level TTL for this FlowRun.         |
 
 ---
 
@@ -249,12 +261,12 @@ The FlowRun name is the dedup key. Requirements:
 
 Recommended naming patterns:
 
-| System type | Recommended key | Example |
-|---|---|---|
-| Offset-based (Kafka-style) | partition + offset | `my-trigger-p3-offset-1042` |
-| Message ID | message ID | `my-trigger-msg-abc123def` |
-| Content-addressed | SHA-256 prefix of body | `my-trigger-sha-a3f9b2` |
-| No natural key available | timestamp + random | `my-trigger-1741046400-xk9z` (last resort) |
+| System type                | Recommended key        | Example                                    |
+| -------------------------- | ---------------------- | ------------------------------------------ |
+| Offset-based (Kafka-style) | partition + offset     | `my-trigger-p3-offset-1042`                |
+| Message ID                 | message ID             | `my-trigger-msg-abc123def`                 |
+| Content-addressed          | SHA-256 prefix of body | `my-trigger-sha-a3f9b2`                    |
+| No natural key available   | timestamp + random     | `my-trigger-1741046400-xk9z` (last resort) |
 
 Timestamp + random is acceptable but provides no dedup guarantee on retry. Prefer deterministic keys wherever the external system provides them.
 

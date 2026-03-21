@@ -17,13 +17,13 @@ needed to run it.
 
 ## Examples
 
-| Example | Trigger | What it demonstrates |
-|---------|---------|----------------------|
-| [order-router](order-router/) | Webhook | Core feature tour: transform, CEL branching, MockEndpoints |
-| [kafka-enrichment](kafka-enrichment/) | Kafka | Event enrichment pipeline: enrich → conditional route → re-publish |
-| [incident-escalation](incident-escalation/) | Webhook | Parallel steps, wait/resume, conditional escalation |
-| [github-autolabel](github-autolabel/) | Webhook (HMAC) | HMAC auth, header extraction, GitHub API integration |
-| [slack-router](slack-router/) | Webhook (HMAC + IP allowlist) | Form-encoded payload, multi-branch CEL routing, fire-and-forget |
+| Example                                     | Trigger                       | What it demonstrates                                               |
+| ------------------------------------------- | ----------------------------- | ------------------------------------------------------------------ |
+| [order-router](order-router/)               | Webhook                       | Core feature tour: transform, CEL branching, MockEndpoints         |
+| [kafka-enrichment](kafka-enrichment/)       | Kafka                         | Event enrichment pipeline: enrich → conditional route → re-publish |
+| [incident-escalation](incident-escalation/) | Webhook                       | Parallel steps, wait/resume, conditional escalation                |
+| [github-autolabel](github-autolabel/)       | Webhook (HMAC)                | HMAC auth, header extraction, GitHub API integration               |
+| [slack-router](slack-router/)               | Webhook (HMAC + IP allowlist) | Form-encoded payload, multi-branch CEL routing, fire-and-forget    |
 
 ---
 

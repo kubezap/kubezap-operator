@@ -99,15 +99,15 @@ KubeZap uses standard [Quartz/cron](https://en.wikipedia.org/wiki/Cron#CRON_expr
 
 Common examples:
 
-| Schedule | When |
-|---|---|
-| `* * * * *` | Every minute |
-| `*/15 * * * *` | Every 15 minutes |
-| `0 * * * *` | Top of every hour |
-| `0 2 * * *` | 2:00 AM daily |
-| `0 2 * * 1` | 2:00 AM every Monday |
-| `0 0 1 * *` | Midnight on the 1st of every month |
-| `30 8 * * 1-5` | 8:30 AM Mon–Fri |
+| Schedule       | When                               |
+| -------------- | ---------------------------------- |
+| `* * * * *`    | Every minute                       |
+| `*/15 * * * *` | Every 15 minutes                   |
+| `0 * * * *`    | Top of every hour                  |
+| `0 2 * * *`    | 2:00 AM daily                      |
+| `0 2 * * 1`    | 2:00 AM every Monday               |
+| `0 0 1 * *`    | Midnight on the 1st of every month |
+| `30 8 * * 1-5` | 8:30 AM Mon–Fri                    |
 
 Use [crontab.guru](https://crontab.guru) to interactively build and verify expressions.
 
@@ -129,15 +129,15 @@ The timezone value must be a valid [IANA timezone name](https://en.wikipedia.org
 
 Common timezones:
 
-| Timezone | UTC offset (winter) |
-|---|---|
-| `America/New_York` | UTC-5 |
-| `America/Chicago` | UTC-6 |
-| `America/Los_Angeles` | UTC-8 |
-| `Europe/London` | UTC+0 |
-| `Europe/Berlin` | UTC+1 |
-| `Asia/Tokyo` | UTC+9 |
-| `Australia/Sydney` | UTC+11 |
+| Timezone              | UTC offset (winter) |
+| --------------------- | ------------------- |
+| `America/New_York`    | UTC-5               |
+| `America/Chicago`     | UTC-6               |
+| `America/Los_Angeles` | UTC-8               |
+| `Europe/London`       | UTC+0               |
+| `Europe/Berlin`       | UTC+1               |
+| `Asia/Tokyo`          | UTC+9               |
+| `Australia/Sydney`    | UTC+11              |
 
 ---
 
@@ -158,11 +158,11 @@ The timestamp is the scheduled fire time (not the actual execution time). This i
 
 Cron triggers do not have an incoming payload, but the scheduled time is available:
 
-| Expression | Value |
-|---|---|
-| `$(trigger.name)` | Name of the Trigger CRD |
-| `$(trigger.namespace)` | Namespace |
-| `$(trigger.type)` | `cron` |
+| Expression                 | Value                                         |
+| -------------------------- | --------------------------------------------- |
+| `$(trigger.name)`          | Name of the Trigger CRD                       |
+| `$(trigger.namespace)`     | Namespace                                     |
+| `$(trigger.type)`          | `cron`                                        |
 | `$(trigger.scheduledTime)` | ISO 8601 timestamp of the scheduled fire time |
 
 Example — include the scheduled time in the report request:

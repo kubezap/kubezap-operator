@@ -350,7 +350,7 @@ Replace the MockEndpoint URL in the `export-data` step with your actual database
 export service endpoint. The flow expects the response to contain at minimum:
 
 | Field      | Type   | Description                       |
-|------------|--------|-----------------------------------|
+| ---------- | ------ | --------------------------------- |
 | `exportId` | string | Unique identifier for this export |
 | `rowCount` | number | Total rows exported               |
 | `status`   | string | `"completed"` or `"partial"`      |

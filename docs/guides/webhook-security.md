@@ -8,31 +8,44 @@ Authentication is configured per `Trigger`, so different triggers can use differ
 
 ## Contents
 
-- [Authentication Methods](#authentication-methods)
-- [HMAC Signature Verification](#hmac-signature-verification)
-- [Bearer Token](#bearer-token)
-- [OIDC / OAuth2 JWT](#oidc--oauth2-jwt)
-- [Basic Auth](#basic-auth)
-- [mTLS (Client Certificate)](#mtls-client-certificate)
-- [API Key Header](#api-key-header)
-- [IP Allowlist](#ip-allowlist)
-- [Combining Methods](#combining-methods)
-- [Auth Spec Reference](#auth-spec-reference)
-- [Limitations](#limitations)
+- [Securing Webhook Triggers](#securing-webhook-triggers)
+  - [Contents](#contents)
+  - [Authentication Methods](#authentication-methods)
+  - [HMAC Signature Verification](#hmac-signature-verification)
+  - [Bearer Token](#bearer-token)
+  - [OIDC / OAuth2 JWT](#oidc--oauth2-jwt)
+  - [Basic Auth](#basic-auth)
+  - [mTLS (Client Certificate)](#mtls-client-certificate)
+    - [Prerequisites](#prerequisites)
+    - [Configuration](#configuration)
+    - [What the operator does](#what-the-operator-does)
+    - [Calling the webhook with a client certificate](#calling-the-webhook-with-a-client-certificate)
+    - [Ingress / Route passthrough](#ingress--route-passthrough)
+  - [API Key Header](#api-key-header)
+  - [IP Allowlist](#ip-allowlist)
+  - [Combining Methods](#combining-methods)
+  - [Auth Spec Reference](#auth-spec-reference)
+    - [WebhookAuth](#webhookauth)
+    - [HMACAuth](#hmacauth)
+    - [BearerAuth](#bearerauth)
+    - [OIDCAuth](#oidcauth)
+    - [BasicAuth](#basicauth)
+    - [HeaderEqualsAuth](#headerequalsauth)
+  - [Limitations](#limitations)
 
 ---
 
 ## Authentication Methods
 
-| Method | Best for | Secret type |
-|---|---|---|
-| HMAC signature | GitHub, GitLab, Stripe, and most SaaS webhook senders | Opaque (shared secret) |
-| Bearer token | Internal services, simple API clients | Opaque |
-| OIDC / OAuth2 JWT | Enterprise SSO, services with identity providers | OIDC config or JWKS URL |
-| Basic auth | Legacy systems | Opaque (username + password) |
-| mTLS | Service-to-service in zero-trust environments | TLS Secret (cert + key) |
-| API key header | Simple integrations, custom header names | Opaque |
-| IP allowlist | Network-layer restriction (not auth, but defense in depth) | N/A |
+| Method            | Best for                                                   | Secret type                  |
+| ----------------- | ---------------------------------------------------------- | ---------------------------- |
+| HMAC signature    | GitHub, GitLab, Stripe, and most SaaS webhook senders      | Opaque (shared secret)       |
+| Bearer token      | Internal services, simple API clients                      | Opaque                       |
+| OIDC / OAuth2 JWT | Enterprise SSO, services with identity providers           | OIDC config or JWKS URL      |
+| Basic auth        | Legacy systems                                             | Opaque (username + password) |
+| mTLS              | Service-to-service in zero-trust environments              | TLS Secret (cert + key)      |
+| API key header    | Simple integrations, custom header names                   | Opaque                       |
+| IP allowlist      | Network-layer restriction (not auth, but defense in depth) | N/A                          |
 
 Authentication is declared in the `Trigger` spec under `spec.webhook.auth`. When authentication fails, the gateway returns `401 Unauthorized` with no body and does not create a FlowRun.
 
@@ -77,12 +90,12 @@ kubectl create secret generic github-webhook-secret \
 
 **Common HMAC configurations by provider:**
 
-| Provider | Header | Algorithm | Prefix |
-|---|---|---|---|
-| GitHub | `X-Hub-Signature-256` | `sha256` | `sha256=` |
-| GitLab | `X-Gitlab-Token` | (token equality, not HMAC) | — |
-| Stripe | `Stripe-Signature` | `sha256` | `v1=` |
-| Shopify | `X-Shopify-Hmac-Sha256` | `sha256` | `""` (base64, not hex) |
+| Provider | Header                  | Algorithm                  | Prefix                 |
+| -------- | ----------------------- | -------------------------- | ---------------------- |
+| GitHub   | `X-Hub-Signature-256`   | `sha256`                   | `sha256=`              |
+| GitLab   | `X-Gitlab-Token`        | (token equality, not HMAC) | —                      |
+| Stripe   | `Stripe-Signature`      | `sha256`                   | `v1=`                  |
+| Shopify  | `X-Shopify-Hmac-Sha256` | `sha256`                   | `""` (base64, not hex) |
 
 > For GitLab token verification (header equality rather than HMAC), use `type: header-equals` — see [API Key Header](#api-key-header).
 
@@ -379,58 +392,58 @@ spec:
 
 ### WebhookAuth
 
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `type` | enum | No | Auth method: `hmac`, `bearer`, `oidc`, `basic`, `apiKey`, `ipAllowlist`. Omit for no authentication. mTLS is configured at the transport layer via Namespace annotations — see [mTLS (Client Certificate)](#mtls-client-certificate). |
-| `hmac` | HMACAuth | Conditional | Required when `type: hmac` |
-| `bearer` | BearerAuth | Conditional | Required when `type: bearer` |
-| `oidc` | OIDCAuth | Conditional | Required when `type: oidc` |
-| `basic` | BasicAuth | Conditional | Required when `type: basic` |
-| `apiKeySecretRef` | SecretKeySelector | Conditional | Secret key containing the API key value. Used when `type: apiKey` |
-| `apiKeyHeader` | string | No | Header name to check (default: `X-Api-Key`). Used when `type: apiKey` |
-| `ipAllowlist` | []string | No | CIDR ranges allowed to call this endpoint. Combinable with any `type`. |
-| `trustedProxies` | []string | No | CIDR ranges of trusted proxy IPs for X-Forwarded-For header processing |
+| Field             | Type              | Required    | Description                                                                                                                                                                                                                           |
+| ----------------- | ----------------- | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `type`            | enum              | No          | Auth method: `hmac`, `bearer`, `oidc`, `basic`, `apiKey`, `ipAllowlist`. Omit for no authentication. mTLS is configured at the transport layer via Namespace annotations — see [mTLS (Client Certificate)](#mtls-client-certificate). |
+| `hmac`            | HMACAuth          | Conditional | Required when `type: hmac`                                                                                                                                                                                                            |
+| `bearer`          | BearerAuth        | Conditional | Required when `type: bearer`                                                                                                                                                                                                          |
+| `oidc`            | OIDCAuth          | Conditional | Required when `type: oidc`                                                                                                                                                                                                            |
+| `basic`           | BasicAuth         | Conditional | Required when `type: basic`                                                                                                                                                                                                           |
+| `apiKeySecretRef` | SecretKeySelector | Conditional | Secret key containing the API key value. Used when `type: apiKey`                                                                                                                                                                     |
+| `apiKeyHeader`    | string            | No          | Header name to check (default: `X-Api-Key`). Used when `type: apiKey`                                                                                                                                                                 |
+| `ipAllowlist`     | []string          | No          | CIDR ranges allowed to call this endpoint. Combinable with any `type`.                                                                                                                                                                |
+| `trustedProxies`  | []string          | No          | CIDR ranges of trusted proxy IPs for X-Forwarded-For header processing                                                                                                                                                                |
 
 ### HMACAuth
 
-| Field | Type | Required | Default | Description |
-|---|---|---|---|---|
-| `secretRef` | SecretKeyRef | **Yes** | — | Secret containing the HMAC signing key |
-| `header` | string | **Yes** | — | Request header containing the signature |
-| `algorithm` | enum | No | `sha256` | Hash algorithm: `sha1`, `sha256`, `sha512` |
-| `prefix` | string | No | `""` | Prefix stripped from the header value before comparison (e.g., `"sha256="`) |
-| `encoding` | enum | No | `hex` | Signature encoding: `hex` or `base64` |
+| Field       | Type         | Required | Default  | Description                                                                 |
+| ----------- | ------------ | -------- | -------- | --------------------------------------------------------------------------- |
+| `secretRef` | SecretKeyRef | **Yes**  | —        | Secret containing the HMAC signing key                                      |
+| `header`    | string       | **Yes**  | —        | Request header containing the signature                                     |
+| `algorithm` | enum         | No       | `sha256` | Hash algorithm: `sha1`, `sha256`, `sha512`                                  |
+| `prefix`    | string       | No       | `""`     | Prefix stripped from the header value before comparison (e.g., `"sha256="`) |
+| `encoding`  | enum         | No       | `hex`    | Signature encoding: `hex` or `base64`                                       |
 
 ### BearerAuth
 
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `secretRef` | SecretKeyRef | **Yes** | Secret containing the expected bearer token value |
+| Field       | Type         | Required | Description                                       |
+| ----------- | ------------ | -------- | ------------------------------------------------- |
+| `secretRef` | SecretKeyRef | **Yes**  | Secret containing the expected bearer token value |
 
 ### OIDCAuth
 
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `issuer` | string | Conditional | OIDC issuer URL. Used for discovery and `iss` claim validation. Required if `jwksUri` is not set. |
-| `jwksUri` | string | Conditional | Direct JWKS endpoint URL. Required if `issuer` does not support OIDC discovery. |
-| `audience` | string | No | Expected `aud` claim value. Recommended. |
-| `requiredClaims` | []ClaimRequirement | No | Additional claims that must be present and match the specified value |
-| `jwksCacheTTL` | duration | No | How long to cache JWKS keys (default `1h`) |
+| Field            | Type               | Required    | Description                                                                                       |
+| ---------------- | ------------------ | ----------- | ------------------------------------------------------------------------------------------------- |
+| `issuer`         | string             | Conditional | OIDC issuer URL. Used for discovery and `iss` claim validation. Required if `jwksUri` is not set. |
+| `jwksUri`        | string             | Conditional | Direct JWKS endpoint URL. Required if `issuer` does not support OIDC discovery.                   |
+| `audience`       | string             | No          | Expected `aud` claim value. Recommended.                                                          |
+| `requiredClaims` | []ClaimRequirement | No          | Additional claims that must be present and match the specified value                              |
+| `jwksCacheTTL`   | duration           | No          | How long to cache JWKS keys (default `1h`)                                                        |
 
 ### BasicAuth
 
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `secretRef` | SecretKeyRef | Conditional | Secret containing `username:password` string. Mutually exclusive with username/password refs. |
-| `usernameSecretRef` | SecretKeyRef | Conditional | Secret key containing the username |
-| `passwordSecretRef` | SecretKeyRef | Conditional | Secret key containing the password |
+| Field               | Type         | Required    | Description                                                                                   |
+| ------------------- | ------------ | ----------- | --------------------------------------------------------------------------------------------- |
+| `secretRef`         | SecretKeyRef | Conditional | Secret containing `username:password` string. Mutually exclusive with username/password refs. |
+| `usernameSecretRef` | SecretKeyRef | Conditional | Secret key containing the username                                                            |
+| `passwordSecretRef` | SecretKeyRef | Conditional | Secret key containing the password                                                            |
 
 ### HeaderEqualsAuth
 
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `header` | string | **Yes** | HTTP header name to check |
-| `secretRef` | SecretKeyRef | **Yes** | Secret containing the expected header value |
+| Field       | Type         | Required | Description                                 |
+| ----------- | ------------ | -------- | ------------------------------------------- |
+| `header`    | string       | **Yes**  | HTTP header name to check                   |
+| `secretRef` | SecretKeyRef | **Yes**  | Secret containing the expected header value |
 
 ---
 

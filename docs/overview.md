@@ -103,13 +103,13 @@ See [Architecture](architecture.md) for the full design including scaling, names
 
 ## CRD Overview
 
-| CRD | API Group | Scope | Status |
-|-----|-----------|-------|--------|
-| `Trigger` | `automation.kubezap.io/v1alpha1` | Namespaced | Available |
-| `Flow` | `automation.kubezap.io/v1alpha1` | Namespaced | Available |
-| `FlowRun` | `automation.kubezap.io/v1alpha1` | Namespaced | Available |
+| CRD           | API Group                        | Scope      | Status    |
+| ------------- | -------------------------------- | ---------- | --------- |
+| `Trigger`     | `automation.kubezap.io/v1alpha1` | Namespaced | Available |
+| `Flow`        | `automation.kubezap.io/v1alpha1` | Namespaced | Available |
+| `FlowRun`     | `automation.kubezap.io/v1alpha1` | Namespaced | Available |
 | `Integration` | `automation.kubezap.io/v1alpha1` | Namespaced | Available |
-| `Step` | `automation.kubezap.io/v1alpha1` | Namespaced | Planned |
+| `Step`        | `automation.kubezap.io/v1alpha1` | Namespaced | Planned   |
 
 All CRDs are namespaced by default. Cluster-scoped variants are planned for multi-tenant deployments.
 
@@ -426,10 +426,10 @@ For re-encrypt TLS (TLS all the way to the operator pod) or passthrough (mTLS), 
 
 The trigger body is available in flow steps and CEL conditions via `$(trigger.body)` (raw) and `$(trigger.body.<field>)` (top-level JSON field).
 
-| Expression | Description |
-|---|---|
-| `$(trigger.body)` | The full raw request body (string) |
-| `$(trigger.body.<field>)` | A top-level JSON field from the body |
+| Expression                    | Description                           |
+| ----------------------------- | ------------------------------------- |
+| `$(trigger.body)`             | The full raw request body (string)    |
+| `$(trigger.body.<field>)`     | A top-level JSON field from the body  |
 | `$(trigger.headers.<header>)` | A request header value (webhook only) |
 
 > **Current limitation**: `$(trigger.body.<field>)` only resolves **top-level JSON fields**. Nested access returns an empty string. For nested fields, use a `type: transform` step to extract them first. Full dot-path access is planned for a future release.
@@ -603,13 +603,13 @@ For a full setup walkthrough including namespace configuration and RBAC see [Get
 
 ## Compatibility
 
-| Platform | Status |
-|----------|--------|
-| Kubernetes 1.27+ | Supported |
-| Kubernetes 1.28+ (Gateway API) | Supported |
-| OpenShift 4.12+ | Supported (tested on OpenShift 4.12+; OLM bundle in progress) |
-| k3s | Tested (local development) |
-| EKS / GKE / AKS | Compatible (no cloud-specific dependencies) |
+| Platform                       | Status                                                        |
+| ------------------------------ | ------------------------------------------------------------- |
+| Kubernetes 1.27+               | Supported                                                     |
+| Kubernetes 1.28+ (Gateway API) | Supported                                                     |
+| OpenShift 4.12+                | Supported (tested on OpenShift 4.12+; OLM bundle in progress) |
+| k3s                            | Tested (local development)                                    |
+| EKS / GKE / AKS                | Compatible (no cloud-specific dependencies)                   |
 
 ---
 

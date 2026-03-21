@@ -6,18 +6,21 @@ This guide covers the most common issues when running KubeZap. Each section desc
 
 ## Contents
 
-- [Controller not starting](#controller-not-starting)
-- [Trigger not being accepted](#trigger-not-being-accepted)
-- [Webhook not receiving requests](#webhook-not-receiving-requests)
-- [FlowRun not being created](#flowrun-not-being-created)
-- [FlowRun stuck in Running](#flowrun-stuck-in-running)
-- [FlowRun stuck in Waiting](#flowrun-stuck-in-waiting)
-- [Step failing unexpectedly](#step-failing-unexpectedly)
-- [CEL expression errors](#cel-expression-errors)
-- [Mockoon not receiving requests](#mockoon-not-receiving-requests)
-- [Kafka gateway not consuming messages](#kafka-gateway-not-consuming-messages)
-- [RBAC and permission errors](#rbac-and-permission-errors)
-- [Using the kubezap CLI for debugging](#using-the-kubezap-cli-for-debugging)
+- [Troubleshooting](#troubleshooting)
+  - [Contents](#contents)
+  - [Controller not starting](#controller-not-starting)
+  - [Trigger not being accepted](#trigger-not-being-accepted)
+  - [Webhook not receiving requests](#webhook-not-receiving-requests)
+  - [FlowRun not being created](#flowrun-not-being-created)
+  - [FlowRun stuck in Running](#flowrun-stuck-in-running)
+  - [FlowRun stuck in Waiting](#flowrun-stuck-in-waiting)
+  - [Step failing unexpectedly](#step-failing-unexpectedly)
+  - [CEL expression errors](#cel-expression-errors)
+  - [Mockoon not receiving requests](#mockoon-not-receiving-requests)
+  - [Kafka gateway not consuming messages](#kafka-gateway-not-consuming-messages)
+  - [RBAC and permission errors](#rbac-and-permission-errors)
+  - [Using the kubezap CLI for debugging](#using-the-kubezap-cli-for-debugging)
+  - [Getting Help](#getting-help)
 
 ---
 
@@ -38,12 +41,12 @@ kubectl logs -n kubezap-system -l control-plane=controller-manager --previous
 
 **Common causes:**
 
-| Symptom in logs | Fix |
-|---|---|
-| `failed to get API group resources` | CRDs not installed. Run `kubectl apply -k config/crd` |
-| `leader election failed` | Multiple replicas, no leader-election lease. Set `--leader-elect=true` |
-| `forbidden: User ... cannot watch ...` | RBAC not applied. Run `kubectl apply -k config/rbac` |
-| `no endpoints available for service "kubezap-webhook-service"` | Service not created. Check kustomize apply output. |
+| Symptom in logs                                                | Fix                                                                    |
+| -------------------------------------------------------------- | ---------------------------------------------------------------------- |
+| `failed to get API group resources`                            | CRDs not installed. Run `kubectl apply -k config/crd`                  |
+| `leader election failed`                                       | Multiple replicas, no leader-election lease. Set `--leader-elect=true` |
+| `forbidden: User ... cannot watch ...`                         | RBAC not applied. Run `kubectl apply -k config/rbac`                   |
+| `no endpoints available for service "kubezap-webhook-service"` | Service not created. Check kustomize apply output.                     |
 
 ---
 
@@ -169,13 +172,13 @@ kubectl logs -n kubezap-system -l control-plane=controller-manager | grep <flowr
 
 **Common causes:**
 
-| Cause | Fix |
-|---|---|
-| HTTP step calling an unreachable URL | Verify the URL is reachable from inside the pod. Test with `kubectl run -it --rm --restart=Never --image=curlimages/curl test -- curl <url>` |
-| HTTP step `timeoutSeconds` too long | Add or reduce `spec.steps[*].action.http.timeoutSeconds` |
-| Flow-level `timeout` not set | Add `spec.timeout` to the Flow to bound total execution |
-| CEL expression error preventing step evaluation | Check controller logs for `CEL evaluation error` |
-| Finalizer not cleared after controller restart | The orphan FlowRun timeout (from the finalizer) should trigger after the configured limit. Force-reconcile by annotating the FlowRun. |
+| Cause                                           | Fix                                                                                                                                          |
+| ----------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| HTTP step calling an unreachable URL            | Verify the URL is reachable from inside the pod. Test with `kubectl run -it --rm --restart=Never --image=curlimages/curl test -- curl <url>` |
+| HTTP step `timeoutSeconds` too long             | Add or reduce `spec.steps[*].action.http.timeoutSeconds`                                                                                     |
+| Flow-level `timeout` not set                    | Add `spec.timeout` to the Flow to bound total execution                                                                                      |
+| CEL expression error preventing step evaluation | Check controller logs for `CEL evaluation error`                                                                                             |
+| Finalizer not cleared after controller restart  | The orphan FlowRun timeout (from the finalizer) should trigger after the configured limit. Force-reconcile by annotating the FlowRun.        |
 
 **Step 3 — Check if the controller is healthy:**
 ```bash
@@ -223,14 +226,14 @@ The `message` field in the step status contains the failure reason.
 
 **Common HTTP step failures:**
 
-| Symptom | Fix |
-|---|---|
-| `connection refused` / `dial tcp: connect: connection refused` | The target URL is not reachable. Check the URL and verify the service is running. |
+| Symptom                                                            | Fix                                                                                     |
+| ------------------------------------------------------------------ | --------------------------------------------------------------------------------------- |
+| `connection refused` / `dial tcp: connect: connection refused`     | The target URL is not reachable. Check the URL and verify the service is running.       |
 | `TLS handshake failed` / `certificate signed by unknown authority` | The target uses a self-signed or private CA. Add `kubezap.io/tls-ca-secret` annotation. |
-| `non-2xx response: 401` | The target requires authentication. Check headers and secrets. |
-| `non-2xx response: 503` | The target is temporarily unavailable. Add a `retryPolicy` to the step. |
-| `context deadline exceeded` | The step hit its `timeoutSeconds`. Increase the timeout or fix the slow endpoint. |
-| `resultMapping key "x" not found in response` | The JSONPath expression did not match. Verify the response shape with a manual curl. |
+| `non-2xx response: 401`                                            | The target requires authentication. Check headers and secrets.                          |
+| `non-2xx response: 503`                                            | The target is temporarily unavailable. Add a `retryPolicy` to the step.                 |
+| `context deadline exceeded`                                        | The step hit its `timeoutSeconds`. Increase the timeout or fix the slow endpoint.       |
+| `resultMapping key "x" not found in response`                      | The JSONPath expression did not match. Verify the response shape with a manual curl.    |
 
 **Adding a retry policy:**
 ```yaml
@@ -260,12 +263,12 @@ kubectl logs -n kubezap-system -l control-plane=controller-manager | grep "CEL\|
 
 **Common CEL mistakes:**
 
-| Mistake | Fix |
-|---|---|
-| Using hyphenated step names directly: `steps.my-step.results.*` | CEL identifiers cannot contain hyphens. Use underscores: `steps.my_step.results.*` |
-| Comparing a string to an int: `steps.foo.results.count == 5` | Results are always strings. Compare as strings: `steps.foo.results.count == "5"` or use `int(steps.foo.results.count) == 5` |
-| Missing quotes on string literal: `steps.foo.results.tier == enterprise` | String literals require quotes: `steps.foo.results.tier == "enterprise"` |
-| Accessing a result key that wasn't mapped | Only keys declared in `resultMappings` are available. Check the step definition. |
+| Mistake                                                                  | Fix                                                                                                                         |
+| ------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------- |
+| Using hyphenated step names directly: `steps.my-step.results.*`          | CEL identifiers cannot contain hyphens. Use underscores: `steps.my_step.results.*`                                          |
+| Comparing a string to an int: `steps.foo.results.count == 5`             | Results are always strings. Compare as strings: `steps.foo.results.count == "5"` or use `int(steps.foo.results.count) == 5` |
+| Missing quotes on string literal: `steps.foo.results.tier == enterprise` | String literals require quotes: `steps.foo.results.tier == "enterprise"`                                                    |
+| Accessing a result key that wasn't mapped                                | Only keys declared in `resultMappings` are available. Check the step definition.                                            |
 
 **Test a CEL expression interactively** using the [CEL playground](https://cel.dev/playground).
 
@@ -347,13 +350,13 @@ kubectl logs -l kubezap.io/component=kafka-gateway -n <namespace>
 
 **Common Kafka issues:**
 
-| Symptom in logs | Fix |
-|---|---|
-| `connection refused` | Wrong `bootstrapServers` address. Test from inside the cluster: `kubectl run -it --rm --restart=Never --image=bitnami/kafka test -- kafka-topics.sh --bootstrap-server <addr> --list` |
-| `SASL authentication failed` | Wrong username/password. Check the secret keys match what's in `spec.kafka.sasl`. |
-| `CERTIFICATE_UNKNOWN` | TLS CA mismatch. Provide the correct CA in `spec.kafka.tls.caSecretRef`. |
-| `consumer group already has a coordinator` | Normal — the consumer group is being rebalanced. Wait for it to settle. |
-| Gateway running but no FlowRuns | Check consumer group lag: `kubezap integrations` shows current lag. Also verify the topic name in the Trigger matches the actual Kafka topic. |
+| Symptom in logs                            | Fix                                                                                                                                                                                   |
+| ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `connection refused`                       | Wrong `bootstrapServers` address. Test from inside the cluster: `kubectl run -it --rm --restart=Never --image=bitnami/kafka test -- kafka-topics.sh --bootstrap-server <addr> --list` |
+| `SASL authentication failed`               | Wrong username/password. Check the secret keys match what's in `spec.kafka.sasl`.                                                                                                     |
+| `CERTIFICATE_UNKNOWN`                      | TLS CA mismatch. Provide the correct CA in `spec.kafka.tls.caSecretRef`.                                                                                                              |
+| `consumer group already has a coordinator` | Normal — the consumer group is being rebalanced. Wait for it to settle.                                                                                                               |
+| Gateway running but no FlowRuns            | Check consumer group lag: `kubezap integrations` shows current lag. Also verify the topic name in the Trigger matches the actual Kafka topic.                                         |
 
 ---
 

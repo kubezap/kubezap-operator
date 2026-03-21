@@ -185,15 +185,15 @@ curl -X POST http://localhost:8080/hooks/order-placed \
 
 ## What this demonstrates
 
-| Feature | How it shows up |
-|---------|-----------------|
-| Webhook trigger | `curl` to `/hooks/order-placed` creates a FlowRun |
-| Transform step | `extract-type` reshapes the trigger body |
-| Step result passing | `$(steps.enrich_order.results.*)` used in later steps |
-| Conditional branching | `when: expression` routes to express vs standard |
-| Skipped steps | One notify step is always `Skipped` |
+| Feature                 | How it shows up                                                |
+| ----------------------- | -------------------------------------------------------------- |
+| Webhook trigger         | `curl` to `/hooks/order-placed` creates a FlowRun              |
+| Transform step          | `extract-type` reshapes the trigger body                       |
+| Step result passing     | `$(steps.enrich_order.results.*)` used in later steps          |
+| Conditional branching   | `when: expression` routes to express vs standard               |
+| Skipped steps           | One notify step is always `Skipped`                            |
 | Mockoon request capture | Inspect received payloads via `GET /api/logs` on the admin API |
-| SEQUENTIAL responses | Cycles through mock responses to demo both paths |
+| SEQUENTIAL responses    | Cycles through mock responses to demo both paths               |
 
 ---
 

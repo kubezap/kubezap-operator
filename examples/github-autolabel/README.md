@@ -193,13 +193,13 @@ re-check.
 In your GitHub repository, go to **Settings → Webhooks → Add webhook** and fill
 in the following fields:
 
-| Field | Value |
-|-------|-------|
-| Payload URL | `https://<your-gateway-url>/hooks/github-pr` |
-| Content type | `application/json` |
-| Secret | the value you used in `github-webhook-secret` (Step 1) |
+| Field         | Value                                                                           |
+| ------------- | ------------------------------------------------------------------------------- |
+| Payload URL   | `https://<your-gateway-url>/hooks/github-pr`                                    |
+| Content type  | `application/json`                                                              |
+| Secret        | the value you used in `github-webhook-secret` (Step 1)                          |
 | Which events? | Select **"Let me select individual events"**, then check **Pull requests** only |
-| Active | checked |
+| Active        | checked                                                                         |
 
 Click **Add webhook**. GitHub will immediately send a `ping` event to verify
 reachability. The gateway will accept it (HMAC is valid) but the Flow will not

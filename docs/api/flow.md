@@ -67,13 +67,13 @@ Conditional execution is controlled by `when` blocks using [CEL (Common Expressi
 
 KubeZap infers the payload format from the `Content-Type` of the triggering event (webhook request body or Kafka message value). The parsed data is then navigable in both `$(...)` interpolation and CEL conditions.
 
-| Content-Type | Parsed as | Access pattern |
-|---|---|---|
-| `application/json` | JSON object | `$(trigger.body.userId)` — top-level fields only (see Limitations) |
-| `application/xml`, `text/xml` | raw string | `$(trigger.body)` — full body as string |
-| `application/x-www-form-urlencoded` | raw string | `$(trigger.body)` — full body as string |
-| `text/plain` | raw string | `$(trigger.body)` |
-| Other / binary | raw string | `$(trigger.body)` |
+| Content-Type                        | Parsed as   | Access pattern                                                     |
+| ----------------------------------- | ----------- | ------------------------------------------------------------------ |
+| `application/json`                  | JSON object | `$(trigger.body.userId)` — top-level fields only (see Limitations) |
+| `application/xml`, `text/xml`       | raw string  | `$(trigger.body)` — full body as string                            |
+| `application/x-www-form-urlencoded` | raw string  | `$(trigger.body)` — full body as string                            |
+| `text/plain`                        | raw string  | `$(trigger.body)`                                                  |
+| Other / binary                      | raw string  | `$(trigger.body)`                                                  |
 
 > **Current limitation**: `$(trigger.body.<field>)` resolves **top-level JSON fields only**. Nested access like `$(trigger.body.order.id)` is not supported and returns an empty string. For nested fields, use a `type: transform` step to extract the value first. Full JSONPath access via `$(trigger.payload.*)` is planned for a future release.
 
@@ -107,10 +107,10 @@ when:
 
 HTTP step `resultMappings` support both JSON and XML responses. The mapping expression syntax is auto-detected:
 
-| Prefix | Language | Example |
-|---|---|---|
-| `$.` | JSONPath | `$.user.name`, `$.items[0].id` |
-| `/` | XPath | `/response/user/name`, `/items/item[1]/@id` |
+| Prefix | Language | Example                                     |
+| ------ | -------- | ------------------------------------------- |
+| `$.`   | JSONPath | `$.user.name`, `$.items[0].id`              |
+| `/`    | XPath    | `/response/user/name`, `/items/item[1]/@id` |
 
 ```yaml
 resultMappings:
@@ -154,16 +154,16 @@ When a `Trigger` fires, the KubeZap operator:
 
 Use `$(syntax)` to reference dynamic values in string fields (URLs, headers, bodies, parameter values):
 
-| Expression | Resolves to |
-|---|---|
-| `$(params.<name>)` | A declared flow parameter |
-| `$(trigger.name)` | Name of the Trigger that fired |
-| `$(trigger.namespace)` | Namespace of the Trigger |
-| `$(trigger.type)` | Type of the Trigger (webhook, cron, pubsub) |
-| `$(trigger.body)` | Raw trigger event body (webhook request body or Kafka message value) |
-| `$(trigger.body.<field>)` | A top-level JSON field from the trigger body (nested fields not supported — see Limitations) |
-| `$(steps.<stepName>.results.<resultName>)` | A result produced by a previous step |
-| `$(secrets.<secretName>.<key>)` | A value from a Kubernetes Secret in the same namespace |
+| Expression                                 | Resolves to                                                                                  |
+| ------------------------------------------ | -------------------------------------------------------------------------------------------- |
+| `$(params.<name>)`                         | A declared flow parameter                                                                    |
+| `$(trigger.name)`                          | Name of the Trigger that fired                                                               |
+| `$(trigger.namespace)`                     | Namespace of the Trigger                                                                     |
+| `$(trigger.type)`                          | Type of the Trigger (webhook, cron, pubsub)                                                  |
+| `$(trigger.body)`                          | Raw trigger event body (webhook request body or Kafka message value)                         |
+| `$(trigger.body.<field>)`                  | A top-level JSON field from the trigger body (nested fields not supported — see Limitations) |
+| `$(steps.<stepName>.results.<resultName>)` | A result produced by a previous step                                                         |
+| `$(secrets.<secretName>.<key>)`            | A value from a Kubernetes Secret in the same namespace                                       |
 
 **Example:**
 ```yaml
@@ -193,13 +193,13 @@ KubeZap uses [CEL (Common Expression Language)](https://cel.dev) for all boolean
 
 **Why CEL and not alternatives:**
 
-| Language | Verdict |
-|---|---|
-| **CEL** | Recommended. Kubernetes-native, sandboxed, rich operators, growing adoption |
-| Go templates | Better for string rendering (used for `$(...)` interpolation), not designed for boolean logic |
-| JMESPath | Query language (good for extraction), limited boolean expression support |
-| JSONPath | Kubernetes-native but very limited — no boolean operators |
-| expr-lang/expr | Simpler syntax but not standardized in the Kubernetes ecosystem |
+| Language       | Verdict                                                                                       |
+| -------------- | --------------------------------------------------------------------------------------------- |
+| **CEL**        | Recommended. Kubernetes-native, sandboxed, rich operators, growing adoption                   |
+| Go templates   | Better for string rendering (used for `$(...)` interpolation), not designed for boolean logic |
+| JMESPath       | Query language (good for extraction), limited boolean expression support                      |
+| JSONPath       | Kubernetes-native but very limited — no boolean operators                                     |
+| expr-lang/expr | Simpler syntax but not standardized in the Kubernetes ecosystem                               |
 
 CEL is sandboxed: it cannot make network calls, access the filesystem, or execute arbitrary code, making it safe to run user-provided expressions.
 
@@ -209,14 +209,14 @@ CEL is sandboxed: it cannot make network calls, access the filesystem, or execut
 
 Available CEL variables:
 
-| Variable | Type | Description |
-|---|---|---|
-| `params` | `map<string, string>` | Declared flow parameters |
-| `trigger.name` | `string` | Trigger name |
-| `trigger.type` | `string` | Trigger type |
-| `trigger.payload` | `map<string, dyn>` | Parsed trigger event payload |
-| `steps.<name>.status` | `string` | Step status: `Succeeded`, `Failed`, `Skipped` |
-| `steps.<name>.results` | `map<string, string>` | Step results map |
+| Variable               | Type                  | Description                                   |
+| ---------------------- | --------------------- | --------------------------------------------- |
+| `params`               | `map<string, string>` | Declared flow parameters                      |
+| `trigger.name`         | `string`              | Trigger name                                  |
+| `trigger.type`         | `string`              | Trigger type                                  |
+| `trigger.payload`      | `map<string, dyn>`    | Parsed trigger event payload                  |
+| `steps.<name>.status`  | `string`              | Step status: `Succeeded`, `Failed`, `Skipped` |
+| `steps.<name>.results` | `map<string, string>` | Step results map                              |
 
 **Examples:**
 
@@ -277,84 +277,84 @@ when:
 
 ### FlowSpec
 
-| Field | Type | Required | Default | Description |
-|---|---|---|---|---|
-| `description` | string | No | — | Human-readable description of the flow |
-| `timeout` | duration | No | `10m` | Maximum time allowed for the entire flow to complete |
-| `failurePolicy` | enum | No | `Fail` | What to do when a step fails: `Fail` or `Continue` |
-| `params` | []ParamDeclaration | No | — | Input parameters the flow accepts from the trigger payload |
-| `steps` | []FlowStep | **Yes** | — | Ordered list of steps to execute |
+| Field           | Type               | Required | Default | Description                                                |
+| --------------- | ------------------ | -------- | ------- | ---------------------------------------------------------- |
+| `description`   | string             | No       | —       | Human-readable description of the flow                     |
+| `timeout`       | duration           | No       | `10m`   | Maximum time allowed for the entire flow to complete       |
+| `failurePolicy` | enum               | No       | `Fail`  | What to do when a step fails: `Fail` or `Continue`         |
+| `params`        | []ParamDeclaration | No       | —       | Input parameters the flow accepts from the trigger payload |
+| `steps`         | []FlowStep         | **Yes**  | —       | Ordered list of steps to execute                           |
 
 ### ParamDeclaration
 
 Declares an input parameter the flow accepts. Parameters are populated from the trigger payload or provided with a default value.
 
-| Field | Type | Required | Default | Description |
-|---|---|---|---|---|
-| `name` | string | **Yes** | — | Parameter name, used in `$(params.name)` expressions |
-| `description` | string | No | — | Human-readable description |
-| `required` | boolean | No | `false` | If true, the flow fails to start if this parameter is not provided |
-| `default` | string | No | — | Default value if the parameter is absent from the trigger payload |
+| Field         | Type    | Required | Default | Description                                                        |
+| ------------- | ------- | -------- | ------- | ------------------------------------------------------------------ |
+| `name`        | string  | **Yes**  | —       | Parameter name, used in `$(params.name)` expressions               |
+| `description` | string  | No       | —       | Human-readable description                                         |
+| `required`    | boolean | No       | `false` | If true, the flow fails to start if this parameter is not provided |
+| `default`     | string  | No       | —       | Default value if the parameter is absent from the trigger payload  |
 
 ### FlowStep
 
-| Field | Type | Required | Default | Description |
-|---|---|---|---|---|
-| `name` | string | **Yes** | — | Unique name for this step within the flow. Used to reference results. |
-| `description` | string | No | — | Human-readable description |
-| `runAfter` | []string | No | — | Step names that must complete before this step starts |
-| `when` | []WhenExpression | No | — | CEL conditions that must all be true for the step to run |
-| `params` | []ParamValue | No | — | Input values for this step's action |
-| `action` | StepAction | **Yes** | — | The action this step performs |
-| `results` | []ResultDeclaration | No | — | Outputs this step produces |
-| `retryPolicy` | RetryPolicy | No | — | Retry behavior on failure |
-| `timeout` | duration | No | — | Step-level timeout, overrides flow timeout for this step |
-| `onFailure` | enum | No | `Fail` | Per-step failure behavior: `Fail`, `Continue`, or `Skip` |
+| Field         | Type                | Required | Default | Description                                                           |
+| ------------- | ------------------- | -------- | ------- | --------------------------------------------------------------------- |
+| `name`        | string              | **Yes**  | —       | Unique name for this step within the flow. Used to reference results. |
+| `description` | string              | No       | —       | Human-readable description                                            |
+| `runAfter`    | []string            | No       | —       | Step names that must complete before this step starts                 |
+| `when`        | []WhenExpression    | No       | —       | CEL conditions that must all be true for the step to run              |
+| `params`      | []ParamValue        | No       | —       | Input values for this step's action                                   |
+| `action`      | StepAction          | **Yes**  | —       | The action this step performs                                         |
+| `results`     | []ResultDeclaration | No       | —       | Outputs this step produces                                            |
+| `retryPolicy` | RetryPolicy         | No       | —       | Retry behavior on failure                                             |
+| `timeout`     | duration            | No       | —       | Step-level timeout, overrides flow timeout for this step              |
+| `onFailure`   | enum                | No       | `Fail`  | Per-step failure behavior: `Fail`, `Continue`, or `Skip`              |
 
 > Step names must be unique within a flow, start with a letter, and contain only letters, numbers, and hyphens. When referencing step names in expressions, replace hyphens with underscores: a step named `fetch-user` is referenced as `steps.fetch_user.results.field`.
 
 ### WhenExpression
 
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `expression` | string | **Yes** | CEL expression that must evaluate to `true` for the step to run |
+| Field        | Type   | Required | Description                                                     |
+| ------------ | ------ | -------- | --------------------------------------------------------------- |
+| `expression` | string | **Yes**  | CEL expression that must evaluate to `true` for the step to run |
 
 ### ParamValue
 
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `name` | string | **Yes** | Name of the parameter to set |
-| `value` | string | **Yes** | Value, which may use `$(...)` interpolation syntax |
+| Field   | Type   | Required | Description                                        |
+| ------- | ------ | -------- | -------------------------------------------------- |
+| `name`  | string | **Yes**  | Name of the parameter to set                       |
+| `value` | string | **Yes**  | Value, which may use `$(...)` interpolation syntax |
 
 ### StepAction
 
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `type` | enum | **Yes** | Action type: `http`, `transform`, `publish`, or `wait` |
-| `http` | HTTPAction | Conditional | Required when `type: http` |
-| `transform` | TransformAction | Conditional | Required when `type: transform` |
-| `publish` | PublishAction | Conditional | Required when `type: publish` |
-| `wait` | WaitAction | Conditional | Required when `type: wait` |
+| Field       | Type            | Required    | Description                                            |
+| ----------- | --------------- | ----------- | ------------------------------------------------------ |
+| `type`      | enum            | **Yes**     | Action type: `http`, `transform`, `publish`, or `wait` |
+| `http`      | HTTPAction      | Conditional | Required when `type: http`                             |
+| `transform` | TransformAction | Conditional | Required when `type: transform`                        |
+| `publish`   | PublishAction   | Conditional | Required when `type: publish`                          |
+| `wait`      | WaitAction      | Conditional | Required when `type: wait`                             |
 
 ### HTTPAction
 
-| Field | Type | Required | Default | Description |
-|---|---|---|---|---|
-| `url` | string | **Yes** | — | URL to call. Supports `$(...)` interpolation. |
-| `method` | enum | No | `POST` | HTTP method: `GET`, `POST`, `PUT`, `PATCH`, `DELETE` |
-| `headers` | map[string]string | No | — | HTTP headers. Values support `$(...)` interpolation. |
-| `body` | string | No | — | Request body. Supports `$(...)` interpolation. |
-| `bodyFrom` | string | No | — | Populate the body from a step result: `$(steps.name.results.field)` |
-| `timeoutSeconds` | integer | No | `30` | Request timeout in seconds |
-| `resultMappings` | map[string]string | No | — | Map response fields to step results. Keys are result names; values are JSONPath into the response body (e.g., `$.user.id`). |
+| Field            | Type              | Required | Default | Description                                                                                                                 |
+| ---------------- | ----------------- | -------- | ------- | --------------------------------------------------------------------------------------------------------------------------- |
+| `url`            | string            | **Yes**  | —       | URL to call. Supports `$(...)` interpolation.                                                                               |
+| `method`         | enum              | No       | `POST`  | HTTP method: `GET`, `POST`, `PUT`, `PATCH`, `DELETE`                                                                        |
+| `headers`        | map[string]string | No       | —       | HTTP headers. Values support `$(...)` interpolation.                                                                        |
+| `body`           | string            | No       | —       | Request body. Supports `$(...)` interpolation.                                                                              |
+| `bodyFrom`       | string            | No       | —       | Populate the body from a step result: `$(steps.name.results.field)`                                                         |
+| `timeoutSeconds` | integer           | No       | `30`    | Request timeout in seconds                                                                                                  |
+| `resultMappings` | map[string]string | No       | —       | Map response fields to step results. Keys are result names; values are JSONPath into the response body (e.g., `$.user.id`). |
 
 ### TransformAction
 
 Produces results from existing params and step results without making any network calls. Use this to rename, merge, or reshape data between steps.
 
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `mappings` | map[string]string | **Yes** | Keys are result names; values are CEL expressions that compute the result value |
+| Field      | Type              | Required | Description                                                                     |
+| ---------- | ----------------- | -------- | ------------------------------------------------------------------------------- |
+| `mappings` | map[string]string | **Yes**  | Keys are result names; values are CEL expressions that compute the result value |
 
 ### PublishAction
 
@@ -362,12 +362,12 @@ Sends a message to an external system via an `Integration`. The controller
 calls the Integration's gateway `/publish` endpoint, which handles
 serialisation, authentication, and delivery.
 
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `integrationRef` | LocalObjectReference | **Yes** | Name of the `Integration` resource to publish through |
-| `topic` | string | **Yes** | Target topic, queue, or subject name. Supports `$(...)` interpolation. |
-| `body` | string | No | Message body. Supports `$(...)` interpolation. |
-| `headers` | map[string]string | No | Message headers / metadata. Values support `$(...)` interpolation. |
+| Field            | Type                 | Required | Description                                                            |
+| ---------------- | -------------------- | -------- | ---------------------------------------------------------------------- |
+| `integrationRef` | LocalObjectReference | **Yes**  | Name of the `Integration` resource to publish through                  |
+| `topic`          | string               | **Yes**  | Target topic, queue, or subject name. Supports `$(...)` interpolation. |
+| `body`           | string               | No       | Message body. Supports `$(...)` interpolation.                         |
+| `headers`        | map[string]string    | No       | Message headers / metadata. Values support `$(...)` interpolation.     |
 
 **Example**:
 
@@ -420,9 +420,9 @@ reached, the controller records the resume time in the FlowRun status and
 stops executing until that time is reached. The wait survives controller
 restarts.
 
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `duration` | duration string | **Yes** | How long to pause. Accepts any Go duration string: `30s`, `10m`, `1h`, `2h30m`. |
+| Field      | Type            | Required | Description                                                                     |
+| ---------- | --------------- | -------- | ------------------------------------------------------------------------------- |
+| `duration` | duration string | **Yes**  | How long to pause. Accepts any Go duration string: `30s`, `10m`, `1h`, `2h30m`. |
 
 **Behavior:**
 
@@ -449,21 +449,21 @@ restarts.
 
 ### ResultDeclaration
 
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `name` | string | **Yes** | Result name, referenced as `$(steps.<stepName>.results.<name>)` |
-| `description` | string | No | Human-readable description of what this result contains |
+| Field         | Type   | Required | Description                                                     |
+| ------------- | ------ | -------- | --------------------------------------------------------------- |
+| `name`        | string | **Yes**  | Result name, referenced as `$(steps.<stepName>.results.<name>)` |
+| `description` | string | No       | Human-readable description of what this result contains         |
 
 ### RetryPolicy
 
-| Field | Type | Required | Default | Description |
-|---|---|---|---|---|
-| `maxRetries` | integer | **Yes** | — | Maximum number of retry attempts |
-| `backoffType` | enum | No | `Exponential` | Delay strategy: `Fixed`, `Linear`, or `Exponential` |
-| `initialDelay` | duration | No | `1s` | Delay before the first retry |
-| `maxDelay` | duration | No | `60s` | Maximum delay cap between retries |
-| `multiplier` | string | No | `"2.0"` | Multiplier for exponential backoff |
-| `retryOn` | []integer | No | 5xx, timeouts | HTTP status codes that trigger a retry |
+| Field          | Type      | Required | Default       | Description                                         |
+| -------------- | --------- | -------- | ------------- | --------------------------------------------------- |
+| `maxRetries`   | integer   | **Yes**  | —             | Maximum number of retry attempts                    |
+| `backoffType`  | enum      | No       | `Exponential` | Delay strategy: `Fixed`, `Linear`, or `Exponential` |
+| `initialDelay` | duration  | No       | `1s`          | Delay before the first retry                        |
+| `maxDelay`     | duration  | No       | `60s`         | Maximum delay cap between retries                   |
+| `multiplier`   | string    | No       | `"2.0"`       | Multiplier for exponential backoff                  |
+| `retryOn`      | []integer | No       | 5xx, timeouts | HTTP status codes that trigger a retry              |
 
 ---
 
@@ -471,19 +471,19 @@ restarts.
 
 ### FlowStatus
 
-| Field | Type | Description |
-|---|---|---|
-| `conditions` | []Condition | Standard Kubernetes conditions. See condition types below. |
-| `executionCount` | integer | Total number of times this flow has been executed |
-| `lastExecutionTime` | timestamp | Timestamp of the most recent execution |
-| `lastResult` | string | Outcome of the most recent execution: `Succeeded`, `Failed`, `PartialFailure` |
-| `lastError` | string | Error message from the most recent failed execution |
+| Field               | Type        | Description                                                                   |
+| ------------------- | ----------- | ----------------------------------------------------------------------------- |
+| `conditions`        | []Condition | Standard Kubernetes conditions. See condition types below.                    |
+| `executionCount`    | integer     | Total number of times this flow has been executed                             |
+| `lastExecutionTime` | timestamp   | Timestamp of the most recent execution                                        |
+| `lastResult`        | string      | Outcome of the most recent execution: `Succeeded`, `Failed`, `PartialFailure` |
+| `lastError`         | string      | Error message from the most recent failed execution                           |
 
 ### Condition Types
 
-| Type | Status | Meaning |
-|---|---|---|
-| `Ready` | `True` | The flow spec is valid and the flow is ready to be executed |
+| Type    | Status  | Meaning                                                          |
+| ------- | ------- | ---------------------------------------------------------------- |
+| `Ready` | `True`  | The flow spec is valid and the flow is ready to be executed      |
 | `Ready` | `False` | The flow spec has a validation error. See `message` for details. |
 
 ---
@@ -971,13 +971,13 @@ spec:
 
 ## Step Action Types
 
-| Type | Description | Status |
-|---|---|---|
-| `http` | Make an HTTP/HTTPS request to any URL | Available |
-| `transform` | Reshape data between steps using CEL expressions | Available |
-| `wait` | Pause the FlowRun for a fixed duration before continuing | Available |
-| `kubernetes-job` | Run a Kubernetes Job and wait for completion | Planned |
-| `plugin` | Call an external KubeZap plugin service via webhook | Planned |
+| Type             | Description                                              | Status    |
+| ---------------- | -------------------------------------------------------- | --------- |
+| `http`           | Make an HTTP/HTTPS request to any URL                    | Available |
+| `transform`      | Reshape data between steps using CEL expressions         | Available |
+| `wait`           | Pause the FlowRun for a fixed duration before continuing | Available |
+| `kubernetes-job` | Run a Kubernetes Job and wait for completion             | Planned   |
+| `plugin`         | Call an external KubeZap plugin service via webhook      | Planned   |
 
 ---
 
@@ -1002,11 +1002,11 @@ $(env.<VAR_NAME>)                        → operator environment variable
 
 **When to use each credential source:**
 
-| Source | Use for |
-|---|---|
-| `$(secrets.name.key)` | Passwords, tokens, API keys, certificates |
+| Source                   | Use for                                        |
+| ------------------------ | ---------------------------------------------- |
+| `$(secrets.name.key)`    | Passwords, tokens, API keys, certificates      |
 | `$(configmaps.name.key)` | Base URLs, feature flags, non-sensitive config |
-| `$(env.VAR_NAME)` | Operator-wide config set at deployment time |
+| `$(env.VAR_NAME)`        | Operator-wide config set at deployment time    |
 
 ### CEL Quick Reference
 

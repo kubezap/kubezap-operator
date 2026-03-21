@@ -28,7 +28,7 @@ KubeZap exposes three complementary observability signals:
   - [Configuration](#configuration-1)
   - [Trace Structure](#trace-structure)
   - [Trace Context Propagation](#trace-context-propagation)
-  - [ServiceMonitor for Trace Exporters](#servicemonitor-for-trace-exporters)
+  - [Collection for Trace Exporters](#collection-for-trace-exporters)
 - [Example Alerts](#example-alerts)
 - [Example Grafana Panels](#example-grafana-panels)
 - [Cardinality Guidance](#cardinality-guidance)
@@ -39,11 +39,11 @@ KubeZap exposes three complementary observability signals:
 
 All metrics use the `kubezap_` prefix. Each component exposes a `/metrics` endpoint on a dedicated metrics port:
 
-| Component | Default metrics port | Notes |
-|---|---|---|
-| `kubezap-controller` | `:8443` | HTTPS, secured by cert-manager-issued TLS |
-| `kubezap-webhook-gateway` | `:8080` | HTTP by default; configure HTTPS via Helm |
-| `kubezap-kafka-gateway` | `:8080` | HTTP by default; configure HTTPS via Helm |
+| Component                 | Default metrics port | Notes                                     |
+| ------------------------- | -------------------- | ----------------------------------------- |
+| `kubezap-controller`      | `:8443`              | HTTPS, secured by cert-manager-issued TLS |
+| `kubezap-webhook-gateway` | `:8080`              | HTTP by default; configure HTTPS via Helm |
+| `kubezap-kafka-gateway`   | `:8080`              | HTTP by default; configure HTTPS via Helm |
 
 The webhook trigger endpoint and the metrics endpoint share port `:8080` on the webhook gateway but use different paths (`/hooks/*` and `/metrics` respectively).
 
@@ -60,12 +60,12 @@ The webhook trigger endpoint and the metrics endpoint share port `:8080` on the 
 
 Total webhook requests received, by outcome.
 
-| Label | Values | Description |
-|---|---|---|
-| `namespace` | string | Kubernetes namespace of the Trigger |
-| `trigger` | string | Name of the Trigger |
-| `method` | `POST`, `GET`, … | HTTP method of the request |
-| `status_code` | `200`, `401`, `429`, `500`, … | HTTP response status code |
+| Label         | Values                          | Description                                        |
+| ------------- | ------------------------------- | -------------------------------------------------- |
+| `namespace`   | string                          | Kubernetes namespace of the Trigger                |
+| `trigger`     | string                          | Name of the Trigger                                |
+| `method`      | `POST`, `GET`, …                | HTTP method of the request                         |
+| `status_code` | `200`, `401`, `429`, `500`, …   | HTTP response status code                          |
 | `auth_result` | `success`, `failure`, `skipped` | Whether auth passed, failed, or was not configured |
 
 ```promql
@@ -87,10 +87,10 @@ End-to-end request latency from receipt to response (includes auth verification 
 
 Buckets: 5ms, 10ms, 25ms, 50ms, 100ms, 250ms, 500ms, 1s, 2.5s, 5s, 10s
 
-| Label | Description |
-|---|---|
+| Label       | Description                         |
+| ----------- | ----------------------------------- |
 | `namespace` | Kubernetes namespace of the Trigger |
-| `trigger` | Name of the Trigger |
+| `trigger`   | Name of the Trigger                 |
 
 ```promql
 # 99th percentile latency per trigger
@@ -108,10 +108,10 @@ Size of incoming request bodies in bytes.
 
 Buckets: 256B, 1KB, 4KB, 16KB, 64KB, 256KB, 1MB, 4MB
 
-| Label | Description |
-|---|---|
-| `namespace` | Kubernetes namespace of the Trigger |
-| `trigger` | Name of the Trigger |
+| Label          | Description                                                  |
+| -------------- | ------------------------------------------------------------ |
+| `namespace`    | Kubernetes namespace of the Trigger                          |
+| `trigger`      | Name of the Trigger                                          |
 | `content_type` | Parsed content type: `json`, `xml`, `form`, `text`, `binary` |
 
 ```promql
@@ -131,10 +131,10 @@ sum by (namespace) (rate(kubezap_webhook_request_body_bytes_sum[5m]))
 
 Cumulative bytes received across all requests (request body only, not headers).
 
-| Label | Description |
-|---|---|
+| Label       | Description                         |
+| ----------- | ----------------------------------- |
 | `namespace` | Kubernetes namespace of the Trigger |
-| `trigger` | Name of the Trigger |
+| `trigger`   | Name of the Trigger                 |
 
 ---
 
@@ -143,8 +143,8 @@ Cumulative bytes received across all requests (request body only, not headers).
 
 Number of webhook paths currently registered in this gateway instance.
 
-| Label | Description |
-|---|---|
+| Label       | Description          |
+| ----------- | -------------------- |
 | `namespace` | Kubernetes namespace |
 
 ---
@@ -156,12 +156,12 @@ Number of webhook paths currently registered in this gateway instance.
 
 Total authentication attempts.
 
-| Label | Values | Description |
-|---|---|---|
-| `namespace` | string | Kubernetes namespace of the Trigger |
-| `trigger` | string | Name of the Trigger |
-| `auth_type` | `hmac`, `bearer`, `oidc`, `basic`, `mtls`, `header_equals` | Authentication method in use |
-| `result` | `success`, `failure` | Outcome |
+| Label       | Values                                                     | Description                         |
+| ----------- | ---------------------------------------------------------- | ----------------------------------- |
+| `namespace` | string                                                     | Kubernetes namespace of the Trigger |
+| `trigger`   | string                                                     | Name of the Trigger                 |
+| `auth_type` | `hmac`, `bearer`, `oidc`, `basic`, `mtls`, `header_equals` | Authentication method in use        |
+| `result`    | `success`, `failure`                                       | Outcome                             |
 
 ---
 
@@ -170,24 +170,24 @@ Total authentication attempts.
 
 Authentication failures, broken down by failure reason. This is the primary metric for security alerting.
 
-| Label | Values | Description |
-|---|---|---|
-| `namespace` | string | Kubernetes namespace of the Trigger |
-| `trigger` | string | Name of the Trigger |
-| `auth_type` | see above | Authentication method that failed |
-| `reason` | see below | Specific failure reason |
+| Label       | Values    | Description                         |
+| ----------- | --------- | ----------------------------------- |
+| `namespace` | string    | Kubernetes namespace of the Trigger |
+| `trigger`   | string    | Name of the Trigger                 |
+| `auth_type` | see above | Authentication method that failed   |
+| `reason`    | see below | Specific failure reason             |
 
 **`reason` values by auth type:**
 
-| `auth_type` | `reason` values |
-|---|---|
-| `hmac` | `invalid_signature`, `missing_header`, `malformed_header` |
-| `bearer` | `missing_token`, `token_mismatch` |
-| `oidc` | `expired_token`, `invalid_signature`, `invalid_issuer`, `invalid_audience`, `missing_claim`, `malformed_token`, `jwks_fetch_failed` |
-| `basic` | `invalid_credentials`, `missing_credentials` |
-| `mtls` | `no_client_cert`, `cert_expired`, `ca_mismatch`, `cn_mismatch`, `san_mismatch` |
-| `header_equals` | `missing_header`, `value_mismatch` |
-| `ip_allowlist` | `ip_not_allowed` |
+| `auth_type`     | `reason` values                                                                                                                     |
+| --------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| `hmac`          | `invalid_signature`, `missing_header`, `malformed_header`                                                                           |
+| `bearer`        | `missing_token`, `token_mismatch`                                                                                                   |
+| `oidc`          | `expired_token`, `invalid_signature`, `invalid_issuer`, `invalid_audience`, `missing_claim`, `malformed_token`, `jwks_fetch_failed` |
+| `basic`         | `invalid_credentials`, `missing_credentials`                                                                                        |
+| `mtls`          | `no_client_cert`, `cert_expired`, `ca_mismatch`, `cn_mismatch`, `san_mismatch`                                                      |
+| `header_equals` | `missing_header`, `value_mismatch`                                                                                                  |
+| `ip_allowlist`  | `ip_not_allowed`                                                                                                                    |
 
 ```promql
 # Auth failure rate per trigger
@@ -209,10 +209,10 @@ rate(kubezap_webhook_auth_failures_total{reason="ip_not_allowed"}[5m]) > 0.5
 
 Requests blocked by IP allowlist. Separate from `auth_failures` so that IP blocks can be alerted independently without raising the overall auth failure rate.
 
-| Label | Description |
-|---|---|
-| `namespace` | Kubernetes namespace of the Trigger |
-| `trigger` | Name of the Trigger |
+| Label          | Description                                                                                               |
+| -------------- | --------------------------------------------------------------------------------------------------------- |
+| `namespace`    | Kubernetes namespace of the Trigger                                                                       |
+| `trigger`      | Name of the Trigger                                                                                       |
 | `source_range` | Source IP truncated to `/24` (e.g., `203.0.113.0/24`). See [Cardinality Guidance](#cardinality-guidance). |
 
 The `source_range` label uses `/24` truncation as a compromise: enough specificity to identify attack sources without per-IP cardinality explosion.
@@ -226,10 +226,10 @@ The `source_range` label uses `/24` truncation as a compromise: enough specifici
 
 Requests suppressed by the trigger's `cooldown` policy.
 
-| Label | Description |
-|---|---|
+| Label       | Description                         |
+| ----------- | ----------------------------------- |
 | `namespace` | Kubernetes namespace of the Trigger |
-| `trigger` | Name of the Trigger |
+| `trigger`   | Name of the Trigger                 |
 
 ---
 
@@ -238,10 +238,10 @@ Requests suppressed by the trigger's `cooldown` policy.
 
 Current invocation count within the active cooldown window, per trigger.
 
-| Label | Description |
-|---|---|
+| Label       | Description                         |
+| ----------- | ----------------------------------- |
 | `namespace` | Kubernetes namespace of the Trigger |
-| `trigger` | Name of the Trigger |
+| `trigger`   | Name of the Trigger                 |
 
 ---
 
@@ -252,23 +252,23 @@ These are emitted by the controller as it processes FlowRun resources, but they 
 #### `kubezap_flowrun_created_total`
 **Type**: Counter
 
-| Label | Description |
-|---|---|
-| `namespace` | Namespace |
-| `trigger` | Name of the originating Trigger |
-| `trigger_type` | `webhook`, `cron`, `pubsub` |
-| `flow` | Name of the Flow |
+| Label          | Description                     |
+| -------------- | ------------------------------- |
+| `namespace`    | Namespace                       |
+| `trigger`      | Name of the originating Trigger |
+| `trigger_type` | `webhook`, `cron`, `pubsub`     |
+| `flow`         | Name of the Flow                |
 
 ---
 
 #### `kubezap_flowrun_completed_total`
 **Type**: Counter
 
-| Label | Values | Description |
-|---|---|---|
-| `namespace` | string | Namespace |
-| `flow` | string | Name of the Flow |
-| `result` | `Succeeded`, `Failed`, `PartialFailure`, `Cancelled` | Outcome |
+| Label       | Values                                               | Description      |
+| ----------- | ---------------------------------------------------- | ---------------- |
+| `namespace` | string                                               | Namespace        |
+| `flow`      | string                                               | Name of the Flow |
+| `result`    | `Succeeded`, `Failed`, `PartialFailure`, `Cancelled` | Outcome          |
 
 ---
 
@@ -277,10 +277,10 @@ These are emitted by the controller as it processes FlowRun resources, but they 
 
 End-to-end flow execution duration.
 
-| Label | Description |
-|---|---|
-| `namespace` | Namespace |
-| `flow` | Name of the Flow |
+| Label       | Description      |
+| ----------- | ---------------- |
+| `namespace` | Namespace        |
+| `flow`      | Name of the Flow |
 
 ---
 
@@ -289,13 +289,13 @@ End-to-end flow execution duration.
 
 Per-step execution duration.
 
-| Label | Values | Description |
-|---|---|---|
-| `namespace` | string | Namespace |
-| `flow` | string | Name of the Flow |
-| `step` | string | Name of the step |
+| Label         | Values                                | Description      |
+| ------------- | ------------------------------------- | ---------------- |
+| `namespace`   | string                                | Namespace        |
+| `flow`        | string                                | Name of the Flow |
+| `step`        | string                                | Name of the step |
 | `action_type` | `http`, `transform`, `kubernetes_job` | Step action type |
-| `result` | `Succeeded`, `Failed`, `Skipped` | Step outcome |
+| `result`      | `Succeeded`, `Failed`, `Skipped`      | Step outcome     |
 
 ---
 
@@ -304,12 +304,12 @@ Per-step execution duration.
 #### `kubezap_kafka_messages_consumed_total`
 **Type**: Counter
 
-| Label | Description |
-|---|---|
-| `namespace` | Namespace |
-| `trigger` | Name of the Trigger |
-| `topic` | Kafka topic |
-| `partition` | Kafka partition |
+| Label       | Description         |
+| ----------- | ------------------- |
+| `namespace` | Namespace           |
+| `trigger`   | Name of the Trigger |
+| `topic`     | Kafka topic         |
+| `partition` | Kafka partition     |
 
 ---
 
@@ -318,13 +318,13 @@ Per-step execution duration.
 
 Current consumer group lag per topic/partition. Use this to drive KEDA autoscaling.
 
-| Label | Description |
-|---|---|
-| `namespace` | Namespace |
-| `integration` | Name of the Integration (Kafka cluster) |
-| `topic` | Kafka topic |
-| `partition` | Kafka partition |
-| `consumer_group` | Consumer group ID |
+| Label            | Description                             |
+| ---------------- | --------------------------------------- |
+| `namespace`      | Namespace                               |
+| `integration`    | Name of the Integration (Kafka cluster) |
+| `topic`          | Kafka topic                             |
+| `partition`      | Kafka partition                         |
+| `consumer_group` | Consumer group ID                       |
 
 ---
 
@@ -333,10 +333,10 @@ Current consumer group lag per topic/partition. Use this to drive KEDA autoscali
 
 Size of consumed Kafka message values.
 
-| Label | Description |
-|---|---|
-| `namespace` | Namespace |
-| `topic` | Kafka topic |
+| Label       | Description |
+| ----------- | ----------- |
+| `namespace` | Namespace   |
+| `topic`     | Kafka topic |
 
 ---
 
@@ -347,10 +347,10 @@ Standard controller-runtime metrics are exposed automatically. KubeZap adds:
 #### `kubezap_reconcile_errors_total`
 **Type**: Counter
 
-| Label | Description |
-|---|---|
+| Label        | Description                                                          |
+| ------------ | -------------------------------------------------------------------- |
 | `controller` | Controller name (`trigger`, `flow`, `flowrun`, `mockendpoint`, etc.) |
-| `namespace` | Namespace of the reconciled resource |
+| `namespace`  | Namespace of the reconciled resource                                 |
 
 ---
 
@@ -359,10 +359,10 @@ Standard controller-runtime metrics are exposed automatically. KubeZap adds:
 
 Number of gateway Deployments currently managed by the controller.
 
-| Label | Values | Description |
-|---|---|---|
+| Label          | Values             | Description     |
+| -------------- | ------------------ | --------------- |
 | `gateway_type` | `webhook`, `kafka` | Type of gateway |
-| `namespace` | string | Namespace |
+| `namespace`    | string             | Namespace       |
 
 ---
 
@@ -370,12 +370,12 @@ Number of gateway Deployments currently managed by the controller.
 
 All KubeZap metrics include these common labels where applicable:
 
-| Label | Description |
-|---|---|
-| `namespace` | Kubernetes namespace of the resource |
-| `trigger` | Name of the Trigger CRD |
-| `flow` | Name of the Flow CRD |
-| `gateway_type` | `webhook` or `kafka` |
+| Label          | Description                          |
+| -------------- | ------------------------------------ |
+| `namespace`    | Kubernetes namespace of the resource |
+| `trigger`      | Name of the Trigger CRD              |
+| `flow`         | Name of the Flow CRD                 |
+| `gateway_type` | `webhook` or `kafka`                 |
 
 ---
 
@@ -485,23 +485,23 @@ The `AccessLogMiddleware` emits one compact JSON line per request (core fields).
 
 ### Access Log Fields Reference
 
-| Field | Type | Description |
-|---|---|---|
-| `ts` | RFC3339 | Request timestamp |
-| `level` | string | `info` (success), `warn` (auth failure, rate limited), `error` (gateway error) |
-| `trace_id` | string | OpenTelemetry trace ID for correlation with traces |
-| `request.source_ip` | string | Client IP (respects `trustedProxies` for X-Forwarded-For) |
-| `request.forwarded_for` | string | Raw X-Forwarded-For header if present |
-| `request.user_agent` | string | HTTP User-Agent header |
-| `request.body_bytes` | integer | Request body size in bytes |
-| `request.content_type` | string | Normalized content type: `json`, `xml`, `form`, `text`, `binary` |
-| `auth.type` | string | Auth method configured on the trigger |
-| `auth.result` | string | `success`, `failure`, `skipped` |
-| `auth.reason` | string | Failure reason (only present when `result: failure`) |
-| `response.status_code` | integer | HTTP status code returned |
-| `response.duration_ms` | float | Total request handling time in milliseconds |
-| `flowrun.created` | boolean | Whether a FlowRun was created |
-| `flowrun.name` | string | Name of the created FlowRun (only when `created: true`) |
+| Field                   | Type    | Description                                                                    |
+| ----------------------- | ------- | ------------------------------------------------------------------------------ |
+| `ts`                    | RFC3339 | Request timestamp                                                              |
+| `level`                 | string  | `info` (success), `warn` (auth failure, rate limited), `error` (gateway error) |
+| `trace_id`              | string  | OpenTelemetry trace ID for correlation with traces                             |
+| `request.source_ip`     | string  | Client IP (respects `trustedProxies` for X-Forwarded-For)                      |
+| `request.forwarded_for` | string  | Raw X-Forwarded-For header if present                                          |
+| `request.user_agent`    | string  | HTTP User-Agent header                                                         |
+| `request.body_bytes`    | integer | Request body size in bytes                                                     |
+| `request.content_type`  | string  | Normalized content type: `json`, `xml`, `form`, `text`, `binary`               |
+| `auth.type`             | string  | Auth method configured on the trigger                                          |
+| `auth.result`           | string  | `success`, `failure`, `skipped`                                                |
+| `auth.reason`           | string  | Failure reason (only present when `result: failure`)                           |
+| `response.status_code`  | integer | HTTP status code returned                                                      |
+| `response.duration_ms`  | float   | Total request handling time in milliseconds                                    |
+| `flowrun.created`       | boolean | Whether a FlowRun was created                                                  |
+| `flowrun.name`          | string  | Name of the created FlowRun (only when `created: true`)                        |
 
 ### Source IP Tracking
 
@@ -541,27 +541,19 @@ sum by (request_source_ip) (
 
 Access logging is enabled by default. Configure via operator environment variables:
 
-| Variable | Default | Description |
-|---|---|---|
-| `ACCESS_LOG_ENABLED` | `true` | Enable/disable access logging |
-| `ACCESS_LOG_LEVEL` | `info` | Minimum log level: `debug`, `info`, `warn`, `error` |
-| `ACCESS_LOG_REDACT_HEADERS` | `Authorization,X-Api-Key` | Comma-separated list of headers to redact in logs |
-| `ACCESS_LOG_MAX_BODY_LOG_BYTES` | `0` | Log request body bytes (0 = disabled; set carefully for PII compliance) |
-| `TRUSTED_PROXIES` | `""` | Comma-separated CIDR list for X-Forwarded-For processing |
+| Variable                        | Default                   | Description                                                             |
+| ------------------------------- | ------------------------- | ----------------------------------------------------------------------- |
+| `ACCESS_LOG_ENABLED`            | `true`                    | Enable/disable access logging                                           |
+| `ACCESS_LOG_LEVEL`              | `info`                    | Minimum log level: `debug`, `info`, `warn`, `error`                     |
+| `ACCESS_LOG_REDACT_HEADERS`     | `Authorization,X-Api-Key` | Comma-separated list of headers to redact in logs                       |
+| `ACCESS_LOG_MAX_BODY_LOG_BYTES` | `0`                       | Log request body bytes (0 = disabled; set carefully for PII compliance) |
+| `TRUSTED_PROXIES`               | `""`                      | Comma-separated CIDR list for X-Forwarded-For processing                |
 
 > **PII and compliance**: Request bodies may contain personal data. `ACCESS_LOG_MAX_BODY_LOG_BYTES` is off by default. If enabled, ensure your log retention and access controls meet applicable regulations (GDPR, HIPAA, PCI DSS).
 
 ---
 
 ## OpenTelemetry Traces
-
-### Status
-
-Implemented. The `internal/telemetry` package initialises a global `TracerProvider` using an OTLP gRPC exporter (see `internal/telemetry/tracing.go`). Both the controller (`cmd/main.go`) and the webhook gateway initialise the provider at startup. When `OTEL_EXPORTER_OTLP_ENDPOINT` is unset, a no-op provider is installed with zero overhead.
-
-W3C TraceContext + Baggage propagation is registered globally via `otel.SetTextMapPropagator`. The `kubezap.io/traceparent` annotation on FlowRun resources carries the W3C `traceparent` value across the gateway-to-controller process boundary.
-
----
 
 ### Sampling Strategy
 
@@ -577,9 +569,9 @@ This approach gives predictable, low overhead in production while still capturin
 
 ### Configuration
 
-| Flag | Env var | Default | Description |
-|------|---------|---------|-------------|
-| `--otel-sample-rate` | `OTEL_TRACES_SAMPLER_ARG` | `0.1` | Fraction of traces to sample (`0.0`–`1.0`). `0.0` disables sampling entirely; `1.0` samples every trace. |
+| Flag                       | Env var                       | Default         | Description                                                                                                               |
+| -------------------------- | ----------------------------- | --------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| `--otel-sample-rate`       | `OTEL_TRACES_SAMPLER_ARG`     | `0.1`           | Fraction of traces to sample (`0.0`–`1.0`). `0.0` disables sampling entirely; `1.0` samples every trace.                  |
 | `--otel-exporter-endpoint` | `OTEL_EXPORTER_OTLP_ENDPOINT` | `""` (disabled) | OTLP gRPC endpoint for the trace exporter, e.g. `otel-collector:4317`. When empty, tracing is a no-op with zero overhead. |
 
 When `--otel-exporter-endpoint` is empty (the default), tracing is completely disabled — the `TracerProvider` is a no-op implementation and no goroutines or connections are created. This is the recommended configuration for development clusters.
@@ -621,18 +613,18 @@ For cron-triggered flows, the root span is `cron_fire` emitted by the controller
 
 Key span attributes:
 
-| Attribute | Set on | Description |
-|-----------|--------|-------------|
-| `kubezap.trigger.name` | Root span | Name of the Trigger CRD |
-| `kubezap.trigger.type` | Root span | `webhook`, `cron`, `pubsub` |
-| `kubezap.flowrun.name` | `flowrun_reconcile` | Name of the FlowRun resource |
-| `kubezap.flow.name` | `flowrun_reconcile` | Name of the referenced Flow |
-| `kubezap.step.name` | Each step span | Step name within the Flow |
-| `kubezap.step.type` | Each step span | Step action type: `http`, `transform`, `publish`, etc. |
-| `kubezap.step.outcome` | Each step span | `Succeeded`, `Failed`, `Skipped` |
-| `http.url` | `http_call` | Target URL (auth tokens redacted) |
-| `http.status_code` | `http_call` | Response status code |
-| `net.peer.ip` | Root span (webhook) | Source IP — as a span attribute, not a Prometheus label |
+| Attribute              | Set on              | Description                                             |
+| ---------------------- | ------------------- | ------------------------------------------------------- |
+| `kubezap.trigger.name` | Root span           | Name of the Trigger CRD                                 |
+| `kubezap.trigger.type` | Root span           | `webhook`, `cron`, `pubsub`                             |
+| `kubezap.flowrun.name` | `flowrun_reconcile` | Name of the FlowRun resource                            |
+| `kubezap.flow.name`    | `flowrun_reconcile` | Name of the referenced Flow                             |
+| `kubezap.step.name`    | Each step span      | Step name within the Flow                               |
+| `kubezap.step.type`    | Each step span      | Step action type: `http`, `transform`, `publish`, etc.  |
+| `kubezap.step.outcome` | Each step span      | `Succeeded`, `Failed`, `Skipped`                        |
+| `http.url`             | `http_call`         | Target URL (auth tokens redacted)                       |
+| `http.status_code`     | `http_call`         | Response status code                                    |
+| `net.peer.ip`          | Root span (webhook) | Source IP — as a span attribute, not a Prometheus label |
 
 The `trace_id` in structured access logs matches the OTel trace ID, enabling log-to-trace correlation in Grafana, Jaeger, Honeycomb, or any OTLP-compatible backend.
 
@@ -658,7 +650,7 @@ This design is intentional: it avoids tight coupling between the gateway and con
 
 ---
 
-### ServiceMonitor for Trace Exporters
+### Collection for Trace Exporters
 
 KubeZap does **not** auto-create any resources for trace collection. Deploying and configuring an OpenTelemetry Collector (or a compatible backend such as Jaeger, Tempo, or a SaaS vendor) is the user's responsibility.
 
@@ -948,22 +940,22 @@ Prometheus stores one time series per unique combination of label values. A busy
 
 **The solution**: use the structured access log for per-IP analysis, and use `/24`-bucketed `source_range` labels in Prometheus for coarse-grained IP source metrics on the `kubezap_webhook_ip_blocked_total` metric only.
 
-| Signal | Source IP handling |
-|---|---|
+| Signal             | Source IP handling                                             |
+| ------------------ | -------------------------------------------------------------- |
 | Prometheus metrics | `/24` bucket on `ip_blocked` only — everything else is IP-free |
-| Access logs | Full source IP in every log entry |
-| OTel traces | Source IP as a span attribute (not a metric label) |
+| Access logs        | Full source IP in every log entry                              |
+| OTel traces        | Source IP as a span attribute (not a metric label)             |
 
 ### Label cardinality table
 
-| Label | Cardinality | Safe? |
-|---|---|---|
-| `namespace` | Low (tens) | Yes |
-| `trigger` | Medium (hundreds) | Yes |
-| `flow` | Medium (hundreds) | Yes |
-| `status_code` | Low (~10) | Yes |
-| `auth_type` | Very low (6) | Yes |
-| `reason` | Low (~15) | Yes |
-| `source_ip` | Unbounded | **No — use access log** |
-| `user_agent` | Unbounded | **No — use access log** |
-| `source_range` | Medium (/24 buckets, thousands possible) | **Limited use only** |
+| Label          | Cardinality                              | Safe?                   |
+| -------------- | ---------------------------------------- | ----------------------- |
+| `namespace`    | Low (tens)                               | Yes                     |
+| `trigger`      | Medium (hundreds)                        | Yes                     |
+| `flow`         | Medium (hundreds)                        | Yes                     |
+| `status_code`  | Low (~10)                                | Yes                     |
+| `auth_type`    | Very low (6)                             | Yes                     |
+| `reason`       | Low (~15)                                | Yes                     |
+| `source_ip`    | Unbounded                                | **No — use access log** |
+| `user_agent`   | Unbounded                                | **No — use access log** |
+| `source_range` | Medium (/24 buckets, thousands possible) | **Limited use only**    |

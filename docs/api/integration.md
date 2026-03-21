@@ -6,26 +6,56 @@ An `Integration` stores the connection details and credentials for an external s
 
 ## Contents
 
-- [Overview](#overview)
-- [Roles: Subscriber and Publisher](#roles-subscriber-and-publisher)
-- [Built-in Integration Types](#built-in-integration-types)
-- [Plugin Integration Type](#plugin-integration-type)
-- [Plugin Protocol Specification](#plugin-protocol-specification)
-- [Community Plugin Graduation](#community-plugin-graduation)
-- [Spec Reference](#spec-reference)
-- [Status Reference](#status-reference)
-- [Examples](#examples)
-  - [Kafka Integration](#example-1-kafka-integration)
-  - [Kafka with mTLS](#example-2-kafka-with-mtls)
-  - [Kafka with SASL/SCRAM](#example-3-kafka-with-saslscram)
-  - [AMQP Integration (RabbitMQ)](#example-4-amqp-integration-rabbitmq)
-  - [AMQP 1.0 Integration (ActiveMQ Artemis)](#example-5-amqp-10-integration-activemq-artemis)
-  - [NATS JetStream Integration](#example-6-nats-jetstream-integration)
-  - [Community Plugin Integration](#example-7-community-plugin-integration)
-  - [Using an Integration in a Trigger](#example-8-using-an-integration-in-a-trigger)
-  - [Using an Integration as a Publisher in a Flow](#example-9-using-an-integration-as-a-publisher-in-a-flow)
-- [kubectl Reference](#kubectl-reference)
-- [Limitations](#limitations)
+- [Integration CRD](#integration-crd)
+  - [Contents](#contents)
+  - [Overview](#overview)
+  - [Roles: Subscriber and Publisher](#roles-subscriber-and-publisher)
+    - [Subscriber role](#subscriber-role)
+    - [Publisher role](#publisher-role)
+  - [Built-in Integration Types](#built-in-integration-types)
+    - [Kafka (`type: kafka`)](#kafka-type-kafka)
+      - [Scaling with KEDA](#scaling-with-keda)
+    - [AMQP (`type: amqp`) _(beta)_](#amqp-type-amqp-beta)
+    - [NATS (`type: nats`) _(beta)_](#nats-type-nats-beta)
+  - [Plugin Integration Type](#plugin-integration-type)
+    - [How it works](#how-it-works)
+  - [Plugin Protocol Specification](#plugin-protocol-specification)
+    - [Subscriber contract](#subscriber-contract)
+    - [Publisher contract](#publisher-contract)
+    - [Plugin environment](#plugin-environment)
+    - [Plugin health check](#plugin-health-check)
+  - [Spec Reference](#spec-reference)
+    - [IntegrationSpec](#integrationspec)
+    - [AmqpIntegrationSpec](#amqpintegrationspec)
+    - [AmqpTLSConfig](#amqptlsconfig)
+    - [NatsIntegrationSpec](#natsintegrationspec)
+    - [NatsTLSConfig](#natstlsconfig)
+    - [KafkaIntegrationSpec](#kafkaintegrationspec)
+    - [KafkaTLSSpec](#kafkatlsspec)
+    - [KafkaSASLSpec](#kafkasaslspec)
+    - [SecretKeyRef](#secretkeyref)
+    - [PluginIntegrationSpec](#pluginintegrationspec)
+    - [PluginSecretRef](#pluginsecretref)
+  - [Status Reference](#status-reference)
+    - [IntegrationStatus](#integrationstatus)
+    - [Conditions](#conditions)
+    - [Printer Columns](#printer-columns)
+  - [Examples](#examples)
+    - [Example 1: Kafka Integration](#example-1-kafka-integration)
+    - [Example 2: Kafka with mTLS](#example-2-kafka-with-mtls)
+    - [Example 3: Kafka with SASL/SCRAM](#example-3-kafka-with-saslscram)
+    - [Example 4: AMQP Integration (RabbitMQ)](#example-4-amqp-integration-rabbitmq)
+    - [Example 5: AMQP 1.0 Integration (ActiveMQ Artemis)](#example-5-amqp-10-integration-activemq-artemis)
+    - [Example 6: NATS JetStream Integration](#example-6-nats-jetstream-integration)
+    - [Example 7: Community Plugin Integration](#example-7-community-plugin-integration)
+    - [Example 8: Using an Integration in a Trigger](#example-8-using-an-integration-in-a-trigger)
+    - [Example 9: Using an Integration as a Publisher in a Flow](#example-9-using-an-integration-as-a-publisher-in-a-flow)
+  - [Community Plugin Graduation](#community-plugin-graduation)
+    - [Graduation criteria](#graduation-criteria)
+    - [What graduation changes](#what-graduation-changes)
+    - [Plugin catalog](#plugin-catalog)
+  - [kubectl Reference](#kubectl-reference)
+  - [Limitations](#limitations)
 
 ---
 
@@ -136,14 +166,14 @@ trigger:
 
 Uses the `kubezap/amqp-gateway` image. Covers:
 
-| Broker | Protocol version |
-|---|---|
-| RabbitMQ | AMQP 0-9-1 (default) |
-| ActiveMQ Classic | AMQP 0-9-1 |
-| ActiveMQ Artemis | AMQP 1.0 |
-| Solace PubSub+ | AMQP 1.0 |
-| Azure Service Bus | AMQP 1.0 |
-| IBM MQ | AMQP 1.0 |
+| Broker            | Protocol version     |
+| ----------------- | -------------------- |
+| RabbitMQ          | AMQP 0-9-1 (default) |
+| ActiveMQ Classic  | AMQP 0-9-1           |
+| ActiveMQ Artemis  | AMQP 1.0             |
+| Solace PubSub+    | AMQP 1.0             |
+| Azure Service Bus | AMQP 1.0             |
+| IBM MQ            | AMQP 1.0             |
 
 Select the wire protocol via `spec.amqp.version: "0-9-1"` or `"1.0"` (default: `"0-9-1"`). The gateway dispatches to the appropriate client library at startup.
 
@@ -272,12 +302,12 @@ Content-Type: application/json
 
 The operator injects these environment variables into the plugin container:
 
-| Variable | Description |
-|---|---|
-| `KUBEZAP_NAMESPACE` | The namespace this plugin instance serves |
-| `KUBEZAP_INTEGRATION_NAME` | Name of the Integration CRD |
-| `KUBEZAP_PUBLISHER_PORT` | Port to listen on for publisher calls |
-| `KUBEZAP_LOG_LEVEL` | `debug`, `info`, `warn`, `error` |
+| Variable                   | Description                               |
+| -------------------------- | ----------------------------------------- |
+| `KUBEZAP_NAMESPACE`        | The namespace this plugin instance serves |
+| `KUBEZAP_INTEGRATION_NAME` | Name of the Integration CRD               |
+| `KUBEZAP_PUBLISHER_PORT`   | Port to listen on for publisher calls     |
+| `KUBEZAP_LOG_LEVEL`        | `debug`, `info`, `warn`, `error`          |
 
 Secrets referenced in `spec.plugin.secretRefs` are injected as environment variables using the key mapping you define.
 
@@ -297,105 +327,105 @@ The operator uses this for the Deployment readiness probe.
 
 ### IntegrationSpec
 
-| Field | Type | Required | Default | Description |
-|---|---|---|---|---|
-| `type` | string | **Yes** | — | `kafka`, `amqp`, `nats`, or `plugin` |
-| `kafka` | KafkaIntegrationSpec | No | — | Kafka connection details. Required when `type: kafka`. |
-| `amqp` | AmqpIntegrationSpec | No | — | AMQP connection details. Required when `type: amqp`. _(planned)_ |
-| `nats` | NatsIntegrationSpec | No | — | NATS connection details. Required when `type: nats`. _(planned)_ |
-| `plugin` | PluginIntegrationSpec | No | — | Plugin configuration. Required when `type: plugin`. |
+| Field    | Type                  | Required | Default | Description                                                      |
+| -------- | --------------------- | -------- | ------- | ---------------------------------------------------------------- |
+| `type`   | string                | **Yes**  | —       | `kafka`, `amqp`, `nats`, or `plugin`                             |
+| `kafka`  | KafkaIntegrationSpec  | No       | —       | Kafka connection details. Required when `type: kafka`.           |
+| `amqp`   | AmqpIntegrationSpec   | No       | —       | AMQP connection details. Required when `type: amqp`. _(planned)_ |
+| `nats`   | NatsIntegrationSpec   | No       | —       | NATS connection details. Required when `type: nats`. _(planned)_ |
+| `plugin` | PluginIntegrationSpec | No       | —       | Plugin configuration. Required when `type: plugin`.              |
 
 ### AmqpIntegrationSpec
 
-| Field | Type | Required | Default | Description |
-|---|---|---|---|---|
-| `url` | string | **Yes** | — | AMQP broker URL, e.g. `amqp://rabbitmq:5672/vhost` or `amqps://...` |
-| `version` | string | No | `"0-9-1"` | Wire protocol: `"0-9-1"` or `"1.0"` |
-| `tls` | AmqpTLSConfig | No | — | TLS configuration. Inferred from `amqps://` URL if omitted. |
-| `usernameSecretRef` | SecretKeyRef | No | — | Secret key containing AMQP username |
-| `passwordSecretRef` | SecretKeyRef | No | — | Secret key containing AMQP password |
+| Field               | Type          | Required | Default   | Description                                                         |
+| ------------------- | ------------- | -------- | --------- | ------------------------------------------------------------------- |
+| `url`               | string        | **Yes**  | —         | AMQP broker URL, e.g. `amqp://rabbitmq:5672/vhost` or `amqps://...` |
+| `version`           | string        | No       | `"0-9-1"` | Wire protocol: `"0-9-1"` or `"1.0"`                                 |
+| `tls`               | AmqpTLSConfig | No       | —         | TLS configuration. Inferred from `amqps://` URL if omitted.         |
+| `usernameSecretRef` | SecretKeyRef  | No       | —         | Secret key containing AMQP username                                 |
+| `passwordSecretRef` | SecretKeyRef  | No       | —         | Secret key containing AMQP password                                 |
 
 ### AmqpTLSConfig
 
-| Field | Type | Required | Default | Description |
-|---|---|---|---|---|
-| `enabled` | boolean | No | `false` | Enable TLS (auto-enabled for `amqps://` URLs) |
-| `insecureSkipVerify` | boolean | No | `false` | Disable certificate verification. Development only. |
-| `caSecretRef` | SecretKeyRef | No | — | Custom CA certificate |
-| `clientCertSecretRef` | LocalObjectReference | No | — | Client certificate secret for mTLS (`tls.crt` + `tls.key`) |
+| Field                 | Type                 | Required | Default | Description                                                |
+| --------------------- | -------------------- | -------- | ------- | ---------------------------------------------------------- |
+| `enabled`             | boolean              | No       | `false` | Enable TLS (auto-enabled for `amqps://` URLs)              |
+| `insecureSkipVerify`  | boolean              | No       | `false` | Disable certificate verification. Development only.        |
+| `caSecretRef`         | SecretKeyRef         | No       | —       | Custom CA certificate                                      |
+| `clientCertSecretRef` | LocalObjectReference | No       | —       | Client certificate secret for mTLS (`tls.crt` + `tls.key`) |
 
 ### NatsIntegrationSpec
 
-| Field | Type | Required | Default | Description |
-|---|---|---|---|---|
-| `servers` | []string | **Yes** | — | NATS server URLs. Multiple entries used for cluster failover. |
-| `tls` | NatsTLSConfig | No | — | TLS configuration |
-| `credentialsSecretRef` | LocalObjectReference | No | — | Secret containing `nats.creds` (NKey or User JWT credentials) |
-| `usernameSecretRef` | SecretKeyRef | No | — | Username for basic auth (not recommended for production) |
-| `passwordSecretRef` | SecretKeyRef | No | — | Password for basic auth |
-| `jetStream` | boolean | No | `false` | Enable NATS JetStream for durable delivery |
+| Field                  | Type                 | Required | Default | Description                                                   |
+| ---------------------- | -------------------- | -------- | ------- | ------------------------------------------------------------- |
+| `servers`              | []string             | **Yes**  | —       | NATS server URLs. Multiple entries used for cluster failover. |
+| `tls`                  | NatsTLSConfig        | No       | —       | TLS configuration                                             |
+| `credentialsSecretRef` | LocalObjectReference | No       | —       | Secret containing `nats.creds` (NKey or User JWT credentials) |
+| `usernameSecretRef`    | SecretKeyRef         | No       | —       | Username for basic auth (not recommended for production)      |
+| `passwordSecretRef`    | SecretKeyRef         | No       | —       | Password for basic auth                                       |
+| `jetStream`            | boolean              | No       | `false` | Enable NATS JetStream for durable delivery                    |
 
 ### NatsTLSConfig
 
-| Field | Type | Required | Default | Description |
-|---|---|---|---|---|
-| `insecureSkipVerify` | boolean | No | `false` | Disable certificate verification. Development only. |
-| `caSecretRef` | SecretKeyRef | No | — | Custom CA certificate |
-| `clientCertSecretRef` | LocalObjectReference | No | — | Client certificate secret for mTLS |
+| Field                 | Type                 | Required | Default | Description                                         |
+| --------------------- | -------------------- | -------- | ------- | --------------------------------------------------- |
+| `insecureSkipVerify`  | boolean              | No       | `false` | Disable certificate verification. Development only. |
+| `caSecretRef`         | SecretKeyRef         | No       | —       | Custom CA certificate                               |
+| `clientCertSecretRef` | LocalObjectReference | No       | —       | Client certificate secret for mTLS                  |
 
 ### KafkaIntegrationSpec
 
-| Field | Type | Required | Default | Description |
-|---|---|---|---|---|
-| `bootstrapServers` | []string | **Yes** | — | Kafka bootstrap broker addresses (e.g., `kafka.infra:9092`) |
-| `tls` | KafkaTLSSpec | No | disabled | TLS configuration |
-| `sasl` | KafkaSASLSpec | No | disabled | SASL authentication configuration |
-| `consumerGroupPrefix` | string | No | `kubezap` | Prefix for consumer group names. Final group: `<prefix>-<triggerName>-<consumerGroup>` |
-| `producerConfig` | map[string]string | No | — | Additional Kafka producer configuration key/value pairs (passed directly to the producer client) |
-| `consumerConfig` | map[string]string | No | — | Additional Kafka consumer configuration key/value pairs |
+| Field                 | Type              | Required | Default   | Description                                                                                      |
+| --------------------- | ----------------- | -------- | --------- | ------------------------------------------------------------------------------------------------ |
+| `bootstrapServers`    | []string          | **Yes**  | —         | Kafka bootstrap broker addresses (e.g., `kafka.infra:9092`)                                      |
+| `tls`                 | KafkaTLSSpec      | No       | disabled  | TLS configuration                                                                                |
+| `sasl`                | KafkaSASLSpec     | No       | disabled  | SASL authentication configuration                                                                |
+| `consumerGroupPrefix` | string            | No       | `kubezap` | Prefix for consumer group names. Final group: `<prefix>-<triggerName>-<consumerGroup>`           |
+| `producerConfig`      | map[string]string | No       | —         | Additional Kafka producer configuration key/value pairs (passed directly to the producer client) |
+| `consumerConfig`      | map[string]string | No       | —         | Additional Kafka consumer configuration key/value pairs                                          |
 
 ### KafkaTLSSpec
 
-| Field | Type | Required | Default | Description |
-|---|---|---|---|---|
-| `enabled` | boolean | No | `false` | Enable TLS |
-| `caSecretRef` | SecretKeyRef | No | — | Secret containing `ca.crt` for custom CA verification |
-| `clientCertSecretRef` | LocalObjectReference | No | — | Secret containing `tls.crt` and `tls.key` for mTLS |
-| `insecureSkipVerify` | boolean | No | `false` | Disable certificate verification. Development only. |
+| Field                 | Type                 | Required | Default | Description                                           |
+| --------------------- | -------------------- | -------- | ------- | ----------------------------------------------------- |
+| `enabled`             | boolean              | No       | `false` | Enable TLS                                            |
+| `caSecretRef`         | SecretKeyRef         | No       | —       | Secret containing `ca.crt` for custom CA verification |
+| `clientCertSecretRef` | LocalObjectReference | No       | —       | Secret containing `tls.crt` and `tls.key` for mTLS    |
+| `insecureSkipVerify`  | boolean              | No       | `false` | Disable certificate verification. Development only.   |
 
 ### KafkaSASLSpec
 
-| Field | Type | Required | Default | Description |
-|---|---|---|---|---|
-| `mechanism` | string | **Yes** | — | `PLAIN`, `SCRAM-SHA-256`, or `SCRAM-SHA-512` |
-| `username` | string | No | — | SASL username (plain text; use `usernameSecretRef` for sensitive values) |
-| `usernameSecretRef` | SecretKeyRef | No | — | Reference to a Secret key containing the SASL username |
-| `passwordSecretRef` | SecretKeyRef | **Yes** | — | Reference to a Secret key containing the SASL password |
+| Field               | Type         | Required | Default | Description                                                              |
+| ------------------- | ------------ | -------- | ------- | ------------------------------------------------------------------------ |
+| `mechanism`         | string       | **Yes**  | —       | `PLAIN`, `SCRAM-SHA-256`, or `SCRAM-SHA-512`                             |
+| `username`          | string       | No       | —       | SASL username (plain text; use `usernameSecretRef` for sensitive values) |
+| `usernameSecretRef` | SecretKeyRef | No       | —       | Reference to a Secret key containing the SASL username                   |
+| `passwordSecretRef` | SecretKeyRef | **Yes**  | —       | Reference to a Secret key containing the SASL password                   |
 
 ### SecretKeyRef
 
-| Field | Type | Description |
-|---|---|---|
-| `name` | string | Name of the Secret |
-| `key` | string | Key within the Secret |
+| Field  | Type   | Description           |
+| ------ | ------ | --------------------- |
+| `name` | string | Name of the Secret    |
+| `key`  | string | Key within the Secret |
 
 ### PluginIntegrationSpec
 
-| Field | Type | Required | Default | Description |
-|---|---|---|---|---|
-| `image` | string | **Yes** | — | Container image implementing the plugin protocol |
-| `publisherPort` | integer | No | `8090` | Port the plugin listens on for publisher calls from the controller |
-| `replicas` | integer | No | `1` | Number of plugin pod replicas. For subscriber plugins, ensure your deduplication key handles multiple consumers. |
-| `resources` | ResourceRequirements | No | — | CPU/memory requests and limits for the plugin container |
-| `config` | map[string]string | No | — | Non-sensitive configuration passed to the plugin as environment variables |
-| `secretRefs` | []PluginSecretRef | No | — | Secrets mounted as environment variables in the plugin container |
-| `imagePullSecrets` | []LocalObjectReference | No | — | Image pull secrets for private registries |
+| Field              | Type                   | Required | Default | Description                                                                                                      |
+| ------------------ | ---------------------- | -------- | ------- | ---------------------------------------------------------------------------------------------------------------- |
+| `image`            | string                 | **Yes**  | —       | Container image implementing the plugin protocol                                                                 |
+| `publisherPort`    | integer                | No       | `8090`  | Port the plugin listens on for publisher calls from the controller                                               |
+| `replicas`         | integer                | No       | `1`     | Number of plugin pod replicas. For subscriber plugins, ensure your deduplication key handles multiple consumers. |
+| `resources`        | ResourceRequirements   | No       | —       | CPU/memory requests and limits for the plugin container                                                          |
+| `config`           | map[string]string      | No       | —       | Non-sensitive configuration passed to the plugin as environment variables                                        |
+| `secretRefs`       | []PluginSecretRef      | No       | —       | Secrets mounted as environment variables in the plugin container                                                 |
+| `imagePullSecrets` | []LocalObjectReference | No       | —       | Image pull secrets for private registries                                                                        |
 
 ### PluginSecretRef
 
-| Field | Type | Description |
-|---|---|---|
-| `secretName` | string | Name of the Kubernetes Secret |
+| Field            | Type              | Description                                                                       |
+| ---------------- | ----------------- | --------------------------------------------------------------------------------- |
+| `secretName`     | string            | Name of the Kubernetes Secret                                                     |
 | `envVarMappings` | map[string]string | Maps Secret keys to environment variable names: `{ "api-key": "PLUGIN_API_KEY" }` |
 
 ---
@@ -404,21 +434,21 @@ The operator uses this for the Deployment readiness probe.
 
 ### IntegrationStatus
 
-| Field | Type | Description |
-|---|---|---|
-| `conditions` | []Condition | Standard `Ready` condition |
-| `phase` | string | `Ready`, `Degraded`, `Failed` |
+| Field                | Type                   | Description                                                              |
+| -------------------- | ---------------------- | ------------------------------------------------------------------------ |
+| `conditions`         | []Condition            | Standard `Ready` condition                                               |
+| `phase`              | string                 | `Ready`, `Degraded`, `Failed`                                            |
 | `gatewayDeployments` | []GatewayDeploymentRef | Names of gateway Deployments managed for this Integration, per namespace |
-| `connectedTriggers` | integer | Number of Triggers currently referencing this Integration |
+| `connectedTriggers`  | integer                | Number of Triggers currently referencing this Integration                |
 
 ### Conditions
 
-| Type | Status | Meaning |
-|---|---|---|
-| `Ready` | `True` | Integration is configured and gateways are running |
-| `Ready` | `False` | Configuration error or gateway pod failed to start. See `message`. |
-| `GatewayAvailable` | `True` | At least one gateway replica is running and healthy |
-| `GatewayAvailable` | `False` | No gateway replicas available |
+| Type               | Status  | Meaning                                                            |
+| ------------------ | ------- | ------------------------------------------------------------------ |
+| `Ready`            | `True`  | Integration is configured and gateways are running                 |
+| `Ready`            | `False` | Configuration error or gateway pod failed to start. See `message`. |
+| `GatewayAvailable` | `True`  | At least one gateway replica is running and healthy                |
+| `GatewayAvailable` | `False` | No gateway replicas available                                      |
 
 ### Printer Columns
 
@@ -748,12 +778,12 @@ The community plugin catalog lives at `docs/plugins/` (forthcoming). Each catalo
 
 ## kubectl Reference
 
-| Command | Description |
-|---|---|
-| `kubectl get integrations -n <ns>` | List all Integrations with phase and trigger count |
-| `kubectl get integration <name> -n <ns> -o yaml` | Full spec and status |
-| `kubectl describe integration <name> -n <ns>` | Human-readable summary including conditions |
-| `kubectl delete integration <name> -n <ns>` | Remove the Integration (gateways are deleted; Triggers become degraded) |
+| Command                                          | Description                                                             |
+| ------------------------------------------------ | ----------------------------------------------------------------------- |
+| `kubectl get integrations -n <ns>`               | List all Integrations with phase and trigger count                      |
+| `kubectl get integration <name> -n <ns> -o yaml` | Full spec and status                                                    |
+| `kubectl describe integration <name> -n <ns>`    | Human-readable summary including conditions                             |
+| `kubectl delete integration <name> -n <ns>`      | Remove the Integration (gateways are deleted; Triggers become degraded) |
 
 ---
 

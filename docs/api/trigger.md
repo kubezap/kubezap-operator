@@ -6,22 +6,49 @@ A `Trigger` defines an event source that starts a `Flow`. It listens for an even
 
 ## Contents
 
-- [Overview](#overview)
-- [Spec Reference](#spec-reference)
-- [Status Reference](#status-reference)
-- [Trigger Types](#trigger-types)
-  - [Kubernetes Resource Events (planned)](#kubernetes-resource-events-planned)
-- [Exposing Webhook Triggers](#exposing-webhook-triggers)
-- [TLS and mTLS Annotations](#tls-and-mtls-annotations)
-- [Examples](#examples)
-  - [Webhook Trigger](#example-1-webhook-trigger)
-  - [Cron Trigger](#example-2-cron-trigger)
-  - [Kafka Trigger](#example-3-kafka-trigger)
-  - [With Cooldown Policy](#example-4-with-cooldown-policy)
-  - [Inline Action (No Flow)](#example-5-inline-action-no-flow)
-- [Rate Limiting](#rate-limiting)
-- [Status Conditions](#status-conditions)
-- [Limitations](#limitations)
+- [Trigger CRD](#trigger-crd)
+  - [Contents](#contents)
+  - [Overview](#overview)
+  - [Spec Reference](#spec-reference)
+    - [TriggerSpec](#triggerspec)
+    - [WebhookTrigger](#webhooktrigger)
+    - [WebhookAuth](#webhookauth)
+    - [WebhookBasicAuth](#webhookbasicauth)
+    - [CronTrigger](#crontrigger)
+    - [PubSubTrigger](#pubsubtrigger)
+    - [FlowReference](#flowreference)
+    - [ActionDefinition](#actiondefinition)
+    - [WebhookAction](#webhookaction)
+    - [CooldownPolicy](#cooldownpolicy)
+    - [TargetResource](#targetresource)
+  - [Status Reference](#status-reference)
+    - [TriggerStatus](#triggerstatus)
+    - [`lastResult` Values](#lastresult-values)
+    - [Condition Types](#condition-types)
+  - [Trigger Types](#trigger-types)
+    - [Webhook](#webhook)
+    - [Cron](#cron)
+    - [Pub/Sub — Kafka, AMQP, NATS](#pubsub--kafka-amqp-nats)
+    - [Kubernetes Resource Events _(planned)_](#kubernetes-resource-events-planned)
+  - [Exposing Webhook Triggers](#exposing-webhook-triggers)
+    - [Kubernetes Ingress](#kubernetes-ingress)
+    - [Kubernetes Gateway API (recommended for Kubernetes 1.28+)](#kubernetes-gateway-api-recommended-for-kubernetes-128)
+    - [OpenShift Route](#openshift-route)
+  - [TLS and mTLS Annotations](#tls-and-mtls-annotations)
+    - [Custom Certificate Authority](#custom-certificate-authority)
+    - [Mutual TLS (mTLS) for Outbound Connections](#mutual-tls-mtls-for-outbound-connections)
+    - [Inbound Webhook mTLS](#inbound-webhook-mtls)
+    - [Skip TLS Verification (development only)](#skip-tls-verification-development-only)
+    - [Annotation Reference](#annotation-reference)
+  - [Examples](#examples)
+    - [Example 1: Webhook Trigger](#example-1-webhook-trigger)
+    - [Example 2: Cron Trigger](#example-2-cron-trigger)
+    - [Example 3: Kafka Trigger](#example-3-kafka-trigger)
+    - [Example 4: With Cooldown Policy](#example-4-with-cooldown-policy)
+    - [Example 5: Inline Action (No Flow)](#example-5-inline-action-no-flow)
+  - [Rate Limiting](#rate-limiting)
+  - [Status Conditions](#status-conditions)
+  - [Limitations](#limitations)
 
 ---
 
@@ -37,26 +64,26 @@ A `Trigger` can also define an inline `action` instead of a `flowRef` for simple
 
 ### TriggerSpec
 
-| Field | Type | Required | Default | Description |
-|---|---|---|---|---|
-| `type` | enum | **Yes** | — | Trigger source type: `webhook`, `cron`, or `pubsub` |
-| `enabled` | boolean | No | `true` | Whether this trigger is active. Set to `false` to pause without deleting. |
-| `webhook` | WebhookTrigger | Conditional | — | Required when `type: webhook` |
-| `cron` | CronTrigger | Conditional | — | Required when `type: cron` |
-| `pubsub` | PubSubTrigger | Conditional | — | Required when `type: pubsub` |
-| `flowRef` | FlowReference | Conditional | — | Reference to the Flow to execute. Required unless `action` is set. |
-| `action` | ActionDefinition | Conditional | — | Inline action. Used instead of `flowRef` for simple single-step responses. |
-| `cooldown` | CooldownPolicy | No | — | Rate limiting policy to prevent trigger storms |
-| `target` | TargetResource | No | — | Cluster resource to watch (reserved for future resource-based triggers) |
-| `event` | string | No | — | Resource event type for resource-based triggers: `create`, `update`, or `delete` |
+| Field      | Type             | Required    | Default | Description                                                                      |
+| ---------- | ---------------- | ----------- | ------- | -------------------------------------------------------------------------------- |
+| `type`     | enum             | **Yes**     | —       | Trigger source type: `webhook`, `cron`, or `pubsub`                              |
+| `enabled`  | boolean          | No          | `true`  | Whether this trigger is active. Set to `false` to pause without deleting.        |
+| `webhook`  | WebhookTrigger   | Conditional | —       | Required when `type: webhook`                                                    |
+| `cron`     | CronTrigger      | Conditional | —       | Required when `type: cron`                                                       |
+| `pubsub`   | PubSubTrigger    | Conditional | —       | Required when `type: pubsub`                                                     |
+| `flowRef`  | FlowReference    | Conditional | —       | Reference to the Flow to execute. Required unless `action` is set.               |
+| `action`   | ActionDefinition | Conditional | —       | Inline action. Used instead of `flowRef` for simple single-step responses.       |
+| `cooldown` | CooldownPolicy   | No          | —       | Rate limiting policy to prevent trigger storms                                   |
+| `target`   | TargetResource   | No          | —       | Cluster resource to watch (reserved for future resource-based triggers)          |
+| `event`    | string           | No          | —       | Resource event type for resource-based triggers: `create`, `update`, or `delete` |
 
 ### WebhookTrigger
 
-| Field | Type | Required | Default | Description |
-|---|---|---|---|---|
-| `path` | string | **Yes** | — | HTTP path exposed by the operator (e.g., `/hooks/my-trigger`) |
-| `method` | enum | No | `POST` | Accepted HTTP method: `POST` or `PUT` |
-| `auth` | WebhookAuth | No | — | Authentication policy for this endpoint. See [Securing Webhook Triggers](../guides/webhook-security.md). |
+| Field    | Type        | Required | Default | Description                                                                                              |
+| -------- | ----------- | -------- | ------- | -------------------------------------------------------------------------------------------------------- |
+| `path`   | string      | **Yes**  | —       | HTTP path exposed by the operator (e.g., `/hooks/my-trigger`)                                            |
+| `method` | enum        | No       | `POST`  | Accepted HTTP method: `POST` or `PUT`                                                                    |
+| `auth`   | WebhookAuth | No       | —       | Authentication policy for this endpoint. See [Securing Webhook Triggers](../guides/webhook-security.md). |
 
 The full URL of the webhook endpoint is: `http://<operator-service>:<port><path>`
 
@@ -66,61 +93,61 @@ For authentication configuration examples and security guidance see [Securing We
 
 Configures authentication for a webhook trigger endpoint. If omitted, the endpoint accepts requests from any caller — always set `auth` in production.
 
-| Field | Type | Required | Default | Description |
-|---|---|---|---|---|
-| `type` | enum | **Yes** | — | Authentication method: `hmac`, `bearer`, `oidc`, `basic`, `apiKey`, or `ipAllowlist` |
-| `hmacSecretRef` | SecretKeySelector | Conditional | — | Reference to the Secret key containing the HMAC shared secret. Required when `type: hmac`. |
-| `bearerTokenSecretRef` | SecretKeySelector | Conditional | — | Reference to the Secret key containing the expected bearer token. Required when `type: bearer`. |
-| `oidcIssuer` | string | Conditional | — | OIDC/JWT issuer URL (e.g., `https://accounts.google.com`). Required when `type: oidc`. |
-| `oidcAudience` | string | No | — | Expected `aud` claim value. When omitted, audience validation is skipped. Used when `type: oidc`. |
-| `basic` | WebhookBasicAuth | Conditional | — | Basic auth configuration. Required when `type: basic`. |
-| `apiKeySecretRef` | SecretKeySelector | Conditional | — | Reference to the Secret key containing the expected API key value. Required when `type: apiKey`. |
-| `apiKeyHeader` | string | No | `X-Api-Key` | Header name to check for the API key. Used when `type: apiKey`. |
-| `ipAllowlist` | []string | Conditional | — | List of CIDR blocks allowed to call this endpoint (e.g., `["10.0.0.0/8", "192.168.1.0/24"]`). Required when `type: ipAllowlist`. |
+| Field                  | Type              | Required    | Default     | Description                                                                                                                      |
+| ---------------------- | ----------------- | ----------- | ----------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| `type`                 | enum              | **Yes**     | —           | Authentication method: `hmac`, `bearer`, `oidc`, `basic`, `apiKey`, or `ipAllowlist`                                             |
+| `hmacSecretRef`        | SecretKeySelector | Conditional | —           | Reference to the Secret key containing the HMAC shared secret. Required when `type: hmac`.                                       |
+| `bearerTokenSecretRef` | SecretKeySelector | Conditional | —           | Reference to the Secret key containing the expected bearer token. Required when `type: bearer`.                                  |
+| `oidcIssuer`           | string            | Conditional | —           | OIDC/JWT issuer URL (e.g., `https://accounts.google.com`). Required when `type: oidc`.                                           |
+| `oidcAudience`         | string            | No          | —           | Expected `aud` claim value. When omitted, audience validation is skipped. Used when `type: oidc`.                                |
+| `basic`                | WebhookBasicAuth  | Conditional | —           | Basic auth configuration. Required when `type: basic`.                                                                           |
+| `apiKeySecretRef`      | SecretKeySelector | Conditional | —           | Reference to the Secret key containing the expected API key value. Required when `type: apiKey`.                                 |
+| `apiKeyHeader`         | string            | No          | `X-Api-Key` | Header name to check for the API key. Used when `type: apiKey`.                                                                  |
+| `ipAllowlist`          | []string          | Conditional | —           | List of CIDR blocks allowed to call this endpoint (e.g., `["10.0.0.0/8", "192.168.1.0/24"]`). Required when `type: ipAllowlist`. |
 
 > **Note — mTLS**: Client-certificate authentication is not configured via `WebhookAuth`. It is enforced at the TLS termination layer using the `kubezap.io/webhook-mtls-ca-secret` annotation. See [TLS and mTLS Annotations](#tls-and-mtls-annotations) for details.
 
 ### WebhookBasicAuth
 
-| Field | Type | Required | Default | Description |
-|---|---|---|---|---|
-| `secretRef` | LocalObjectReference | **Yes** | — | Name of the Secret containing the username and password. |
-| `usernameKey` | string | No | `username` | Key within the Secret that holds the username. |
-| `passwordKey` | string | No | `password` | Key within the Secret that holds the password. |
+| Field         | Type                 | Required | Default    | Description                                              |
+| ------------- | -------------------- | -------- | ---------- | -------------------------------------------------------- |
+| `secretRef`   | LocalObjectReference | **Yes**  | —          | Name of the Secret containing the username and password. |
+| `usernameKey` | string               | No       | `username` | Key within the Secret that holds the username.           |
+| `passwordKey` | string               | No       | `password` | Key within the Secret that holds the password.           |
 
 ### CronTrigger
 
-| Field | Type | Required | Default | Description |
-|---|---|---|---|---|
-| `schedule` | string | **Yes** | — | Cron expression in standard five-field format: `minute hour day-of-month month day-of-week`. Also supports `robfig/cron` extended syntax: `@daily`, `@hourly`, `@every 5m`, etc. |
-| `timezone` | string | No | `UTC` | IANA timezone name for the schedule (e.g. `America/New_York`, `Europe/Berlin`). Defaults to UTC when omitted. |
+| Field      | Type   | Required | Default | Description                                                                                                                                                                      |
+| ---------- | ------ | -------- | ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `schedule` | string | **Yes**  | —       | Cron expression in standard five-field format: `minute hour day-of-month month day-of-week`. Also supports `robfig/cron` extended syntax: `@daily`, `@hourly`, `@every 5m`, etc. |
+| `timezone` | string | No       | `UTC`   | IANA timezone name for the schedule (e.g. `America/New_York`, `Europe/Berlin`). Defaults to UTC when omitted.                                                                    |
 
 **Example schedules:**
 
-| Schedule | Meaning |
-|---|---|
-| `0 * * * *` | Every hour at minute 0 |
-| `*/15 * * * *` | Every 15 minutes |
-| `0 2 * * *` | Daily at 2:00 AM |
-| `0 9 * * 1` | Every Monday at 9:00 AM |
+| Schedule       | Meaning                 |
+| -------------- | ----------------------- |
+| `0 * * * *`    | Every hour at minute 0  |
+| `*/15 * * * *` | Every 15 minutes        |
+| `0 2 * * *`    | Daily at 2:00 AM        |
+| `0 9 * * 1`    | Every Monday at 9:00 AM |
 
 ### PubSubTrigger
 
-| Field | Type | Required | Default | Description |
-|---|---|---|---|---|
-| `type` | enum | **Yes** | — | Message broker type: `kafka`, `amqp`, or `nats` |
-| `integrationRef` | IntegrationReference | **Yes** | — | Reference to an `Integration` CR with broker connection details |
-| `topic` | string | **Yes** | — | Topic name to consume from (Kafka and AMQP exchange name) |
-| `consumerGroup` | string | No | `kubezap-<trigger-name>` | Kafka consumer group ID. Ignored for AMQP and NATS. |
-| `routingKey` | string | No | — | AMQP routing key or binding pattern. Used when `type: amqp` only. |
-| `subject` | string | No | — | NATS subject to subscribe to. Supports wildcards (e.g. `orders.*`, `events.>`). Used when `type: nats` only. |
+| Field            | Type                 | Required | Default                  | Description                                                                                                  |
+| ---------------- | -------------------- | -------- | ------------------------ | ------------------------------------------------------------------------------------------------------------ |
+| `type`           | enum                 | **Yes**  | —                        | Message broker type: `kafka`, `amqp`, or `nats`                                                              |
+| `integrationRef` | IntegrationReference | **Yes**  | —                        | Reference to an `Integration` CR with broker connection details                                              |
+| `topic`          | string               | **Yes**  | —                        | Topic name to consume from (Kafka and AMQP exchange name)                                                    |
+| `consumerGroup`  | string               | No       | `kubezap-<trigger-name>` | Kafka consumer group ID. Ignored for AMQP and NATS.                                                          |
+| `routingKey`     | string               | No       | —                        | AMQP routing key or binding pattern. Used when `type: amqp` only.                                            |
+| `subject`        | string               | No       | —                        | NATS subject to subscribe to. Supports wildcards (e.g. `orders.*`, `events.>`). Used when `type: nats` only. |
 
 ### FlowReference
 
-| Field | Type | Required | Default | Description |
-|---|---|---|---|---|
-| `name` | string | **Yes** | — | Name of the Flow CR to execute |
-| `namespace` | string | No | Trigger's namespace | Namespace of the Flow CR |
+| Field       | Type   | Required | Default             | Description                    |
+| ----------- | ------ | -------- | ------------------- | ------------------------------ |
+| `name`      | string | **Yes**  | —                   | Name of the Flow CR to execute |
+| `namespace` | string | No       | Trigger's namespace | Namespace of the Flow CR       |
 
 See [Flow CRD](flow.md) for the full specification of what a Flow contains and how it processes the trigger payload.
 
@@ -128,39 +155,39 @@ See [Flow CRD](flow.md) for the full specification of what a Flow contains and h
 
 An inline action for simple use cases that do not require a full Flow. Currently supports `webhook` actions only.
 
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `type` | enum | **Yes** | Action type: `webhook` |
+| Field     | Type          | Required    | Description                   |
+| --------- | ------------- | ----------- | ----------------------------- |
+| `type`    | enum          | **Yes**     | Action type: `webhook`        |
 | `webhook` | WebhookAction | Conditional | Required when `type: webhook` |
 
 ### WebhookAction
 
-| Field | Type | Required | Default | Description |
-|---|---|---|---|---|
-| `url` | string | **Yes** | — | URL to call when the trigger fires |
-| `method` | enum | No | `POST` | HTTP method: `POST`, `PUT`, `PATCH`, `GET` |
-| `headers` | map[string]string | No | — | HTTP headers to include |
-| `body` | string | No | — | Request body (supports Go template syntax) |
+| Field     | Type              | Required | Default | Description                                |
+| --------- | ----------------- | -------- | ------- | ------------------------------------------ |
+| `url`     | string            | **Yes**  | —       | URL to call when the trigger fires         |
+| `method`  | enum              | No       | `POST`  | HTTP method: `POST`, `PUT`, `PATCH`, `GET` |
+| `headers` | map[string]string | No       | —       | HTTP headers to include                    |
+| `body`    | string            | No       | —       | Request body (supports Go template syntax) |
 
 ### CooldownPolicy
 
 Prevents a trigger from firing more than a set number of times in a given window. Excess firings are silently dropped and recorded as `RateLimited` in the status.
 
-| Field | Type | Required | Default | Description |
-|---|---|---|---|---|
-| `maxInvocations` | integer | **Yes** | — | Maximum number of firings allowed within `window` |
-| `window` | duration | No | `60s` | Time window for counting invocations (e.g., `60s`, `5m`) |
+| Field            | Type     | Required | Default | Description                                              |
+| ---------------- | -------- | -------- | ------- | -------------------------------------------------------- |
+| `maxInvocations` | integer  | **Yes**  | —       | Maximum number of firings allowed within `window`        |
+| `window`         | duration | No       | `60s`   | Time window for counting invocations (e.g., `60s`, `5m`) |
 
 ### TargetResource
 
 Reserved for future use with resource-based triggers (watching Kubernetes resources).
 
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `kind` | string | No | Kind of the resource to watch (e.g., `Pod`, `ConfigMap`) |
-| `namespace` | string | No | Namespace of the resource |
-| `name` | string | No | Name of a specific resource |
-| `labelSelector` | LabelSelector | No | Select resources by label |
+| Field           | Type          | Required | Description                                              |
+| --------------- | ------------- | -------- | -------------------------------------------------------- |
+| `kind`          | string        | No       | Kind of the resource to watch (e.g., `Pod`, `ConfigMap`) |
+| `namespace`     | string        | No       | Namespace of the resource                                |
+| `name`          | string        | No       | Name of a specific resource                              |
+| `labelSelector` | LabelSelector | No       | Select resources by label                                |
 
 ---
 
@@ -168,30 +195,30 @@ Reserved for future use with resource-based triggers (watching Kubernetes resour
 
 ### TriggerStatus
 
-| Field | Type | Description |
-|---|---|---|
-| `conditions` | []Condition | Standard Kubernetes conditions. See condition types below. |
-| `lastTriggeredTime` | timestamp | Timestamp of the last successful trigger firing |
-| `lastResult` | string | Outcome of the last trigger attempt |
-| `lastError` | string | Error message from the last failed attempt |
-| `currentInvocationCount` | integer | Number of invocations in the current cooldown window |
+| Field                    | Type        | Description                                                |
+| ------------------------ | ----------- | ---------------------------------------------------------- |
+| `conditions`             | []Condition | Standard Kubernetes conditions. See condition types below. |
+| `lastTriggeredTime`      | timestamp   | Timestamp of the last successful trigger firing            |
+| `lastResult`             | string      | Outcome of the last trigger attempt                        |
+| `lastError`              | string      | Error message from the last failed attempt                 |
+| `currentInvocationCount` | integer     | Number of invocations in the current cooldown window       |
 
 ### `lastResult` Values
 
-| Value | Meaning |
-|---|---|
-| `Succeeded` | The trigger fired and the flow completed successfully |
-| `Failed` | The trigger fired but the flow or inline action failed |
-| `Skipped` | The trigger fired but was skipped (e.g., trigger is disabled) |
-| `RateLimited` | The trigger fired but was suppressed by the cooldown policy |
+| Value         | Meaning                                                       |
+| ------------- | ------------------------------------------------------------- |
+| `Succeeded`   | The trigger fired and the flow completed successfully         |
+| `Failed`      | The trigger fired but the flow or inline action failed        |
+| `Skipped`     | The trigger fired but was skipped (e.g., trigger is disabled) |
+| `RateLimited` | The trigger fired but was suppressed by the cooldown policy   |
 
 ### Condition Types
 
-| Type | Status | Meaning |
-|---|---|---|
-| `Ready` | `True` | The trigger is configured correctly and actively listening for events |
-| `Ready` | `False` | The trigger has a configuration error. See `message` for details. |
-| `Ready` | `Unknown` | The trigger is being reconciled |
+| Type    | Status    | Meaning                                                               |
+| ------- | --------- | --------------------------------------------------------------------- |
+| `Ready` | `True`    | The trigger is configured correctly and actively listening for events |
+| `Ready` | `False`   | The trigger has a configuration error. See `message` for details.     |
+| `Ready` | `Unknown` | The trigger is being reconciled                                       |
 
 ---
 
@@ -316,10 +343,10 @@ spec:
 
 **TLS termination options for OpenShift Routes:**
 
-| `termination` | Description |
-|---|---|
-| `edge` | TLS terminates at the router. Traffic to the pod is plain HTTP. |
-| `reencrypt` | TLS terminates at the router and is re-encrypted to the pod using a separate certificate. |
+| `termination` | Description                                                                                              |
+| ------------- | -------------------------------------------------------------------------------------------------------- |
+| `edge`        | TLS terminates at the router. Traffic to the pod is plain HTTP.                                          |
+| `reencrypt`   | TLS terminates at the router and is re-encrypted to the pod using a separate certificate.                |
 | `passthrough` | TLS passes through the router to the pod. The operator handles TLS directly (required for inbound mTLS). |
 
 ---
@@ -377,12 +404,12 @@ metadata:
 
 ### Annotation Reference
 
-| Annotation | Value | Description |
-|---|---|---|
-| `kubezap.io/tls-ca-secret` | Secret name | PEM CA bundle (`ca.crt`) for outbound TLS verification |
-| `kubezap.io/tls-client-cert-secret` | Secret name | Client certificate (`tls.crt`, `tls.key`) for outbound mTLS |
-| `kubezap.io/webhook-mtls-ca-secret` | Secret name | CA to verify inbound webhook client certificates |
-| `kubezap.io/tls-insecure-skip-verify` | `"true"` | Skip outbound TLS verification (dev only) |
+| Annotation                            | Value       | Description                                                 |
+| ------------------------------------- | ----------- | ----------------------------------------------------------- |
+| `kubezap.io/tls-ca-secret`            | Secret name | PEM CA bundle (`ca.crt`) for outbound TLS verification      |
+| `kubezap.io/tls-client-cert-secret`   | Secret name | Client certificate (`tls.crt`, `tls.key`) for outbound mTLS |
+| `kubezap.io/webhook-mtls-ca-secret`   | Secret name | CA to verify inbound webhook client certificates            |
+| `kubezap.io/tls-insecure-skip-verify` | `"true"`    | Skip outbound TLS verification (dev only)                   |
 
 ---
 

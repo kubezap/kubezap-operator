@@ -127,16 +127,16 @@ For a full walkthrough see [examples/order-router/](examples/order-router/).
 
 ## Documentation
 
-| Document | Description |
-|----------|-------------|
-| [Overview](docs/overview.md) | Architecture, core concepts, CRD reference |
-| [Getting Started](examples/order-router/) | Step-by-step guide: webhook → transform → conditional notify |
-| [Examples](examples/) | Runnable examples with manifests and step-by-step instructions |
-| [Flow CRD](docs/api/flow.md) | Full step action reference (http, transform, publish, wait) |
-| [FlowRun CRD](docs/api/flowrun.md) | Execution model, GC, status fields |
-| [Integration CRD](docs/api/integration.md) | Kafka, plugin protocol |
-| [Webhook Security](docs/guides/webhook-security.md) | HMAC, bearer, OIDC, API-key, IP allowlist, mTLS |
-| [Observability](docs/guides/observability.md) | Prometheus metrics, OpenTelemetry traces, access logs |
+| Document                                            | Description                                                    |
+| --------------------------------------------------- | -------------------------------------------------------------- |
+| [Overview](docs/overview.md)                        | Architecture, core concepts, CRD reference                     |
+| [Getting Started](examples/order-router/)           | Step-by-step guide: webhook → transform → conditional notify   |
+| [Examples](examples/)                               | Runnable examples with manifests and step-by-step instructions |
+| [Flow CRD](docs/api/flow.md)                        | Full step action reference (http, transform, publish, wait)    |
+| [FlowRun CRD](docs/api/flowrun.md)                  | Execution model, GC, status fields                             |
+| [Integration CRD](docs/api/integration.md)          | Kafka, plugin protocol                                         |
+| [Webhook Security](docs/guides/webhook-security.md) | HMAC, bearer, OIDC, API-key, IP allowlist, mTLS                |
+| [Observability](docs/guides/observability.md)       | Prometheus metrics, OpenTelemetry traces, access logs          |
 
 ---
 

@@ -55,12 +55,12 @@ If a request jumps directly to implementation without design context, Claude sho
 
 Three separate binaries/images — see `docs/architecture.md` for full design:
 
-| Binary | Image | Purpose |
-|---|---|---|
-| `cmd/main.go` | `kubezap/controller` | Kubernetes operator: reconciles CRDs, manages gateway Deployments, executes flows via FlowRun |
-| `cmd/webhook-gateway/main.go` | `kubezap/webhook-gateway` | HTTP server: watches Trigger CRDs, registers routes dynamically, creates FlowRuns |
-| `cmd/kafka-gateway/main.go` | `kubezap/kafka-gateway` | Kafka consumer: watches Trigger CRDs, manages topic subscriptions, creates FlowRuns |
-| `cmd/main.go` (controller, extended) | — | Kubernetes resource event triggers handled IN the controller via dynamic informers — no separate gateway image needed |
+| Binary                               | Image                     | Purpose                                                                                                               |
+| ------------------------------------ | ------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| `cmd/main.go`                        | `kubezap/controller`      | Kubernetes operator: reconciles CRDs, manages gateway Deployments, executes flows via FlowRun                         |
+| `cmd/webhook-gateway/main.go`        | `kubezap/webhook-gateway` | HTTP server: watches Trigger CRDs, registers routes dynamically, creates FlowRuns                                     |
+| `cmd/kafka-gateway/main.go`          | `kubezap/kafka-gateway`   | Kafka consumer: watches Trigger CRDs, manages topic subscriptions, creates FlowRuns                                   |
+| `cmd/main.go` (controller, extended) | —                         | Kubernetes resource event triggers handled IN the controller via dynamic informers — no separate gateway image needed |
 
 Key decisions:
 - Gateways are separate pods managed by the controller — NOT embedded in the controller pod
@@ -83,14 +83,14 @@ Key decisions:
 
 ## Core CRDs
 
-| CRD | Purpose | Status |
-|-----|---------|--------|
-| `Trigger` | Event source (webhook/cron/kafka) → references a Flow | Scaffolded |
-| `Flow` | Ordered steps with conditional logic and data transforms | Designed (docs/api/flow.md) |
-| `FlowRun` | Execution instance created by gateways; controller picks up and runs | Designed (docs/api/flowrun.md) |
-| `MockEndpoint` | Dev/test mock HTTP server; captures requests to CRD status | Designed (docs/api/mock-endpoint.md) |
-| `Integration` | External system connections and credentials; subscriber + publisher roles | Designed (docs/api/integration.md) |
-| `Step` | Optional reusable/observable action unit | Future |
+| CRD            | Purpose                                                                   | Status                               |
+| -------------- | ------------------------------------------------------------------------- | ------------------------------------ |
+| `Trigger`      | Event source (webhook/cron/kafka) → references a Flow                     | Scaffolded                           |
+| `Flow`         | Ordered steps with conditional logic and data transforms                  | Designed (docs/api/flow.md)          |
+| `FlowRun`      | Execution instance created by gateways; controller picks up and runs      | Designed (docs/api/flowrun.md)       |
+| `MockEndpoint` | Dev/test mock HTTP server; captures requests to CRD status                | Designed (docs/api/mock-endpoint.md) |
+| `Integration`  | External system connections and credentials; subscriber + publisher roles | Designed (docs/api/integration.md)   |
+| `Step`         | Optional reusable/observable action unit                                  | Future                               |
 
 ## Trigger Types (priority order)
 

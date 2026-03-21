@@ -32,16 +32,16 @@ Lists FlowRun resources with optional filters. Results are sorted by creation ti
 
 **Flags**:
 
-| Flag | Short | Default | Description |
-|------|-------|---------|-------------|
-| `--namespace` | `-n` | current context namespace | Namespace to query. Use `-n ""` or `--all-namespaces` for all namespaces. |
-| `--all-namespaces` | `-A` | `false` | Query all namespaces. |
-| `--trigger` | | | Filter by originating trigger name (`spec.triggerRef.name`). |
-| `--flow` | | | Filter by flow name (`spec.flowRef.name`). |
-| `--phase` | | | Filter by phase. Valid values: `Pending`, `Running`, `Succeeded`, `Failed`, `Cancelled`. |
-| `--since` | | | Only show FlowRuns created within this duration (e.g., `1h`, `30m`, `24h`). |
-| `--output` | `-o` | `table` | Output format: `table`, `json`, `yaml`. |
-| `--watch` | `-w` | `false` | Live-tail: watch for FlowRun completions and print new rows as they arrive. |
+| Flag               | Short | Default                   | Description                                                                              |
+| ------------------ | ----- | ------------------------- | ---------------------------------------------------------------------------------------- |
+| `--namespace`      | `-n`  | current context namespace | Namespace to query. Use `-n ""` or `--all-namespaces` for all namespaces.                |
+| `--all-namespaces` | `-A`  | `false`                   | Query all namespaces.                                                                    |
+| `--trigger`        |       |                           | Filter by originating trigger name (`spec.triggerRef.name`).                             |
+| `--flow`           |       |                           | Filter by flow name (`spec.flowRef.name`).                                               |
+| `--phase`          |       |                           | Filter by phase. Valid values: `Pending`, `Running`, `Succeeded`, `Failed`, `Cancelled`. |
+| `--since`          |       |                           | Only show FlowRuns created within this duration (e.g., `1h`, `30m`, `24h`).              |
+| `--output`         | `-o`  | `table`                   | Output format: `table`, `json`, `yaml`.                                                  |
+| `--watch`          | `-w`  | `false`                   | Live-tail: watch for FlowRun completions and print new rows as they arrive.              |
 
 **Default table output**:
 
@@ -55,14 +55,14 @@ kafka-orders-p0-offset-18842      order-events       process-order     Succeeded
 
 **Column definitions**:
 
-| Column | Source | Notes |
-|--------|--------|-------|
-| `NAME` | `metadata.name` | |
-| `TRIGGER` | `spec.triggerRef.name` | `-` if not set |
-| `FLOW` | `spec.flowRef.name` | |
-| `PHASE` | `status.phase` | |
-| `DURATION` | `status.completionTime - status.startTime` | `-` if not yet complete |
-| `AGE` | `metadata.creationTimestamp` | Human-readable elapsed time |
+| Column     | Source                                     | Notes                       |
+| ---------- | ------------------------------------------ | --------------------------- |
+| `NAME`     | `metadata.name`                            |                             |
+| `TRIGGER`  | `spec.triggerRef.name`                     | `-` if not set              |
+| `FLOW`     | `spec.flowRef.name`                        |                             |
+| `PHASE`    | `status.phase`                             |                             |
+| `DURATION` | `status.completionTime - status.startTime` | `-` if not yet complete     |
+| `AGE`      | `metadata.creationTimestamp`               | Human-readable elapsed time |
 
 **Examples**:
 
@@ -95,10 +95,10 @@ Displays detailed information for a single FlowRun including trigger metadata, o
 
 **Flags**:
 
-| Flag | Short | Default | Description |
-|------|-------|---------|-------------|
-| `--namespace` | `-n` | current context namespace | Namespace of the FlowRun. |
-| `--output` | `-o` | `table` | Output format: `table`, `json`, `yaml`. |
+| Flag          | Short | Default                   | Description                             |
+| ------------- | ----- | ------------------------- | --------------------------------------- |
+| `--namespace` | `-n`  | current context namespace | Namespace of the FlowRun.               |
+| `--output`    | `-o`  | `table`                   | Output format: `table`, `json`, `yaml`. |
 
 **Output format**: see [Step Timeline Format](#step-timeline-format) below.
 
@@ -136,11 +136,11 @@ Lists Trigger resources with enriched status. Surfaces cross-referenced state th
 
 **Flags**:
 
-| Flag | Short | Default | Description |
-|------|-------|---------|-------------|
-| `--namespace` | `-n` | current context namespace | Namespace to query. |
-| `--all-namespaces` | `-A` | `false` | Query all namespaces. |
-| `--output` | `-o` | `table` | Output format: `table`, `json`, `yaml`. |
+| Flag               | Short | Default                   | Description                             |
+| ------------------ | ----- | ------------------------- | --------------------------------------- |
+| `--namespace`      | `-n`  | current context namespace | Namespace to query.                     |
+| `--all-namespaces` | `-A`  | `false`                   | Query all namespaces.                   |
+| `--output`         | `-o`  | `table`                   | Output format: `table`, `json`, `yaml`. |
 
 **Default table output**:
 
@@ -154,14 +154,14 @@ stale-trigger     webhook   Pending    never              0        default
 
 **Column definitions**:
 
-| Column | Source | Notes |
-|--------|--------|-------|
-| `NAME` | `metadata.name` | |
-| `TYPE` | `spec.type` | `webhook`, `cron`, or `pubsub` |
-| `STATUS` | First `True` condition reason | `Accepted`, `Pending`, or `Error: <reason>` |
-| `LAST FIRED` | `status.lastTriggeredTime` | Human-readable elapsed; `never` if not set |
-| `ACTIVE` | Count of FlowRuns with `status.phase=Running` for this trigger | Requires listing FlowRuns by label |
-| `GC POLICY` | `spec.flowRunGC` fields | Merged display of count limits and TTLs; `default` if unset |
+| Column       | Source                                                         | Notes                                                       |
+| ------------ | -------------------------------------------------------------- | ----------------------------------------------------------- |
+| `NAME`       | `metadata.name`                                                |                                                             |
+| `TYPE`       | `spec.type`                                                    | `webhook`, `cron`, or `pubsub`                              |
+| `STATUS`     | First `True` condition reason                                  | `Accepted`, `Pending`, or `Error: <reason>`                 |
+| `LAST FIRED` | `status.lastTriggeredTime`                                     | Human-readable elapsed; `never` if not set                  |
+| `ACTIVE`     | Count of FlowRuns with `status.phase=Running` for this trigger | Requires listing FlowRuns by label                          |
+| `GC POLICY`  | `spec.flowRunGC` fields                                        | Merged display of count limits and TTLs; `default` if unset |
 
 **Examples**:
 
@@ -182,11 +182,11 @@ Lists Flow resources with enriched status. The `LAST USED` column is derived fro
 
 **Flags**:
 
-| Flag | Short | Default | Description |
-|------|-------|---------|-------------|
-| `--namespace` | `-n` | current context namespace | Namespace to query. |
-| `--all-namespaces` | `-A` | `false` | Query all namespaces. |
-| `--output` | `-o` | `table` | Output format: `table`, `json`, `yaml`. |
+| Flag               | Short | Default                   | Description                             |
+| ------------------ | ----- | ------------------------- | --------------------------------------- |
+| `--namespace`      | `-n`  | current context namespace | Namespace to query.                     |
+| `--all-namespaces` | `-A`  | `false`                   | Query all namespaces.                   |
+| `--output`         | `-o`  | `table`                   | Output format: `table`, `json`, `yaml`. |
 
 **Default table output**:
 
@@ -200,12 +200,12 @@ broken-flow        2       False   never
 
 **Column definitions**:
 
-| Column | Source | Notes |
-|--------|--------|-------|
-| `NAME` | `metadata.name` | |
-| `STEPS` | `len(spec.steps)` | |
-| `READY` | `Ready` condition status | `True`, `False`, or `Unknown` |
-| `LAST USED` | Most recent FlowRun `metadata.creationTimestamp` with matching `spec.flowRef.name` | `never` if no FlowRuns found |
+| Column      | Source                                                                             | Notes                         |
+| ----------- | ---------------------------------------------------------------------------------- | ----------------------------- |
+| `NAME`      | `metadata.name`                                                                    |                               |
+| `STEPS`     | `len(spec.steps)`                                                                  |                               |
+| `READY`     | `Ready` condition status                                                           | `True`, `False`, or `Unknown` |
+| `LAST USED` | Most recent FlowRun `metadata.creationTimestamp` with matching `spec.flowRef.name` | `never` if no FlowRuns found  |
 
 **Examples**:
 
@@ -226,11 +226,11 @@ Lists Integration resources with enriched status including gateway Deployment re
 
 **Flags**:
 
-| Flag | Short | Default | Description |
-|------|-------|---------|-------------|
-| `--namespace` | `-n` | current context namespace | Namespace to query. |
-| `--all-namespaces` | `-A` | `false` | Query all namespaces. |
-| `--output` | `-o` | `table` | Output format: `table`, `json`, `yaml`. |
+| Flag               | Short | Default                   | Description                             |
+| ------------------ | ----- | ------------------------- | --------------------------------------- |
+| `--namespace`      | `-n`  | current context namespace | Namespace to query.                     |
+| `--all-namespaces` | `-A`  | `false`                   | Query all namespaces.                   |
+| `--output`         | `-o`  | `table`                   | Output format: `table`, `json`, `yaml`. |
 
 **Default table output**:
 
@@ -244,12 +244,12 @@ nats-broker       nats     Ready (1/1)          n/a
 
 **Column definitions**:
 
-| Column | Source | Notes |
-|--------|--------|-------|
-| `NAME` | `metadata.name` | |
-| `TYPE` | `spec.type` | `kafka`, `nats`, `amqp`, `plugin`, etc. |
-| `GATEWAY STATUS` | Associated Deployment `status.readyReplicas/replicas` | `Ready`, `Degraded`, or `NotFound` |
-| `PLUGIN HEALTH` | `GET /healthz` on plugin Service; `n/a` for built-in types | `Healthy`, `Unhealthy`, or `n/a` |
+| Column           | Source                                                     | Notes                                   |
+| ---------------- | ---------------------------------------------------------- | --------------------------------------- |
+| `NAME`           | `metadata.name`                                            |                                         |
+| `TYPE`           | `spec.type`                                                | `kafka`, `nats`, `amqp`, `plugin`, etc. |
+| `GATEWAY STATUS` | Associated Deployment `status.readyReplicas/replicas`      | `Ready`, `Degraded`, or `NotFound`      |
+| `PLUGIN HEALTH`  | `GET /healthz` on plugin Service; `n/a` for built-in types | `Healthy`, `Unhealthy`, or `n/a`        |
 
 **Examples**:
 
@@ -356,25 +356,25 @@ validate-payload      Skipped    -          -          0          -
 
 **Column definitions**:
 
-| Column | Source | Notes |
-|--------|--------|-------|
-| `STEP` | `status.steps[].name` | |
-| `PHASE` | `status.steps[].phase` | `Pending`, `Running`, `Succeeded`, `Failed`, `Skipped`, `Waiting` |
-| `STARTED` | `status.steps[].startTime - status.startTime` | Offset from FlowRun start; `-` if not started |
-| `DURATION` | `status.steps[].completionTime - status.steps[].startTime` | `-` if not complete |
-| `ATTEMPTS` | `status.steps[].attempts` | |
-| `RESULTS` | `status.steps[].results` rendered as `key=value` pairs | `-` if empty |
+| Column     | Source                                                     | Notes                                                             |
+| ---------- | ---------------------------------------------------------- | ----------------------------------------------------------------- |
+| `STEP`     | `status.steps[].name`                                      |                                                                   |
+| `PHASE`    | `status.steps[].phase`                                     | `Pending`, `Running`, `Succeeded`, `Failed`, `Skipped`, `Waiting` |
+| `STARTED`  | `status.steps[].startTime - status.startTime`              | Offset from FlowRun start; `-` if not started                     |
+| `DURATION` | `status.steps[].completionTime - status.steps[].startTime` | `-` if not complete                                               |
+| `ATTEMPTS` | `status.steps[].attempts`                                  |                                                                   |
+| `RESULTS`  | `status.steps[].results` rendered as `key=value` pairs     | `-` if empty                                                      |
 
 **Phase icons** (used in terminal output when color is supported):
 
-| Phase | Icon |
-|-------|------|
-| `Succeeded` | `✓` |
-| `Failed` | `✗` |
-| `Running` | `▶` |
-| `Skipped` | `○` |
-| `Waiting` | `⏸` |
-| `Pending` | `.` |
+| Phase       | Icon |
+| ----------- | ---- |
+| `Succeeded` | `✓`  |
+| `Failed`    | `✗`  |
+| `Running`   | `▶`  |
+| `Skipped`   | `○`  |
+| `Waiting`   | `⏸`  |
+| `Pending`   | `.`  |
 
 When color is not supported (non-TTY output or `NO_COLOR` env var set), icons are omitted and the phase name is printed as plain text.
 
@@ -490,17 +490,17 @@ kubectl kubezap version
 
 ### Already in `go.mod`
 
-| Package | Current status | Role |
-|---------|---------------|------|
-| `github.com/spf13/cobra v1.8.1` | `indirect` | CLI framework; promote to direct via `go get github.com/spf13/cobra` |
-| `sigs.k8s.io/controller-runtime` | direct | Kubernetes client |
-| `k8s.io/client-go` | direct | `clientcmd` for kubeconfig loading |
-| `k8s.io/apimachinery` | direct | `metav1` types |
+| Package                          | Current status | Role                                                                 |
+| -------------------------------- | -------------- | -------------------------------------------------------------------- |
+| `github.com/spf13/cobra v1.8.1`  | `indirect`     | CLI framework; promote to direct via `go get github.com/spf13/cobra` |
+| `sigs.k8s.io/controller-runtime` | direct         | Kubernetes client                                                    |
+| `k8s.io/client-go`               | direct         | `clientcmd` for kubeconfig loading                                   |
+| `k8s.io/apimachinery`            | direct         | `metav1` types                                                       |
 
 ### To Add
 
-| Package | Purpose |
-|---------|---------|
+| Package                             | Purpose                                                                                                                                                                                                      |
+| ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `github.com/olekukonko/tablewriter` | Table rendering with column alignment. Add via `go get github.com/olekukonko/tablewriter` when implementing the output layer. Not required for the initial scaffold (stub implementations use `fmt.Printf`). |
 
 ### Not Needed

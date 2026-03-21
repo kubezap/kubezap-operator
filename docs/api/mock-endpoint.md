@@ -6,21 +6,34 @@ A `MockEndpoint` registers a local HTTP endpoint on the KubeZap operator's webho
 
 ## Contents
 
-- [Overview](#overview)
-- [How It Works](#how-it-works)
-- [URL Switching with ConfigMaps](#url-switching-with-configmaps)
-- [Spec Reference](#spec-reference)
-- [Status Reference](#status-reference)
-- [Inspecting Captured Requests](#inspecting-captured-requests)
-- [Response Scenarios](#response-scenarios)
-- [Examples](#examples)
-  - [Basic Mock](#example-1-basic-mock)
-  - [Custom Response Body](#example-2-custom-response-body)
-  - [Simulating Failures](#example-3-simulating-failures)
-  - [Response Sequence](#example-4-response-sequence)
-  - [Full Dev/Prod URL Switching Pattern](#example-5-full-devprod-url-switching-pattern)
-- [kubectl Reference](#kubectl-reference)
-- [Limitations](#limitations)
+- [MockEndpoint CRD](#mockendpoint-crd)
+  - [Contents](#contents)
+  - [Overview](#overview)
+  - [How It Works](#how-it-works)
+  - [URL Switching with ConfigMaps](#url-switching-with-configmaps)
+  - [Spec Reference](#spec-reference)
+    - [MockEndpointSpec](#mockendpointspec)
+    - [MockResponse](#mockresponse)
+  - [Status Reference](#status-reference)
+    - [MockEndpointStatus](#mockendpointstatus)
+    - [CapturedRequest](#capturedrequest)
+    - [Printer Columns](#printer-columns)
+  - [Inspecting Captured Requests](#inspecting-captured-requests)
+    - [View recent requests](#view-recent-requests)
+    - [View just the request bodies](#view-just-the-request-bodies)
+    - [Clear request history](#clear-request-history)
+    - [Watch for new requests](#watch-for-new-requests)
+  - [Response Scenarios](#response-scenarios)
+    - [Simulating rate limits and transient failures](#simulating-rate-limits-and-transient-failures)
+    - [Simulating timeouts](#simulating-timeouts)
+  - [Examples](#examples)
+    - [Example 1: Basic Mock](#example-1-basic-mock)
+    - [Example 2: Custom Response Body](#example-2-custom-response-body)
+    - [Example 3: Simulating Failures](#example-3-simulating-failures)
+    - [Example 4: Response Sequence](#example-4-response-sequence)
+    - [Example 5: Full Dev/Prod URL Switching Pattern](#example-5-full-devprod-url-switching-pattern)
+  - [kubectl Reference](#kubectl-reference)
+  - [Limitations](#limitations)
 
 ---
 
@@ -123,22 +136,22 @@ url: "$(configmaps.integration-urls.orders-api)/orders/$(params.orderId)"
 
 ### MockEndpointSpec
 
-| Field | Type | Required | Default | Description |
-|---|---|---|---|---|
-| `path` | string | **Yes** | — | Path suffix after `/mock/`. Must start without a leading slash (e.g., `slack`, `orders-api`). |
-| `response` | MockResponse | No | 200 OK, empty body | Static response returned for every request. Mutually exclusive with `responseSequence`. |
-| `responseSequence` | []MockResponse | No | — | Ordered list of responses. Each request advances the sequence. After the last entry, it repeats. Mutually exclusive with `response`. |
-| `maxRequestHistory` | integer | No | `10` | Number of recent requests to retain in `status.recentRequests`. Set to `0` to disable history. |
-| `enabled` | boolean | No | `true` | Set to `false` to temporarily disable the mock (returns 503 to callers). |
+| Field               | Type           | Required | Default            | Description                                                                                                                          |
+| ------------------- | -------------- | -------- | ------------------ | ------------------------------------------------------------------------------------------------------------------------------------ |
+| `path`              | string         | **Yes**  | —                  | Path suffix after `/mock/`. Must start without a leading slash (e.g., `slack`, `orders-api`).                                        |
+| `response`          | MockResponse   | No       | 200 OK, empty body | Static response returned for every request. Mutually exclusive with `responseSequence`.                                              |
+| `responseSequence`  | []MockResponse | No       | —                  | Ordered list of responses. Each request advances the sequence. After the last entry, it repeats. Mutually exclusive with `response`. |
+| `maxRequestHistory` | integer        | No       | `10`               | Number of recent requests to retain in `status.recentRequests`. Set to `0` to disable history.                                       |
+| `enabled`           | boolean        | No       | `true`             | Set to `false` to temporarily disable the mock (returns 503 to callers).                                                             |
 
 ### MockResponse
 
-| Field | Type | Required | Default | Description |
-|---|---|---|---|---|
-| `statusCode` | integer | No | `200` | HTTP status code to return |
-| `body` | string | No | `""` | Response body |
-| `headers` | map[string]string | No | — | Additional response headers |
-| `delayMs` | integer | No | `0` | Artificial delay in milliseconds before responding. Use to test step timeouts and retry behavior. |
+| Field        | Type              | Required | Default | Description                                                                                       |
+| ------------ | ----------------- | -------- | ------- | ------------------------------------------------------------------------------------------------- |
+| `statusCode` | integer           | No       | `200`   | HTTP status code to return                                                                        |
+| `body`       | string            | No       | `""`    | Response body                                                                                     |
+| `headers`    | map[string]string | No       | —       | Additional response headers                                                                       |
+| `delayMs`    | integer           | No       | `0`     | Artificial delay in milliseconds before responding. Use to test step timeouts and retry behavior. |
 
 ---
 
@@ -146,33 +159,33 @@ url: "$(configmaps.integration-urls.orders-api)/orders/$(params.orderId)"
 
 ### MockEndpointStatus
 
-| Field | Type | Description |
-|---|---|---|
-| `conditions` | []Condition | Standard `Ready` condition |
-| `url` | string | Full in-cluster URL for this mock endpoint |
-| `requestCount` | integer | Total requests received since the MockEndpoint was created |
-| `lastRequestTime` | timestamp | Timestamp of the most recent request |
-| `recentRequests` | []CapturedRequest | The last `maxRequestHistory` captured requests, newest first |
-| `currentResponseIndex` | integer | Current position in `responseSequence` (only set when using a sequence) |
+| Field                  | Type              | Description                                                             |
+| ---------------------- | ----------------- | ----------------------------------------------------------------------- |
+| `conditions`           | []Condition       | Standard `Ready` condition                                              |
+| `url`                  | string            | Full in-cluster URL for this mock endpoint                              |
+| `requestCount`         | integer           | Total requests received since the MockEndpoint was created              |
+| `lastRequestTime`      | timestamp         | Timestamp of the most recent request                                    |
+| `recentRequests`       | []CapturedRequest | The last `maxRequestHistory` captured requests, newest first            |
+| `currentResponseIndex` | integer           | Current position in `responseSequence` (only set when using a sequence) |
 
 When `spec.enabled` is set to `false`, the `Ready` condition remains `True` but the endpoint returns `503 Service Unavailable` to all callers. A `Paused` condition is also set:
 
-| Type | Status | Meaning |
-|---|---|---|
-| `Ready` | `True` | The mock endpoint is registered and accepting requests |
-| `Ready` | `False` | The mock endpoint failed to register. See `message` for details. |
-| `Paused` | `True` | The mock endpoint is registered but `spec.enabled: false` — returns 503 to callers |
+| Type     | Status  | Meaning                                                                            |
+| -------- | ------- | ---------------------------------------------------------------------------------- |
+| `Ready`  | `True`  | The mock endpoint is registered and accepting requests                             |
+| `Ready`  | `False` | The mock endpoint failed to register. See `message` for details.                   |
+| `Paused` | `True`  | The mock endpoint is registered but `spec.enabled: false` — returns 503 to callers |
 
 ### CapturedRequest
 
-| Field | Type | Description |
-|---|---|---|
-| `timestamp` | timestamp | When the request was received |
-| `method` | string | HTTP method (POST, GET, etc.) |
-| `headers` | map[string]string | Request headers (sensitive headers such as `Authorization` are redacted) |
-| `body` | string | Request body (truncated to 4KB; see `bodyTruncated`) |
-| `bodyTruncated` | boolean | `true` if the body exceeded 4KB and was truncated |
-| `responseStatus` | integer | HTTP status code that was returned to the caller |
+| Field            | Type              | Description                                                              |
+| ---------------- | ----------------- | ------------------------------------------------------------------------ |
+| `timestamp`      | timestamp         | When the request was received                                            |
+| `method`         | string            | HTTP method (POST, GET, etc.)                                            |
+| `headers`        | map[string]string | Request headers (sensitive headers such as `Authorization` are redacted) |
+| `body`           | string            | Request body (truncated to 4KB; see `bodyTruncated`)                     |
+| `bodyTruncated`  | boolean           | `true` if the body exceeded 4KB and was truncated                        |
+| `responseStatus` | integer           | HTTP status code that was returned to the caller                         |
 
 ### Printer Columns
 
@@ -499,14 +512,14 @@ Expected output:
 
 ## kubectl Reference
 
-| Command | Description |
-|---|---|
-| `kubectl get mockendpoints -n <ns>` | List all mock endpoints with status |
-| `kubectl get mockendpoint <name> -n <ns> -o yaml` | Full spec and status |
-| `kubectl get mockendpoint <name> -n <ns> -o jsonpath='{.status.recentRequests}' \| jq .` | Pretty-print captured requests |
-| `kubectl get mockendpoint <name> -n <ns> -o jsonpath='{.status.requestCount}'` | Total request count |
-| `kubectl annotate mockendpoint <name> -n <ns> kubezap.io/clear-requests=true --overwrite` | Clear request history |
-| `kubectl delete mockendpoint <name> -n <ns>` | Remove the mock endpoint |
+| Command                                                                                   | Description                         |
+| ----------------------------------------------------------------------------------------- | ----------------------------------- |
+| `kubectl get mockendpoints -n <ns>`                                                       | List all mock endpoints with status |
+| `kubectl get mockendpoint <name> -n <ns> -o yaml`                                         | Full spec and status                |
+| `kubectl get mockendpoint <name> -n <ns> -o jsonpath='{.status.recentRequests}' \| jq .`  | Pretty-print captured requests      |
+| `kubectl get mockendpoint <name> -n <ns> -o jsonpath='{.status.requestCount}'`            | Total request count                 |
+| `kubectl annotate mockendpoint <name> -n <ns> kubezap.io/clear-requests=true --overwrite` | Clear request history               |
+| `kubectl delete mockendpoint <name> -n <ns>`                                              | Remove the mock endpoint            |
 
 ---
 

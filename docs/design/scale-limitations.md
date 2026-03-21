@@ -26,12 +26,12 @@ dependencies.
 
 The practical limits:
 
-| Dimension | Practical limit | Notes |
-|---|---|---|
-| Ingest rate | ~hundreds/min sustained | etcd write throughput and storage quota bound this |
-| etcd object size | ~10–50 KB per FlowRun | Spec + full step status + 4 KB body snapshot |
-| etcd storage quota | 2 GB default | ~40,000–200,000 FlowRuns before GC must keep pace |
-| GC list scan | O(n) per trigger | `enforceMaxFlowRunsByPhase` lists all FlowRuns per trigger on each terminal reconcile (backlog item) |
+| Dimension          | Practical limit         | Notes                                                                                                |
+| ------------------ | ----------------------- | ---------------------------------------------------------------------------------------------------- |
+| Ingest rate        | ~hundreds/min sustained | etcd write throughput and storage quota bound this                                                   |
+| etcd object size   | ~10–50 KB per FlowRun   | Spec + full step status + 4 KB body snapshot                                                         |
+| etcd storage quota | 2 GB default            | ~40,000–200,000 FlowRuns before GC must keep pace                                                    |
+| GC list scan       | O(n) per trigger        | `enforceMaxFlowRunsByPhase` lists all FlowRuns per trigger on each terminal reconcile (backlog item) |
 
 **At enterprise Kafka scale (10,000+/min)**, KubeZap CRD storage will exhaust etcd unless
 GC policies are extremely aggressive (TTL of minutes, maxSucceeded of 1–5). At that volume,

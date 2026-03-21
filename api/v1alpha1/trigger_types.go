@@ -27,8 +27,8 @@ import (
 // TriggerSpec defines the desired state of Trigger.
 // +kubebuilder:validation:XValidation:rule="has(self.flowRef) != has(self.action)",message="exactly one of flowRef or action must be set"
 type TriggerSpec struct {
-	// Type of trigger (webhook, cron, pubsub)
-	// +kubebuilder:validation:Enum=webhook;cron;pubsub
+	// Type of trigger (webhook, cron, pubsub, resource)
+	// +kubebuilder:validation:Enum=webhook;cron;pubsub;resource
 	Type string `json:"type"`
 
 	// Whether this trigger is active
@@ -43,6 +43,11 @@ type TriggerSpec struct {
 
 	// PubSub configuration (only for type=pubsub)
 	PubSub *PubSubTrigger `json:"pubsub,omitempty"`
+
+	// Resource configuration (only for type=resource).
+	// Watches a Kubernetes resource type for create/update/delete events
+	// and fires the trigger when a matching event occurs.
+	Resource *ResourceTrigger `json:"resource,omitempty"`
 
 	// Reference to the flow this trigger invokes. FlowRef is the primary
 	// action target for the MVP. If omitted, the optional inline Action can
@@ -216,6 +221,39 @@ type PubSubTrigger struct {
 	// Subject is the NATS subject to subscribe to. Used for type=nats only.
 	// Supports NATS wildcards (e.g. "orders.*", "events.>").
 	Subject string `json:"subject,omitempty"`
+}
+
+// ResourceTrigger watches a Kubernetes resource type for events.
+type ResourceTrigger struct {
+	// APIVersion of the resource to watch (e.g. "v1", "apps/v1", "automation.kubezap.io/v1alpha1").
+	// +kubebuilder:validation:MinLength=1
+	APIVersion string `json:"apiVersion"`
+
+	// Kind of the resource to watch (e.g. "Pod", "ConfigMap", "Deployment").
+	// +kubebuilder:validation:MinLength=1
+	Kind string `json:"kind"`
+
+	// Namespace to watch. If empty, watches the Trigger's own namespace.
+	// +optional
+	Namespace string `json:"namespace,omitempty"`
+
+	// LabelSelector limits events to resources matching these labels.
+	// If omitted, all resources of the specified kind are watched.
+	// +optional
+	LabelSelector *metav1.LabelSelector `json:"labelSelector,omitempty"`
+
+	// Events specifies which event types fire the trigger.
+	// Valid values: create, update, delete. Defaults to [create] if omitted.
+	// +kubebuilder:validation:MinItems=1
+	// +optional
+	Events []string `json:"events,omitempty"`
+
+	// WatchFields limits update events to fire only when one of these
+	// JSON path expressions changes. Only effective for update events.
+	// Uses dot-notation paths, e.g. ".status.phase", ".spec.replicas".
+	// If omitted, all updates fire the trigger.
+	// +optional
+	WatchFields []string `json:"watchFields,omitempty"`
 }
 
 // WebhookAuth configures authentication for a webhook trigger endpoint.

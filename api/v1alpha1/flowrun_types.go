@@ -26,12 +26,23 @@ type TriggerReference struct {
 	Name string `json:"name"`
 
 	// Type of the trigger.
-	// +kubebuilder:validation:Enum=webhook;cron;pubsub
+	// +kubebuilder:validation:Enum=webhook;cron;pubsub;resource
 	Type string `json:"type"`
 }
 
 // TriggerData captures event metadata that led to a FlowRun.
 type TriggerData struct {
+	// EventType is the Kubernetes watch event type for resource triggers: ADDED, MODIFIED, DELETED.
+	EventType string `json:"eventType,omitempty"`
+	// ResourceName is the name of the resource that fired the trigger.
+	ResourceName string `json:"resourceName,omitempty"`
+	// ResourceNamespace is the namespace of the resource that fired the trigger.
+	ResourceNamespace string `json:"resourceNamespace,omitempty"`
+	// ResourceAPIVersion is the API version of the watched resource.
+	ResourceAPIVersion string `json:"resourceAPIVersion,omitempty"`
+	// ResourceKind is the kind of the watched resource.
+	ResourceKind string `json:"resourceKind,omitempty"`
+
 	Source        string            `json:"source,omitempty"`
 	Method        string            `json:"method,omitempty"`
 	Path          string            `json:"path,omitempty"`

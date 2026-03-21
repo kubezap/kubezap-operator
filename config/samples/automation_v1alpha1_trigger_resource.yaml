@@ -1,18 +1,19 @@
 apiVersion: automation.kubezap.io/v1alpha1
 kind: Trigger
 metadata:
-  name: pod-failure-trigger
+  name: pod-failure-watcher
   namespace: default
-  annotations:
-    kubezap.io/note: "Watches for Pod phase=Failed events"
 spec:
   type: resource
   resource:
     apiVersion: v1
     kind: Pod
     namespace: default
-    events: [update]
+    labelSelector:
+      matchLabels:
+        app: my-service
+    events: [create, update]
     watchFields:
       - ".status.phase"
   flowRef:
-    name: pod-failure-flow
+    name: handle-pod-event

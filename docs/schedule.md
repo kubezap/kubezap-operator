@@ -291,9 +291,9 @@ Items are ordered to minimize rework:
 - [x] `docs/guides/using-the-cli.md` — CLI user guide (created 2026-03-20 review pass)
 - [x] `docs/guides/cron-triggers.md` — cron trigger how-to: schedule syntax, timezones, FlowRun naming, GC policy (created 2026-03-20 review pass)
 - [x] `docs/guides/troubleshooting.md` — consolidated troubleshooting guide: controller startup, trigger acceptance, webhook routing, FlowRun lifecycle, CEL errors, MockEndpoint, Kafka, RBAC, CLI (created 2026-03-20 review pass)
-- [ ] `docs/guides/amqp-setup.md` — write full AMQP setup guide (stub exists)
-- [ ] `docs/guides/nats-setup.md` — write full NATS setup guide (stub exists)
-- [ ] Kubernetes resource-event trigger type (`type: resource` — dynamic informers in controller; see `docs/architecture.md#kubernetes-resource-event-triggers` for design; required for Example 6)
+- [x] `docs/guides/amqp-setup.md` — write full AMQP setup guide (stub exists)
+- [x] `docs/guides/nats-setup.md` — write full NATS setup guide (stub exists)
+- [x] Kubernetes resource-event trigger type (`type: resource` — dynamic informers in controller; see `docs/architecture.md#kubernetes-resource-event-triggers` for design; required for Example 6)
 - [ ] `Step` CRD for reusable step definitions
 - [ ] Multi-namespace flows (cross-namespace FlowRun)
 - [ ] Additional message brokers: GCP Pub/Sub, Solace (non-AMQP), TIBCO EMS (via plugin model)

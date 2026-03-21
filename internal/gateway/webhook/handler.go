@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"runtime/debug"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -26,14 +27,57 @@ import (
 
 // +kubebuilder:rbac:groups=automation.kubezap.io,resources=flowruns,verbs=create
 
+// cooldownTracker tracks invocation timestamps per route path for cooldown enforcement.
+type cooldownTracker struct {
+	mu          sync.Mutex
+	invocations map[string][]time.Time // key: route path
+}
+
+func newCooldownTracker() *cooldownTracker {
+	return &cooldownTracker{invocations: make(map[string][]time.Time)}
+}
+
+// allow checks whether a request to the given path is within the cooldown budget.
+// If maxInvocations <= 0, all requests are allowed (no limit). Returns true if
+// the request should proceed, false if it should be suppressed.
+func (ct *cooldownTracker) allow(path string, maxInvocations int32, window time.Duration) bool {
+	if maxInvocations <= 0 {
+		return true
+	}
+
+	ct.mu.Lock()
+	defer ct.mu.Unlock()
+
+	now := time.Now()
+	cutoff := now.Add(-window)
+
+	// Prune timestamps outside the window.
+	timestamps := ct.invocations[path]
+	pruned := timestamps[:0]
+	for _, ts := range timestamps {
+		if ts.After(cutoff) {
+			pruned = append(pruned, ts)
+		}
+	}
+
+	if int32(len(pruned)) >= maxInvocations {
+		ct.invocations[path] = pruned
+		return false
+	}
+
+	ct.invocations[path] = append(pruned, now)
+	return true
+}
+
 type WebhookHandler struct {
 	k8sClient client.Client
 	registry  *RouteRegistry
 	log       logr.Logger
+	cooldown  *cooldownTracker
 }
 
 func NewWebhookHandler(k8sClient client.Client, registry *RouteRegistry, log logr.Logger) *WebhookHandler {
-	return &WebhookHandler{k8sClient: k8sClient, registry: registry, log: log}
+	return &WebhookHandler{k8sClient: k8sClient, registry: registry, log: log, cooldown: newCooldownTracker()}
 }
 
 func randomHex(length int) string {
@@ -270,6 +314,14 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if authStatus, authMsg := authenticateRequest(r, bodyBytes, entry, triggerName); authStatus != http.StatusOK {
 		status = authStatus
 		writeJSON(w, status, map[string]string{"error": authMsg})
+		return
+	}
+
+	// Cooldown window enforcement: suppress requests that exceed maxInvocations within the window.
+	if entry.MaxInvocations > 0 && !h.cooldown.allow(r.URL.Path, entry.MaxInvocations, entry.CooldownWindow) {
+		status = http.StatusTooManyRequests
+		metrics.WebhookRateLimited.WithLabelValues(triggerName, triggerNamespace).Inc()
+		writeJSON(w, status, map[string]string{"error": "cooldown window exceeded"})
 		return
 	}
 

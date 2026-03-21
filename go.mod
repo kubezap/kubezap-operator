@@ -27,6 +27,8 @@ require (
 	sigs.k8s.io/controller-runtime v0.21.0
 )
 
+require github.com/kylelemons/godebug v1.1.0 // indirect
+
 require (
 	cel.dev/expr v0.25.1 // indirect
 	github.com/antlr4-go/antlr/v4 v4.13.1 // indirect

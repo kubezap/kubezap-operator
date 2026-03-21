@@ -49,8 +49,14 @@ var (
 		Name: "kubezap_webhook_ip_blocked_total",
 		Help: "Total requests blocked by the webhook IP allowlist, labelled by /24 (IPv4) or /48 (IPv6) source CIDR bucket.",
 	}, []string{"trigger", "source_range"})
+
+	// WebhookRateLimited counts requests suppressed by the cooldown window policy.
+	WebhookRateLimited = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "kubezap_webhook_rate_limited_total",
+		Help: "Total requests suppressed by webhook cooldown window policy.",
+	}, []string{"trigger", "namespace"})
 )
 
 func init() {
-	ctrlmetrics.Registry.MustRegister(TriggerFirings, FlowRunDuration, StepDuration, WebhookIPBlocked)
+	ctrlmetrics.Registry.MustRegister(TriggerFirings, FlowRunDuration, StepDuration, WebhookIPBlocked, WebhookRateLimited)
 }

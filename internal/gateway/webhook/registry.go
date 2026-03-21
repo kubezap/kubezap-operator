@@ -3,6 +3,7 @@ package webhook
 import (
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/go-logr/logr"
 )
@@ -27,6 +28,10 @@ type RouteEntry struct {
 
 	// OIDC/JWT auth fields
 	OIDCValidator *oidcValidator // non-nil when AuthType == "oidc"
+
+	// Cooldown fields — pre-loaded from Trigger.Spec.Cooldown at registration time.
+	MaxInvocations int32         // 0 means no limit
+	CooldownWindow time.Duration // window for counting invocations
 }
 
 // RouteRegistry is a thread-safe in-memory registry for webhook routes.

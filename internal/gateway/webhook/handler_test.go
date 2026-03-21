@@ -10,7 +10,9 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/prometheus/client_golang/prometheus/testutil"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -18,6 +20,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
 	automationv1alpha1 "github.com/borfswitch/kubezap/api/v1alpha1"
+	"github.com/borfswitch/kubezap/internal/metrics"
 )
 
 func newWebhookTestScheme() *runtime.Scheme {
@@ -307,6 +310,121 @@ func TestHMACAuth(t *testing.T) {
 			}
 			if !tc.wantFlowRun && count != 0 {
 				t.Fatalf("expected no FlowRun to be created, but found %d", count)
+			}
+		})
+	}
+}
+
+// TestCooldownWindowSuppression verifies that the cooldown policy limits the number of
+// FlowRuns created within a time window and increments the rate-limited metric for
+// suppressed requests.
+func TestCooldownWindowSuppression(t *testing.T) {
+	tests := []struct {
+		name              string
+		maxInvocations    int32
+		window            time.Duration
+		totalRequests     int
+		wantFlowRuns      int
+		wantRateLimited   int
+		wantAcceptedCodes int // number of 202 responses
+		wantLimitedCodes  int // number of 429 responses
+	}{
+		{
+			name:              "2 allowed out of 5 in 10s window",
+			maxInvocations:    2,
+			window:            10 * time.Second,
+			totalRequests:     5,
+			wantFlowRuns:      2,
+			wantRateLimited:   3,
+			wantAcceptedCodes: 2,
+			wantLimitedCodes:  3,
+		},
+		{
+			name:              "1 allowed out of 3 in 60s window",
+			maxInvocations:    1,
+			window:            60 * time.Second,
+			totalRequests:     3,
+			wantFlowRuns:      1,
+			wantRateLimited:   2,
+			wantAcceptedCodes: 1,
+			wantLimitedCodes:  2,
+		},
+		{
+			name:              "no limit when maxInvocations is 0",
+			maxInvocations:    0,
+			window:            10 * time.Second,
+			totalRequests:     5,
+			wantFlowRuns:      5,
+			wantRateLimited:   0,
+			wantAcceptedCodes: 5,
+			wantLimitedCodes:  0,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			scheme := newWebhookTestScheme()
+			fakeClient := fake.NewClientBuilder().WithScheme(scheme).Build()
+			log := zap.New()
+			registry := NewRouteRegistry(log)
+
+			registry.Register("/hooks/cooldown-test", RouteEntry{
+				TriggerName:      "cooldown-trigger",
+				TriggerNamespace: "default",
+				FlowRef:          "test-flow",
+				AllowedMethod:    "POST",
+				MaxInvocations:   tc.maxInvocations,
+				CooldownWindow:   tc.window,
+			})
+
+			h := NewWebhookHandler(fakeClient, registry, log)
+
+			// Snapshot the rate-limited metric before firing requests.
+			rateLimitedBefore := testutil.ToFloat64(
+				metrics.WebhookRateLimited.WithLabelValues("cooldown-trigger", "default"),
+			)
+
+			acceptedCount := 0
+			limitedCount := 0
+
+			for i := 0; i < tc.totalRequests; i++ {
+				req := httptest.NewRequest(http.MethodPost, "/hooks/cooldown-test",
+					bytes.NewBufferString(`{"seq":`+strings.Repeat("x", i)+`}`))
+				rr := httptest.NewRecorder()
+				h.ServeHTTP(rr, req)
+
+				switch rr.Code {
+				case http.StatusAccepted:
+					acceptedCount++
+				case http.StatusTooManyRequests:
+					limitedCount++
+				default:
+					t.Fatalf("request %d: unexpected status %d; body: %s", i, rr.Code, rr.Body.String())
+				}
+			}
+
+			// Assert response code counts.
+			if acceptedCount != tc.wantAcceptedCodes {
+				t.Errorf("expected %d accepted (202) responses, got %d", tc.wantAcceptedCodes, acceptedCount)
+			}
+			if limitedCount != tc.wantLimitedCodes {
+				t.Errorf("expected %d rate-limited (429) responses, got %d", tc.wantLimitedCodes, limitedCount)
+			}
+
+			// Assert FlowRun count.
+			count := flowRunCount(t, fakeClient)
+			if count != tc.wantFlowRuns {
+				t.Errorf("expected %d FlowRuns, got %d", tc.wantFlowRuns, count)
+			}
+
+			// Assert rate-limited metric delta.
+			rateLimitedAfter := testutil.ToFloat64(
+				metrics.WebhookRateLimited.WithLabelValues("cooldown-trigger", "default"),
+			)
+			rateLimitedDelta := int(rateLimitedAfter - rateLimitedBefore)
+			if rateLimitedDelta != tc.wantRateLimited {
+				t.Errorf("expected kubezap_webhook_rate_limited_total to increment by %d, got %d",
+					tc.wantRateLimited, rateLimitedDelta)
 			}
 		})
 	}

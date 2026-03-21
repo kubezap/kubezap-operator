@@ -29,7 +29,8 @@ A `Trigger` defines an event source that starts a `Flow`. It listens for an even
     - [Webhook](#webhook)
     - [Cron](#cron)
     - [Pub/Sub — Kafka, AMQP, NATS](#pubsub--kafka-amqp-nats)
-    - [Kubernetes Resource Events _(planned)_](#kubernetes-resource-events-planned)
+    - [ResourceTrigger](#resourcetrigger)
+    - [Kubernetes Resource Events](#kubernetes-resource-events)
   - [Exposing Webhook Triggers](#exposing-webhook-triggers)
     - [Kubernetes Ingress](#kubernetes-ingress)
     - [Kubernetes Gateway API (recommended for Kubernetes 1.28+)](#kubernetes-gateway-api-recommended-for-kubernetes-128)
@@ -66,11 +67,12 @@ A `Trigger` can also define an inline `action` instead of a `flowRef` for simple
 
 | Field      | Type             | Required    | Default | Description                                                                      |
 | ---------- | ---------------- | ----------- | ------- | -------------------------------------------------------------------------------- |
-| `type`     | enum             | **Yes**     | —       | Trigger source type: `webhook`, `cron`, or `pubsub`                              |
+| `type`     | enum             | **Yes**     | —       | Trigger source type: `webhook`, `cron`, `pubsub`, or `resource`                  |
 | `enabled`  | boolean          | No          | `true`  | Whether this trigger is active. Set to `false` to pause without deleting.        |
 | `webhook`  | WebhookTrigger   | Conditional | —       | Required when `type: webhook`                                                    |
 | `cron`     | CronTrigger      | Conditional | —       | Required when `type: cron`                                                       |
 | `pubsub`   | PubSubTrigger    | Conditional | —       | Required when `type: pubsub`                                                     |
+| `resource` | ResourceTrigger  | Conditional | —       | Required when `type: resource`                                                   |
 | `flowRef`  | FlowReference    | Conditional | —       | Reference to the Flow to execute. Required unless `action` is set.               |
 | `action`   | ActionDefinition | Conditional | —       | Inline action. Used instead of `flowRef` for simple single-step responses.       |
 | `cooldown` | CooldownPolicy   | No          | —       | Rate limiting policy to prevent trigger storms                                   |
@@ -178,6 +180,21 @@ Prevents a trigger from firing more than a set number of times in a given window
 | `maxInvocations` | integer  | **Yes**  | —       | Maximum number of firings allowed within `window`        |
 | `window`         | duration | No       | `60s`   | Time window for counting invocations (e.g., `60s`, `5m`) |
 
+### ResourceTrigger
+
+Watches a Kubernetes resource type for create, update, or delete events and fires the trigger when a matching event occurs. Resource triggers run inside the controller -- no separate gateway pod is needed.
+
+| Field           | Type          | Required | Default                  | Description                                                                                                 |
+| --------------- | ------------- | -------- | ------------------------ | ----------------------------------------------------------------------------------------------------------- |
+| `apiVersion`    | string        | **Yes**  | --                       | API version of the resource (e.g. `v1`, `apps/v1`, `automation.kubezap.io/v1alpha1`)                        |
+| `kind`          | string        | **Yes**  | --                       | Kind of the resource (e.g. `Pod`, `ConfigMap`, `Deployment`)                                                |
+| `namespace`     | string        | No       | Trigger's namespace      | Namespace to watch. Defaults to the Trigger's own namespace.                                                |
+| `labelSelector` | LabelSelector | No       | --                       | Only fire for resources matching these labels                                                               |
+| `events`        | []string      | No       | `[create]`               | Event types to watch: `create`, `update`, `delete`                                                          |
+| `watchFields`   | []string      | No       | --                       | Dot-notation paths (e.g. `.status.phase`). Only fire update events when these fields change.                |
+
+**RBAC note:** The controller's ServiceAccount must have `get`, `list`, and `watch` permissions on the target resource type. KubeZap does not grant these automatically -- the cluster administrator must create the appropriate Role/ClusterRole.
+
 ### TargetResource
 
 Reserved for future use with resource-based triggers (watching Kubernetes resources).
@@ -256,11 +273,45 @@ The Flow receives the message contents:
 - `$(trigger.payload.offset)` — the message offset (Kafka only)
 - `$(trigger.payload.headers.<name>)` — a message header value
 
-### Kubernetes Resource Events _(planned)_
+### Kubernetes Resource Events
 
-Watch any Kubernetes resource type and fire the trigger when resources matching a label selector are created, updated, or deleted. Unlike webhook and Kafka triggers, resource event triggers run inside the controller — no separate gateway pod is needed.
+Watch any Kubernetes resource type and fire the trigger when resources matching a label selector are created, updated, or deleted. Unlike webhook and Kafka triggers, resource event triggers run inside the controller -- no separate gateway pod is needed.
 
-See [Architecture → Kubernetes Resource Event Triggers](../architecture.md#kubernetes-resource-event-triggers) for the planned spec and payload structure.
+The controller sets up a dynamic informer for each `type: resource` Trigger. When a matching event occurs, a FlowRun is created with the full resource object in the trigger payload.
+
+```yaml
+apiVersion: automation.kubezap.io/v1alpha1
+kind: Trigger
+metadata:
+  name: pod-ready-handler
+  namespace: automation
+spec:
+  type: resource
+  resource:
+    apiVersion: v1
+    kind: Pod
+    namespace: production
+    labelSelector:
+      matchLabels:
+        app: my-service
+    events: [create, update]
+    watchFields:
+      - ".status.phase"
+  flowRef:
+    name: handle-pod-ready
+```
+
+The Flow receives the resource event data:
+- `$(trigger.payload.body)` -- full JSON of the resource object
+- `$(trigger.payload.eventType)` -- `ADDED`, `MODIFIED`, or `DELETED`
+- `$(trigger.payload.resourceName)` -- name of the resource
+- `$(trigger.payload.resourceNamespace)` -- namespace of the resource
+- `$(trigger.payload.resourceKind)` -- kind of the resource
+- `$(trigger.payload.resourceAPIVersion)` -- API version of the resource
+
+FlowRun naming: `<trigger>-<resource-name>-<eventtype>-<timestamp>`
+
+See [Architecture - Kubernetes Resource Event Triggers](../architecture.md#kubernetes-resource-event-triggers) for design context.
 
 ---
 
@@ -518,6 +569,32 @@ spec:
       headers:
         Content-Type: "application/json"
       body: '{"text": "Alert received"}'
+```
+
+### Example 6: Resource Trigger (Pod Failure Watcher)
+
+Watch for Pod status changes and fire a flow when a Pod's phase changes.
+
+```yaml
+apiVersion: automation.kubezap.io/v1alpha1
+kind: Trigger
+metadata:
+  name: pod-failure-watcher
+  namespace: default
+spec:
+  type: resource
+  resource:
+    apiVersion: v1
+    kind: Pod
+    namespace: default
+    labelSelector:
+      matchLabels:
+        app: my-service
+    events: [create, update]
+    watchFields:
+      - ".status.phase"
+  flowRef:
+    name: handle-pod-event
 ```
 
 ---

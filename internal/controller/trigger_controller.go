@@ -35,13 +35,22 @@ import (
 )
 
 const cronTriggerFinalizer = "cron.kubezap.io/scheduler-cleanup"
+const resourceTriggerFinalizer = "resource.kubezap.io/watcher-cleanup"
 
 // TriggerReconciler reconciles a Trigger object
 type TriggerReconciler struct {
 	client.Client
-	Scheme        *runtime.Scheme
-	CronScheduler *CronScheduler
+	Scheme          *runtime.Scheme
+	CronScheduler   *CronScheduler
+	ResourceWatcher *ResourceWatcher
 }
+
+// TODO(wiring): ResourceWatcher must be constructed in cmd/main.go with a dynamic.Interface
+// client and passed into TriggerReconciler. Example:
+//
+//   dynClient, err := dynamic.NewForConfig(mgr.GetConfig())
+//   rw := controller.NewResourceWatcher(mgr.GetClient(), dynClient, setupLog)
+//   triggerReconciler.ResourceWatcher = rw
 
 // +kubebuilder:rbac:groups=automation.kubezap.io,resources=triggers,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=automation.kubezap.io,resources=triggers/status,verbs=get;update;patch
@@ -74,8 +83,19 @@ func (r *TriggerReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		if r.CronScheduler != nil {
 			r.CronScheduler.Deregister(key)
 		}
+		if r.ResourceWatcher != nil {
+			r.ResourceWatcher.Deregister(key)
+		}
+		needsUpdate := false
 		if containsString(trg.Finalizers, cronTriggerFinalizer) {
 			trg.Finalizers = removeString(trg.Finalizers, cronTriggerFinalizer)
+			needsUpdate = true
+		}
+		if containsString(trg.Finalizers, resourceTriggerFinalizer) {
+			trg.Finalizers = removeString(trg.Finalizers, resourceTriggerFinalizer)
+			needsUpdate = true
+		}
+		if needsUpdate {
 			if err := r.Update(ctx, &trg); err != nil {
 				return ctrl.Result{}, err
 			}
@@ -106,6 +126,22 @@ func (r *TriggerReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	if trg.Spec.Type == "webhook" && trg.Spec.Enabled {
 		if err := r.reconcileWebhookGatewayDeployment(ctx, trg.Namespace); err != nil {
 			return ctrl.Result{}, fmt.Errorf("reconciling webhook gateway deployment: %w", err)
+		}
+	}
+
+	// Handle resource triggers — register/deregister the resource watcher.
+	if trg.Spec.Type == "resource" && r.ResourceWatcher != nil {
+		if trg.Spec.Enabled && trg.Spec.Resource != nil {
+			// Ensure finalizer is present
+			if !containsString(trg.Finalizers, resourceTriggerFinalizer) {
+				trg.Finalizers = append(trg.Finalizers, resourceTriggerFinalizer)
+				if err := r.Update(ctx, &trg); err != nil {
+					return ctrl.Result{}, err
+				}
+			}
+			r.ResourceWatcher.Register(&trg)
+		} else {
+			r.ResourceWatcher.Deregister(key)
 		}
 	}
 

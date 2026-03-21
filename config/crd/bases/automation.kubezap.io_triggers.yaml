@@ -216,6 +216,95 @@ spec:
                 - topic
                 - type
                 type: object
+              resource:
+                description: |-
+                  Resource configuration (only for type=resource).
+                  Watches a Kubernetes resource type for create/update/delete events
+                  and fires the trigger when a matching event occurs.
+                properties:
+                  apiVersion:
+                    description: APIVersion of the resource to watch (e.g. "v1", "apps/v1",
+                      "automation.kubezap.io/v1alpha1").
+                    minLength: 1
+                    type: string
+                  events:
+                    description: |-
+                      Events specifies which event types fire the trigger.
+                      Valid values: create, update, delete. Defaults to [create] if omitted.
+                    items:
+                      type: string
+                    minItems: 1
+                    type: array
+                  kind:
+                    description: Kind of the resource to watch (e.g. "Pod", "ConfigMap",
+                      "Deployment").
+                    minLength: 1
+                    type: string
+                  labelSelector:
+                    description: |-
+                      LabelSelector limits events to resources matching these labels.
+                      If omitted, all resources of the specified kind are watched.
+                    properties:
+                      matchExpressions:
+                        description: matchExpressions is a list of label selector
+                          requirements. The requirements are ANDed.
+                        items:
+                          description: |-
+                            A label selector requirement is a selector that contains values, a key, and an operator that
+                            relates the key and values.
+                          properties:
+                            key:
+                              description: key is the label key that the selector
+                                applies to.
+                              type: string
+                            operator:
+                              description: |-
+                                operator represents a key's relationship to a set of values.
+                                Valid operators are In, NotIn, Exists and DoesNotExist.
+                              type: string
+                            values:
+                              description: |-
+                                values is an array of string values. If the operator is In or NotIn,
+                                the values array must be non-empty. If the operator is Exists or DoesNotExist,
+                                the values array must be empty. This array is replaced during a strategic
+                                merge patch.
+                              items:
+                                type: string
+                              type: array
+                              x-kubernetes-list-type: atomic
+                          required:
+                          - key
+                          - operator
+                          type: object
+                        type: array
+                        x-kubernetes-list-type: atomic
+                      matchLabels:
+                        additionalProperties:
+                          type: string
+                        description: |-
+                          matchLabels is a map of {key,value} pairs. A single {key,value} in the matchLabels
+                          map is equivalent to an element of matchExpressions, whose key field is "key", the
+                          operator is "In", and the values array contains only "value". The requirements are ANDed.
+                        type: object
+                    type: object
+                    x-kubernetes-map-type: atomic
+                  namespace:
+                    description: Namespace to watch. If empty, watches the Trigger's
+                      own namespace.
+                    type: string
+                  watchFields:
+                    description: |-
+                      WatchFields limits update events to fire only when one of these
+                      JSON path expressions changes. Only effective for update events.
+                      Uses dot-notation paths, e.g. ".status.phase", ".spec.replicas".
+                      If omitted, all updates fire the trigger.
+                    items:
+                      type: string
+                    type: array
+                required:
+                - apiVersion
+                - kind
+                type: object
               target:
                 description: |-
                   Optional target resource in the cluster to watch or reference. Kept
@@ -281,11 +370,12 @@ spec:
                     type: string
                 type: object
               type:
-                description: Type of trigger (webhook, cron, pubsub)
+                description: Type of trigger (webhook, cron, pubsub, resource)
                 enum:
                 - webhook
                 - cron
                 - pubsub
+                - resource
                 type: string
               webhook:
                 description: Webhook configuration (only for type=webhook)

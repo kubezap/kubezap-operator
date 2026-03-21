@@ -94,6 +94,10 @@ spec:
                     type: boolean
                   contentType:
                     type: string
+                  eventType:
+                    description: 'EventType is the Kubernetes watch event type for
+                      resource triggers: ADDED, MODIFIED, DELETED.'
+                    type: string
                   headers:
                     additionalProperties:
                       type: string
@@ -111,6 +115,21 @@ spec:
                     format: int32
                     type: integer
                   path:
+                    type: string
+                  resourceAPIVersion:
+                    description: ResourceAPIVersion is the API version of the watched
+                      resource.
+                    type: string
+                  resourceKind:
+                    description: ResourceKind is the kind of the watched resource.
+                    type: string
+                  resourceName:
+                    description: ResourceName is the name of the resource that fired
+                      the trigger.
+                    type: string
+                  resourceNamespace:
+                    description: ResourceNamespace is the namespace of the resource
+                      that fired the trigger.
                     type: string
                   scheduledTime:
                     format: date-time
@@ -132,6 +151,7 @@ spec:
                     - webhook
                     - cron
                     - pubsub
+                    - resource
                     type: string
                 required:
                 - name

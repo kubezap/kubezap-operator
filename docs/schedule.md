@@ -26,6 +26,7 @@ Items are ordered to minimize rework:
 4. **`type: http` Integration before new examples** — completed examples embed credentials inline. Building examples 7-9 without `integrationRef` means updating all their manifests and READMEs again after the feature lands.
 5. **MockEndpoint code removal last** — safe to delete only after all examples, guides, and tests are migrated.
 6. **Example 6 (K8s ITSM) last among examples** — blocked on `type: resource` trigger (Future/Backlog). Other examples can proceed independently.
+7. **P0 security fixes before architectural refactors in the same code area** — a security vulnerability should not be blocked waiting for a large refactor even if the refactor would reduce rework. Fix the vulnerability now; port the fix after the refactor if needed.
 
 ---
 
@@ -318,7 +319,7 @@ Items are ordered to minimize rework:
 ## 12. Architecture Review — Pre-Submission Blockers (v0.4)
 
 > Items from the 2026-03-21 architecture review that must be resolved before OperatorHub submission.
-> Ordered by dependency: API changes first (§12a), then execution model (§12b), then security (§12c), then cleanup (§12d).
+> Ordered: API changes first (§12a), then P0 security fix (§12c — moved before §12b per rule 7), then execution model (§12b), then cleanup (§12d).
 
 ### 12a — API: Promote `type: pubsub` to individual trigger types
 
@@ -332,6 +333,14 @@ Items are ordered to minimize rework:
 - [ ] **API** — Update all example manifests and docs referencing `type: pubsub`.
 - [ ] **API** — Update `config/samples/` and `docs/api/trigger.md` spec reference.
 
+### 12c — Security: Secret value redaction
+
+> **P0 — must fix before any public or OperatorHub release. Moved before §12b per prioritization rule 7.**
+> `$(secrets.name.key)` is substituted before HTTP calls. On failure, the resolved URL/headers/body (containing the secret value) is written to `StepRunStatus.Message` in the FlowRun, persisted in etcd, and visible to anyone with `kubectl get flowrun`.
+
+- [ ] **SECURITY (P0)** — Track which segments of URLs and header values originated from secret interpolation. Redact those segments in `StepRunStatus.Message` and any error strings passed to `r.failFlowRun()`. Pattern: replace secret-origin values with `[REDACTED]` after substitution but before use in error messages. File: `internal/controller/flowrun_controller.go` (`substituteVars`, `executeHTTPStep`, `executePublishStep`)
+- [ ] **SECURITY (P0)** — Add test coverage: assert that a failed HTTP step with a secret-bearing URL does NOT store the raw secret value in FlowRun status. File: `internal/controller/flowrun_controller_test.go`
+
 ### 12b — Architecture: FlowRun execution model
 
 > **Current model executes all steps in a single reconcile loop (blocking goroutine for entire flow duration). Fix: one step per reconcile.**
@@ -342,15 +351,9 @@ Items are ordered to minimize rework:
 - [ ] **SCALABILITY** — Increase `--max-concurrent-flowruns` default from `10` to `25`. The bottleneck is API server writes (one per step), not CPU; 10 is too conservative for an enterprise-grade operator. Add tuning guidance to `docs/guides/` or `docs/architecture.md`. File: `cmd/main.go`
 - [ ] **TESTING** — Update Ginkgo tests for the new one-step-per-reconcile model. Multi-step flows will require multiple reconcile calls in tests; update test helpers accordingly. File: `internal/controller/flowrun_controller_test.go`
 
-### 12c — Security: Secret value redaction
-
-> **P0 — must fix before any public or OperatorHub release.**
-> `$(secrets.name.key)` is substituted before HTTP calls. On failure, the resolved URL/headers/body (containing the secret value) is written to `StepRunStatus.Message` in the FlowRun, persisted in etcd, and visible to anyone with `kubectl get flowrun`.
-
-- [ ] **SECURITY (P0)** — Track which segments of URLs and header values originated from secret interpolation. Redact those segments in `StepRunStatus.Message` and any error strings passed to `r.failFlowRun()`. Pattern: replace secret-origin values with `[REDACTED]` after substitution but before use in error messages. File: `internal/controller/flowrun_controller.go` (`substituteVars`, `executeHTTPStep`, `executePublishStep`)
-- [ ] **SECURITY (P0)** — Add test coverage: assert that a failed HTTP step with a secret-bearing URL does NOT store the raw secret value in FlowRun status. File: `internal/controller/flowrun_controller_test.go`
-
 ### 12d — Cleanup: Stale API fields
+
+> Can be done as part of §12a (same file) or standalone after §12b.
 
 - [ ] **CLEANUP** — Remove the dead `Target *TargetResource` field from `TriggerSpec` (`api/v1alpha1/trigger_types.go` lines ~63-64). This field is superseded by `Resource *ResourceTrigger` and its presence is confusing. Run `make generate && make manifests` after removal.
 
@@ -374,9 +377,20 @@ Items are ordered to minimize rework:
 
 ## 15. Dashboard / Monitoring UI
 
-> **Decision (2026-03-21):** Build a read-only monitoring UI before OperatorHub submission. See `docs/tech-debt/pending-input-required.md` for CLI-vs-Web decision.
+> **Decision (2026-03-21):** Build both CLI and web UI. CLI first (lower effort, operator-day-to-day), web UI second (demo/stakeholder impact). Both read-only.
 
-- [ ] _(pending owner input on CLI-vs-Web approach — see pending-input-required.md)_
+### Phase 1 — CLI `watch` command
+
+- [ ] **CLI** — Add `kubezap watch` subcommand (`cmd/kubezap/watch.go`): streams FlowRun events via the Watch API, renders a live terminal execution timeline (box-drawing characters, per-step status badges, elapsed duration, phase transitions). Register in `cmd/kubezap/main.go` `AddCommand` list.
+- [ ] **CLI** — Write tests for `watch` output formatting (unit tests against a fake Watch stream, assert terminal output structure). File: `cmd/kubezap/watch_test.go`
+- [ ] **DOCS** — Add `kubezap watch` to `docs/guides/using-the-cli.md`.
+
+### Phase 2 — Read-only web dashboard
+
+- [ ] **WEB UI** — Add `--ui-port` flag to `cmd/main.go` (default `8082`, `0` = disabled). When non-zero, start a read-only HTTP server on that port serving the dashboard.
+- [ ] **WEB UI** — Implement dashboard handlers in `internal/ui/`: index page lists active/recent FlowRuns with phase badges and trigger name; `/ui/flowruns/<namespace>/<name>` shows step timeline with status, duration, and error message. Use Go `html/template` + htmx for server-side rendering. Zero new external dependencies.
+- [ ] **WEB UI** — Write handler tests: HTTP response codes, `Content-Type` headers, basic template rendering with a mock FlowRun. File: `internal/ui/handler_test.go`
+- [ ] **DOCS** — Write `docs/guides/dashboard.md`: how to enable `--ui-port`, what the UI shows, local access via port-forward, production exposure options (same patterns as webhook gateway exposure guide).
 
 ---
 
@@ -393,7 +407,7 @@ Items are ordered to minimize rework:
 - [ ] Additional message brokers: GCP Pub/Sub, Solace (non-AMQP), TIBCO EMS (via plugin model)
 - [ ] Plugin catalog / marketplace in `docs/plugins/` with community registry and maturity levels
 - [ ] Reference plugin implementation in `docs/plugins/example-plugin/`
-- [ ] Web UI for flow monitoring
+- [x] Web UI for flow monitoring — promoted to active §15 (both CLI watch command and read-only web dashboard)
 - [ ] OpenLineage support
 - [ ] Multi-region HA support
 - [ ] S3/Git event trigger source

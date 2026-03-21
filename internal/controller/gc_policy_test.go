@@ -242,4 +242,71 @@ var _ = Describe("enforceMaxFlowRunsByPhase", func() {
 			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: retained.Name, Namespace: testNamespace}, &got)).To(Succeed())
 		})
 	})
+
+	// T4 — FlowRun GC maxSucceeded enforcement
+	Context("maxSucceeded=3 with 5 Succeeded FlowRuns", func() {
+		It("deletes the 2 oldest FlowRuns and retains the 3 newest", func() {
+			// Create 5 Succeeded FlowRuns with staggered completion times.
+			// oldest1 (50m ago) and oldest2 (40m ago) should be deleted;
+			// mid (30m), recent (20m), newest (10m) should survive.
+			oldest1 := makeTerminalFlowRun("gc-t4-oldest1-"+seedValue(1), "Succeeded", 50*time.Minute)
+			oldest2 := makeTerminalFlowRun("gc-t4-oldest2-"+seedValue(2), "Succeeded", 40*time.Minute)
+			mid := makeTerminalFlowRun("gc-t4-mid-"+seedValue(3), "Succeeded", 30*time.Minute)
+			recent := makeTerminalFlowRun("gc-t4-recent-"+seedValue(4), "Succeeded", 20*time.Minute)
+			newest := makeTerminalFlowRun("gc-t4-newest-"+seedValue(5), "Succeeded", 10*time.Minute)
+			DeferCleanup(func() {
+				cleanupFlowRun(oldest1)
+				cleanupFlowRun(oldest2)
+				cleanupFlowRun(mid)
+				cleanupFlowRun(recent)
+				cleanupFlowRun(newest)
+			})
+
+			r := newGCReconciler()
+			Expect(r.enforceMaxFlowRunsByPhase(ctx, triggerName, testNamespace, "Succeeded", 3)).To(Succeed())
+
+			var got automationv1alpha1.FlowRun
+			// The 2 oldest should be deleted.
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: oldest1.Name, Namespace: testNamespace}, &got)).
+				To(MatchError(ContainSubstring("not found")))
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: oldest2.Name, Namespace: testNamespace}, &got)).
+				To(MatchError(ContainSubstring("not found")))
+			// The 3 newest should remain.
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: mid.Name, Namespace: testNamespace}, &got)).To(Succeed())
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: recent.Name, Namespace: testNamespace}, &got)).To(Succeed())
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: newest.Name, Namespace: testNamespace}, &got)).To(Succeed())
+		})
+
+		It("never deletes a FlowRun annotated kubezap.io/retain=true even when over limit", func() {
+			// 5 Succeeded FlowRuns, but the oldest is retained.
+			// With max=3: retained is exempt, so 4 non-retained runs compete for 3 slots.
+			// The oldest non-retained (second) should be deleted; the other 3 non-retained survive.
+			retained := makeRetainedFlowRun("gc-t4-ret-"+seedValue(1), "Succeeded", 50*time.Minute)
+			second := makeTerminalFlowRun("gc-t4-sec-"+seedValue(2), "Succeeded", 40*time.Minute)
+			third := makeTerminalFlowRun("gc-t4-thr-"+seedValue(3), "Succeeded", 30*time.Minute)
+			fourth := makeTerminalFlowRun("gc-t4-fth-"+seedValue(4), "Succeeded", 20*time.Minute)
+			fifth := makeTerminalFlowRun("gc-t4-fif-"+seedValue(5), "Succeeded", 10*time.Minute)
+			DeferCleanup(func() {
+				cleanupFlowRun(retained)
+				cleanupFlowRun(second)
+				cleanupFlowRun(third)
+				cleanupFlowRun(fourth)
+				cleanupFlowRun(fifth)
+			})
+
+			r := newGCReconciler()
+			Expect(r.enforceMaxFlowRunsByPhase(ctx, triggerName, testNamespace, "Succeeded", 3)).To(Succeed())
+
+			var got automationv1alpha1.FlowRun
+			// Retained FlowRun must survive regardless of being the oldest.
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: retained.Name, Namespace: testNamespace}, &got)).To(Succeed())
+			// Oldest non-retained should be deleted (4 non-retained, max 3 → delete 1 oldest).
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: second.Name, Namespace: testNamespace}, &got)).
+				To(MatchError(ContainSubstring("not found")))
+			// Remaining 3 non-retained should survive.
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: third.Name, Namespace: testNamespace}, &got)).To(Succeed())
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: fourth.Name, Namespace: testNamespace}, &got)).To(Succeed())
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: fifth.Name, Namespace: testNamespace}, &got)).To(Succeed())
+		})
+	})
 })

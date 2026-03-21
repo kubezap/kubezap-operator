@@ -28,18 +28,19 @@
 
 ## Decisions needed
 
-- **Q1**: Should `docs/api/mock-endpoint.md` be deleted, converted to redirect stub, or retained as archived doc?
-- **Q2**: Is `type: resource` trigger production-ready or experimental? (affects architecture.md and Example 6 README)
-- **Q3**: Should the CEL expression cache in `flowrun_controller.go` get an eviction policy? (LRU / TTL / unbounded / remove cache)
+- **Q1 — RESOLVED**: `docs/api/mock-endpoint.md` deleted.
+- **Q2 — RESOLVED**: `type: resource` is **alpha**. Four bugs found (naive pluralization, FlowRun name collision, no retry on sync failure, no cooldown). Scheduled in §11. CLAUDE.md updated to label it "(alpha)".
+- **Q3 — open**: See explanation below.
 
-Full decision context in `docs/tech-debt/pending-input-required.md`.
+Full context in `docs/tech-debt/pending-input-required.md`.
 
 ## Files changed
 
-- `docs/tech-debt/pending-input-required.md` — created (new file, 3 decision questions)
-- `docs/tech-debt/code-debt-2026-03-21.md` — created (new file, detailed code findings)
-- `docs/schedule.md` — added §11 with 6 new backlog items
-- `docs/api/mock-endpoint.md` — added deprecation notice with redirect
-- `docs/architecture.md` — updated resource trigger status label + Future Trigger Types table
-- `docs/overview.md` — added Contributing section with link to `docs/contributing.md`
+- `docs/tech-debt/pending-input-required.md` — created (Q2 resolved inline; Q3 open)
+- `docs/tech-debt/code-debt-2026-03-21.md` — created (detailed code findings)
+- `docs/schedule.md` — added §11 with 10 new backlog items (6 original + 4 resource watcher bugs)
+- `docs/api/mock-endpoint.md` — deleted
+- `docs/architecture.md` — resource trigger status + Future Trigger Types table corrected
+- `docs/overview.md` — Contributing section added
+- `CLAUDE.md` — removed MockEndpoint references, removed stale Status column from Core CRDs table, updated Trigger Types list, updated Plugin model built-in types
 - `docs/review-latest.md` — this file

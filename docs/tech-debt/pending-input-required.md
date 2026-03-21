@@ -16,11 +16,16 @@ Why it matters: The MockEndpoint CRD was removed (schedule §4–7 complete). Th
 Options: Delete the file entirely / Replace contents with a one-paragraph redirect stub pointing to `docs/guides/mocking-http-endpoints.md` / Leave as-is (archived reference)
 <!-- BACKLOG-PROMPT -->
 
-<!-- BACKLOG-PROMPT -->
-**Q: Is `type: resource` Kubernetes resource-event trigger considered production-ready or still experimental?**
-Why it matters: `trigger_controller.go` handles `type: resource` triggers and `cmd/main.go` wires the `ResourceWatcher`. The implementation appears complete. However `docs/architecture.md` still labels the resource trigger spec as "(planned)", and Example 6's README notes it "requires kubernetes trigger type — not yet implemented". The schedule item is marked `[x]`. Clarifying the status will let us update docs accurately and remove conflicting language.
-Options: Mark as production-ready (update architecture.md + Example 6 README) / Mark as experimental/alpha (add caveat in trigger.md and architecture.md) / Leave as-is and defer doc updates
-<!-- BACKLOG-PROMPT -->
+**Q2 — RESOLVED (2026-03-21 investigation):** `type: resource` trigger is **alpha/experimental**, not production-ready.
+
+Investigation findings from `internal/controller/resource_watcher.go`:
+
+- **Known bug — naive pluralization** (`line 113`): Resource type is inferred as `strings.ToLower(kind) + "s"`. Fails silently for irregular plurals: `Ingress` → `ingresss` (wrong), `NetworkPolicy` → `networkpolicys` (wrong). Fix requires using the discovery API to look up the correct plural form.
+- **No retry on cache sync failure** (`line 158–162`): If the informer fails to sync (transient RBAC issue, API server blip), the watcher goroutine exits permanently. The trigger stays "registered" in the map but is effectively dead until the Trigger is touched and the reconciler re-registers it.
+- **FlowRun name collision risk** (`line 207`): Names use Unix timestamp at second precision with no random suffix. Two events for the same resource+eventtype in the same second collide silently (second event's FlowRun is dropped).
+- **No cooldown mechanism**: Rapidly-updated resources (e.g., Pod status churn) with no `watchFields` filter will create a FlowRun for every update. Other trigger types have `maxInvocations`/`window` cooldown — resource triggers do not.
+
+**Action taken:** Updated `CLAUDE.md` Trigger Types section to label resource trigger as "(alpha)". Added known issues to `docs/schedule.md` §11. `docs/architecture.md` already updated to "implemented, status under review". Example 6 README can be updated once the pluralization bug is fixed.
 
 <!-- BACKLOG-PROMPT -->
 **Q: Should a CEL expression cache eviction policy be added to `flowrun_controller.go`?**

@@ -71,7 +71,6 @@ Key decisions:
 - FlowRun naming: webhook `<trigger>-<timestamp>-<random>`, kafka `<trigger>-p<partition>-offset-<offset>` (dedup key), cron `<trigger>-<scheduled-time>`
 - FlowRun GC: `spec.ttlAfterFinished` per FlowRun, operator-level `--flowrun-ttl-succeeded` / `--flowrun-ttl-failed` flags (defaults 24h/72h), or `spec.maxFlowRuns` on Trigger; annotate with `kubezap.io/retain=true` to exempt
 - Publish step action: `type: publish` with `integrationRef` + `topic` + `body` — controller calls plugin's `/publish` endpoint
-- Webhook gateway also serves `/mock/*` paths for MockEndpoint CRDs
 - HPA on webhook gateway; KEDA recommended for Kafka gateway (partition-bounded scaling)
 - `WATCH_NAMESPACES` env var controls scope: empty = AllNamespaces, comma-list = MultiNamespace, single = OwnNamespace
 - OwnNamespace/SingleNamespace modes use Role (not ClusterRole) — important for OpenShift and OperatorHub certification
@@ -83,21 +82,25 @@ Key decisions:
 
 ## Core CRDs
 
-| CRD            | Purpose                                                                   | Status                               |
-| -------------- | ------------------------------------------------------------------------- | ------------------------------------ |
-| `Trigger`      | Event source (webhook/cron/kafka) → references a Flow                     | Scaffolded                           |
-| `Flow`         | Ordered steps with conditional logic and data transforms                  | Designed (docs/api/flow.md)          |
-| `FlowRun`      | Execution instance created by gateways; controller picks up and runs      | Designed (docs/api/flowrun.md)       |
-| `MockEndpoint` | Dev/test mock HTTP server; captures requests to CRD status                | Designed (docs/api/mock-endpoint.md) |
-| `Integration`  | External system connections and credentials; subscriber + publisher roles | Designed (docs/api/integration.md)   |
-| `Step`         | Optional reusable/observable action unit                                  | Future                               |
+| CRD           | Purpose                                                                   | Docs                        |
+| ------------- | ------------------------------------------------------------------------- | --------------------------- |
+| `Trigger`     | Event source (webhook/cron/kafka/resource) → references a Flow            | `docs/api/trigger.md`       |
+| `Flow`        | Ordered steps with conditional logic and data transforms                  | `docs/api/flow.md`          |
+| `FlowRun`     | Execution instance created by gateways; controller picks up and runs      | `docs/api/flowrun.md`       |
+| `Integration` | External system connections and credentials; subscriber + publisher roles | `docs/api/integration.md`   |
+| `Step`        | Optional reusable/observable action unit                                  | Future — not yet designed   |
 
-## Trigger Types (priority order)
+## Trigger Types
 
+Built-in:
 1. **Webhook** — HTTP endpoint exposed by the operator
 2. **Cron** — Scheduled execution
-3. **Kafka** — Consumer on a topic (first message broker priority)
-4. Future: NATS, RabbitMQ, ActiveMQ, Solace, GCP Pub/Sub, S3/Git events
+3. **Kafka** — Consumer on a topic (dedicated gateway; KEDA-scalable)
+4. **AMQP** — RabbitMQ, ActiveMQ Artemis, Azure Service Bus, IBM MQ (beta)
+5. **NATS** — NATS JetStream (beta)
+6. **Resource** — Kubernetes resource events via dynamic informers (alpha; see known limitations in `docs/tech-debt/`)
+
+Planned: GCP Pub/Sub, Solace (non-AMQP), S3/Git events, additional brokers via plugin model
 
 ## Plugin / Extensibility Model
 
@@ -107,7 +110,7 @@ Key decisions:
 - Plugin health check: `GET /healthz` → 200 (used as Deployment readiness probe)
 - Operator injects: `KUBEZAP_NAMESPACE`, `KUBEZAP_INTEGRATION_NAME`, `KUBEZAP_PUBLISHER_PORT`, `KUBEZAP_LOG_LEVEL`
 - Secrets referenced in `spec.plugin.secretRefs` are injected as env vars via `envVarMappings`
-- Built-in types: `kafka` (first-class, `kubezap/kafka-gateway` image); `rabbitmq` (planned)
+- Built-in types: `kafka` (`kubezap/kafka-gateway` image), `amqp` (`kubezap/amqp-gateway` image, beta), `nats` (`kubezap/nats-gateway` image, beta)
 - Plugin image trust model: operator does not verify images — document this as a security consideration
 - Future: marketplace/catalog of community integration plugins
 

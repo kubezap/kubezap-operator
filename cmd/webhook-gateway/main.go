@@ -15,6 +15,7 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/go-logr/zapr"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"go.uber.org/zap"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
@@ -39,18 +40,24 @@ func init() {
 
 func main() {
 	var port int
+	var metricsPort int
 	var namespace string
 	var logLevel string
 	var tlsCertFile string
 	var tlsKeyFile string
 	var mtlsCAFile string
+	var metricsTLSCertFile string
+	var metricsTLSKeyFile string
 
 	flag.IntVar(&port, "port", 8080, "HTTP/HTTPS server port")
+	flag.IntVar(&metricsPort, "metrics-port", 9090, "Port for the dedicated Prometheus metrics server")
 	flag.StringVar(&namespace, "namespace", "", "Namespace to watch; empty=all namespaces")
 	flag.StringVar(&logLevel, "log-level", "info", "Log level: debug|info|warn|error")
 	flag.StringVar(&tlsCertFile, "tls-cert-file", "", "Path to TLS certificate file (PEM). When set with --tls-key-file the server listens on HTTPS.")
 	flag.StringVar(&tlsKeyFile, "tls-key-file", "", "Path to TLS private key file (PEM). Required when --tls-cert-file is set.")
 	flag.StringVar(&mtlsCAFile, "mtls-ca-file", "", "Path to CA certificate PEM file for verifying client certificates (mTLS). Requires --tls-cert-file and --tls-key-file.")
+	flag.StringVar(&metricsTLSCertFile, "metrics-tls-cert-file", "", "Path to TLS certificate PEM for the metrics server")
+	flag.StringVar(&metricsTLSKeyFile, "metrics-tls-key-file", "", "Path to TLS key PEM for the metrics server")
 	flag.Parse()
 
 	opts := zap.NewDevelopmentConfig()
@@ -160,6 +167,23 @@ func main() {
 		}
 	}()
 
+	metricsMux := http.NewServeMux()
+	metricsMux.Handle("/metrics", promhttp.Handler())
+	metricsSrv := &http.Server{Addr: fmt.Sprintf(":%d", metricsPort), Handler: metricsMux}
+	go func() {
+		if metricsTLSCertFile != "" && metricsTLSKeyFile != "" {
+			log.Info("starting metrics HTTPS server", "port", metricsPort)
+			if err := metricsSrv.ListenAndServeTLS(metricsTLSCertFile, metricsTLSKeyFile); err != nil && err != http.ErrServerClosed {
+				log.Error(err, "metrics HTTPS server failed")
+			}
+		} else {
+			log.Info("starting metrics HTTP server", "port", metricsPort)
+			if err := metricsSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+				log.Error(err, "metrics HTTP server failed")
+			}
+		}
+	}()
+
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
@@ -171,6 +195,9 @@ func main() {
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		log.Error(err, "failed to shutdown HTTP server gracefully")
 		os.Exit(1)
+	}
+	if err := metricsSrv.Shutdown(shutdownCtx); err != nil {
+		log.Error(err, "failed to shutdown metrics server gracefully")
 	}
 
 	cancel()

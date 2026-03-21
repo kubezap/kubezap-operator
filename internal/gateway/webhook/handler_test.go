@@ -2,6 +2,9 @@ package webhook
 
 import (
 	"bytes"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -205,5 +208,106 @@ func TestWebhookHandler_ResponseBody(t *testing.T) {
 	}
 	if resp["namespace"] != "default" {
 		t.Errorf("expected namespace 'default', got %q", resp["namespace"])
+	}
+}
+
+// newTestHandlerWithHMAC creates a WebhookHandler with a fake k8s client and a registry
+// containing a single route at /hooks/hmac-test with HMAC auth and POST method.
+func newTestHandlerWithHMAC(t *testing.T, secret string) (*WebhookHandler, client.Client) {
+	t.Helper()
+	scheme := newWebhookTestScheme()
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).Build()
+	log := zap.New()
+	registry := NewRouteRegistry(log)
+	registry.Register("/hooks/hmac-test", RouteEntry{
+		TriggerName:      "hmac-trigger",
+		TriggerNamespace: "default",
+		FlowRef:          "hmac-flow",
+		AllowedMethod:    "POST",
+		AuthType:         "hmac",
+		HMACSecret:       secret,
+	})
+	h := NewWebhookHandler(fakeClient, registry, log)
+	return h, fakeClient
+}
+
+// flowRunCount returns the number of FlowRun objects in the fake client.
+func flowRunCount(t *testing.T, k8s client.Client) int {
+	t.Helper()
+	list := &automationv1alpha1.FlowRunList{}
+	if err := k8s.List(t.Context(), list); err != nil {
+		t.Fatalf("listing FlowRuns: %v", err)
+	}
+	return len(list.Items)
+}
+
+// computeHMACSignature returns the "sha256=<hex>" signature for the given body and secret.
+func computeHMACSignature(body []byte, secret string) string {
+	mac := hmac.New(sha256.New, []byte(secret))
+	mac.Write(body)
+	return "sha256=" + hex.EncodeToString(mac.Sum(nil))
+}
+
+func TestHMACAuth(t *testing.T) {
+	const secret = "test-webhook-secret"
+
+	tests := []struct {
+		name        string
+		signature   string // value for X-Hub-Signature-256; empty string means omit the header
+		omitHeader  bool   // explicitly omit the header even if signature is non-empty
+		wantStatus  int
+		wantFlowRun bool
+	}{
+		{
+			name:        "valid HMAC signature",
+			wantStatus:  http.StatusAccepted,
+			wantFlowRun: true,
+			// signature computed dynamically below
+		},
+		{
+			name:        "wrong HMAC signature",
+			signature:   "sha256=deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
+			wantStatus:  http.StatusUnauthorized,
+			wantFlowRun: false,
+		},
+		{
+			name:        "missing X-Hub-Signature-256 header",
+			omitHeader:  true,
+			wantStatus:  http.StatusUnauthorized,
+			wantFlowRun: false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			h, k8s := newTestHandlerWithHMAC(t, secret)
+
+			body := []byte(`{"event":"push","ref":"refs/heads/main"}`)
+			req := httptest.NewRequest(http.MethodPost, "/hooks/hmac-test", bytes.NewReader(body))
+
+			if !tc.omitHeader {
+				sig := tc.signature
+				if sig == "" {
+					// Compute the correct signature for the "valid" case.
+					sig = computeHMACSignature(body, secret)
+				}
+				req.Header.Set("X-Hub-Signature-256", sig)
+			}
+
+			rr := httptest.NewRecorder()
+			h.ServeHTTP(rr, req)
+
+			if rr.Code != tc.wantStatus {
+				t.Fatalf("expected status %d, got %d; body: %s", tc.wantStatus, rr.Code, rr.Body.String())
+			}
+
+			count := flowRunCount(t, k8s)
+			if tc.wantFlowRun && count == 0 {
+				t.Fatal("expected a FlowRun to be created, but none found")
+			}
+			if !tc.wantFlowRun && count != 0 {
+				t.Fatalf("expected no FlowRun to be created, but found %d", count)
+			}
+		})
 	}
 }

@@ -20,3 +20,5 @@ curl -X POST http://localhost:8080/hooks/order-placed \
 ```
 
 See [examples/](../../examples/) for all available examples.
+
+For production exposure (Ingress, Gateway API HTTPRoute, OpenShift Route, TLS, cert-manager), see [Exposing the Webhook Gateway](exposing-the-webhook-gateway.md).

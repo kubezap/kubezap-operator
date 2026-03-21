@@ -30,6 +30,7 @@ import (
 
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+	"k8s.io/client-go/dynamic"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
@@ -250,10 +251,18 @@ func main() {
 	cronScheduler := controller.NewCronScheduler(mgr.GetClient(), ctrl.Log.WithName("cron-scheduler"))
 	defer cronScheduler.Stop()
 
+	dynClient, err := dynamic.NewForConfig(mgr.GetConfig())
+	if err != nil {
+		setupLog.Error(err, "unable to create dynamic client")
+		os.Exit(1)
+	}
+	resourceWatcher := controller.NewResourceWatcher(mgr.GetClient(), dynClient, ctrl.Log.WithName("resource-watcher"))
+
 	if err = (&controller.TriggerReconciler{
-		Client:        mgr.GetClient(),
-		Scheme:        mgr.GetScheme(),
-		CronScheduler: cronScheduler,
+		Client:          mgr.GetClient(),
+		Scheme:          mgr.GetScheme(),
+		CronScheduler:   cronScheduler,
+		ResourceWatcher: resourceWatcher,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Trigger")
 		os.Exit(1)

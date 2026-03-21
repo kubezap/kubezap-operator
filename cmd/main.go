@@ -30,6 +30,7 @@ import (
 
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+	"k8s.io/client-go/discovery"
 	"k8s.io/client-go/dynamic"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -258,7 +259,12 @@ func main() {
 		setupLog.Error(err, "unable to create dynamic client")
 		os.Exit(1)
 	}
-	resourceWatcher := controller.NewResourceWatcher(mgr.GetClient(), dynClient, ctrl.Log.WithName("resource-watcher"))
+	discoveryClient, err := discovery.NewDiscoveryClientForConfig(mgr.GetConfig())
+	if err != nil {
+		setupLog.Error(err, "unable to create discovery client")
+		os.Exit(1)
+	}
+	resourceWatcher := controller.NewResourceWatcher(mgr.GetClient(), dynClient, discoveryClient, ctrl.Log.WithName("resource-watcher"))
 
 	if err = (&controller.TriggerReconciler{
 		Client:          mgr.GetClient(),

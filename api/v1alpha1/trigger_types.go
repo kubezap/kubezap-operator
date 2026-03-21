@@ -254,6 +254,14 @@ type ResourceTrigger struct {
 	// If omitted, all updates fire the trigger.
 	// +optional
 	WatchFields []string `json:"watchFields,omitempty"`
+
+	// Cooldown is a minimum duration that must elapse between FlowRun creations
+	// for the same resource and event type. Events arriving within this window
+	// after the last FlowRun creation are suppressed. Useful for resources that
+	// churn rapidly (e.g. Pod status updates). If omitted, no per-resource
+	// cooldown is applied.
+	// +optional
+	Cooldown *metav1.Duration `json:"cooldown,omitempty"`
 }
 
 // WebhookAuth configures authentication for a webhook trigger endpoint.

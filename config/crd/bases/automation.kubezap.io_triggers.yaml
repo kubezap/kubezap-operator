@@ -227,6 +227,14 @@ spec:
                       "automation.kubezap.io/v1alpha1").
                     minLength: 1
                     type: string
+                  cooldown:
+                    description: |-
+                      Cooldown is a minimum duration that must elapse between FlowRun creations
+                      for the same resource and event type. Events arriving within this window
+                      after the last FlowRun creation are suppressed. Useful for resources that
+                      churn rapidly (e.g. Pod status updates). If omitted, no per-resource
+                      cooldown is applied.
+                    type: string
                   events:
                     description: |-
                       Events specifies which event types fire the trigger.

@@ -5,7 +5,7 @@ The getting-started guide has moved to the examples directory:
 **[examples/order-router/README.md](../../examples/order-router/README.md)**
 
 The order-router example demonstrates the core KubeZap feature set:
-webhook trigger → transform step → conditional branching → MockEndpoint capture.
+webhook trigger → transform step → conditional branching → Mockoon mock capture.
 
 ```bash
 # Apply the example

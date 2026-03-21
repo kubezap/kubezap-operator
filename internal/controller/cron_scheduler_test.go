@@ -265,6 +265,67 @@ var _ = Describe("CronScheduler", func() {
 		})
 	})
 
+	Context("FlowRun name format and metadata (T1)", func() {
+		It("creates FlowRuns named <trigger>-<unix-timestamp> with correct ScheduledTime, TriggerRef, and labels", func() {
+			triggerName := uniqueName("cron-t1", 1)
+
+			trigger := createCronTrigger(triggerName, testNamespace, "@every 1s", nil)
+			DeferCleanup(func() { cleanupCronTriggerAndRuns(testNamespace, triggerName, trigger) })
+
+			log := logf.Log.WithName("test-cron-t1")
+			scheduler := NewCronScheduler(k8sClient, log)
+			DeferCleanup(scheduler.Stop)
+
+			beforeUnix := time.Now().Unix()
+			Expect(scheduler.Register(trigger)).To(Succeed())
+
+			// Wait for the first FlowRun.
+			Eventually(func() int {
+				return len(listFlowRunsForTrigger(testNamespace, triggerName))
+			}, 5*time.Second, 200*time.Millisecond).Should(BeNumerically(">=", 1))
+
+			runs := listFlowRunsForTrigger(testNamespace, triggerName)
+			Expect(runs).NotTo(BeEmpty())
+			fr := runs[0]
+
+			// Name must be <trigger>-<unix-seconds>.
+			Expect(fr.Name).To(MatchRegexp("^" + triggerName + `-\d+$`))
+
+			// The unix timestamp embedded in the name must be at or after test start.
+			var embeddedTs int64
+			_, scanErr := fmt.Sscanf(fr.Name, triggerName+"-%d", &embeddedTs)
+			Expect(scanErr).NotTo(HaveOccurred())
+			Expect(embeddedTs).To(BeNumerically(">=", beforeUnix))
+
+			// TriggerData.ScheduledTime must be populated.
+			Expect(fr.Spec.TriggerData).NotTo(BeNil())
+			Expect(fr.Spec.TriggerData.ScheduledTime).NotTo(BeNil())
+			Expect(fr.Spec.TriggerData.ScheduledTime.Unix()).To(BeNumerically(">=", beforeUnix))
+
+			// TriggerRef must point back to the trigger with the correct type.
+			Expect(fr.Spec.TriggerRef).NotTo(BeNil())
+			Expect(fr.Spec.TriggerRef.Name).To(Equal(triggerName))
+			Expect(fr.Spec.TriggerRef.Type).To(Equal("cron"))
+
+			// Labels must identify trigger and type.
+			Expect(fr.Labels["kubezap.io/trigger"]).To(Equal(triggerName))
+			Expect(fr.Labels["kubezap.io/trigger-type"]).To(Equal("cron"))
+
+			// Wait for a second FlowRun to confirm multi-fire and name uniqueness.
+			Eventually(func() int {
+				return len(listFlowRunsForTrigger(testNamespace, triggerName))
+			}, 5*time.Second, 200*time.Millisecond).Should(BeNumerically(">=", 2))
+
+			allRuns := listFlowRunsForTrigger(testNamespace, triggerName)
+			seen := make(map[string]struct{}, len(allRuns))
+			for _, r := range allRuns {
+				_, dup := seen[r.Name]
+				Expect(dup).To(BeFalse(), "duplicate FlowRun name: %s", r.Name)
+				seen[r.Name] = struct{}{}
+			}
+		})
+	})
+
 	Context("Deregister", func() {
 		It("removes a previously registered trigger without panicking", func() {
 			triggerName := uniqueName("cron-dereg", 1)

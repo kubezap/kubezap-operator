@@ -81,7 +81,7 @@ Items are ordered to minimize rework:
 
 > Write after R1 and R2 so tests are not written against behavior that is about to change.
 
-- [ ] **T1 — Cron trigger integration test**: Create Trigger with `schedule: "*/1 * * * *"`, advance fake clock 65s (use `clock.FakeClock` from `k8s.io/utils/clock/testing`), assert exactly one FlowRun exists named `<trigger>-<scheduled-time>` and is `Succeeded`. File: `internal/controller/cron_scheduler_test.go` (extend existing).
+- [x] **T1 — Cron trigger integration test**: Create Trigger with `schedule: "*/1 * * * *"`, advance fake clock 65s (use `clock.FakeClock` from `k8s.io/utils/clock/testing`), assert exactly one FlowRun exists named `<trigger>-<scheduled-time>` and is `Succeeded`. File: `internal/controller/cron_scheduler_test.go` (extend existing).
 - [ ] **T2 — HMAC auth reject/accept E2E**: Start a real webhook gateway HTTP server in test, send request with valid HMAC → assert 202 + FlowRun created; send with wrong signature → assert 401 + no FlowRun; send with missing header → assert 401. File: `internal/gateway/webhook/handler_test.go` (new table-driven cases).
 - [ ] **T3 — CEL skip cascade test**: Flow with steps A → B → C where B has `when` that is false and C has `runAfter: [B]`. Assert: B=Skipped, C=Skipped (cascade), overall phase=Succeeded. File: `internal/controller/flowrun_controller_test.go`.
 - [ ] **T4 — FlowRun GC maxSucceeded enforcement**: Create trigger with `flowRunGC.maxSucceeded: 3`. Create 5 Succeeded FlowRuns. Trigger reconcile. Assert only 3 remain (oldest 2 deleted). Assert a FlowRun annotated `kubezap.io/retain=true` is never deleted even when over limit. File: `internal/controller/gc_policy_test.go` (extend existing).

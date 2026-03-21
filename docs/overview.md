@@ -654,3 +654,9 @@ For a full setup walkthrough including namespace configuration and RBAC see [Get
 - [ ] Web UI for flow monitoring
 - [ ] OpenLineage support
 - [ ] Multi-region HA support
+
+---
+
+## Contributing
+
+See [docs/contributing.md](contributing.md) for development setup, code conventions, and the contribution workflow.

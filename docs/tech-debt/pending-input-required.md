@@ -1,0 +1,51 @@
+# Pending Input Required
+
+This file collects decisions that require owner input before work can proceed.
+The `/backlog` skill reads `<!-- BACKLOG-PROMPT -->` blocks at the start of each session
+and surfaces the open questions.
+
+---
+
+## Review 2026-03-21
+
+### Decisions needed from owner
+
+<!-- BACKLOG-PROMPT -->
+**Q: Should `docs/api/mock-endpoint.md` be deleted, left as a deprecated stub, or retained as a full archived doc?**
+Why it matters: The MockEndpoint CRD was removed (schedule §4–7 complete). The original `docs/api/mock-endpoint.md` is still a full doc page describing the removed feature. New contributors reading it may not realise it is gone. The replacement guide at `docs/guides/mocking-http-endpoints.md` now covers the topic.
+Options: Delete the file entirely / Replace contents with a one-paragraph redirect stub pointing to `docs/guides/mocking-http-endpoints.md` / Leave as-is (archived reference)
+<!-- BACKLOG-PROMPT -->
+
+**Q2 — RESOLVED (2026-03-21 investigation):** `type: resource` trigger is **alpha/experimental**, not production-ready.
+
+Investigation findings from `internal/controller/resource_watcher.go`:
+
+- **Known bug — naive pluralization** (`line 113`): Resource type is inferred as `strings.ToLower(kind) + "s"`. Fails silently for irregular plurals: `Ingress` → `ingresss` (wrong), `NetworkPolicy` → `networkpolicys` (wrong). Fix requires using the discovery API to look up the correct plural form.
+- **No retry on cache sync failure** (`line 158–162`): If the informer fails to sync (transient RBAC issue, API server blip), the watcher goroutine exits permanently. The trigger stays "registered" in the map but is effectively dead until the Trigger is touched and the reconciler re-registers it.
+- **FlowRun name collision risk** (`line 207`): Names use Unix timestamp at second precision with no random suffix. Two events for the same resource+eventtype in the same second collide silently (second event's FlowRun is dropped).
+- **No cooldown mechanism**: Rapidly-updated resources (e.g., Pod status churn) with no `watchFields` filter will create a FlowRun for every update. Other trigger types have `maxInvocations`/`window` cooldown — resource triggers do not.
+
+**Action taken:** Updated `CLAUDE.md` Trigger Types section to label resource trigger as "(alpha)". Added known issues to `docs/schedule.md` §11. `docs/architecture.md` already updated to "implemented, status under review". Example 6 README can be updated once the pluralization bug is fixed.
+
+**Q3 — RESOLVED (2026-03-21):** CEL cache stays unbounded. `--disable-cel-cache` flag added as escape hatch.
+
+**Decision:** Leave the cache unbounded. Add `--disable-cel-cache` bool flag for debugging/edge-case override.
+
+**Rationale:**
+The cache grows to one entry per distinct `when` expression across all deployed Flows.
+For typical deployments this is bounded by the total number of Flow steps and converges to a stable size once Flows stabilise. A compiled `cel.Program` holds only the compiled AST and plan — typically a few KB each. At 10 000 distinct expressions that is ~50–100 MB worst case, which is well within normal operator memory budgets.
+
+The only genuine leak scenario is continuous deployment of Flows with unique, throwaway `when` expressions that are never cleaned up — an atypical usage pattern.
+
+**Trade-offs considered:**
+
+| Option | Pro | Con |
+|---|---|---|
+| Unbounded cache (chosen) | Zero complexity, zero new deps, optimal hit rate | Grows unboundedly under throwaway-expression workloads (unlikely) |
+| LRU eviction | Strict memory bound | Adds dependency (`golang-lru`), recompile cost on eviction, per-access lock contention |
+| TTL eviction | Handles deleted/replaced Flows naturally | Recompile cost for infrequent Flows (e.g. daily crons), more complex implementation |
+| Disable cache (`--disable-cel-cache`) | Zero memory, simplest code path | Recompile on every reconcile — negligible CPU cost (~µs), acceptable for debugging |
+
+**Implementation:** `DisableCELCache bool` field on `FlowRunReconciler` + `--disable-cel-cache` flag in `cmd/main.go`. When true, cache reads and writes are both skipped; every `when` evaluation recompiles from source.
+
+**Files changed:** `internal/controller/flowrun_controller.go`, `cmd/main.go`.

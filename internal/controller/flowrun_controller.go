@@ -91,8 +91,21 @@ type FlowRunReconciler struct {
 	celEnv     *cel.Env
 	celEnvErr  error
 
+	// DisableCELCache bypasses the compiled-program cache so every eval recompiles.
+	// The cache is unbounded: it grows to hold one entry per distinct `when` expression
+	// across all deployed Flows and converges once those Flows stabilise. For typical
+	// deployments (< ~10 000 distinct expressions) the memory footprint is negligible
+	// and the cache is recommended. Enable this flag only when:
+	//   - you are continuously deploying Flows with unique, throwaway expressions and
+	//     the cache is observed to grow without bound, OR
+	//   - you need fully deterministic per-reconcile behaviour for debugging.
+	// CEL compilation is fast (~microseconds), so disabling the cache has no measurable
+	// throughput impact under normal load.
+	DisableCELCache bool
+
 	// celCache maps CEL expression string → compiled cel.Program for reuse across reconciles.
 	// sync.Map is used because the reconciler can run in multiple goroutines concurrently.
+	// Bypassed when DisableCELCache is true.
 	celCache sync.Map
 }
 
@@ -1159,11 +1172,13 @@ func (r *FlowRunReconciler) evaluateWhen(
 	}
 
 	for _, expr := range when {
-		// Check the program cache first; compile on miss.
 		var prog cel.Program
-		if cached, ok := r.celCache.Load(expr.Expression); ok {
-			prog = cached.(cel.Program)
-		} else {
+		if !r.DisableCELCache {
+			if cached, ok := r.celCache.Load(expr.Expression); ok {
+				prog = cached.(cel.Program)
+			}
+		}
+		if prog == nil {
 			ast, iss := env.Compile(expr.Expression)
 			if iss != nil && iss.Err() != nil {
 				return false, fmt.Errorf("CEL compile error: %w", iss.Err())
@@ -1173,7 +1188,9 @@ func (r *FlowRunReconciler) evaluateWhen(
 			if err != nil {
 				return false, fmt.Errorf("CEL program error: %w", err)
 			}
-			r.celCache.Store(expr.Expression, prog)
+			if !r.DisableCELCache {
+				r.celCache.Store(expr.Expression, prog)
+			}
 		}
 
 		out, _, err := prog.Eval(activation)

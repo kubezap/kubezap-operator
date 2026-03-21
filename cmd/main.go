@@ -74,6 +74,7 @@ func main() {
 	var flowRunTTLFailed time.Duration
 	var maxConcurrentFlowRuns int
 	var flowRunExecutionTimeout time.Duration
+	var disableCELCache bool
 	flag.StringVar(&metricsAddr, "metrics-bind-address", ":9090", "The address the metrics endpoint binds to. "+
 		"Use :9090 for HTTP (default) or :8443 for HTTPS.")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
@@ -95,6 +96,7 @@ func main() {
 	flag.DurationVar(&flowRunTTLFailed, "flowrun-ttl-failed", 72*time.Hour, "TTL for failed FlowRuns before GC")
 	flag.IntVar(&maxConcurrentFlowRuns, "max-concurrent-flowruns", 10, "Maximum number of FlowRun reconciliations to run concurrently.")
 	flag.DurationVar(&flowRunExecutionTimeout, "flowrun-execution-timeout", time.Hour, "Maximum time a FlowRun may remain in Running phase before being failed as orphaned (0 = disabled).")
+	flag.BoolVar(&disableCELCache, "disable-cel-cache", false, "Disable the CEL expression program cache. The cache is unbounded but converges once Flows stabilise; disable only when continuously deploying throwaway expressions or for debugging.")
 	flag.BoolVar(&developmentLogging, "development", false,
 		"Enable development logging mode (human-readable, with caller info). Defaults to false for production JSON logging.")
 	var opts zap.Options
@@ -274,6 +276,7 @@ func main() {
 		TTLFailed:               flowRunTTLFailed,
 		MaxConcurrentReconciles: maxConcurrentFlowRuns,
 		ExecutionTimeout:        flowRunExecutionTimeout,
+		DisableCELCache:         disableCELCache,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "FlowRun")
 		os.Exit(1)

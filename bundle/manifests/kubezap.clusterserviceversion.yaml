@@ -110,21 +110,6 @@ metadata:
         },
         {
           "apiVersion": "automation.kubezap.io/v1alpha1",
-          "kind": "MockEndpoint",
-          "metadata": {
-            "name": "mock-slack"
-          },
-          "spec": {
-            "maxRequestHistory": 10,
-            "path": "slack",
-            "response": {
-              "body": "{\"ok\":true}",
-              "statusCode": 200
-            }
-          }
-        },
-        {
-          "apiVersion": "automation.kubezap.io/v1alpha1",
           "kind": "Trigger",
           "metadata": {
             "name": "example-trigger"
@@ -175,12 +160,6 @@ spec:
       kind: Integration
       name: integrations.automation.kubezap.io
       version: v1alpha1
-    - description: MockEndpoint provides a dev/test HTTP mock server; captures requests
-        in CRD status.
-      displayName: MockEndpoint
-      kind: MockEndpoint
-      name: mockendpoints.automation.kubezap.io
-      version: v1alpha1
     - description: Trigger is the Schema for the triggers API.
       displayName: Trigger
       kind: Trigger
@@ -205,7 +184,6 @@ spec:
     - **Retry policies**: Configurable per-step exponential backoff.
     - **Plugin integrations**: Operator-managed plugin Deployments with automatic
       RBAC and secret injection.
-    - **MockEndpoint**: Zero-dependency HTTP mock server for CI/test workflows.
     - **Observability**: Prometheus metrics, OpenTelemetry traces, and structured JSON
       access logs out of the box.
 
@@ -290,7 +268,6 @@ spec:
           - flowruns/status
           - flows/status
           - integrations/status
-          - mockendpoints/status
           - triggers/status
           verbs:
           - get
@@ -301,7 +278,6 @@ spec:
           resources:
           - flows
           - integrations
-          - mockendpoints
           verbs:
           - get
           - list

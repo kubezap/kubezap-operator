@@ -1,0 +1,22 @@
+apiVersion: automation.kubezap.io/v1alpha1
+kind: Trigger
+metadata:
+  name: pod-failure-trigger
+  namespace: default
+  annotations:
+    kubezap.io/status: "placeholder -- requires type: resource trigger (not yet implemented)"
+spec:
+  # NOTE: type: resource is not yet implemented. This spec is a placeholder showing
+  # the intended design. The field names and structure may change before implementation.
+  # See docs/architecture.md#kubernetes-resource-event-triggers for design context.
+  type: resource
+  enabled: false  # Disabled until the trigger type is implemented
+  resource:
+    apiVersion: v1
+    kind: Pod
+    # Watch for Pod phase transitions to Failed
+    filterExpression: 'object.status.phase == "Failed"'
+    # Dedup: use pod UID so replaying events doesn't create duplicate FlowRuns
+    dedupKeyExpression: 'object.metadata.uid'
+  flowRef:
+    name: open-itsm-ticket

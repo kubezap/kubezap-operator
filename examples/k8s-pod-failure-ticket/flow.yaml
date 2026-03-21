@@ -1,0 +1,47 @@
+apiVersion: automation.kubezap.io/v1alpha1
+kind: Flow
+metadata:
+  name: open-itsm-ticket
+  namespace: default
+spec:
+  timeout: 30s
+  steps:
+    # -- Step 1 ------------------------------------------------------------------
+    # Extract pod metadata from the Kubernetes resource event body.
+    # The resource trigger sets trigger.body to the full Pod object.
+    - name: extract-event
+      action:
+        type: transform
+        transform:
+          mappings:
+            podName:      "$(trigger.body.metadata.name)"
+            podNamespace: "$(trigger.body.metadata.namespace)"
+            podUID:       "$(trigger.body.metadata.uid)"
+            reason:       "$(trigger.body.status.reason)"
+
+    # -- Step 2 ------------------------------------------------------------------
+    # Open an ITSM ticket via HTTP. Deduplication key is the pod UID so the
+    # ticket system can reject duplicates for the same pod failure.
+    - name: create-ticket
+      runAfter:
+        - extract-event
+      retryPolicy:
+        maxRetries: 2
+        backoffType: Exponential
+        initialDelay: 1s
+        maxDelay: 10s
+      action:
+        type: http
+        http:
+          url: >-
+            http://mockoon.default.svc.cluster.local:3000/tickets
+          method: POST
+          headers:
+            Content-Type: application/json
+          body: >-
+            {
+              "title": "Pod failure: $(steps.extract_event.results.podName)",
+              "namespace": "$(steps.extract_event.results.podNamespace)",
+              "reason": "$(steps.extract_event.results.reason)",
+              "deduplicationKey": "$(steps.extract_event.results.podUID)"
+            }

@@ -14,8 +14,8 @@ spec:
   failurePolicy: Continue
   steps:
     # ── Step 1 ─────────────────────────────────────────────────────────────────
-    # Trigger the database export.  In this demo the mock endpoint at
-    # /mock/export-api simulates the export service.  Replace the URL with your
+    # Trigger the database export.  In this demo the Mockoon mock server at
+    # /export-api simulates the export service.  Replace the URL with your
     # real export service in production.
     # $(trigger.scheduledTime) is injected as an RFC 3339 timestamp so the
     # export service knows which nightly window to process.
@@ -25,7 +25,7 @@ spec:
         type: http
         http:
           url: >-
-            http://kubezap-webhook-gateway.default.svc.cluster.local:8080/mock/export-api
+            http://mockoon.default.svc.cluster.local:3000/export-api
           method: POST
           headers:
             Content-Type: application/json

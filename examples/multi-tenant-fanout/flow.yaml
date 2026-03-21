@@ -1,0 +1,95 @@
+apiVersion: automation.kubezap.io/v1alpha1
+kind: Flow
+metadata:
+  name: fan-out-to-tenants
+  namespace: default
+spec:
+  timeout: 60s
+  failurePolicy: Continue
+  steps:
+    # -- Step 1 ----------------------------------------------------------------
+    # Normalize the inbound webhook payload into a stable schema for downstream
+    # steps. All three tenant notifications read from these outputs.
+    - name: normalize-payload
+      action:
+        type: transform
+        transform:
+          mappings:
+            eventId:   "$(trigger.body.eventId)"
+            eventType: "$(trigger.body.type)"
+            payload:   "$(trigger.body)"
+
+    # -- Step 2 ----------------------------------------------------------------
+    # Fan-out: notify tenant A.
+    # runAfter: [normalize-payload] means this runs as soon as step 1 completes.
+    # The other two tenant steps share the same dependency, so all three execute
+    # in parallel.
+    - name: notify-tenant-a
+      runAfter:
+        - normalize-payload
+      retryPolicy:
+        maxRetries: 2
+        backoffType: Exponential
+        initialDelay: 500ms
+        maxDelay: 5s
+      action:
+        type: http
+        http:
+          integrationRef:
+            name: tenant-a-api
+          url: "/events/a"
+          method: POST
+          body: >-
+            {
+              "eventId": "$(steps.normalize_payload.results.eventId)",
+              "type":    "$(steps.normalize_payload.results.eventType)",
+              "tenant":  "a"
+            }
+
+    # -- Step 3 ----------------------------------------------------------------
+    # Fan-out: notify tenant B (parallel with A and C).
+    - name: notify-tenant-b
+      runAfter:
+        - normalize-payload
+      retryPolicy:
+        maxRetries: 2
+        backoffType: Exponential
+        initialDelay: 500ms
+        maxDelay: 5s
+      action:
+        type: http
+        http:
+          integrationRef:
+            name: tenant-b-api
+          url: "/events/b"
+          method: POST
+          body: >-
+            {
+              "eventId": "$(steps.normalize_payload.results.eventId)",
+              "type":    "$(steps.normalize_payload.results.eventType)",
+              "tenant":  "b"
+            }
+
+    # -- Step 4 ----------------------------------------------------------------
+    # Fan-out: notify tenant C (parallel with A and B).
+    - name: notify-tenant-c
+      runAfter:
+        - normalize-payload
+      retryPolicy:
+        maxRetries: 2
+        backoffType: Exponential
+        initialDelay: 500ms
+        maxDelay: 5s
+      action:
+        type: http
+        http:
+          integrationRef:
+            name: tenant-c-api
+          url: "/events/c"
+          method: POST
+          body: >-
+            {
+              "eventId": "$(steps.normalize_payload.results.eventId)",
+              "type":    "$(steps.normalize_payload.results.eventType)",
+              "tenant":  "c"
+            }

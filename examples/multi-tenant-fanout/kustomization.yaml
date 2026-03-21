@@ -1,0 +1,8 @@
+resources:
+  - secrets.yaml
+  - integration-tenant-a.yaml
+  - integration-tenant-b.yaml
+  - integration-tenant-c.yaml
+  - mockoon.yaml
+  - flow.yaml
+  - trigger.yaml

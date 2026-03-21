@@ -1,0 +1,19 @@
+apiVersion: automation.kubezap.io/v1alpha1
+kind: Trigger
+metadata:
+  name: inbound-event
+  namespace: default
+spec:
+  type: webhook
+  enabled: true
+  webhook:
+    path: /hooks/inbound-event
+    # NOTE: In production, add auth (HMAC or bearer). Omitted here for demo simplicity.
+    # auth:
+    #   type: hmac
+    #   hmac:
+    #     secretRef:
+    #       name: webhook-hmac-secret
+    #       key: secret
+  flowRef:
+    name: fan-out-to-tenants

@@ -452,6 +452,70 @@ var _ = Describe("FlowRunReconciler", func() {
 		})
 	})
 
+	Context("orphan recovery for stuck Running FlowRuns", func() {
+		var (
+			flow    *automationv1alpha1.Flow
+			flowRun *automationv1alpha1.FlowRun
+		)
+
+		BeforeEach(func() {
+			seed := GinkgoRandomSeed()
+			flowName := fmt.Sprintf("flow-orphan-%d", seed)
+			flowRunName := fmt.Sprintf("fr-orphan-%d", seed)
+
+			// CRD requires MinItems=1; the step is never reached because the
+			// orphan timeout fires first.
+			flow = makeFlow(flowName, []automationv1alpha1.FlowStep{
+				{Name: "placeholder", Action: automationv1alpha1.StepAction{
+					Type:      "transform",
+					Transform: &automationv1alpha1.TransformAction{Mappings: map[string]string{"key": "val"}},
+				}},
+			})
+			Expect(k8sClient.Create(ctx, flow)).To(Succeed())
+
+			flowRun = makeFlowRun(flowRunName, flowName)
+			// Pre-add the executing finalizer to simulate a FlowRun that was
+			// mid-execution when the controller restarted.
+			flowRun.Finalizers = []string{"kubezap.io/executing"}
+			Expect(k8sClient.Create(ctx, flowRun)).To(Succeed())
+
+			// Set phase=Running with a StartTime 4 hours in the past — well
+			// beyond the default 72h TTLFailed and the 1h ExecutionTimeout
+			// we will configure on the reconciler.
+			startedAt := metav1.NewTime(time.Now().Add(-4 * time.Hour))
+			flowRun.Status.Phase = "Running"
+			flowRun.Status.StartTime = &startedAt
+			Expect(k8sClient.Status().Update(ctx, flowRun)).To(Succeed())
+
+			DeferCleanup(func() {
+				// Clear any leftover finalizer so the object can be GC'd.
+				var fr automationv1alpha1.FlowRun
+				if err := k8sClient.Get(context.Background(),
+					types.NamespacedName{Name: flowRunName, Namespace: testNamespace}, &fr); err == nil {
+					fr.Finalizers = nil
+					_ = k8sClient.Update(context.Background(), &fr)
+				}
+				_ = k8sClient.Delete(context.Background(), flowRun)
+				_ = k8sClient.Delete(context.Background(), flow)
+			})
+		})
+
+		It("transitions a stuck Running FlowRun to Failed and removes the finalizer", func() {
+			r := newReconciler()
+			r.ExecutionTimeout = time.Hour // 1h timeout; FlowRun has been running 4h
+
+			nn := types.NamespacedName{Name: flowRun.Name, Namespace: testNamespace}
+			_, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: nn})
+			Expect(err).NotTo(HaveOccurred())
+
+			var updated automationv1alpha1.FlowRun
+			Expect(k8sClient.Get(ctx, nn, &updated)).To(Succeed())
+			Expect(updated.Status.Phase).To(Equal("Failed"))
+			Expect(updated.Status.Message).To(ContainSubstring("execution timeout exceeded"))
+			Expect(updated.Finalizers).NotTo(ContainElement("kubezap.io/executing"))
+		})
+	})
+
 	Context("CEL when=false skip cascade to dependent step", func() {
 		var (
 			flow    *automationv1alpha1.Flow

@@ -1,0 +1,302 @@
+# Mockoon in-cluster mock server for the order-router example.
+#
+# Provides three stub routes:
+#   POST /enrich-order    → cycles express then standard (SEQUENTIAL mode)
+#   POST /notify-express  → 200 {"notified":true,"tier":"express"}
+#   POST /notify-standard → 200 {"notified":true,"tier":"standard"}
+#
+# Apply with the rest of the example:
+#   kubectl apply -k examples/order-router/
+#
+# Inspect captured requests:
+#   kubectl exec -n default \
+#     $(kubectl get pod -n default -l app=mockoon -o jsonpath='{.items[0].metadata.name}') \
+#     -- wget -q -O - http://localhost:3001/api/logs | jq .
+#
+# See docs/guides/mocking-http-endpoints.md for the full Mockoon guide.
+# ─────────────────────────────────────────────────────────────────────────────
+# 1. ConfigMap
+# ─────────────────────────────────────────────────────────────────────────────
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mockoon-env
+  namespace: default
+  labels:
+    app: mockoon
+    app.kubernetes.io/component: mock-server
+    app.kubernetes.io/part-of: order-router-example
+data:
+  environment.json: |
+    {
+      "uuid": "b2c3d4e5-f6a7-8901-bcde-f12345678901",
+      "lastMigration": 32,
+      "name": "order-router mocks",
+      "endpointPrefix": "",
+      "latency": 0,
+      "port": 3000,
+      "hostname": "",
+      "folders": [],
+      "routes": [
+        {
+          "uuid": "r0001-enrich-order",
+          "type": "http",
+          "documentation": "Simulates the order enrichment API. Cycles express then standard in SEQUENTIAL mode.",
+          "method": "post",
+          "endpoint": "enrich-order",
+          "responseMode": "SEQUENTIAL",
+          "responses": [
+            {
+              "uuid": "resp-enrich-express",
+              "body": "{\"customerId\":\"cust-001\",\"tier\":\"express\"}",
+              "latency": 0,
+              "statusCode": 200,
+              "label": "Express tier",
+              "headers": [
+                { "key": "Content-Type", "value": "application/json" }
+              ],
+              "bodyType": "INLINE",
+              "filePath": "",
+              "databucketID": "",
+              "sendFileAsBody": false,
+              "rules": [],
+              "rulesOperator": "OR",
+              "disableTemplating": false,
+              "fallbackTo404": false,
+              "default": true,
+              "crudKey": "id",
+              "callbacks": []
+            },
+            {
+              "uuid": "resp-enrich-standard",
+              "body": "{\"customerId\":\"cust-002\",\"tier\":\"standard\"}",
+              "latency": 0,
+              "statusCode": 200,
+              "label": "Standard tier",
+              "headers": [
+                { "key": "Content-Type", "value": "application/json" }
+              ],
+              "bodyType": "INLINE",
+              "filePath": "",
+              "databucketID": "",
+              "sendFileAsBody": false,
+              "rules": [],
+              "rulesOperator": "OR",
+              "disableTemplating": false,
+              "fallbackTo404": false,
+              "default": false,
+              "crudKey": "id",
+              "callbacks": []
+            }
+          ],
+          "enabled": true,
+          "streamingMode": null
+        },
+        {
+          "uuid": "r0002-notify-express",
+          "type": "http",
+          "documentation": "Captures express-tier order notifications",
+          "method": "post",
+          "endpoint": "notify-express",
+          "responses": [
+            {
+              "uuid": "resp-notify-express-200",
+              "body": "{\"notified\":true,\"tier\":\"express\"}",
+              "latency": 0,
+              "statusCode": 200,
+              "label": "Success",
+              "headers": [
+                { "key": "Content-Type", "value": "application/json" }
+              ],
+              "bodyType": "INLINE",
+              "filePath": "",
+              "databucketID": "",
+              "sendFileAsBody": false,
+              "rules": [],
+              "rulesOperator": "OR",
+              "disableTemplating": false,
+              "fallbackTo404": false,
+              "default": true,
+              "crudKey": "id",
+              "callbacks": []
+            }
+          ],
+          "enabled": true,
+          "responseMode": null,
+          "streamingMode": null
+        },
+        {
+          "uuid": "r0003-notify-standard",
+          "type": "http",
+          "documentation": "Captures standard-tier order notifications",
+          "method": "post",
+          "endpoint": "notify-standard",
+          "responses": [
+            {
+              "uuid": "resp-notify-standard-200",
+              "body": "{\"notified\":true,\"tier\":\"standard\"}",
+              "latency": 0,
+              "statusCode": 200,
+              "label": "Success",
+              "headers": [
+                { "key": "Content-Type", "value": "application/json" }
+              ],
+              "bodyType": "INLINE",
+              "filePath": "",
+              "databucketID": "",
+              "sendFileAsBody": false,
+              "rules": [],
+              "rulesOperator": "OR",
+              "disableTemplating": false,
+              "fallbackTo404": false,
+              "default": true,
+              "crudKey": "id",
+              "callbacks": []
+            }
+          ],
+          "enabled": true,
+          "responseMode": null,
+          "streamingMode": null
+        }
+      ],
+      "rootChildren": [
+        { "type": "route", "uuid": "r0001-enrich-order" },
+        { "type": "route", "uuid": "r0002-notify-express" },
+        { "type": "route", "uuid": "r0003-notify-standard" }
+      ],
+      "proxyMode": false,
+      "proxyHost": "",
+      "proxyRemovePrefix": false,
+      "tlsOptions": {
+        "enabled": false,
+        "type": "CERT",
+        "pfxPath": "",
+        "certPath": "",
+        "keyPath": "",
+        "caPath": "",
+        "passphrase": ""
+      },
+      "cors": true,
+      "headers": [
+        { "key": "Content-Type", "value": "application/json" },
+        { "key": "Access-Control-Allow-Origin", "value": "*" },
+        { "key": "Access-Control-Allow-Methods", "value": "GET,POST,PUT,PATCH,DELETE,HEAD,OPTIONS" },
+        { "key": "Access-Control-Allow-Headers", "value": "Content-Type, Origin, Accept, Authorization, Content-Length, X-Requested-With" }
+      ],
+      "proxyReqHeaders": [{ "key": "", "value": "" }],
+      "proxyResHeaders": [{ "key": "", "value": "" }],
+      "data": [],
+      "callbacks": [],
+      "initialDatabuckets": []
+    }
+---
+# ─────────────────────────────────────────────────────────────────────────────
+# 2. Deployment
+# ─────────────────────────────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mockoon
+  namespace: default
+  labels:
+    app: mockoon
+    app.kubernetes.io/component: mock-server
+    app.kubernetes.io/part-of: order-router-example
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mockoon
+  template:
+    metadata:
+      labels:
+        app: mockoon
+        app.kubernetes.io/component: mock-server
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: mockoon
+          image: mockoon/mockoon:latest
+          imagePullPolicy: IfNotPresent
+          args:
+            - "--data"
+            - "/config/environment.json"
+            - "--port"
+            - "3000"
+            - "--admin-api-port"
+            - "3001"
+          ports:
+            - name: mock
+              containerPort: 3000
+              protocol: TCP
+            - name: admin
+              containerPort: 3001
+              protocol: TCP
+          volumeMounts:
+            - name: mockoon-config
+              mountPath: /config
+              readOnly: true
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: admin
+            initialDelaySeconds: 2
+            periodSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: admin
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "64Mi"
+            limits:
+              cpu: "200m"
+              memory: "128Mi"
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+      volumes:
+        - name: mockoon-config
+          configMap:
+            name: mockoon-env
+      restartPolicy: Always
+---
+# ─────────────────────────────────────────────────────────────────────────────
+# 3. Service
+# ─────────────────────────────────────────────────────────────────────────────
+apiVersion: v1
+kind: Service
+metadata:
+  name: mockoon
+  namespace: default
+  labels:
+    app: mockoon
+    app.kubernetes.io/component: mock-server
+    app.kubernetes.io/part-of: order-router-example
+spec:
+  selector:
+    app: mockoon
+  ports:
+    - name: mock
+      port: 3000
+      targetPort: mock
+      protocol: TCP
+    - name: admin
+      port: 3001
+      targetPort: admin
+      protocol: TCP
+  type: ClusterIP

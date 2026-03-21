@@ -14,7 +14,7 @@ This guide covers the most common issues when running KubeZap. Each section desc
 - [FlowRun stuck in Waiting](#flowrun-stuck-in-waiting)
 - [Step failing unexpectedly](#step-failing-unexpectedly)
 - [CEL expression errors](#cel-expression-errors)
-- [MockEndpoint not capturing requests](#mockendpoint-not-capturing-requests)
+- [Mockoon not receiving requests](#mockoon-not-receiving-requests)
 - [Kafka gateway not consuming messages](#kafka-gateway-not-consuming-messages)
 - [RBAC and permission errors](#rbac-and-permission-errors)
 - [Using the kubezap CLI for debugging](#using-the-kubezap-cli-for-debugging)
@@ -271,41 +271,61 @@ kubectl logs -n kubezap-system -l control-plane=controller-manager | grep "CEL\|
 
 ---
 
-## MockEndpoint not capturing requests
+## Mockoon not receiving requests
 
-**Symptom**: Flow steps that target `/mock/<path>` return errors or the MockEndpoint's `status.recentRequests` is empty.
+**Symptom**: Flow steps targeting the Mockoon mock server return `connection refused` or `404`, or `GET /api/logs` on the admin API shows no entries for the expected route.
 
-**Step 1 — Verify the MockEndpoint is created and ready:**
+**Step 1 — Verify the Mockoon pod is running:**
 ```bash
-kubectl get mockendpoint <name> -o jsonpath='{.status.conditions}'
+kubectl get pods -l app=mockoon -n <namespace>
+# Expected: mockoon-<hash>   1/1   Running
 ```
 
-**Step 2 — Verify the gateway has the mock route:**
+If the pod is not `Running`, check events:
 ```bash
-kubectl logs -l app.kubernetes.io/component=webhook-gateway -n <namespace> | grep "mock\|<path>"
+kubectl describe pod -l app=mockoon -n <namespace>
 ```
 
-**Step 3 — Verify the gateway ServiceAccount can write MockEndpoint status:**
+**Step 2 — Verify the route is defined in the ConfigMap:**
 ```bash
-kubectl auth can-i update mockendpoints/status \
-  --as=system:serviceaccount:<namespace>:kubezap-webhook-gateway \
-  -n <namespace>
-# Expected: yes
+kubectl get configmap mockoon-env -n <namespace> -o jsonpath='{.data.environment\.json}' | jq '.routes[].endpoint'
 ```
 
-**Step 4 — Check the `KUBEZAP_GATEWAY_BASE_URL` environment variable:**
+The route `endpoint` value must match the path your Flow step calls (without a leading `/`). For example, if the step URL is `http://mockoon.<namespace>.svc.cluster.local:3000/notify-express`, the route endpoint must be `notify-express`.
 
-The MockEndpoint controller logs a warning if `KUBEZAP_GATEWAY_BASE_URL` is unset. Without it, the URL stored in `status.url` will be a relative path rather than a full URL. Check the controller logs:
+**Step 3 — Check Mockoon pod logs for request activity:**
 ```bash
-kubectl logs -n kubezap-system -l control-plane=controller-manager | grep "KUBEZAP_GATEWAY_BASE_URL"
+kubectl logs -l app=mockoon -n <namespace>
 ```
 
-Set it on the controller Deployment (or via Helm `values.yaml`) to the gateway Service address:
+Each request is logged as a structured JSON line. If no log line appears when the Flow step fires, the step URL is targeting the wrong host or port.
+
+**Step 4 — Inspect captured requests via the admin API:**
 ```bash
-kubectl set env deployment/kubezap-controller-manager \
-  KUBEZAP_GATEWAY_BASE_URL=http://kubezap-webhook-gateway.<namespace>.svc.cluster.local:8080 \
-  -n kubezap-system
+kubectl exec -n <namespace> \
+  $(kubectl get pod -n <namespace> -l app=mockoon -o jsonpath='{.items[0].metadata.name}') \
+  -- wget -q -O - http://localhost:3001/api/logs | jq .
 ```
+
+**Step 5 — Verify the mock server URL in the Flow step:**
+
+The in-cluster URL format is:
+```
+http://mockoon.<namespace>.svc.cluster.local:3000/<endpoint>
+```
+
+Common mistakes:
+- Using the old `/mock/<path>` path (from the removed `MockEndpoint` CRD) — Mockoon uses direct paths without the `/mock/` prefix.
+- Wrong namespace — `mockoon.default.svc.cluster.local` will not resolve from a pod in a different namespace unless cross-namespace networking is allowed.
+
+**Step 6 — If the ConfigMap was recently updated, restart the pod:**
+```bash
+kubectl rollout restart deployment/mockoon -n <namespace>
+```
+
+Mockoon reads its environment file at startup only. A pod restart is required after ConfigMap changes.
+
+See [Mocking HTTP Endpoints](mocking-http-endpoints.md) for the full Mockoon setup guide.
 
 ---
 
@@ -353,7 +373,7 @@ kubectl apply -k config/rbac
 
 **For SingleNamespace/OwnNamespace mode** — the controller uses a `Role` scoped to its namespace. Confirm the Role and RoleBinding are created in `kubezap-system`.
 
-**For gateway RBAC** — the webhook gateway creates FlowRuns and writes MockEndpoint status using a per-namespace `ServiceAccount`. The controller creates this automatically when the gateway `Deployment` is created. If it's missing, check the controller logs for errors during gateway reconciliation.
+**For gateway RBAC** — the webhook gateway creates FlowRuns using a per-namespace `ServiceAccount`. The controller creates this automatically when the gateway `Deployment` is created. If it's missing, check the controller logs for errors during gateway reconciliation.
 
 ---
 

@@ -103,10 +103,6 @@ On each incoming request the gateway:
 4. Creates a `FlowRun` CR with the trigger payload as input params
 5. Returns `202 Accepted` immediately — flow execution is asynchronous
 
-### Mock endpoints
-
-The webhook gateway also serves `/mock/*` paths for `MockEndpoint` CRDs. This is a natural fit: the same HTTP server, a different path prefix, a different handler (log and respond vs. invoke flow).
-
 ---
 
 ## Kafka Gateway
@@ -184,12 +180,10 @@ ServiceAccount. The controller creates these resources alongside the gateway Dep
 
 **Role permissions required:**
 
-| API Group               | Resource               | Verbs                | Why                                  |
-| ----------------------- | ---------------------- | -------------------- | ------------------------------------ |
-| `automation.kubezap.io` | `triggers`             | `get, list, watch`   | Route registration from Trigger CRDs |
-| `automation.kubezap.io` | `flowruns`             | `create`             | FlowRun creation on webhook arrival  |
-| `automation.kubezap.io` | `mockendpoints`        | `get, list, watch`   | Mock route registration              |
-| `automation.kubezap.io` | `mockendpoints/status` | `get, update, patch` | Captured request storage             |
+| API Group               | Resource   | Verbs              | Why                                  |
+| ----------------------- | ---------- | ------------------ | ------------------------------------ |
+| `automation.kubezap.io` | `triggers` | `get, list, watch` | Route registration from Trigger CRDs |
+| `automation.kubezap.io` | `flowruns` | `create`           | FlowRun creation on webhook arrival  |
 
 The controller creates a `Role` (not `ClusterRole`) with these permissions and a
 `RoleBinding` to the gateway ServiceAccount. This keeps the gateway's blast radius
@@ -214,10 +208,6 @@ The controller itself needs permission to create/manage these resources:
 
 ```bash
 kubectl auth can-i create flowruns \
-  --as=system:serviceaccount:default:kubezap-webhook-gateway -n default
-# Expected: yes
-
-kubectl auth can-i patch mockendpoints/status \
   --as=system:serviceaccount:default:kubezap-webhook-gateway -n default
 # Expected: yes
 ```
@@ -344,7 +334,6 @@ The controller uses leader election and should run with 2–3 replicas. Only the
 | Webhook Gateway Deployment | Namespaced | One per namespace where webhook Triggers exist                      |
 | Pub/Sub gateway Deployment | Namespaced | One per (namespace × broker Integration); `kafka-gateway` for Kafka |
 | Controller                 | Cluster    | Watches all namespaces; runs in `kubezap-system`                    |
-| MockEndpoint               | Namespaced | Served by the webhook gateway in the same namespace                 |
 
 The controller watches CRDs in all namespaces and creates gateway Deployments within each namespace where they are needed. If all Triggers in a namespace are deleted, the controller garbage-collects the gateway Deployments.
 

@@ -29,6 +29,10 @@ import (
 	"github.com/borfswitch/kubezap/test/utils"
 )
 
+// kindKubeconfigFile holds the path to the temp file written with the kind cluster kubeconfig.
+// It is set in BeforeSuite and cleaned up in AfterSuite.
+var kindKubeconfigFile string
+
 var (
 	// Optional Environment Variables:
 	// - CERT_MANAGER_INSTALL_SKIP=true: Skips CertManager installation during test setup.
@@ -40,7 +44,7 @@ var (
 
 	// projectImage is the name of the image which will be build and loaded
 	// with the code source changes to be tested.
-	projectImage = "example.com/kubezap:v0.0.1"
+	projectImage = "kubezap/controller:latest"
 )
 
 // TestE2E runs the end-to-end (e2e) test suite for the project. These tests execute in an isolated,
@@ -68,6 +72,17 @@ var _ = BeforeSuite(func() {
 	// built and available before running and also remove the following block.
 	By("setting the kind cluster name for image loading")
 	Expect(os.Setenv("KIND_CLUSTER", "kubezap-test-e2e")).To(Succeed())
+
+	By("writing kind kubeconfig and setting KUBECONFIG so kubectl targets the kind cluster")
+	kindCfgBytes, err := exec.Command("kind", "get", "kubeconfig", "--name", "kubezap-test-e2e").Output()
+	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to get kind kubeconfig")
+	tmpKubeconfig, err := os.CreateTemp("", "kubezap-kind-kubeconfig-*.yaml")
+	ExpectWithOffset(1, err).NotTo(HaveOccurred())
+	_, err = tmpKubeconfig.Write(kindCfgBytes)
+	ExpectWithOffset(1, err).NotTo(HaveOccurred())
+	ExpectWithOffset(1, tmpKubeconfig.Close()).To(Succeed())
+	kindKubeconfigFile = tmpKubeconfig.Name()
+	Expect(os.Setenv("KUBECONFIG", kindKubeconfigFile)).To(Succeed())
 
 	By("loading the manager(Operator) image on Kind")
 	err = utils.LoadImageToKindClusterWithName(projectImage)
@@ -139,5 +154,11 @@ var _ = AfterSuite(func() {
 	if !skipCertManagerInstall && !isCertManagerAlreadyInstalled {
 		_, _ = fmt.Fprintf(GinkgoWriter, "Uninstalling CertManager...\n")
 		utils.UninstallCertManager()
+	}
+
+	// Restore KUBECONFIG and clean up temp file.
+	_ = os.Unsetenv("KUBECONFIG")
+	if kindKubeconfigFile != "" {
+		_ = os.Remove(kindKubeconfigFile)
 	}
 })

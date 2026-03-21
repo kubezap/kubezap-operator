@@ -40,34 +40,9 @@ helm install kubezap kubezap/kubezap
 
 Install via the OpenShift OperatorHub catalog or the community OperatorHub.
 
-### Local development with k3s
+### Local development
 
-k3s uses its own containerd instance, so images built with Docker need to be imported before deploying.
-
-Use a git SHA tag instead of `:latest` — with `imagePullPolicy: IfNotPresent`, k3s caches by tag, so reimporting `:latest` won't replace a running pod's image. A unique tag per build guarantees the new image is always used.
-
-```bash
-# 1. Set a tag based on the current git commit
-TAG=$(git rev-parse --short HEAD)
-
-# 2. Build all three images
-make docker-build IMG=docker.io/kubezap/controller:$TAG
-docker build -t docker.io/kubezap/webhook-gateway:$TAG -f cmd/webhook-gateway/Dockerfile .
-docker build -t docker.io/kubezap/kafka-gateway:$TAG   -f cmd/kafka-gateway/Dockerfile .
-
-# 3. Import them into k3s containerd
-# docker save includes the docker.io/ prefix, which must match the pod spec exactly
-docker save docker.io/kubezap/controller:$TAG      | sudo k3s ctr images import -
-docker save docker.io/kubezap/webhook-gateway:$TAG | sudo k3s ctr images import -
-docker save docker.io/kubezap/kafka-gateway:$TAG   | sudo k3s ctr images import -
-
-# 4. Deploy — gateway image tags are passed as env vars to the controller
-make deploy IMG=docker.io/kubezap/controller:$TAG \
-  WEBHOOK_GATEWAY_IMAGE=docker.io/kubezap/webhook-gateway:$TAG \
-  KAFKA_GATEWAY_IMAGE=docker.io/kubezap/kafka-gateway:$TAG
-```
-
-> The controller reads `WEBHOOK_GATEWAY_IMAGE` and `KAFKA_GATEWAY_IMAGE` at runtime to know which image to use when creating gateway Deployments. `make deploy` patches these into the manager Deployment via kustomize.
+See [docs/contributing.md](docs/contributing.md) for build instructions, local k3s setup, and how to run unit and e2e tests.
 
 ---
 

@@ -96,8 +96,10 @@ Run the following in order. Fix any failures before proceeding to the next step.
 ```bash
 go build ./...
 go vet ./...
-go test ./... -count=1
+make test
 ```
+
+`make test` excludes the E2E suite (`test/e2e`) which requires a live cluster and `make test-e2e`. Do NOT use `go test ./... -count=1` — it includes E2E and will time out.
 
 If `make generate` or `make manifests` was run during implementation, also run:
 
@@ -135,7 +137,7 @@ Then open a PR with `gh pr create` using this body template:
 ## Test plan
 - go build ./... ✓
 - go vet ./... ✓
-- go test ./... ✓ (<N> tests passed)
+- make test ✓ (<N> tests passed, E2E excluded)
 - <any manual steps needed to verify>
 
 ## Decisions made

@@ -1,4 +1,5 @@
-# This patch adds the args to allow exposing the metrics endpoint using HTTPS
+# This patch explicitly sets the metrics bind address (matches the :9090 default in code,
+# but keeps it visible in the deployment manifest for clarity).
 - op: add
   path: /spec/template/spec/containers/0/args/0
-  value: --metrics-bind-address=:8443
+  value: --metrics-bind-address=:9090

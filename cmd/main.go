@@ -95,7 +95,7 @@ func main() {
 		"If set, HTTP/2 will be enabled for the metrics and webhook servers")
 	flag.DurationVar(&flowRunTTLSucceeded, "flowrun-ttl-succeeded", 24*time.Hour, "TTL for succeeded FlowRuns before GC")
 	flag.DurationVar(&flowRunTTLFailed, "flowrun-ttl-failed", 72*time.Hour, "TTL for failed FlowRuns before GC")
-	flag.IntVar(&maxConcurrentFlowRuns, "max-concurrent-flowruns", 10, "Maximum number of FlowRun reconciliations to run concurrently.")
+	flag.IntVar(&maxConcurrentFlowRuns, "max-concurrent-flowruns", 25, "Maximum number of FlowRun reconciliations to run concurrently. With one-step-per-reconcile, the goroutine is held only for the duration of a single step (one HTTP call), not the entire flow.")
 	flag.DurationVar(&flowRunExecutionTimeout, "flowrun-execution-timeout", time.Hour, "Maximum time a FlowRun may remain in Running phase before being failed as orphaned (0 = disabled).")
 	flag.BoolVar(&disableCELCache, "disable-cel-cache", false, "Disable the CEL expression program cache. The cache is unbounded but converges once Flows stabilise; disable only when continuously deploying throwaway expressions or for debugging.")
 	flag.BoolVar(&developmentLogging, "development", false,

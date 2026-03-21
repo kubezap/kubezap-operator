@@ -346,10 +346,10 @@ Items are ordered to minimize rework:
 > **Current model executes all steps in a single reconcile loop (blocking goroutine for entire flow duration). Fix: one step per reconcile.**
 > Also fixes the doc/implementation mismatch: parallel steps (same `runAfter`) are documented but run sequentially.
 
-- [ ] **ARCHITECTURE** — Refactor `flowrun_controller.go` `Reconcile()` to execute exactly one ready step per call, then return `ctrl.Result{Requeue: true}`. Steps that are already `Succeeded`/`Skipped`/`Failed` are skipped cheaply. When all steps are terminal, transition the FlowRun to its final phase. This frees the reconcile goroutine between steps and prevents starvation under load. File: `internal/controller/flowrun_controller.go`
-- [ ] **ARCHITECTURE** — Implement true parallel execution of steps with the same `runAfter` set. When multiple steps are simultaneously ready (all their `runAfter` deps satisfied and none yet started), launch them as goroutines within a single reconcile and collect results before updating status. This aligns the implementation with the documented behavior. File: `internal/controller/flowrun_controller.go`
-- [ ] **SCALABILITY** — Increase `--max-concurrent-flowruns` default from `10` to `25`. The bottleneck is API server writes (one per step), not CPU; 10 is too conservative for an enterprise-grade operator. Add tuning guidance to `docs/guides/` or `docs/architecture.md`. File: `cmd/main.go`
-- [ ] **TESTING** — Update Ginkgo tests for the new one-step-per-reconcile model. Multi-step flows will require multiple reconcile calls in tests; update test helpers accordingly. File: `internal/controller/flowrun_controller_test.go`
+- [x] **ARCHITECTURE** — Refactor `flowrun_controller.go` `Reconcile()` to execute exactly one ready step per call, then return `ctrl.Result{Requeue: true}`. Steps that are already `Succeeded`/`Skipped`/`Failed` are skipped cheaply. When all steps are terminal, transition the FlowRun to its final phase. This frees the reconcile goroutine between steps and prevents starvation under load. File: `internal/controller/flowrun_controller.go`
+- [x] **ARCHITECTURE** — Implement true parallel execution of steps with the same `runAfter` set. When multiple steps are simultaneously ready (all their `runAfter` deps satisfied and none yet started), launch them as goroutines within a single reconcile and collect results before updating status. This aligns the implementation with the documented behavior. File: `internal/controller/flowrun_controller.go`
+- [x] **SCALABILITY** — Increase `--max-concurrent-flowruns` default from `10` to `25`. The bottleneck is API server writes (one per step), not CPU; 10 is too conservative for an enterprise-grade operator. Add tuning guidance to `docs/guides/` or `docs/architecture.md`. File: `cmd/main.go`
+- [x] **TESTING** — Update Ginkgo tests for the new one-step-per-reconcile model. Multi-step flows will require multiple reconcile calls in tests; update test helpers accordingly. File: `internal/controller/flowrun_controller_test.go`
 
 ### 12d — Cleanup: Stale API fields
 
@@ -363,8 +363,8 @@ Items are ordered to minimize rework:
 
 - [ ] **OBSERVABILITY** — Add `kubezap_flowruns_active` gauge: number of FlowRuns currently in `Running` or `Pending` phase. Most useful metric for capacity planning, alerting, and HPA decisions on the controller. Files: `internal/metrics/metrics.go`, `internal/controller/flowrun_controller.go`
 - [ ] **OBSERVABILITY** — Add `kubezap_flowrun_queue_duration_seconds` histogram: time between FlowRun creation and first transition to `Running`. Measures controller queue backpressure. Files: `internal/metrics/metrics.go`, `internal/controller/flowrun_controller.go`
-- [ ] **OBSERVABILITY** — Propagate `traceparent` W3C header from inbound webhook HTTP request to the FlowRun `kubezap.io/traceparent` annotation. Currently the gateway trace and the controller execution trace are disconnected; this links them into a single end-to-end trace. File: `internal/gateway/webhook/handler.go`
-- [ ] **OBSERVABILITY** — Add webhook gateway request latency histogram: `kubezap_webhook_request_duration_seconds` labeled by `trigger` and `result` (accepted/rejected/rate_limited). File: `internal/gateway/webhook/handler.go`
+- [x] **OBSERVABILITY** — Propagate `traceparent` W3C header from inbound webhook HTTP request to the FlowRun `kubezap.io/traceparent` annotation. Currently the gateway trace and the controller execution trace are disconnected; this links them into a single end-to-end trace. File: `internal/gateway/webhook/handler.go`
+- [x] **OBSERVABILITY** — Add webhook gateway request latency histogram: `kubezap_webhook_request_duration_seconds` labeled by `trigger` and `result` (accepted/rejected/rate_limited). File: `internal/gateway/webhook/handler.go`
 
 ---
 

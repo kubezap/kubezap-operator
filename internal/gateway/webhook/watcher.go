@@ -26,22 +26,21 @@ func init() {
 	_ = automationv1alpha1.AddToScheme(controllerScheme)
 }
 
-// TriggerWatcher watches Trigger and MockEndpoint resources and updates the registries.
+// TriggerWatcher watches Trigger resources and updates the route registry.
 type TriggerWatcher struct {
-	k8sClient    client.Client
-	cache        crcache.Cache
-	registry     *RouteRegistry
-	mockRegistry *MockRegistry
-	namespace    string
-	log          logr.Logger
-	jwksCache    *jwk.Cache
+	k8sClient client.Client
+	cache     crcache.Cache
+	registry  *RouteRegistry
+	namespace string
+	log       logr.Logger
+	jwksCache *jwk.Cache
 }
 
 // NewTriggerWatcher creates a new TriggerWatcher with an informer cache.
 // cfg must be a valid *rest.Config; callers typically obtain it via ctrl.GetConfigOrDie()
 // and pass it here to avoid redundant API server round-trips.
 // jwksCache is the shared JWKS key cache; callers create it via jwk.NewCache(ctx) in main.
-func NewTriggerWatcher(cfg *rest.Config, k8sClient client.Client, registry *RouteRegistry, mockRegistry *MockRegistry, namespace string, log logr.Logger, jwksCache *jwk.Cache) (*TriggerWatcher, error) {
+func NewTriggerWatcher(cfg *rest.Config, k8sClient client.Client, registry *RouteRegistry, namespace string, log logr.Logger, jwksCache *jwk.Cache) (*TriggerWatcher, error) {
 	httpClient, err := rest.HTTPClientFor(cfg)
 	if err != nil {
 		return nil, fmt.Errorf("unable to create HTTP client for REST config: %w", err)
@@ -62,7 +61,7 @@ func NewTriggerWatcher(cfg *rest.Config, k8sClient client.Client, registry *Rout
 		return nil, fmt.Errorf("unable to create cache: %w", err)
 	}
 
-	return &TriggerWatcher{k8sClient: k8sClient, cache: watchCache, registry: registry, mockRegistry: mockRegistry, namespace: namespace, log: log, jwksCache: jwksCache}, nil
+	return &TriggerWatcher{k8sClient: k8sClient, cache: watchCache, registry: registry, namespace: namespace, log: log, jwksCache: jwksCache}, nil
 }
 
 // Start launches the cache and informer and stays running until ctx is cancelled.
@@ -81,21 +80,6 @@ func (w *TriggerWatcher) Start(ctx context.Context) error {
 		return fmt.Errorf("adding trigger event handler: %w", err)
 	}
 	_ = registration
-
-	if w.mockRegistry != nil {
-		mockInformer, err := w.cache.GetInformer(ctx, &automationv1alpha1.MockEndpoint{})
-		if err != nil {
-			return fmt.Errorf("unable to get mock endpoint informer: %w", err)
-		}
-		_, err = mockInformer.AddEventHandler(toolscache.ResourceEventHandlerFuncs{
-			AddFunc:    func(obj interface{}) { w.handleMockEndpoint(obj) },
-			UpdateFunc: func(_, newObj interface{}) { w.handleMockEndpoint(newObj) },
-			DeleteFunc: func(obj interface{}) { w.handleMockEndpointDelete(obj) },
-		})
-		if err != nil {
-			return fmt.Errorf("unable to add mock endpoint event handler: %w", err)
-		}
-	}
 
 	go func() {
 		if err := w.cache.Start(ctx); err != nil && err != context.Canceled {
@@ -290,53 +274,4 @@ func (w *TriggerWatcher) readSecretKey(ctx context.Context, namespace, name, key
 		return "", fmt.Errorf("secret %s/%s does not contain key %q", namespace, name, key)
 	}
 	return string(val), nil
-}
-
-func (w *TriggerWatcher) handleMockEndpoint(obj interface{}) {
-	me, ok := obj.(*automationv1alpha1.MockEndpoint)
-	if !ok {
-		w.log.Error(fmt.Errorf("wrong object type"), "expected MockEndpoint")
-		return
-	}
-
-	path := strings.TrimSpace(me.Spec.Path)
-	if path == "" {
-		w.log.Info("MockEndpoint has empty path, skipping registration", "name", me.Name)
-		return
-	}
-	mockPath := "/" + strings.TrimPrefix(path, "/")
-
-	entry := MockEntry{
-		Name:             me.Name,
-		Namespace:        me.Namespace,
-		Response:         me.Spec.Response,
-		ResponseSequence: me.Spec.ResponseSequence,
-		MaxHistory:       me.Spec.MaxRequestHistory,
-	}
-	w.mockRegistry.Register(mockPath, entry)
-	w.log.Info("registered mock route", "path", mockPath, "name", me.Name)
-}
-
-func (w *TriggerWatcher) handleMockEndpointDelete(obj interface{}) {
-	me, ok := obj.(*automationv1alpha1.MockEndpoint)
-	if !ok {
-		tombstone, ok := obj.(toolscache.DeletedFinalStateUnknown)
-		if !ok {
-			w.log.Error(fmt.Errorf("unexpected delete object type"), "obj", obj)
-			return
-		}
-		me, ok = tombstone.Obj.(*automationv1alpha1.MockEndpoint)
-		if !ok {
-			w.log.Error(fmt.Errorf("unexpected tombstone object type"), "obj", tombstone.Obj)
-			return
-		}
-	}
-
-	path := strings.TrimSpace(me.Spec.Path)
-	if path == "" {
-		return
-	}
-	mockPath := "/" + strings.TrimPrefix(path, "/")
-	w.mockRegistry.Deregister(mockPath)
-	w.log.Info("deregistered mock route", "path", mockPath, "name", me.Name)
 }

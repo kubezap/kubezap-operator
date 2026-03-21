@@ -229,16 +229,16 @@ Items are ordered to minimize rework:
 
 > Do not begin until Phase 4 is complete and all tests pass.
 
-- [ ] Delete `api/v1alpha1/mockendpoint_types.go`; run `make generate && make manifests`
-- [ ] Delete `internal/controller/mockendpoint_controller.go`
-- [ ] Remove MockEndpoint controller registration from `cmd/main.go` (scheme + `SetupWithManager` call)
-- [ ] Remove `/mock/*` route handling from `cmd/webhook-gateway/main.go` and `internal/gateway/webhook/handler.go`
-- [ ] Remove MockEndpoint RBAC markers from all controllers; run `make manifests`
-- [ ] Delete `config/crd/bases/automation.kubezap.io_mockendpoints.yaml`
-- [ ] Delete `bundle/manifests/automation.kubezap.io_mockendpoints.yaml` (if present); regenerate bundle with `make bundle`
-- [ ] Update `charts/kubezap/crds/` to remove MockEndpoint CRD YAML
-- [ ] Run `go build ./...`, `go vet ./...`, `go test ./... -count=1` — all must pass
-- [ ] Update `docs/overview.md` CRD table: set MockEndpoint status to "Removed — see mocking guide"
+- [x] Delete `api/v1alpha1/mockendpoint_types.go`; run `make generate && make manifests`
+- [x] Delete `internal/controller/mockendpoint_controller.go`
+- [x] Remove MockEndpoint controller registration from `cmd/main.go` (scheme + `SetupWithManager` call)
+- [x] Remove `/mock/*` route handling from `cmd/webhook-gateway/main.go` and `internal/gateway/webhook/handler.go`
+- [x] Remove MockEndpoint RBAC markers from all controllers; run `make manifests`
+- [x] Delete `config/crd/bases/automation.kubezap.io_mockendpoints.yaml`
+- [x] Delete `bundle/manifests/automation.kubezap.io_mockendpoints.yaml` (if present); regenerate bundle with `make bundle`
+- [x] Update `charts/kubezap/crds/` to remove MockEndpoint CRD YAML
+- [x] Run `go build ./...`, `go vet ./...`, `go test ./... -count=1` — all must pass
+- [x] Update `docs/overview.md` CRD table: set MockEndpoint status to "Removed — see mocking guide"
 
 ---
 

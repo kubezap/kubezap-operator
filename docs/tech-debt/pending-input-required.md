@@ -10,11 +10,12 @@ and surfaces the open questions.
 
 ### Decisions needed from owner
 
-<!-- BACKLOG-PROMPT -->
+<!-- ANSWERED -->
 **Q: Should `docs/api/mock-endpoint.md` be deleted, left as a deprecated stub, or retained as a full archived doc?**
 Why it matters: The MockEndpoint CRD was removed (schedule §4–7 complete). The original `docs/api/mock-endpoint.md` is still a full doc page describing the removed feature. New contributors reading it may not realise it is gone. The replacement guide at `docs/guides/mocking-http-endpoints.md` now covers the topic.
 Options: Delete the file entirely / Replace contents with a one-paragraph redirect stub pointing to `docs/guides/mocking-http-endpoints.md` / Leave as-is (archived reference)
-<!-- BACKLOG-PROMPT -->
+**Answer (2026-03-21):** Deleted. File confirmed absent from repo. Schedule §11 item marked `[x]`.
+<!-- ANSWERED -->
 
 **Q2 — RESOLVED (2026-03-21 investigation):** `type: resource` trigger is **alpha/experimental**, not production-ready.
 
@@ -49,3 +50,27 @@ The only genuine leak scenario is continuous deployment of Flows with unique, th
 **Implementation:** `DisableCELCache bool` field on `FlowRunReconciler` + `--disable-cel-cache` flag in `cmd/main.go`. When true, cache reads and writes are both skipped; every `when` evaluation recompiles from source.
 
 **Files changed:** `internal/controller/flowrun_controller.go`, `cmd/main.go`.
+
+---
+
+## Review 2026-03-21 (backlog session)
+
+<!-- BACKLOG-PROMPT -->
+**Q: Resource watcher naive pluralization fix — should the discovery API be used at registration time?**
+
+Why it matters: `internal/controller/resource_watcher.go:113` uses `strings.ToLower(kind) + "s"` to infer the plural form, which silently fails for irregular plurals (`Ingress` → `ingresss`, `NetworkPolicy` → `networkpolicys`). The correct fix is to call the discovery API to look up the canonical plural form.
+
+Trade-off: The discovery API call adds a round-trip to the API server each time a new Trigger with `type: resource` is registered (once per registration, not per event). In most clusters this is negligible. However:
+- It requires a new `discovery.DiscoveryInterface` client injected into `ResourceWatcher`
+- It adds a failure path: if the discovery call fails, the watcher must decide whether to fail-open (use the naive guess) or fail-closed (reject the trigger registration)
+- It changes the `ResourceWatcher` constructor signature in `cmd/main.go` and `NewResourceWatcher`
+
+Options:
+1. **Use discovery API, fail-closed** — registration fails if the resource kind cannot be resolved; Trigger gets a condition `Ready=False` with reason `UnknownResourceKind`. Safest but adds complexity and one error mode.
+2. **Use discovery API, fail-open** — try discovery first; if it fails, fall back to naive `+s` pluralization with a warning log. Least breaking, easiest rollout.
+3. **Leave as-is** — document the limitation in `docs/api/trigger.md` under `type: resource`; fix only specific known-bad cases (e.g., detect `s`/`x`/`z`/`ch`/`sh` endings for basic English rules). Avoids discovery dep.
+
+**Fallback assumption (if no answer by next session):** Option 2 (fail-open) — tries discovery, logs a warning and falls back to naive suffix if discovery is unavailable. Minimises breaking changes and preserves current behavior for clusters where discovery works.
+
+File: `internal/controller/resource_watcher.go` (line ~113), `cmd/main.go` (constructor wiring).
+<!-- BACKLOG-PROMPT -->

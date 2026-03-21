@@ -288,11 +288,11 @@ Items are ordered to minimize rework:
 
 ## 11. Bug Fixes — 2026-03-21 Review
 
-- [ ] **BUG** — Add `case "wait":` to `validateFlowSpec()` in `internal/controller/flow_controller.go` (lines ~107–129); Flow resources with `action.type: wait` currently fail admission even though the schema and runtime support it. Add Ginkgo test in `internal/controller/flowrun_controller_test.go` covering wait step timeout + requeue behavior.
-- [ ] **CLEANUP** — Remove stale TODO comment (lines 48–53) in `internal/controller/trigger_controller.go`; ResourceWatcher wiring is already done in `cmd/main.go`.
+- [x] **BUG** — Add `case "wait":` to `validateFlowSpec()` in `internal/controller/flow_controller.go` (lines ~107–129); Flow resources with `action.type: wait` currently fail admission even though the schema and runtime support it. Add Ginkgo test in `internal/controller/flowrun_controller_test.go` covering wait step timeout + requeue behavior.
+- [x] **CLEANUP** — Remove stale TODO comment (lines 48–53) in `internal/controller/trigger_controller.go`; ResourceWatcher wiring is already done in `cmd/main.go`.
 - [x] **DOCS** — Resolve `docs/api/mock-endpoint.md` status: deleted (Q1 resolved 2026-03-21).
-- [ ] **BUG (alpha)** — Resource watcher naive pluralization (`resource_watcher.go:113`): `strings.ToLower(kind) + "s"` silently fails for irregular plurals (`Ingress`, `NetworkPolicy`, etc.). Fix: use discovery API to resolve correct plural form. Blocked on design decision (adds API server roundtrip at registration time).
-- [ ] **BUG (alpha)** — Resource watcher FlowRun name collision: timestamp has second precision, no random suffix. Two events for same resource+eventtype within one second → second FlowRun silently dropped. Fix: add `randomHex(4)` suffix (same fix pattern as R1 webhook bug).
+- [ ] **BUG (alpha)** — Resource watcher naive pluralization (`resource_watcher.go:113`): `strings.ToLower(kind) + "s"` silently fails for irregular plurals (`Ingress`, `NetworkPolicy`, etc.). Fix: use discovery API to resolve correct plural form. Blocked on design decision (adds API server roundtrip at registration time). Design options documented in `docs/tech-debt/pending-input-required.md`.
+- [x] **BUG (alpha)** — Resource watcher FlowRun name collision: timestamp has second precision, no random suffix. Two events for same resource+eventtype within one second → second FlowRun silently dropped. Fix: add `randomHex(4)` suffix (same fix pattern as R1 webhook bug).
 - [ ] **RELIABILITY (alpha)** — Resource watcher no retry on cache sync failure: goroutine exits permanently if sync times out. Fix: add backoff retry loop before exiting, or signal the TriggerReconciler to re-register.
 - [ ] **MISSING FEATURE (alpha)** — Resource triggers have no cooldown/rate-limit mechanism. Other trigger types have `maxInvocations`/`window`; resource triggers have no equivalent. Add `cooldown` field to `ResourceTriggerSpec`.
 - [ ] **DOCS** — Update `examples/k8s-pod-failure-ticket/README.md`: remove "not yet implemented" warning; add note that resource trigger is alpha with known limitations (link to `docs/tech-debt/`). Do after pluralization bug is fixed.

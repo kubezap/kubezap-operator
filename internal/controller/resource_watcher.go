@@ -18,6 +18,8 @@ package controller
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -203,9 +205,11 @@ func (rw *ResourceWatcher) handleEvent(
 	}
 
 	eventStr := strings.ToLower(string(eventType))
-	// FlowRun name: <trigger>-<resource-name>-<eventtype>-<timestamp>
-	flowRunName := fmt.Sprintf("%s-%s-%s-%d",
-		trigger.Name, sanitizeName(resName), eventStr, time.Now().Unix())
+	// FlowRun name: <trigger>-<resource-name>-<eventtype>-<timestamp>-<random>
+	// The random suffix prevents name collisions when two events for the same
+	// resource and event type arrive within the same second.
+	flowRunName := fmt.Sprintf("%s-%s-%s-%d-%s",
+		trigger.Name, sanitizeName(resName), eventStr, time.Now().Unix(), resourceWatcherRandomHex(4))
 
 	flowRun := &automationv1alpha1.FlowRun{
 		ObjectMeta: metav1.ObjectMeta{
@@ -325,4 +329,22 @@ func sanitizeName(s string) string {
 		result = result[:32]
 	}
 	return strings.Trim(result, "-")
+}
+
+// resourceWatcherRandomHex returns a hex string of the requested length using
+// cryptographically random bytes. Falls back to zeroes if the OS entropy source
+// is unavailable (extremely unlikely in practice).
+func resourceWatcherRandomHex(length int) string {
+	if length <= 0 {
+		return ""
+	}
+	b := make([]byte, (length+1)/2)
+	if _, err := rand.Read(b); err != nil {
+		return strings.Repeat("0", length)
+	}
+	s := hex.EncodeToString(b)
+	if len(s) > length {
+		s = s[:length]
+	}
+	return s
 }

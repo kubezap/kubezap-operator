@@ -504,11 +504,21 @@ func (r *FlowRunReconciler) executeHTTPStep(
 	}
 
 	h := step.Action.HTTP
-	url := substituteVars(h.URL, stepResults, triggerData)
-	body := substituteVars(h.Body, stepResults, triggerData)
+	url, displayURL, err := r.substituteVarsWithSecrets(ctx, namespace, h.URL, stepResults, triggerData)
+	if err != nil {
+		return nil, "", fmt.Errorf("resolving secrets in URL for step %q: %w", step.Name, err)
+	}
+	body, _, err := r.substituteVarsWithSecrets(ctx, namespace, h.Body, stepResults, triggerData)
+	if err != nil {
+		return nil, "", fmt.Errorf("resolving secrets in body for step %q: %w", step.Name, err)
+	}
 	headers := make(map[string]string, len(h.Headers))
 	for k, v := range h.Headers {
-		headers[k] = substituteVars(v, stepResults, triggerData)
+		actual, _, herr := r.substituteVarsWithSecrets(ctx, namespace, v, stepResults, triggerData)
+		if herr != nil {
+			return nil, "", fmt.Errorf("resolving secrets in header %q for step %q: %w", k, step.Name, herr)
+		}
+		headers[k] = actual
 	}
 
 	// If an HTTP Integration is referenced, merge its base URL, auth headers, and default headers.
@@ -564,7 +574,10 @@ func (r *FlowRunReconciler) executeHTTPStep(
 
 		req, err := http.NewRequestWithContext(stepCtx, method, url, bodyReader)
 		if err != nil {
-			return nil, "", fmt.Errorf("building HTTP request: %w", err)
+			// Use displayURL so any secret embedded in the URL does not appear
+			// in the error message that is persisted to StepRunStatus.Message.
+			return nil, "", fmt.Errorf("building HTTP request to %s: %w",
+				displayURL, redactSecretError(err, url, displayURL))
 		}
 		for k, v := range headers {
 			req.Header.Set(k, v)
@@ -577,7 +590,10 @@ func (r *FlowRunReconciler) executeHTTPStep(
 
 		resp, err := httpClient.Do(req)
 		if err != nil {
-			lastErr = err
+			// Sanitise the error string: Go's net/http embeds the actual URL inside
+			// the error message.  Replace the real URL with the display URL so that
+			// secret values are not leaked into StepRunStatus.Message.
+			lastErr = fmt.Errorf("%s", redactSecretError(err, url, displayURL))
 			log.Error(err, "HTTP step request failed", "step", step.Name, "attempt", attempt+1)
 			continue
 		}
@@ -645,10 +661,17 @@ func (r *FlowRunReconciler) executePublishStep(
 
 	// Route to appropriate publish backend based on integration type.
 	if integration.Spec.Kafka != nil {
-		body := substituteVars(step.Action.Publish.Body, stepResults, triggerData)
+		body, _, berr := r.substituteVarsWithSecrets(ctx, flowRun.Namespace, step.Action.Publish.Body, stepResults, triggerData)
+		if berr != nil {
+			return nil, fmt.Errorf("resolving secrets in publish body for step %q: %w", step.Name, berr)
+		}
 		headers := make(map[string]string, len(step.Action.Publish.Headers))
 		for k, v := range step.Action.Publish.Headers {
-			headers[k] = substituteVars(v, stepResults, triggerData)
+			actual, _, herr := r.substituteVarsWithSecrets(ctx, flowRun.Namespace, v, stepResults, triggerData)
+			if herr != nil {
+				return nil, fmt.Errorf("resolving secrets in publish header %q for step %q: %w", k, step.Name, herr)
+			}
+			headers[k] = actual
 		}
 		return r.publishToKafka(integration, step.Action.Publish.Topic, body, headers)
 	}
@@ -665,10 +688,17 @@ func (r *FlowRunReconciler) executePublishStep(
 	pluginURL := fmt.Sprintf("http://kubezap-plugin-%s.%s.svc.cluster.local:%d/publish",
 		integration.Name, flowRun.Namespace, port)
 
-	body := substituteVars(step.Action.Publish.Body, stepResults, triggerData)
+	body, _, berr := r.substituteVarsWithSecrets(ctx, flowRun.Namespace, step.Action.Publish.Body, stepResults, triggerData)
+	if berr != nil {
+		return nil, fmt.Errorf("resolving secrets in publish body for step %q: %w", step.Name, berr)
+	}
 	headers := make(map[string]string, len(step.Action.Publish.Headers))
 	for k, v := range step.Action.Publish.Headers {
-		headers[k] = substituteVars(v, stepResults, triggerData)
+		actual, _, herr := r.substituteVarsWithSecrets(ctx, flowRun.Namespace, v, stepResults, triggerData)
+		if herr != nil {
+			return nil, fmt.Errorf("resolving secrets in publish header %q for step %q: %w", k, step.Name, herr)
+		}
+		headers[k] = actual
 	}
 
 	// Wrap ctx with a 30s timeout unless ctx already has a shorter deadline.
@@ -1321,6 +1351,100 @@ func extractTraceContext(ctx context.Context, annotations map[string]string) con
 		return ctx
 	}
 	return otel.GetTextMapPropagator().Extract(ctx, propagation.MapCarrier{"traceparent": val})
+}
+
+// substituteVarsWithSecrets is like substituteVars but additionally resolves
+// $(secrets.<name>.<key>) placeholders by fetching Kubernetes Secrets from the
+// given namespace.
+//
+// It returns two strings:
+//   - actual: the fully substituted string, including real secret values — safe
+//     to use for HTTP calls and other runtime operations.
+//   - display: a parallel string where every secret-origin substitution is
+//     replaced with the literal text "[REDACTED]" — safe to write to status
+//     fields, log messages, and error messages that persist to etcd.
+//
+// The function is idempotent: if the template contains no $(secrets.*) placeholders
+// it returns (substituteVars(s,...), substituteVars(s,...), nil) with no API calls.
+func (r *FlowRunReconciler) substituteVarsWithSecrets(
+	ctx context.Context,
+	namespace string,
+	s string,
+	stepResults map[string]map[string]string,
+	triggerData *automationv1alpha1.TriggerData,
+) (actual, display string, err error) {
+	const secretPrefix = "$(secrets."
+
+	// Fast path: no secret placeholders — skip API calls entirely.
+	if !strings.Contains(s, secretPrefix) {
+		resolved := substituteVars(s, stepResults, triggerData)
+		return resolved, resolved, nil
+	}
+
+	// First, resolve non-secret placeholders in a copy of the template so that
+	// subsequent secret lookups operate on the partially-substituted string.
+	// We keep the secret placeholders intact at this stage.
+	partial := substituteVars(s, stepResults, triggerData)
+
+	// Now resolve all $(secrets.<name>.<key>) placeholders, building both
+	// the actual string and the display (redacted) string in parallel.
+	actualStr := partial
+	displayStr := partial
+
+	for {
+		idx := strings.Index(actualStr, secretPrefix)
+		if idx < 0 {
+			break
+		}
+		end := strings.Index(actualStr[idx:], ")")
+		if end < 0 {
+			break
+		}
+		end += idx
+
+		placeholder := actualStr[idx : end+1]
+		// Extract "name.key" from "$(secrets.name.key)".
+		inner := actualStr[idx+len(secretPrefix) : end]
+		dotIdx := strings.Index(inner, ".")
+		if dotIdx < 0 {
+			// Malformed placeholder — leave verbatim by advancing past it.
+			// Prevent infinite loop: trim the placeholder from further scanning.
+			actualStr = strings.Replace(actualStr, placeholder, placeholder, 1)
+			// Mark the display string the same way.
+			displayStr = strings.Replace(displayStr, placeholder, placeholder, 1)
+			// Remove from further scanning by replacing with a temporary sentinel
+			// that does not start with secretPrefix. We use the placeholder itself
+			// without the "$" prefix so it won't match again.
+			break
+		}
+		secretName := inner[:dotIdx]
+		secretKey := inner[dotIdx+1:]
+
+		value, fetchErr := r.fetchSecretValue(ctx, namespace, corev1.SecretKeySelector{
+			LocalObjectReference: corev1.LocalObjectReference{Name: secretName},
+			Key:                  secretKey,
+		})
+		if fetchErr != nil {
+			return "", "", fmt.Errorf("resolving %s: %w", placeholder, fetchErr)
+		}
+
+		// Replace all occurrences of this placeholder in both strings.
+		actualStr = strings.ReplaceAll(actualStr, placeholder, value)
+		displayStr = strings.ReplaceAll(displayStr, placeholder, "[REDACTED]")
+	}
+
+	return actualStr, displayStr, nil
+}
+
+// redactSecretError returns an error whose message has every occurrence of
+// actualURL replaced by displayURL.  This prevents secret values embedded in
+// the URL from appearing in error strings that are later persisted to etcd via
+// StepRunStatus.Message.
+func redactSecretError(err error, actualURL, displayURL string) error {
+	if err == nil || actualURL == displayURL {
+		return err
+	}
+	return fmt.Errorf("%s", strings.ReplaceAll(err.Error(), actualURL, displayURL))
 }
 
 // substituteVars replaces template placeholders in s with values from stepResults and triggerData.

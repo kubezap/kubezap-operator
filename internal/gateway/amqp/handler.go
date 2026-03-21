@@ -82,7 +82,7 @@ func (h *MessageHandler091) handleDelivery(ctx context.Context, d amqp091.Delive
 			Namespace: h.triggerNamespace,
 			Labels: map[string]string{
 				"kubezap.io/trigger":      h.triggerName,
-				"kubezap.io/trigger-type": "pubsub",
+				"kubezap.io/trigger-type": "amqp",
 				"kubezap.io/flow":         h.flowRefName,
 			},
 		},
@@ -90,10 +90,10 @@ func (h *MessageHandler091) handleDelivery(ctx context.Context, d amqp091.Delive
 			FlowRef: automationv1alpha1.FlowReference{Name: h.flowRefName},
 			TriggerRef: &automationv1alpha1.TriggerReference{
 				Name: h.triggerName,
-				Type: "pubsub",
+				Type: "amqp",
 			},
 			TriggerData: &automationv1alpha1.TriggerData{
-				Source: "pubsub",
+				Source: "amqp",
 				Body:   string(d.Body),
 				Topic:  routingKey,
 			},
@@ -183,7 +183,7 @@ func (h *MessageHandler10) handleMessage(ctx context.Context, msg *goamqp.Messag
 			Namespace: h.triggerNamespace,
 			Labels: map[string]string{
 				"kubezap.io/trigger":      h.triggerName,
-				"kubezap.io/trigger-type": "pubsub",
+				"kubezap.io/trigger-type": "amqp",
 				"kubezap.io/flow":         h.flowRefName,
 			},
 		},
@@ -191,10 +191,10 @@ func (h *MessageHandler10) handleMessage(ctx context.Context, msg *goamqp.Messag
 			FlowRef: automationv1alpha1.FlowReference{Name: h.flowRefName},
 			TriggerRef: &automationv1alpha1.TriggerReference{
 				Name: h.triggerName,
-				Type: "pubsub",
+				Type: "amqp",
 			},
 			TriggerData: &automationv1alpha1.TriggerData{
-				Source: "pubsub",
+				Source: "amqp",
 				Body:   body,
 			},
 		},

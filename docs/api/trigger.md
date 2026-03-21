@@ -15,12 +15,13 @@ A `Trigger` defines an event source that starts a `Flow`. It listens for an even
     - [WebhookAuth](#webhookauth)
     - [WebhookBasicAuth](#webhookbasicauth)
     - [CronTrigger](#crontrigger)
-    - [PubSubTrigger](#pubsubtrigger)
+    - [KafkaTrigger](#kafkatrigger)
+    - [AmqpTrigger](#amqptrigger)
+    - [NatsTrigger](#natstrigger)
     - [FlowReference](#flowreference)
     - [ActionDefinition](#actiondefinition)
     - [WebhookAction](#webhookaction)
     - [CooldownPolicy](#cooldownpolicy)
-    - [TargetResource](#targetresource)
   - [Status Reference](#status-reference)
     - [TriggerStatus](#triggerstatus)
     - [`lastResult` Values](#lastresult-values)
@@ -28,7 +29,7 @@ A `Trigger` defines an event source that starts a `Flow`. It listens for an even
   - [Trigger Types](#trigger-types)
     - [Webhook](#webhook)
     - [Cron](#cron)
-    - [Pub/Sub — Kafka, AMQP, NATS](#pubsub--kafka-amqp-nats)
+    - [Kafka, AMQP, NATS (Broker Triggers)](#kafka-amqp-nats-broker-triggers)
     - [ResourceTrigger](#resourcetrigger)
     - [Kubernetes Resource Events](#kubernetes-resource-events)
   - [Exposing Webhook Triggers](#exposing-webhook-triggers)
@@ -55,7 +56,7 @@ A `Trigger` defines an event source that starts a `Flow`. It listens for an even
 
 ## Overview
 
-Each `Trigger` has a `type` (webhook, cron, or pubsub) and a `flowRef` pointing to the `Flow` to execute. When the event fires, the operator resolves the Flow, populates its parameters from the event payload, and executes the steps.
+Each `Trigger` has a `type` (webhook, cron, kafka, amqp, nats, or resource) and a `flowRef` pointing to the `Flow` to execute. When the event fires, the operator resolves the Flow, populates its parameters from the event payload, and executes the steps.
 
 A `Trigger` can also define an inline `action` instead of a `flowRef` for simple one-step use cases such as forwarding a webhook to another URL.
 
@@ -67,16 +68,17 @@ A `Trigger` can also define an inline `action` instead of a `flowRef` for simple
 
 | Field      | Type             | Required    | Default | Description                                                                      |
 | ---------- | ---------------- | ----------- | ------- | -------------------------------------------------------------------------------- |
-| `type`     | enum             | **Yes**     | —       | Trigger source type: `webhook`, `cron`, `pubsub`, or `resource`                  |
+| `type`     | enum             | **Yes**     | —       | Trigger source type: `webhook`, `cron`, `kafka`, `amqp`, `nats`, or `resource`   |
 | `enabled`  | boolean          | No          | `true`  | Whether this trigger is active. Set to `false` to pause without deleting.        |
 | `webhook`  | WebhookTrigger   | Conditional | —       | Required when `type: webhook`                                                    |
 | `cron`     | CronTrigger      | Conditional | —       | Required when `type: cron`                                                       |
-| `pubsub`   | PubSubTrigger    | Conditional | —       | Required when `type: pubsub`                                                     |
+| `kafka`    | KafkaTrigger     | Conditional | —       | Required when `type: kafka`                                                      |
+| `amqp`     | AmqpTrigger      | Conditional | —       | Required when `type: amqp`                                                       |
+| `nats`     | NatsTrigger      | Conditional | —       | Required when `type: nats`                                                       |
 | `resource` | ResourceTrigger  | Conditional | —       | Required when `type: resource`                                                   |
 | `flowRef`  | FlowReference    | Conditional | —       | Reference to the Flow to execute. Required unless `action` is set.               |
 | `action`   | ActionDefinition | Conditional | —       | Inline action. Used instead of `flowRef` for simple single-step responses.       |
 | `cooldown` | CooldownPolicy   | No          | —       | Rate limiting policy to prevent trigger storms                                   |
-| `target`   | TargetResource   | No          | —       | Cluster resource to watch (reserved for future resource-based triggers)          |
 | `event`    | string           | No          | —       | Resource event type for resource-based triggers: `create`, `update`, or `delete` |
 
 ### WebhookTrigger
@@ -133,16 +135,28 @@ Configures authentication for a webhook trigger endpoint. If omitted, the endpoi
 | `0 2 * * *`    | Daily at 2:00 AM        |
 | `0 9 * * 1`    | Every Monday at 9:00 AM |
 
-### PubSubTrigger
+### KafkaTrigger
 
-| Field            | Type                 | Required | Default                  | Description                                                                                                  |
-| ---------------- | -------------------- | -------- | ------------------------ | ------------------------------------------------------------------------------------------------------------ |
-| `type`           | enum                 | **Yes**  | —                        | Message broker type: `kafka`, `amqp`, or `nats`                                                              |
-| `integrationRef` | IntegrationReference | **Yes**  | —                        | Reference to an `Integration` CR with broker connection details                                              |
-| `topic`          | string               | **Yes**  | —                        | Topic name to consume from (Kafka and AMQP exchange name)                                                    |
-| `consumerGroup`  | string               | No       | `kubezap-<trigger-name>` | Kafka consumer group ID. Ignored for AMQP and NATS.                                                          |
-| `routingKey`     | string               | No       | —                        | AMQP routing key or binding pattern. Used when `type: amqp` only.                                            |
-| `subject`        | string               | No       | —                        | NATS subject to subscribe to. Supports wildcards (e.g. `orders.*`, `events.>`). Used when `type: nats` only. |
+| Field            | Type                 | Required | Default                  | Description                                              |
+| ---------------- | -------------------- | -------- | ------------------------ | -------------------------------------------------------- |
+| `integrationRef` | LocalObjectReference | **Yes**  | —                        | Reference to an `Integration` CR with Kafka connection details |
+| `topic`          | string               | **Yes**  | —                        | Kafka topic to consume from                              |
+| `consumerGroup`  | string               | No       | `kubezap-<trigger-name>` | Consumer group ID                                        |
+
+### AmqpTrigger
+
+| Field            | Type                 | Required | Default | Description                                              |
+| ---------------- | -------------------- | -------- | ------- | -------------------------------------------------------- |
+| `integrationRef` | LocalObjectReference | **Yes**  | —       | Reference to an `Integration` CR with AMQP connection details |
+| `topic`          | string               | **Yes**  | —       | Queue name to consume from                               |
+| `routingKey`     | string               | No       | —       | AMQP routing key or binding pattern                      |
+
+### NatsTrigger
+
+| Field            | Type                 | Required | Default | Description                                              |
+| ---------------- | -------------------- | -------- | ------- | -------------------------------------------------------- |
+| `integrationRef` | LocalObjectReference | **Yes**  | —       | Reference to an `Integration` CR with NATS connection details |
+| `subject`        | string               | **Yes**  | —       | NATS subject to subscribe to. Supports wildcards (e.g. `orders.*`, `events.>`) |
 
 ### FlowReference
 
@@ -195,17 +209,6 @@ Watches a Kubernetes resource type for create, update, or delete events and fire
 
 **RBAC note:** The controller's ServiceAccount must have `get`, `list`, and `watch` permissions on the target resource type. KubeZap does not grant these automatically -- the cluster administrator must create the appropriate Role/ClusterRole.
 
-### TargetResource
-
-Reserved for future use with resource-based triggers (watching Kubernetes resources).
-
-| Field           | Type          | Required | Description                                              |
-| --------------- | ------------- | -------- | -------------------------------------------------------- |
-| `kind`          | string        | No       | Kind of the resource to watch (e.g., `Pod`, `ConfigMap`) |
-| `namespace`     | string        | No       | Namespace of the resource                                |
-| `name`          | string        | No       | Name of a specific resource                              |
-| `labelSelector` | LabelSelector | No       | Select resources by label                                |
-
 ---
 
 ## Status Reference
@@ -257,9 +260,9 @@ The Flow receives timing metadata as parameters:
 - `$(trigger.payload.scheduledTime)` — the scheduled fire time (RFC3339)
 - `$(trigger.payload.actualTime)` — the actual fire time (RFC3339)
 
-### Pub/Sub — Kafka, AMQP, NATS
+### Kafka, AMQP, NATS (Broker Triggers)
 
-The operator creates a gateway consumer for each `pubsub` trigger. Each message consumed from the topic fires the trigger once. Three broker types are supported:
+The operator creates a gateway consumer for each broker trigger (`kafka`, `amqp`, or `nats`). Each message consumed from the topic fires the trigger once. Three broker types are supported:
 
 - **`kafka`** — built-in Kafka gateway (`kubezap-kafka-gateway`), one Deployment per Kafka cluster per namespace
 - **`amqp`** — built-in AMQP gateway (`kubezap-amqp-gateway`), supports AMQP 0-9-1 (RabbitMQ) and AMQP 1.0 (ActiveMQ Artemis)
@@ -514,9 +517,8 @@ metadata:
   name: order-events
   namespace: automation
 spec:
-  type: pubsub
-  pubsub:
-    type: kafka
+  type: kafka
+  kafka:
     integrationRef:
       name: prod-kafka-cluster
     topic: orders.created
@@ -642,5 +644,5 @@ Status:
 - **Webhook authentication**: Configure `spec.webhook.auth` to require authentication. Without it, any caller that can reach the endpoint can fire the trigger. See [Securing Webhook Triggers](../guides/webhook-security.md).
 - **Webhook delivery guarantee**: Webhook triggers do not acknowledge or retry the source request. If the operator is unavailable when a request arrives, the event is lost.
 - **Kafka exactly-once**: Kafka triggers provide at-least-once delivery semantics. Design flows to be idempotent.
-- **Single topic per trigger**: Each `pubsub` trigger subscribes to one topic. Create multiple triggers to consume from multiple topics.
+- **Single topic per trigger**: Each broker trigger (`kafka`, `amqp`, `nats`) subscribes to one topic. Create multiple triggers to consume from multiple topics.
 - **Cron timezone**: Schedules default to UTC. Set `spec.cron.timezone` to an IANA timezone name (e.g. `America/New_York`) to use a different timezone.

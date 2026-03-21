@@ -3,10 +3,9 @@ kind: Trigger
 metadata:
   name: e2e-kafka
 spec:
-  type: pubsub
+  type: kafka
   enabled: true
-  pubsub:
-    type: kafka
+  kafka:
     integrationRef:
       name: e2e-kafka
     topic: e2e-test-topic

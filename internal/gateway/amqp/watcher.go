@@ -151,15 +151,15 @@ func (w *Watcher) onTriggerDelete(obj interface{}) {
 func (w *Watcher) reconcileTrigger(ctx context.Context, trigger *automationv1alpha1.Trigger) {
 	key := types.NamespacedName{Name: trigger.Name, Namespace: trigger.Namespace}
 
-	// Stop subscription if trigger is not an amqp pubsub trigger or is disabled.
-	if trigger.Spec.Type != "pubsub" || trigger.Spec.PubSub == nil || trigger.Spec.PubSub.Type != "amqp" || !trigger.Spec.Enabled {
+	// Stop subscription if trigger is not an amqp trigger or is disabled.
+	if trigger.Spec.Type != "amqp" || trigger.Spec.Amqp == nil || !trigger.Spec.Enabled {
 		w.stopSubscription(key)
 		return
 	}
 
-	topic := trigger.Spec.PubSub.Topic
-	routingKey := trigger.Spec.PubSub.RoutingKey
-	integrationName := trigger.Spec.PubSub.IntegrationRef.Name
+	topic := trigger.Spec.Amqp.Topic
+	routingKey := trigger.Spec.Amqp.RoutingKey
+	integrationName := trigger.Spec.Amqp.IntegrationRef.Name
 
 	if existing, ok := w.subscriptions.Load(key); ok {
 		sub := existing.(*subscription)
@@ -178,10 +178,10 @@ func (w *Watcher) reconcileTrigger(ctx context.Context, trigger *automationv1alp
 
 // startSubscription creates an AMQP consumer for the given Trigger.
 func (w *Watcher) startSubscription(ctx context.Context, trigger *automationv1alpha1.Trigger) error {
-	pubsub := trigger.Spec.PubSub
-	integrationName := pubsub.IntegrationRef.Name
-	topic := pubsub.Topic
-	routingKey := pubsub.RoutingKey
+	amqp := trigger.Spec.Amqp
+	integrationName := amqp.IntegrationRef.Name
+	topic := amqp.Topic
+	routingKey := amqp.RoutingKey
 
 	// Fetch the Integration CRD.
 	integration := &automationv1alpha1.Integration{}

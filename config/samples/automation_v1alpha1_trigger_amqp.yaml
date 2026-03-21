@@ -7,10 +7,9 @@ metadata:
   name: amqp-orders
   namespace: default
 spec:
-  type: pubsub
+  type: amqp
   enabled: true
-  pubsub:
-    type: amqp
+  amqp:
     integrationRef:
       name: my-rabbitmq
     topic: orders

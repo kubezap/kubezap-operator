@@ -78,6 +78,34 @@ spec:
                 required:
                 - type
                 type: object
+              amqp:
+                description: Amqp configuration (only for type=amqp)
+                properties:
+                  integrationRef:
+                    description: Reference to an Integration CR with AMQP connection
+                      details.
+                    properties:
+                      name:
+                        default: ""
+                        description: |-
+                          Name of the referent.
+                          This field is effectively required, but due to backwards compatibility is
+                          allowed to be empty. Instances of this type with an empty value here are
+                          almost certainly wrong.
+                          More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                        type: string
+                    type: object
+                    x-kubernetes-map-type: atomic
+                  routingKey:
+                    description: RoutingKey is the AMQP routing key or binding pattern.
+                    type: string
+                  topic:
+                    description: Topic (queue name) to consume from.
+                    type: string
+                required:
+                - integrationRef
+                - topic
+                type: object
               cooldown:
                 description: Cooldown/debounce policy to limit the number of firings
                   in a window.
@@ -117,7 +145,7 @@ spec:
               event:
                 description: |-
                   Event or condition type for resource triggers (create/update/delete).
-                  For external triggers (webhook/cron/pubsub) this is typically empty.
+                  For external triggers (webhook/cron/kafka/amqp/nats) this is typically empty.
                 type: string
               flowRef:
                 description: |-
@@ -170,15 +198,15 @@ spec:
                       Set to "0s" to delete succeeded FlowRuns immediately.
                     type: string
                 type: object
-              pubsub:
-                description: PubSub configuration (only for type=pubsub)
+              kafka:
+                description: Kafka configuration (only for type=kafka)
                 properties:
                   consumerGroup:
-                    description: Kafka consumer group ID. Defaults to "kubezap-<trigger-name>"
+                    description: ConsumerGroup ID. Defaults to "kubezap-<trigger-name>"
                       at runtime.
                     type: string
                   integrationRef:
-                    description: Reference to an Integration CR with broker connection
+                    description: Reference to an Integration CR with Kafka connection
                       details.
                     properties:
                       name:
@@ -192,29 +220,39 @@ spec:
                         type: string
                     type: object
                     x-kubernetes-map-type: atomic
-                  routingKey:
-                    description: RoutingKey is the AMQP routing key or binding pattern.
-                      Used for type=amqp only.
-                    type: string
-                  subject:
-                    description: |-
-                      Subject is the NATS subject to subscribe to. Used for type=nats only.
-                      Supports NATS wildcards (e.g. "orders.*", "events.>").
-                    type: string
                   topic:
                     description: Topic to consume from.
-                    type: string
-                  type:
-                    description: Message broker type.
-                    enum:
-                    - kafka
-                    - amqp
-                    - nats
                     type: string
                 required:
                 - integrationRef
                 - topic
-                - type
+                type: object
+              nats:
+                description: Nats configuration (only for type=nats)
+                properties:
+                  integrationRef:
+                    description: Reference to an Integration CR with NATS connection
+                      details.
+                    properties:
+                      name:
+                        default: ""
+                        description: |-
+                          Name of the referent.
+                          This field is effectively required, but due to backwards compatibility is
+                          allowed to be empty. Instances of this type with an empty value here are
+                          almost certainly wrong.
+                          More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                        type: string
+                    type: object
+                    x-kubernetes-map-type: atomic
+                  subject:
+                    description: |-
+                      Subject is the NATS subject to subscribe to.
+                      Supports NATS wildcards (e.g. "orders.*", "events.>").
+                    type: string
+                required:
+                - integrationRef
+                - subject
                 type: object
               resource:
                 description: |-
@@ -313,76 +351,14 @@ spec:
                 - apiVersion
                 - kind
                 type: object
-              target:
-                description: |-
-                  Optional target resource in the cluster to watch or reference. Kept
-                  optional for the MVP (external events only by default) but present
-                  so future resource-based triggers can be added without schema changes.
-                properties:
-                  kind:
-                    description: Kind of resource (Pod, ConfigMap, CustomKind)
-                    type: string
-                  labelSelector:
-                    description: LabelSelector allows selecting resources by labels
-                      instead of exact name.
-                    properties:
-                      matchExpressions:
-                        description: matchExpressions is a list of label selector
-                          requirements. The requirements are ANDed.
-                        items:
-                          description: |-
-                            A label selector requirement is a selector that contains values, a key, and an operator that
-                            relates the key and values.
-                          properties:
-                            key:
-                              description: key is the label key that the selector
-                                applies to.
-                              type: string
-                            operator:
-                              description: |-
-                                operator represents a key's relationship to a set of values.
-                                Valid operators are In, NotIn, Exists and DoesNotExist.
-                              type: string
-                            values:
-                              description: |-
-                                values is an array of string values. If the operator is In or NotIn,
-                                the values array must be non-empty. If the operator is Exists or DoesNotExist,
-                                the values array must be empty. This array is replaced during a strategic
-                                merge patch.
-                              items:
-                                type: string
-                              type: array
-                              x-kubernetes-list-type: atomic
-                          required:
-                          - key
-                          - operator
-                          type: object
-                        type: array
-                        x-kubernetes-list-type: atomic
-                      matchLabels:
-                        additionalProperties:
-                          type: string
-                        description: |-
-                          matchLabels is a map of {key,value} pairs. A single {key,value} in the matchLabels
-                          map is equivalent to an element of matchExpressions, whose key field is "key", the
-                          operator is "In", and the values array contains only "value". The requirements are ANDed.
-                        type: object
-                    type: object
-                    x-kubernetes-map-type: atomic
-                  name:
-                    description: Name of a specific resource to target.
-                    type: string
-                  namespace:
-                    description: Namespace of the resource. If empty and Name is set,
-                      it defaults to the Trigger's namespace.
-                    type: string
-                type: object
               type:
-                description: Type of trigger (webhook, cron, pubsub, resource)
+                description: Type of trigger (webhook, cron, kafka, amqp, nats, resource)
                 enum:
                 - webhook
                 - cron
-                - pubsub
+                - kafka
+                - amqp
+                - nats
                 - resource
                 type: string
               webhook:

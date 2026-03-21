@@ -237,7 +237,45 @@ Items are ordered to minimize rework:
 
 ---
 
-## 9. Future / Backlog
+## 9. Observability — Port and TLS Normalization
+
+> **Context**: The controller currently defaults to HTTPS on `:8443` (cert-manager-issued TLS) while gateways default to HTTP on `:8080`. The webhook gateway also shares port `:8080` between the hook server (`/hooks/*`) and the metrics endpoint (`/metrics`). This section standardises all three components: HTTP default everywhere, dedicated metrics port `:9090` (standard Prometheus port) for all, with optional TLS on the metrics server.
+
+### Implementation
+
+- [ ] **Controller — default metrics to HTTP on `:9090`** (`cmd/main.go`):
+  Change `--metrics-secure` default from `true` to `false`. Change `--metrics-bind-address` default and help text to suggest `:9090`. Update inline comment/example that currently references `:8443`. Verify cert-watcher setup is still initialised only when `--metrics-secure=true` and `--metrics-cert-path` is provided — no regression in TLS-on path.
+
+- [ ] **Webhook gateway — split metrics onto dedicated port** (`cmd/webhook-gateway/main.go`):
+  Add `--metrics-port` flag (default `9090`). Remove `/metrics` route from the main mux (port 8080) and start a second `http.Server` bound to `--metrics-port` serving only `GET /metrics` (Prometheus handler). Add `--metrics-tls-cert-file` and `--metrics-tls-key-file` flags; when both are set, the metrics server upgrades to HTTPS. Main hook server (port 8080) TLS flags (`--tls-cert-file`, `--tls-key-file`, `--mtls-ca-file`) are unchanged.
+
+- [ ] **Kafka gateway — add dedicated metrics server** (`cmd/kafka-gateway/main.go`):
+  Add `--metrics-port` flag (default `9090`). Start an HTTP server on that port serving `GET /metrics`. Add `--metrics-tls-cert-file` and `--metrics-tls-key-file` flags for optional TLS. Mirror the pattern from the updated webhook gateway implementation.
+
+- [ ] **Update Kubernetes manifests**:
+  In `config/` (Deployment args, Service port definitions, ServiceMonitor port names) update any hardcoded `:8443` metrics references to `:9090`. Add a named `metrics` port (9090) to the controller Service alongside the existing `webhook` port. Add a named `metrics` port (9090) to the webhook-gateway and kafka-gateway Services. Ensure `config/rbac/` and generated role YAML are unaffected (metrics serving requires no additional RBAC).
+
+- [ ] **Remove cert-manager metrics dependency from controller**:
+  Since the controller metrics endpoint now defaults to HTTP, the cert-manager Certificate and Issuer resources provisioned for controller metrics (if any exist in `config/certmanager/` or `config/default/`) should be made optional or removed. Retain the cert-manager webhook TLS resources — those are unaffected. Run `make manifests` after any marker changes.
+
+- [ ] **Run `make generate && make manifests && go build ./...`** and verify no regressions.
+
+### Documentation
+
+- [ ] **Update `docs/guides/observability.md` — metrics port table**:
+  Change controller row from `:8443 HTTPS (cert-manager)` to `:9090 HTTP (default); optional HTTPS via `--metrics-tls-cert-file`/`--metrics-tls-key-file``. Change gateway rows from `:8080` to `:9090`. Remove the note about shared port on the webhook gateway; add a note that the hook server remains on `:8080` and the metrics server is now a separate process on `:9090`.
+
+- [ ] **Update `docs/guides/observability.md` — ServiceMonitor templates**:
+  Controller ServiceMonitor: change `scheme: https` → `scheme: http`; remove `tlsConfig` block; update port name to `metrics` on `9090`. Add a short note explaining that HTTPS can be re-enabled by setting `--metrics-secure=true` and providing cert-manager certs. Webhook gateway and Kafka gateway ServiceMonitors: update port number to `9090` (no scheme change needed — already `http`).
+
+- [ ] **Update `docs/guides/observability.md` — configuration flag reference**:
+  Add a new "Metrics Server Configuration" table listing `--metrics-bind-address` / `--metrics-port`, `--metrics-secure` (controller only), `--metrics-tls-cert-file`, `--metrics-tls-key-file` across all three components, their defaults, and a short description.
+
+- [ ] **Audit `docs/architecture.md` and `docs/overview.md`** for any mention of `:8443` or shared-port metrics; update to reflect the new ports.
+
+---
+
+## 10. Future / Backlog
 
 - [ ] `docs/guides/amqp-setup.md` — write full AMQP setup guide (stub exists)
 - [ ] `docs/guides/nats-setup.md` — write full NATS setup guide (stub exists)

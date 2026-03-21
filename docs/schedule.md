@@ -286,6 +286,17 @@ Items are ordered to minimize rework:
 
 ---
 
+## 11. Bug Fixes — 2026-03-21 Review
+
+- [ ] **BUG** — Add `case "wait":` to `validateFlowSpec()` in `internal/controller/flow_controller.go` (lines ~107–129); Flow resources with `action.type: wait` currently fail admission even though the schema and runtime support it. Add Ginkgo test in `internal/controller/flowrun_controller_test.go` covering wait step timeout + requeue behavior.
+- [ ] **CLEANUP** — Remove stale TODO comment (lines 48–53) in `internal/controller/trigger_controller.go`; ResourceWatcher wiring is already done in `cmd/main.go`.
+- [ ] **DOCS** — Resolve `docs/api/mock-endpoint.md` status: file still exists as a full doc page after MockEndpoint removal; decide: delete / redirect stub / archived reference (see `docs/tech-debt/pending-input-required.md` Q1).
+- [ ] **DOCS** — Update `docs/architecture.md` resource trigger section: still labelled "(planned)" at line 603 but implementation is complete. Update to reflect current status. Also update `examples/k8s-pod-failure-ticket/README.md` to remove "not yet implemented" warning (see `docs/tech-debt/pending-input-required.md` Q2 first).
+- [ ] **DOCS** — Add `docs/contributing.md` link to `docs/overview.md` (currently not cross-linked from any doc page).
+- [ ] **DOCS** — Clarify AMQP/NATS stability in `docs/api/integration.md`: headings say "_(beta)_" but both gateways are fully implemented and in examples. Either define what "beta" means (known limitations) or upgrade the label.
+
+---
+
 ## 10. Future / Backlog
 
 - [x] `docs/guides/using-the-cli.md` — CLI user guide (created 2026-03-20 review pass)

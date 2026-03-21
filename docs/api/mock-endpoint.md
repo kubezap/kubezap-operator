@@ -1,6 +1,14 @@
 # MockEndpoint CRD
 
-A `MockEndpoint` registers a local HTTP endpoint on the KubeZap operator's webhook server that captures and logs incoming requests instead of forwarding them anywhere. Use it during development and testing to replace real external services (Slack, PagerDuty, downstream APIs) without making actual calls.
+> **REMOVED** — The `MockEndpoint` CRD has been removed from KubeZap. This page is retained for historical reference only.
+>
+> The recommended replacement is [Mockoon](../guides/mocking-http-endpoints.md), which provides richer stub capabilities and runs as an in-cluster `Deployment` without requiring operator support. See [Mocking HTTP Endpoints](../guides/mocking-http-endpoints.md) for migration instructions.
+
+---
+
+<!-- archived: MockEndpoint was removed in the 2026-03 cleanup cycle (schedule §4-7). -->
+
+A `MockEndpoint` registered a local HTTP endpoint on the KubeZap operator's webhook server that captured and logged incoming requests instead of forwarding them anywhere. Use it during development and testing to replace real external services (Slack, PagerDuty, downstream APIs) without making actual calls.
 
 ---
 

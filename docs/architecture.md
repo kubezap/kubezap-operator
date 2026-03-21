@@ -600,7 +600,9 @@ The controller already maintains an informer cache connected to the Kubernetes A
 
 **When a separate gateway would be needed**: if you wanted to trigger on events from a *remote* cluster. Cross-cluster resource triggers would need a gateway that connects to the remote cluster's API server. That is a future concern.
 
-### Resource Trigger spec (planned)
+### Resource Trigger spec
+
+> **Status:** Implemented in `internal/controller/trigger_controller.go` and `internal/controller/resource_watcher.go`. Production-readiness is under review — see `docs/tech-debt/pending-input-required.md` Q2.
 
 ```yaml
 apiVersion: automation.kubezap.io/v1alpha1
@@ -641,9 +643,9 @@ The trigger payload will include the full resource object, previous object (for 
 
 | Type                         | Implementation                        | Notes                                                          |
 | ---------------------------- | ------------------------------------- | -------------------------------------------------------------- |
-| Kubernetes resource events   | Controller extension (no new gateway) | Watches arbitrary K8s resources via dynamic informers          |
-| NATS                         | `kubezap-nats-gateway`                | Separate image; NATS client library                            |
-| RabbitMQ / ActiveMQ          | `kubezap-amqp-gateway`                | Could share one image for AMQP-based brokers                   |
+| Kubernetes resource events   | Controller extension (no new gateway) | **Implemented** — see resource trigger section above; production-readiness TBD |
+| NATS                         | `kubezap-nats-gateway`                | **Implemented** (beta) — separate image; NATS client library   |
+| RabbitMQ / ActiveMQ          | `kubezap-amqp-gateway`                | **Implemented** (beta) — AMQP 0-9-1 and 1.0; see integration.md |
 | Solace                       | `kubezap-solace-gateway`              | Solace Go API; likely separate image                           |
 | S3 / GCS events              | `kubezap-s3-gateway`                  | Polls or uses bucket notifications                             |
 | Git (GitHub/GitLab webhooks) | Webhook gateway (existing)            | Standard webhook with HMAC verification; no new gateway needed |

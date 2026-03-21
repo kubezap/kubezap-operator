@@ -1,36 +1,29 @@
-# Backlog groom: 2026-03-21
+# Backlog groom: 2026-03-21 (session 2)
 
 ## Reordering applied
 
-None. All existing items are in correct dependency order. The resource watcher bug items
-in §11 (pluralization → name collision → retry → cooldown → docs) are correctly sequenced;
-item 8 (README update) depends on item 4 (pluralization fix) and already trails it.
-
-## Items marked complete (stale `[ ]` → `[x]`)
-
-- **§11 Item 3** — DOCS `docs/api/mock-endpoint.md`: already deleted (Q1 resolved 2026-03-21). Marked `[x]`.
-- **§11 Item 9** — DOCS contributing link to `docs/overview.md`: confirmed done in review-latest.md. Marked `[x]`.
+- **§12c moved before §12b** — P0 security fix (secret redaction in `substituteVars`/`executeHTTPStep`/`executePublishStep`) should not be blocked behind the large FlowRun execution model refactor. Both sections touch `internal/controller/flowrun_controller.go`. Rule violated: new Rule 7 (P0 security before architectural refactors in same code area). New order in §12: 12a → 12c → 12b → 12d.
+- **§12 preamble updated** to reflect new ordering rationale.
 
 ## Items added
 
-- **§11** — TECH DEBT (Medium): Kafka producer pool no TTL/health check — evidence: `docs/review-latest.md`
-- **§11** — TECH DEBT (Low): HTTP Integration re-fetched on every step execution — evidence: `docs/review-latest.md`
-- **§11** — TECH DEBT (Low): CEL env init failure cached forever via `sync.Once` — evidence: `docs/review-latest.md`
+- **§15 Phase 1 — CLI `watch` command** (3 tasks): `kubezap watch` subcommand streaming live FlowRun terminal timeline with box-drawing chars + per-step status, tests in `cmd/kubezap/watch_test.go`, docs addition to `docs/guides/using-the-cli.md`. Evidence: Q5 decision (2026-03-21) — build both CLI and web; CLI first.
+- **§15 Phase 2 — Read-only web dashboard** (4 tasks): `--ui-port` flag on controller (default `8082`), `internal/ui/` handlers using Go templates + htmx, handler tests in `internal/ui/handler_test.go`, `docs/guides/dashboard.md`. Evidence: Q5 decision (2026-03-21).
+- **Prioritization rule 7** added to the Prioritization rationale section: P0 security fixes before architectural refactors in the same code area.
 
 ## Items removed or annotated
 
-None removed. One annotation updated:
-
-- **§6 Example 6** blocked note updated from "blocked on `type: resource` trigger (see Future/Backlog)"
-  to "partially blocked — trigger implemented (alpha), blocked on §11 resource watcher bug fixes".
+- **§15 placeholder** `_(pending owner input on CLI-vs-Web approach)_` replaced with concrete Phase 1 + Phase 2 tasks — decision answered (Both, 2026-03-21).
+- **§12 preamble note** updated from "§12a → §12b → §12c → §12d" to "§12a → §12c → §12b → §12d" to match new priority order.
+- **§12d note** added: can be folded into §12a (same file `trigger_types.go`) or done standalone after §12b.
 
 ## Items promoted from Future/Backlog
 
-None. `[x] Kubernetes resource-event trigger type` in §10 was already correctly marked done.
+- **§10 "Web UI for flow monitoring"** — marked `[x]` (superseded and promoted to active §15 Phase 2).
 
 ## No-change items
 
-~55 items reviewed, no other changes needed.
+~95 items reviewed across §1–§14 and §10, no change needed.
 
 ## Files changed
 

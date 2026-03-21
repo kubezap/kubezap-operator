@@ -55,8 +55,23 @@ var (
 		Name: "kubezap_webhook_rate_limited_total",
 		Help: "Total requests suppressed by webhook cooldown window policy.",
 	}, []string{"trigger", "namespace"})
+
+	// WebhookRequestDuration tracks the end-to-end latency of webhook HTTP requests.
+	// result values: "accepted", "rejected", "rate_limited"
+	WebhookRequestDuration = prometheus.NewHistogramVec(prometheus.HistogramOpts{
+		Name:    "kubezap_webhook_request_duration_seconds",
+		Help:    "Duration of webhook HTTP requests in seconds.",
+		Buckets: prometheus.DefBuckets,
+	}, []string{"trigger", "result"})
 )
 
 func init() {
-	ctrlmetrics.Registry.MustRegister(TriggerFirings, FlowRunDuration, StepDuration, WebhookIPBlocked, WebhookRateLimited)
+	ctrlmetrics.Registry.MustRegister(
+		TriggerFirings,
+		FlowRunDuration,
+		StepDuration,
+		WebhookIPBlocked,
+		WebhookRateLimited,
+		WebhookRequestDuration,
+	)
 }

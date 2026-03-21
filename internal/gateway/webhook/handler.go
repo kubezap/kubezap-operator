@@ -239,6 +239,10 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	flowRunName := ""
 	triggerName := ""
 	triggerNamespace := ""
+	// metricResult tracks the label value for the request-duration histogram.
+	// It is set to "rejected" or "rate_limited" on non-success paths; the
+	// accepted path sets it to "accepted" just before the final write.
+	metricResult := "rejected"
 
 	sourceIP, _, splitErr := net.SplitHostPort(r.RemoteAddr)
 	if splitErr != nil {
@@ -272,6 +276,12 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			"content_type", r.Header.Get("Content-Type"),
 			"source_ip", sourceIP,
 		)
+		// Record request latency. triggerName may be empty for 404 paths; that
+		// is acceptable — the histogram label will be an empty string in those
+		// rare cases and does not inflate cardinality.
+		metrics.WebhookRequestDuration.
+			WithLabelValues(triggerName, metricResult).
+			Observe(time.Since(start).Seconds())
 	}()
 
 	entry, ok := h.registry.Lookup(r.URL.Path)
@@ -320,6 +330,7 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Cooldown window enforcement: suppress requests that exceed maxInvocations within the window.
 	if entry.MaxInvocations > 0 && !h.cooldown.allow(r.URL.Path, entry.MaxInvocations, entry.CooldownWindow) {
 		status = http.StatusTooManyRequests
+		metricResult = "rate_limited"
 		metrics.WebhookRateLimited.WithLabelValues(triggerName, triggerNamespace).Inc()
 		writeJSON(w, status, map[string]string{"error": "cooldown window exceeded"})
 		return
@@ -338,10 +349,28 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	flowRunName = fmt.Sprintf("%s-%d-%s", entry.TriggerName, time.Now().Unix(), randomHex(8))
 
+	// Build annotations for W3C Trace Context propagation.
+	// http.Header.Get performs canonical-form lookup, so "Traceparent" matches
+	// both "traceparent" and "Traceparent" sent by the caller.
+	// Annotating the FlowRun lets the controller resume the distributed trace
+	// when it picks up execution — linking gateway and controller spans into a
+	// single end-to-end trace without requiring the controller to parse HTTP headers.
+	var annotations map[string]string
+	if tp := r.Header.Get("Traceparent"); tp != "" {
+		annotations = map[string]string{"kubezap.io/traceparent": tp}
+	}
+	if ts := r.Header.Get("Tracestate"); ts != "" {
+		if annotations == nil {
+			annotations = make(map[string]string)
+		}
+		annotations["kubezap.io/tracestate"] = ts
+	}
+
 	flowRun := &automationv1alpha1.FlowRun{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      flowRunName,
-			Namespace: entry.TriggerNamespace,
+			Name:        flowRunName,
+			Namespace:   entry.TriggerNamespace,
+			Annotations: annotations,
 			Labels: map[string]string{
 				"kubezap.io/trigger":      entry.TriggerName,
 				"kubezap.io/trigger-type": "webhook",
@@ -383,6 +412,7 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	err = h.k8sClient.Create(createCtx, flowRun)
 	if err != nil {
 		if apierrors.IsAlreadyExists(err) {
+			metricResult = "accepted"
 			status = http.StatusAccepted
 			writeJSON(w, status, map[string]string{"flowRun": flowRunName, "namespace": entry.TriggerNamespace})
 			return
@@ -393,6 +423,7 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	metricResult = "accepted"
 	status = http.StatusAccepted
 	writeJSON(w, status, map[string]string{"flowRun": flowRunName, "namespace": entry.TriggerNamespace})
 }

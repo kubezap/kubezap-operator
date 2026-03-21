@@ -1,36 +1,65 @@
-# Review: 2026-03-20 (doc focus — user friendliness)
+# Review: 2026-03-20 (R1 — Multi-Type Interference Audit)
 
-## Doc issues
+## Audit scope
 
-- **`docs/api/flow.md` + `docs/overview.md` — `$(trigger.payload.*)` vs `$(trigger.body.*)`**: The API docs documented `$(trigger.payload.<field>)` as the expression syntax, but the implementation uses `$(trigger.body.<field>)`. The getting-started guide (validated against actual behavior) correctly uses `trigger.body`. Fixed both files to use the correct `trigger.body.*` syntax and noted the nested field limitation. _(fixed)_
-- **`docs/guides/getting-started.md` — `enrich-mockendpoint.yaml` reference**: The guide referenced `config/samples/demo/enrich-mockendpoint.yaml` which does not exist as a standalone file (the `enrich-order` MockEndpoint is bundled in `mockendpoints.yaml` applied in Step 1). Fixed to remove the nonexistent file reference. _(fixed)_
-- **`docs/guides/kafka-enrichment.md` — dead link to `gitops-deploy-gate.md`**: Line 321 linked to `[GitOps deployment gate demo](gitops-deploy-gate.md) ← coming soon` which does not exist. Replaced with a note pointing to the Future / Backlog schedule section. _(fixed)_
-- **Missing CLI user guide**: The `kubezap` CLI is fully implemented but only had a design doc (`docs/design/cli.md`). No user-facing guide existed showing practical usage. Created `docs/guides/using-the-cli.md` covering `history`, `triggers`, `flows`, `integrations`, and debugging tips. _(created)_
-- **Missing cron trigger guide**: No how-to guide existed for the cron trigger type despite it being a primary use case. Created `docs/guides/cron-triggers.md` covering schedule syntax, timezones, FlowRun naming, GC policy, monitoring, and Flow design patterns. _(created)_
-- **Missing troubleshooting guide**: Troubleshooting tips were scattered across getting-started, incident-escalation, and other guides with no central reference. Created `docs/guides/troubleshooting.md` consolidating all common issues: controller startup, trigger acceptance, webhook routing, FlowRun lifecycle, CEL errors, MockEndpoint, Kafka, RBAC, and CLI usage. _(created)_
+Read-only audit of interference, shared-resource, and naming-collision risks across multiple trigger types and integration types in the same namespace. Files audited:
+
+- `internal/controller/integration_controller.go` — reconcileKafkaGateway, reconcileAmqpGateway, reconcileNatsGateway
+- `internal/controller/trigger_controller.go` — ensureWebhookGateway, cron register/deregister
+- `internal/controller/cron_scheduler.go` — entry keying, FlowRun naming
+- `internal/gateway/webhook/handler.go` — FlowRun naming, collision handling
+- `docs/tech-debt/rbac-ownership-gaps.md` — prior RBAC fixes
 
 ## Code issues
 
-- No code files were read or changed in this review pass.
+### CLEAN — Shared RBAC convergence
 
-## Schedule corrections
+All three broker reconcilers (`reconcileKafkaGateway`, `reconcileAmqpGateway`, `reconcileNatsGateway`) produce byte-for-byte identical `kubezap-gateway` Role rules:
 
-- Added `[x]` entries for the three new guide files to `docs/schedule.md`.
-- Added `[ ]` items for AMQP/NATS guides (awaiting owner decision per pending-input-required.md).
+```
+triggers:get/list/watch, integrations:get, flowruns:create
+```
 
-## Decisions needed
+All three use `controllerutil.CreateOrUpdate` on the same `kubezap-gateway` Role object. Because the rules are identical, any ordering of concurrent reconciles reaches the same desired state. No bug.
 
-- **AMQP/NATS setup guides**: Should `docs/guides/amqp-setup.md` and `docs/guides/nats-setup.md` be created? Options: create now (full guides), add TODO stubs, or leave for when beta label is promoted. (See `docs/tech-debt/pending-input-required.md` — tagged `BACKLOG-PROMPT`.)
+### CLEAN — Gateway name isolation
+
+Webhook gateway resources: all use prefix `kubezap-webhook-gateway` (SA, Role, RoleBinding, Service, Deployment, HPA).
+
+Broker gateway resources: shared `kubezap-gateway` (SA, Role, RoleBinding) + per-Integration Deployments named `kubezap-{kafka|amqp|nats}-gateway-{integration.Name}`.
+
+These two sets are completely disjoint — no name collision, no lifecycle interference possible when both a webhook Trigger and a broker Integration exist in the same namespace. No bug.
+
+### CLEAN — Cron scheduler double-fire
+
+`CronScheduler.entries` keyed by `"<namespace>/<name>"` — unique per Trigger regardless of schedule string. `Register()` removes the previous entry for a key before adding the new one → idempotent. Two Triggers sharing the same schedule string in the same or different namespaces produce two independent `cron.EntryID` entries that fire independently. No double-fire risk. No bug.
+
+### BUG — Webhook FlowRun random suffix too short
+
+**Location:** `internal/gateway/webhook/handler.go` (the `randomHex(4)` call in FlowRun name construction)
+
+**Description:** FlowRun names are generated as `<trigger>-<unix-timestamp>-<randomHex(4)>`. `randomHex(4)` produces 4 hex characters = 2 bytes = 65 536 possible values per (trigger, second) pair. Under the birthday problem, collision probability at 100 concurrent requests/second on the same Trigger is approximately 7.5% per second.
+
+On collision `k8sClient.Create` returns `AlreadyExists`. The handler treats this as success — returns HTTP 202 with the existing FlowRun name. But the existing FlowRun holds the **first** request's body, headers, and metadata. The colliding request's data is silently discarded. The caller receives no error indication.
+
+**Severity:** Medium. Requires ~100 req/sec on the same Trigger to be likely, but the failure is silent and causes data loss in a production webhook pipeline.
+
+**Fix:** Change `randomHex(4)` to `randomHex(8)` (4 bytes = 4 294 967 296 values → collision probability at 100 req/s is ~1 in 42 949 673 per second — effectively zero).
+
+**Scheduled:** Added as `[ ]` bug fix item in §2 R1 Findings and `T9` test in §3.
+
+### NOTE — BodyTruncated bug (R2, still pending)
+
+Confirmed the `BodyTruncated` bug from R2 is still present in `handler.go`: bodies between 4 097 bytes and 4 MB are accepted with HTTP 202 but stored truncated to 4 096 chars in `TriggerData.Body` with `BodyTruncated: false`. This is tracked separately in §1 R2 Findings.
+
+## Schedule changes
+
+- §2 R1 audit items: all 5 marked `[x]`
+- §2 R1 Findings — Confirmed Clean: 3 items added (all `[x]`)
+- §2 R1 Findings — Bug Fixes: 1 item added (`[ ]` randomHex fix)
+- §3 Testing: T9 added (`[ ]` concurrent FlowRun name uniqueness test)
 
 ## Files changed
 
-- `docs/guides/using-the-cli.md` — created (new CLI user guide)
-- `docs/guides/cron-triggers.md` — created (new cron trigger how-to)
-- `docs/guides/troubleshooting.md` — created (new consolidated troubleshooting guide)
-- `docs/guides/getting-started.md` — fixed `enrich-mockendpoint.yaml` reference
-- `docs/guides/kafka-enrichment.md` — fixed dead link to `gitops-deploy-gate.md`
-- `docs/api/flow.md` — corrected `trigger.payload.*` → `trigger.body.*` throughout
-- `docs/overview.md` — corrected Payload Formats section to use `trigger.body.*`
-- `docs/tech-debt/pending-input-required.md` — appended new review section with AMQP/NATS guide question
-- `docs/schedule.md` — added new guide items
+- `docs/schedule.md` — R1 audit results recorded
 - `docs/review-latest.md` — this file

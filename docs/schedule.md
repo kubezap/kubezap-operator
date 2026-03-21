@@ -59,11 +59,21 @@ Items are ordered to minimize rework:
 
 **Known starting point:** `kubezap-gateway` SA/Role/RoleBinding is shared by kafka/amqp/nats integrations (owner-ref bug fixed 2026-03-20; shared RBAC intentionally not owned by any single Integration). Audit whether similar sharing exists elsewhere.
 
-- [ ] Audit `reconcileKafkaGateway`, `reconcileAmqpGateway`, `reconcileNatsGateway`: verify all three produce the same `kubezap-gateway` Role rules and that concurrent reconciles of different integration types in the same namespace converge correctly
-- [ ] Audit webhook gateway: if both a webhook Trigger and a pubsub Trigger exist in the same namespace, does the webhook gateway Deployment lifecycle interfere with pubsub gateway Deployments? Check `trigger_controller.go` for shared-name risk between gateway types
-- [ ] Audit cron scheduler: if two Triggers with the same `schedule` string exist in the same namespace (or across namespaces), do cron entries conflict or double-fire? Check `cron_scheduler.go` entry keying
-- [ ] Audit FlowRun naming: check for name collision risk when multiple Triggers reference the same Flow — do cron (`<trigger>-<scheduled-time>`), webhook (`<trigger>-<timestamp>-<random>`) naming schemes create collision risk under concurrent load?
-- [ ] Based on findings: add schedule items for confirmed bugs; add test items (T9+) for collision/interference scenarios with no existing coverage
+- [x] Audit `reconcileKafkaGateway`, `reconcileAmqpGateway`, `reconcileNatsGateway`: verify all three produce the same `kubezap-gateway` Role rules and that concurrent reconciles of different integration types in the same namespace converge correctly
+- [x] Audit webhook gateway: if both a webhook Trigger and a pubsub Trigger exist in the same namespace, does the webhook gateway Deployment lifecycle interfere with pubsub gateway Deployments? Check `trigger_controller.go` for shared-name risk between gateway types
+- [x] Audit cron scheduler: if two Triggers with the same `schedule` string exist in the same namespace (or across namespaces), do cron entries conflict or double-fire? Check `cron_scheduler.go` entry keying
+- [x] Audit FlowRun naming: check for name collision risk when multiple Triggers reference the same Flow — do cron (`<trigger>-<scheduled-time>`), webhook (`<trigger>-<timestamp>-<random>`) naming schemes create collision risk under concurrent load?
+- [x] Based on findings: add schedule items for confirmed bugs; add test items (T9+) for collision/interference scenarios with no existing coverage
+
+### R1 Findings — Confirmed Clean
+
+- [x] **Shared RBAC convergence**: all three reconcilers produce identical `kubezap-gateway` Role rules (`triggers:get/list/watch`, `integrations:get`, `flowruns:create`). `CreateOrUpdate` + identical rule sets → concurrent reconciles always converge. **No bug.**
+- [x] **Gateway name isolation**: webhook gateway uses `kubezap-webhook-gateway` prefix for all resources; broker gateways use `kubezap-gateway` (shared RBAC) + `kubezap-{type}-gateway-{name}` (per-Integration Deployments). Completely disjoint names — no lifecycle interference possible. **No bug.**
+- [x] **Cron double-fire**: scheduler entries keyed by `"<namespace>/<name>"` — unique per Trigger. `Register()` removes existing entry before adding new. Two Triggers sharing a schedule string = two independent entries, fire independently. Cross-namespace same schedule = separate keys. **No bug.**
+
+### R1 Findings — Bug Fixes
+
+- [ ] **BUG — Webhook FlowRun random suffix too short** (`internal/gateway/webhook/handler.go`): `randomHex(4)` produces 4 hex chars (2 bytes = 65 536 values per second per Trigger). Birthday collision probability at 100 req/s on the same Trigger is ~7.5%/second. On collision the handler returns HTTP 202 with the existing FlowRun name — but that FlowRun contains the body/headers of the **first** request, not the colliding one. Silent data loss for the colliding request. Fix: change `randomHex(4)` → `randomHex(8)` (4 bytes → 1/4 294 967 296 collision rate).
 
 ---
 
@@ -79,6 +89,7 @@ Items are ordered to minimize rework:
 - [ ] **T6 — FlowRun orphan recovery**: Create FlowRun in `Running` phase with finalizer set, no active execution context. Advance time past the orphan timeout (`--flowrun-ttl-failed` default). Assert controller transitions phase to `Failed` with reason `OrphanTimeout` and removes finalizer. File: `internal/controller/flowrun_controller_test.go`.
 - [ ] **T7 — Step retry with exponential backoff**: Mock HTTP server that returns 503 for first 2 calls, 200 on 3rd. Step has `retryPolicy: {maxRetries: 3, backoffType: Exponential, initialDelay: 10ms, maxDelay: 100ms}`. Assert: step `attempts == 3`, step phase `Succeeded`, delay durations recorded in step status. File: `internal/controller/flowrun_controller_test.go`.
 - [ ] **T8 — Transform step + result chaining**: Flow with `type: transform` step that maps `$(trigger.body.orderId)` to result `orderId`, followed by HTTP step using `$(steps.transform.results.orderId)` in URL. Assert the HTTP call URL contains the correct substituted value. Use `httptest.NewServer` for the target. File: `internal/controller/flowrun_controller_test.go`.
+- [ ] **T9 — Webhook FlowRun name uniqueness under concurrent load**: Fire 500 concurrent webhook requests at the same Trigger using a goroutine pool. Assert all 500 FlowRuns are created with unique names (no silent `AlreadyExists` drops). Collect all created FlowRun names and assert zero duplicates. Requires the `randomHex(8)` fix (R1 bug above) to pass reliably. File: `internal/gateway/webhook/handler_test.go`.
 
 ---
 

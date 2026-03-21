@@ -115,10 +115,10 @@ Items are ordered to minimize rework:
 
 - [x] `config/samples/automation_v1alpha1_mockendpoint.yaml` — delete file; remove from `config/samples/kustomization.yaml` and OLM bundle alm-examples
 - [x] `examples/order-router/` — replace MockEndpoint resources with Mockoon stub configs; update `kustomization.yaml` and `README.md`
-- [ ] `examples/kafka-enrichment/` — replace `enterprise-sink`, `standard-sink`, `trial-sink`, `customer-profile` MockEndpoints with Mockoon stub configs; update `kustomization.yaml` and `README.md`
-- [ ] `examples/slack-router/` — replace MockEndpoint resources with Mockoon; update `kustomization.yaml` and `README.md`
-- [ ] `examples/incident-escalation/` — audit for MockEndpoint usage; update if present
-- [ ] `examples/nightly-export/` — audit for MockEndpoint usage; update if present
+- [x] `examples/kafka-enrichment/` — replace `enterprise-sink`, `standard-sink`, `trial-sink`, `customer-profile` MockEndpoints with Mockoon stub configs; update `kustomization.yaml` and `README.md`
+- [x] `examples/slack-router/` — replace MockEndpoint resources with Mockoon; update `kustomization.yaml` and `README.md`
+- [x] `examples/incident-escalation/` — audit for MockEndpoint usage; update if present (no MockEndpoints found — clean)
+- [x] `examples/nightly-export/` — audit for MockEndpoint usage; update if present
 
 ### Phase 3 — Update existing guides
 

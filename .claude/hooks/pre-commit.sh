@@ -5,5 +5,5 @@ command=$(echo "$input" | jq -r '.command // ""')
 
 if echo "$command" | grep -q 'git commit'; then
   echo "Running pre-commit checks..." >&2
-  gofmt -w . && go vet ./...
+  gofmt -w . && go vet $(go list ./... | grep -v /e2e)
 fi

@@ -1,0 +1,316 @@
+# Mockoon in-cluster mock server for the kafka-enrichment example.
+#
+# Provides four stub routes:
+#   POST /customer-profile  → 200 {"customerId":"cust-001","tier":"enterprise",...}
+#   POST /enterprise-sink   → 202 {"accepted":true}
+#   POST /standard-sink     → 202 {"accepted":true}
+#   POST /trial-sink        → 202 {"accepted":true}
+#
+# Apply with the rest of the example:
+#   kubectl apply -k examples/kafka-enrichment/
+#
+# Inspect captured requests:
+#   kubectl exec -n default \
+#     $(kubectl get pod -n default -l app=mockoon -o jsonpath='{.items[0].metadata.name}') \
+#     -- wget -q -O - http://localhost:3001/api/logs | jq .
+#
+# See docs/guides/mocking-http-endpoints.md for the full Mockoon guide.
+# ─────────────────────────────────────────────────────────────────────────────
+# 1. ConfigMap
+# ─────────────────────────────────────────────────────────────────────────────
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mockoon-env
+  namespace: default
+  labels:
+    app: mockoon
+    app.kubernetes.io/component: mock-server
+    app.kubernetes.io/part-of: kafka-enrichment-example
+data:
+  environment.json: |
+    {
+      "uuid": "ke-env-uuid",
+      "lastMigration": 32,
+      "name": "kafka-enrichment mocks",
+      "endpointPrefix": "",
+      "latency": 0,
+      "port": 3000,
+      "hostname": "",
+      "folders": [],
+      "routes": [
+        {
+          "uuid": "r0001-customer-profile",
+          "type": "http",
+          "documentation": "Simulates the customer profile enrichment API. Returns a fixed enterprise-tier response.",
+          "method": "post",
+          "endpoint": "customer-profile",
+          "responses": [
+            {
+              "uuid": "resp-customer-profile-200",
+              "body": "{\"customerId\":\"cust-001\",\"tier\":\"enterprise\",\"region\":\"us-east-1\",\"accountManager\":\"alice@example.com\"}",
+              "latency": 0,
+              "statusCode": 200,
+              "label": "Enterprise profile",
+              "headers": [
+                { "key": "Content-Type", "value": "application/json" }
+              ],
+              "bodyType": "INLINE",
+              "filePath": "",
+              "databucketID": "",
+              "sendFileAsBody": false,
+              "rules": [],
+              "rulesOperator": "OR",
+              "disableTemplating": false,
+              "fallbackTo404": false,
+              "default": true,
+              "crudKey": "id",
+              "callbacks": []
+            }
+          ],
+          "enabled": true,
+          "responseMode": null,
+          "streamingMode": null
+        },
+        {
+          "uuid": "r0002-enterprise-sink",
+          "type": "http",
+          "documentation": "Captures enterprise-tier routed events",
+          "method": "post",
+          "endpoint": "enterprise-sink",
+          "responses": [
+            {
+              "uuid": "resp-enterprise-sink-202",
+              "body": "{\"accepted\":true}",
+              "latency": 0,
+              "statusCode": 202,
+              "label": "Accepted",
+              "headers": [
+                { "key": "Content-Type", "value": "application/json" }
+              ],
+              "bodyType": "INLINE",
+              "filePath": "",
+              "databucketID": "",
+              "sendFileAsBody": false,
+              "rules": [],
+              "rulesOperator": "OR",
+              "disableTemplating": false,
+              "fallbackTo404": false,
+              "default": true,
+              "crudKey": "id",
+              "callbacks": []
+            }
+          ],
+          "enabled": true,
+          "responseMode": null,
+          "streamingMode": null
+        },
+        {
+          "uuid": "r0003-standard-sink",
+          "type": "http",
+          "documentation": "Captures standard-tier routed events",
+          "method": "post",
+          "endpoint": "standard-sink",
+          "responses": [
+            {
+              "uuid": "resp-standard-sink-202",
+              "body": "{\"accepted\":true}",
+              "latency": 0,
+              "statusCode": 202,
+              "label": "Accepted",
+              "headers": [
+                { "key": "Content-Type", "value": "application/json" }
+              ],
+              "bodyType": "INLINE",
+              "filePath": "",
+              "databucketID": "",
+              "sendFileAsBody": false,
+              "rules": [],
+              "rulesOperator": "OR",
+              "disableTemplating": false,
+              "fallbackTo404": false,
+              "default": true,
+              "crudKey": "id",
+              "callbacks": []
+            }
+          ],
+          "enabled": true,
+          "responseMode": null,
+          "streamingMode": null
+        },
+        {
+          "uuid": "r0004-trial-sink",
+          "type": "http",
+          "documentation": "Captures trial-tier routed events",
+          "method": "post",
+          "endpoint": "trial-sink",
+          "responses": [
+            {
+              "uuid": "resp-trial-sink-202",
+              "body": "{\"accepted\":true}",
+              "latency": 0,
+              "statusCode": 202,
+              "label": "Accepted",
+              "headers": [
+                { "key": "Content-Type", "value": "application/json" }
+              ],
+              "bodyType": "INLINE",
+              "filePath": "",
+              "databucketID": "",
+              "sendFileAsBody": false,
+              "rules": [],
+              "rulesOperator": "OR",
+              "disableTemplating": false,
+              "fallbackTo404": false,
+              "default": true,
+              "crudKey": "id",
+              "callbacks": []
+            }
+          ],
+          "enabled": true,
+          "responseMode": null,
+          "streamingMode": null
+        }
+      ],
+      "rootChildren": [
+        { "type": "route", "uuid": "r0001-customer-profile" },
+        { "type": "route", "uuid": "r0002-enterprise-sink" },
+        { "type": "route", "uuid": "r0003-standard-sink" },
+        { "type": "route", "uuid": "r0004-trial-sink" }
+      ],
+      "proxyMode": false,
+      "proxyHost": "",
+      "proxyRemovePrefix": false,
+      "tlsOptions": {
+        "enabled": false,
+        "type": "CERT",
+        "pfxPath": "",
+        "certPath": "",
+        "keyPath": "",
+        "caPath": "",
+        "passphrase": ""
+      },
+      "cors": true,
+      "headers": [
+        { "key": "Content-Type", "value": "application/json" },
+        { "key": "Access-Control-Allow-Origin", "value": "*" },
+        { "key": "Access-Control-Allow-Methods", "value": "GET,POST,PUT,PATCH,DELETE,HEAD,OPTIONS" },
+        { "key": "Access-Control-Allow-Headers", "value": "Content-Type, Origin, Accept, Authorization, Content-Length, X-Requested-With" }
+      ],
+      "proxyReqHeaders": [{ "key": "", "value": "" }],
+      "proxyResHeaders": [{ "key": "", "value": "" }],
+      "data": [],
+      "callbacks": [],
+      "initialDatabuckets": []
+    }
+---
+# ─────────────────────────────────────────────────────────────────────────────
+# 2. Deployment
+# ─────────────────────────────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mockoon
+  namespace: default
+  labels:
+    app: mockoon
+    app.kubernetes.io/component: mock-server
+    app.kubernetes.io/part-of: kafka-enrichment-example
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mockoon
+  template:
+    metadata:
+      labels:
+        app: mockoon
+        app.kubernetes.io/component: mock-server
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: mockoon
+          image: mockoon/mockoon:latest
+          imagePullPolicy: IfNotPresent
+          args:
+            - "--data"
+            - "/config/environment.json"
+            - "--port"
+            - "3000"
+            - "--admin-api-port"
+            - "3001"
+          ports:
+            - name: mock
+              containerPort: 3000
+              protocol: TCP
+            - name: admin
+              containerPort: 3001
+              protocol: TCP
+          volumeMounts:
+            - name: mockoon-config
+              mountPath: /config
+              readOnly: true
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: admin
+            initialDelaySeconds: 2
+            periodSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: admin
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "64Mi"
+            limits:
+              cpu: "200m"
+              memory: "128Mi"
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+      volumes:
+        - name: mockoon-config
+          configMap:
+            name: mockoon-env
+      restartPolicy: Always
+---
+# ─────────────────────────────────────────────────────────────────────────────
+# 3. Service
+# ─────────────────────────────────────────────────────────────────────────────
+apiVersion: v1
+kind: Service
+metadata:
+  name: mockoon
+  namespace: default
+  labels:
+    app: mockoon
+    app.kubernetes.io/component: mock-server
+    app.kubernetes.io/part-of: kafka-enrichment-example
+spec:
+  selector:
+    app: mockoon
+  ports:
+    - name: mock
+      port: 3000
+      targetPort: mock
+      protocol: TCP
+    - name: admin
+      port: 3001
+      targetPort: admin
+      protocol: TCP
+  type: ClusterIP

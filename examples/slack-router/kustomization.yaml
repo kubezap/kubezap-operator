@@ -3,4 +3,4 @@
 resources:
   - flow.yaml
   - trigger.yaml
-  - mockendpoints.yaml
+  - mockoon.yaml

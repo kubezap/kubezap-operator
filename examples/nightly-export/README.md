@@ -29,7 +29,7 @@ robfig/cron scheduler
         │  sets trigger.scheduledTime = "2026-03-20T07:00:00Z"
         ▼
   ┌──────────────────────────────┐
-  │ export-data                  │  POST /mock/export-api
+  │ export-data                  │  POST /export-api (Mockoon)
   │                              │  body: { exportDate, tables }
   │                              │  results: exportId, rowCount, status
   └──────────────┬───────────────┘
@@ -151,9 +151,9 @@ kubectl get flow nightly-db-export -n default \
   -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}'
 # Expected: True
 
-# MockEndpoint registered
-kubectl get mockendpoint export-api -n default
-# Expected: export-api in the list
+# Mockoon mock server running
+kubectl get deployment mockoon -n default
+# Expected: 1/1 READY
 
 # MinIO running
 kubectl get deployment minio -n default
@@ -245,14 +245,15 @@ mc cat myminio/exports/nightly-2026-03-20T07:00:00Z.json
 
 ---
 
-## Step 8 — Inspect the mock export API captures
+## Step 8 — Inspect Mockoon captured requests
 
-The MockEndpoint records every request the flow made to the export API:
+Mockoon records every request the flow made to the export API:
 
 ```bash
-kubectl get mockendpoint export-api -n default \
-  -o jsonpath='{.status.recentRequests[-1:]}'
-# Expected: JSON body with exportDate=2026-03-20T07:00:00Z and the tables list
+kubectl exec -n default \
+  $(kubectl get pod -n default -l app=mockoon -o jsonpath='{.items[0].metadata.name}') \
+  -- wget -q -O - http://localhost:3001/api/logs | jq .
+# Expected: entry showing POST /export-api with exportDate=2026-03-20T07:00:00Z and the tables list
 ```
 
 ---
@@ -346,7 +347,7 @@ accepts the export manifest and handles S3 authentication internally.
 
 ### Real export service
 
-Replace the MockEndpoint URL in the `export-data` step with your actual database
+Replace the Mockoon stub URL in the `export-data` step with your actual database
 export service endpoint. The flow expects the response to contain at minimum:
 
 | Field      | Type   | Description                       |

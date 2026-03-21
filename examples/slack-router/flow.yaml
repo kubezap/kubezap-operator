@@ -24,7 +24,7 @@ spec:
 
     # ── Step 2 — Branch A ──────────────────────────────────────────────────────
     # Fires when the user typed "/kubezap deploy <env>"
-    # Posts the deploy event to the deploy-sink MockEndpoint (stand-in for a real deploy API).
+    # Posts the deploy event to the deploy-sink Mockoon stub (stand-in for a real deploy API).
     - name: handle-deploy
       description: "Handle '/kubezap deploy' command — route to deploy pipeline mock"
       runAfter:
@@ -34,7 +34,7 @@ spec:
       action:
         type: http
         http:
-          url: "http://kubezap-webhook-gateway.default.svc.cluster.local:8080/mock/deploy-sink"
+          url: "http://mockoon.default.svc.cluster.local:3000/deploy-sink"
           method: POST
           headers:
             Content-Type: application/json
@@ -46,7 +46,7 @@ spec:
 
     # ── Step 3 — Branch B ──────────────────────────────────────────────────────
     # Fires when the user typed "/kubezap status <env>"
-    # Posts the status query to the status-sink MockEndpoint.
+    # Posts the status query to the status-sink Mockoon stub.
     - name: handle-status
       description: "Handle '/kubezap status' command — route to status-query mock"
       runAfter:
@@ -56,7 +56,7 @@ spec:
       action:
         type: http
         http:
-          url: "http://kubezap-webhook-gateway.default.svc.cluster.local:8080/mock/status-sink"
+          url: "http://mockoon.default.svc.cluster.local:3000/status-sink"
           method: POST
           headers:
             Content-Type: application/json
@@ -68,7 +68,7 @@ spec:
 
     # ── Step 4 — Fallback ──────────────────────────────────────────────────────
     # Fires when the command is anything other than "deploy" or "status".
-    # Posts to the fallback-sink MockEndpoint so unknown commands are captured.
+    # Posts to the fallback-sink Mockoon stub so unknown commands are captured.
     - name: handle-unknown
       description: "Catch-all for unrecognised commands — route to fallback sink"
       runAfter:
@@ -80,7 +80,7 @@ spec:
       action:
         type: http
         http:
-          url: "http://kubezap-webhook-gateway.default.svc.cluster.local:8080/mock/fallback-sink"
+          url: "http://mockoon.default.svc.cluster.local:3000/fallback-sink"
           method: POST
           headers:
             Content-Type: application/json

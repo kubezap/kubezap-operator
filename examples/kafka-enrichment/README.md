@@ -70,9 +70,8 @@ kubectl apply -k examples/kafka-enrichment/
 
 This creates:
 - `Integration/customer-kafka` — points KubeZap at your Kafka cluster
-- `MockEndpoint/customer-profile` — simulates the enrichment API
-- `MockEndpoint/enterprise-sink`, `standard-sink`, `trial-sink` — capture
-  routed events in CRD status (no external service needed)
+- Mockoon deployment (mock HTTP servers) — simulates the enrichment API and
+  captures routed events (no external service needed)
 - `Flow/enrich-customer-event` — the workflow definition
 - `Trigger/customer-events` — subscribes to the `customer-events` Kafka topic
 
@@ -181,11 +180,12 @@ route-trial       Skipped  (when: tier == "trial" was false)
 publish-enriched  Succeeded
 ```
 
-Check what the enterprise sink captured:
+Check what the enterprise sink captured via Mockoon's admin API:
 
 ```bash
-kubectl get mockendpoint enterprise-sink \
-  -o jsonpath='{.status.requests[-1:]}' | jq .
+kubectl exec -n default \
+  $(kubectl get pod -n default -l app=mockoon -o jsonpath='{.items[0].metadata.name}') \
+  -- wget -q -O - http://localhost:3001/api/logs | jq .
 ```
 
 ---
@@ -216,16 +216,16 @@ guaranteed-enriched event without needing to call the profile API themselves.
 
 ## Trying other tiers
 
-The mock profile endpoint always returns `enterprise`. To test the other
-branches, override the mock response by editing the MockEndpoint:
+The Mockoon mock profile endpoint always returns `enterprise`. To test the other
+branches, edit the Mockoon ConfigMap to change the response body in the
+`customer-profile` route, then restart the pod:
 
 ```bash
-# Test standard tier
-kubectl patch mockendpoint customer-profile --type=merge -p '
-spec:
-  response:
-    body: |
-      {"customerId":"{{.Body.customerId}}","tier":"standard","region":"eu-west-1","accountManager":"bob@example.com"}'
+# Edit the ConfigMap (change "tier":"enterprise" to "tier":"standard")
+kubectl edit configmap mockoon-env -n default
+
+# Restart the Mockoon pod to pick up the change
+kubectl rollout restart deployment mockoon -n default
 
 # Produce another message
 echo '{"customerId":"cust-002","eventType":"upgraded"}' | \
@@ -251,29 +251,27 @@ retryPolicy:
   maxDelay: 10s
 ```
 
-To see it in action, temporarily make the mock return a 503:
+To see it in action, temporarily edit the Mockoon ConfigMap to set the
+`customer-profile` route's `statusCode` to `503`, then restart the pod:
 
 ```bash
-kubectl patch mockendpoint customer-profile --type=merge -p '
-spec:
-  response:
-    status: 503
-    body: "unavailable"'
+kubectl edit configmap mockoon-env -n default
+# Change "statusCode": 200 to "statusCode": 503 in the customer-profile route
+
+kubectl rollout restart deployment mockoon -n default
 ```
 
 Produce a message and watch the FlowRun status — the `enrich-profile` step
 will show retry attempts in `status.steps[enrich-profile].attempts` before
 eventually failing.
 
-Restore the mock to recover:
+Restore the mock by reverting the ConfigMap edit and restarting:
 
 ```bash
-kubectl patch mockendpoint customer-profile --type=merge -p '
-spec:
-  response:
-    status: 200
-    body: |
-      {"customerId":"{{.Body.customerId}}","tier":"enterprise","region":"us-east-1","accountManager":"alice@example.com"}'
+kubectl edit configmap mockoon-env -n default
+# Change "statusCode": 503 back to "statusCode": 200
+
+kubectl rollout restart deployment mockoon -n default
 ```
 
 ---
@@ -317,6 +315,6 @@ Triggers remain that reference the `customer-kafka` Integration.
 ## What's next
 
 - **Add a dead-letter step**: add a final step with `when: steps.enrich_profile.status == "Failed"` that publishes to a `customer-events-dlq` topic.
-- **Replace mocks with real services**: swap MockEndpoint URLs for your actual enrichment API and routing targets.
+- **Replace mocks with real services**: swap Mockoon URLs for your actual enrichment API and routing targets.
 - **Replace mock sinks with publish steps**: route-enterprise could use `type: publish` to write directly to an `enterprise-events` Kafka topic.
 - Explore the [incident-escalation example](../incident-escalation/) for a wait/resume pattern.

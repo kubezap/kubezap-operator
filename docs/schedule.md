@@ -325,21 +325,21 @@ Items are ordered to minimize rework:
 
 > **Breaking change, but v1alpha1 is explicitly unstable. Do before submission to avoid a post-GA migration.**
 
-- [ ] **API** — Rename `type: pubsub` → individual trigger types `kafka`, `amqp`, `nats` in `TriggerSpec.Type` enum (`api/v1alpha1/trigger_types.go`). Update kubebuilder validation marker: `+kubebuilder:validation:Enum=webhook;cron;kafka;amqp;nats;resource`
-- [ ] **API** — Split `PubSubTrigger` struct into dedicated `KafkaTrigger`, `AmqpTrigger`, `NatsTrigger` structs, each with only their own fields. Add top-level `spec.kafka`, `spec.amqp`, `spec.nats` fields to `TriggerSpec` (mirroring the `spec.webhook`, `spec.cron`, `spec.resource` pattern). Remove `spec.pubsub`.
-- [ ] **API** — Run `make generate && make manifests` after type changes.
-- [ ] **API** — Update `internal/controller/trigger_controller.go` and `internal/controller/integration_controller.go` wherever `spec.PubSub` or `trigger.Spec.PubSub.Type` is referenced.
-- [ ] **API** — Update all gateway watchers (`internal/gateway/kafka/watcher.go`, `amqp/watcher.go`, `nats/watcher.go`) that read `trigger.Spec.PubSub.*` fields.
-- [ ] **API** — Update all example manifests and docs referencing `type: pubsub`.
-- [ ] **API** — Update `config/samples/` and `docs/api/trigger.md` spec reference.
+- [x] **API** — Rename `type: pubsub` → individual trigger types `kafka`, `amqp`, `nats` in `TriggerSpec.Type` enum (`api/v1alpha1/trigger_types.go`). Update kubebuilder validation marker: `+kubebuilder:validation:Enum=webhook;cron;kafka;amqp;nats;resource`
+- [x] **API** — Split `PubSubTrigger` struct into dedicated `KafkaTrigger`, `AmqpTrigger`, `NatsTrigger` structs, each with only their own fields. Add top-level `spec.kafka`, `spec.amqp`, `spec.nats` fields to `TriggerSpec` (mirroring the `spec.webhook`, `spec.cron`, `spec.resource` pattern). Remove `spec.pubsub`.
+- [x] **API** — Run `make generate && make manifests` after type changes.
+- [x] **API** — Update `internal/controller/trigger_controller.go` and `internal/controller/integration_controller.go` wherever `spec.PubSub` or `trigger.Spec.PubSub.Type` is referenced.
+- [x] **API** — Update all gateway watchers (`internal/gateway/kafka/watcher.go`, `amqp/watcher.go`, `nats/watcher.go`) that read `trigger.Spec.PubSub.*` fields.
+- [x] **API** — Update all example manifests and docs referencing `type: pubsub`.
+- [x] **API** — Update `config/samples/` and `docs/api/trigger.md` spec reference.
 
 ### 12c — Security: Secret value redaction
 
 > **P0 — must fix before any public or OperatorHub release. Moved before §12b per prioritization rule 7.**
 > `$(secrets.name.key)` is substituted before HTTP calls. On failure, the resolved URL/headers/body (containing the secret value) is written to `StepRunStatus.Message` in the FlowRun, persisted in etcd, and visible to anyone with `kubectl get flowrun`.
 
-- [ ] **SECURITY (P0)** — Track which segments of URLs and header values originated from secret interpolation. Redact those segments in `StepRunStatus.Message` and any error strings passed to `r.failFlowRun()`. Pattern: replace secret-origin values with `[REDACTED]` after substitution but before use in error messages. File: `internal/controller/flowrun_controller.go` (`substituteVars`, `executeHTTPStep`, `executePublishStep`)
-- [ ] **SECURITY (P0)** — Add test coverage: assert that a failed HTTP step with a secret-bearing URL does NOT store the raw secret value in FlowRun status. File: `internal/controller/flowrun_controller_test.go`
+- [x] **SECURITY (P0)** — Track which segments of URLs and header values originated from secret interpolation. Redact those segments in `StepRunStatus.Message` and any error strings passed to `r.failFlowRun()`. Pattern: replace secret-origin values with `[REDACTED]` after substitution but before use in error messages. File: `internal/controller/flowrun_controller.go` (`substituteVars`, `executeHTTPStep`, `executePublishStep`)
+- [x] **SECURITY (P0)** — Add test coverage: assert that a failed HTTP step with a secret-bearing URL does NOT store the raw secret value in FlowRun status. File: `internal/controller/flowrun_controller_test.go`
 
 ### 12b — Architecture: FlowRun execution model
 
@@ -355,7 +355,7 @@ Items are ordered to minimize rework:
 
 > Can be done as part of §12a (same file) or standalone after §12b.
 
-- [ ] **CLEANUP** — Remove the dead `Target *TargetResource` field from `TriggerSpec` (`api/v1alpha1/trigger_types.go` lines ~63-64). This field is superseded by `Resource *ResourceTrigger` and its presence is confusing. Run `make generate && make manifests` after removal.
+- [x] **CLEANUP** — Remove the dead `Target *TargetResource` field from `TriggerSpec` (`api/v1alpha1/trigger_types.go` lines ~63-64). This field is superseded by `Resource *ResourceTrigger` and its presence is confusing. Run `make generate && make manifests` after removal. _(done as part of §12a)_
 
 ---
 

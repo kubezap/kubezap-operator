@@ -37,6 +37,7 @@ coredns.yaml
 !.claude/skills/
 !.claude/commands/
 !.claude/agents/
+!.claude/agent-memory/
 
 # gateway binaries (built at repo root during development)
 /kafka-gateway

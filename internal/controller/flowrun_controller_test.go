@@ -451,4 +451,79 @@ var _ = Describe("FlowRunReconciler", func() {
 			Expect(updated.Finalizers).NotTo(ContainElement("kubezap.io/executing"))
 		})
 	})
+
+	Context("CEL when=false skip cascade to dependent step", func() {
+		var (
+			flow    *automationv1alpha1.Flow
+			flowRun *automationv1alpha1.FlowRun
+		)
+
+		BeforeEach(func() {
+			seed := GinkgoRandomSeed()
+			flowName := fmt.Sprintf("flow-skip-cascade-%d", seed)
+			flowRunName := fmt.Sprintf("fr-skip-cascade-%d", seed)
+
+			// Step A: transform (no condition — runs and succeeds).
+			// Step B: transform with when="false" — will be skipped.
+			// Step C: transform with runAfter=["B"] — cascade-skipped because B is skipped.
+			flow = makeFlow(flowName, []automationv1alpha1.FlowStep{
+				{
+					Name: "step-a",
+					Action: automationv1alpha1.StepAction{
+						Type:      "transform",
+						Transform: &automationv1alpha1.TransformAction{Mappings: map[string]string{"k": "v"}},
+					},
+				},
+				{
+					Name: "step-b",
+					When: []automationv1alpha1.WhenExpression{{Expression: "false"}},
+					Action: automationv1alpha1.StepAction{
+						Type:      "transform",
+						Transform: &automationv1alpha1.TransformAction{Mappings: map[string]string{"k": "v"}},
+					},
+				},
+				{
+					Name:     "step-c",
+					RunAfter: []string{"step-b"},
+					Action: automationv1alpha1.StepAction{
+						Type:      "transform",
+						Transform: &automationv1alpha1.TransformAction{Mappings: map[string]string{"k": "v"}},
+					},
+				},
+			})
+			Expect(k8sClient.Create(ctx, flow)).To(Succeed())
+
+			flowRun = makeFlowRun(flowRunName, flowName)
+			Expect(k8sClient.Create(ctx, flowRun)).To(Succeed())
+			DeferCleanup(func() {
+				_ = k8sClient.Delete(context.Background(), flowRun)
+				_ = k8sClient.Delete(context.Background(), flow)
+			})
+		})
+
+		It("skips B (when=false), cascade-skips C (runAfter B), and succeeds overall", func() {
+			updated, err := reconcileAndFetch(flowRun.Name)
+			Expect(err).NotTo(HaveOccurred())
+
+			// Overall FlowRun should succeed — all steps reached a terminal state.
+			Expect(updated.Status.Phase).To(Equal("Succeeded"))
+
+			// Verify individual step statuses.
+			Expect(updated.Status.Steps).To(HaveLen(3))
+
+			stepA := findStepStatus(updated.Status.Steps, "step-a")
+			Expect(stepA).NotTo(BeNil())
+			Expect(stepA.Phase).To(Equal("Succeeded"))
+
+			stepB := findStepStatus(updated.Status.Steps, "step-b")
+			Expect(stepB).NotTo(BeNil())
+			Expect(stepB.Phase).To(Equal("Skipped"))
+			Expect(stepB.Message).To(ContainSubstring("when condition"))
+
+			stepC := findStepStatus(updated.Status.Steps, "step-c")
+			Expect(stepC).NotTo(BeNil())
+			Expect(stepC.Phase).To(Equal("Skipped"))
+			Expect(stepC.Message).To(ContainSubstring("runAfter dependencies were skipped"))
+		})
+	})
 })

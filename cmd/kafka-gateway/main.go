@@ -4,12 +4,15 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/go-logr/logr"
 	"github.com/go-logr/zapr"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"go.uber.org/zap"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
@@ -35,9 +38,15 @@ func init() {
 func main() {
 	var namespace string
 	var logLevel string
+	var metricsPort int
+	var metricsTLSCertFile string
+	var metricsTLSKeyFile string
 
 	flag.StringVar(&namespace, "namespace", "", "Namespace to watch; empty=all namespaces")
 	flag.StringVar(&logLevel, "log-level", "info", "Log level: debug|info|warn|error")
+	flag.IntVar(&metricsPort, "metrics-port", 9090, "Port for the dedicated Prometheus metrics server")
+	flag.StringVar(&metricsTLSCertFile, "metrics-tls-cert-file", "", "Path to TLS certificate PEM for the metrics server. When set with --metrics-tls-key-file the metrics server uses HTTPS.")
+	flag.StringVar(&metricsTLSKeyFile, "metrics-tls-key-file", "", "Path to TLS private key PEM for the metrics server. Required when --metrics-tls-cert-file is set.")
 	flag.Parse()
 
 	opts := zap.NewDevelopmentConfig()
@@ -67,6 +76,23 @@ func main() {
 		os.Exit(1)
 	}
 
+	metricsMux := http.NewServeMux()
+	metricsMux.Handle("/metrics", promhttp.Handler())
+	metricsSrv := &http.Server{Addr: fmt.Sprintf(":%d", metricsPort), Handler: metricsMux}
+	go func() {
+		if metricsTLSCertFile != "" && metricsTLSKeyFile != "" {
+			log.Info("starting metrics HTTPS server", "port", metricsPort)
+			if err := metricsSrv.ListenAndServeTLS(metricsTLSCertFile, metricsTLSKeyFile); err != nil && err != http.ErrServerClosed {
+				log.Error(err, "metrics HTTPS server failed")
+			}
+		} else {
+			log.Info("starting metrics HTTP server", "port", metricsPort)
+			if err := metricsSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+				log.Error(err, "metrics HTTP server failed")
+			}
+		}
+	}()
+
 	watcher, err := kafka.NewWatcher(k8sClient, cfg, namespace, log.WithName("watcher"))
 	if err != nil {
 		log.Error(err, "unable to create kafka watcher")
@@ -85,5 +111,12 @@ func main() {
 	}()
 
 	<-ctx.Done()
+
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer shutdownCancel()
+	if err := metricsSrv.Shutdown(shutdownCtx); err != nil {
+		log.Error(err, "failed to shutdown metrics server gracefully")
+	}
+
 	log.Info("kafka gateway stopped")
 }

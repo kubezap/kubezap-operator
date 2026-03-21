@@ -39,13 +39,13 @@ KubeZap exposes three complementary observability signals:
 
 All metrics use the `kubezap_` prefix. Each component exposes a `/metrics` endpoint on a dedicated metrics port:
 
-| Component                 | Default metrics port | Notes                                     |
-| ------------------------- | -------------------- | ----------------------------------------- |
-| `kubezap-controller`      | `:8443`              | HTTPS, secured by cert-manager-issued TLS |
-| `kubezap-webhook-gateway` | `:8080`              | HTTP by default; configure HTTPS via Helm |
-| `kubezap-kafka-gateway`   | `:8080`              | HTTP by default; configure HTTPS via Helm |
+| Component                 | Default metrics port | Protocol                                                                |
+| ------------------------- | -------------------- | ----------------------------------------------------------------------- |
+| `kubezap-controller`      | `:9090`              | HTTP (default); HTTPS via `--metrics-secure` + `--metrics-cert-path`   |
+| `kubezap-webhook-gateway` | `:9090`              | HTTP (default); HTTPS via `--metrics-tls-cert-file`/`--metrics-tls-key-file` |
+| `kubezap-kafka-gateway`   | `:9090`              | HTTP (default); HTTPS via `--metrics-tls-cert-file`/`--metrics-tls-key-file` |
 
-The webhook trigger endpoint and the metrics endpoint share port `:8080` on the webhook gateway but use different paths (`/hooks/*` and `/metrics` respectively).
+Each component runs a dedicated metrics server on `:9090`, separate from its main serving port. The webhook gateway's hook server remains on `:8080` (`/hooks/*`, `/healthz`, `/readyz`).
 
 > **Note — ServiceMonitor not auto-created**: KubeZap does **not** automatically create
 > `ServiceMonitor` resources. This is intentional — `ServiceMonitor` is a Prometheus Operator
@@ -658,6 +658,23 @@ The OTLP gRPC endpoint set via `OTEL_EXPORTER_OTLP_ENDPOINT` must be reachable f
 
 ---
 
+## Metrics Server Configuration
+
+Each component accepts flags to control its dedicated metrics server (port `:9090` by default).
+
+| Flag | Component | Default | Description |
+|------|-----------|---------|-------------|
+| `--metrics-bind-address` | controller | `:9090` | Address the metrics endpoint binds to. Use `:9090` for HTTP (default) or `:8443` for HTTPS. |
+| `--metrics-secure` | controller | `false` | When `true`, serves metrics over HTTPS. Requires `--metrics-cert-path`. |
+| `--metrics-cert-path` | controller | `""` | Directory containing `tls.crt` and `tls.key` for the metrics server (cert-manager compatible). |
+| `--metrics-port` | webhook-gateway, kafka-gateway | `9090` | Port for the dedicated Prometheus metrics server. |
+| `--metrics-tls-cert-file` | webhook-gateway, kafka-gateway | `""` | Path to TLS certificate PEM. When set with `--metrics-tls-key-file`, the metrics server uses HTTPS. |
+| `--metrics-tls-key-file` | webhook-gateway, kafka-gateway | `""` | Path to TLS private key PEM. Required when `--metrics-tls-cert-file` is set. |
+
+The webhook gateway hook server (port `:8080`) TLS flags (`--tls-cert-file`, `--tls-key-file`, `--mtls-ca-file`) are independent of the metrics server TLS flags.
+
+---
+
 ## Prometheus ServiceMonitor
 
 KubeZap does **not** automatically create `ServiceMonitor` resources. This is intentional — `ServiceMonitor` is a Prometheus Operator CRD that may not be installed in every cluster, and auto-creating it would cause the operator to fail in clusters without Prometheus Operator. It is also common for platform teams to control what is scraped centrally.
@@ -687,14 +704,11 @@ spec:
   endpoints:
     - port: metrics
       path: /metrics
-      scheme: https
-      tlsConfig:
-        # The controller metrics endpoint is HTTPS on port 8443, secured by cert-manager.
-        # Reference the cert-manager-issued Secret here, or use insecureSkipVerify for dev.
-        insecureSkipVerify: false
-        caFile: /etc/prometheus/secrets/kubezap-metrics-ca/ca.crt
+      scheme: http
       interval: 30s
       scrapeTimeout: 10s
+      # To scrape over HTTPS, add --metrics-secure=true and --metrics-cert-path to the
+      # controller Deployment, then change scheme to https and add a tlsConfig block.
 ```
 
 ### Webhook Gateway ServiceMonitor

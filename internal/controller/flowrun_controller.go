@@ -55,6 +55,16 @@ import (
 const retainAnnotation = "kubezap.io/retain"
 const executingFinalizer = "kubezap.io/executing"
 
+// kafkaProducerIdleTTL is the maximum idle time before a cached Kafka producer
+// is closed and recreated on next use.
+const kafkaProducerIdleTTL = 10 * time.Minute
+
+// integrationCacheKeyType is a private key type for storing the per-reconcile
+// Integration object cache in a context value.
+type integrationCacheKeyType struct{}
+
+var integrationCacheKey = integrationCacheKeyType{}
+
 // +kubebuilder:rbac:groups=automation.kubezap.io,resources=flowruns,verbs=get;list;watch;update;patch;delete
 // +kubebuilder:rbac:groups=automation.kubezap.io,resources=flowruns/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=automation.kubezap.io,resources=flowruns/finalizers,verbs=update
@@ -83,13 +93,12 @@ type FlowRunReconciler struct {
 	// address string. Producers are created lazily and reused across publish steps to
 	// avoid the per-call TCP handshake + metadata fetch overhead. Access is
 	// synchronized via kafkaProducersMu.
-	kafkaProducersMu sync.Mutex
-	kafkaProducers   map[string]sarama.SyncProducer
+	kafkaProducersMu      sync.Mutex
+	kafkaProducers        map[string]sarama.SyncProducer
+	kafkaProducerLastUsed map[string]time.Time
 
-	// celEnv is the shared CEL environment, initialized once via celEnvOnce.
-	celEnvOnce sync.Once
-	celEnv     *cel.Env
-	celEnvErr  error
+	// celEnv is the shared CEL environment, initialized eagerly in SetupWithManager.
+	celEnv *cel.Env
 
 	// DisableCELCache bypasses the compiled-program cache so every eval recompiles.
 	// The cache is unbounded: it grows to hold one entry per distinct `when` expression
@@ -168,6 +177,11 @@ func (r *FlowRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		}
 		return ctrl.Result{}, err
 	}
+
+	// Inject a per-reconcile Integration cache so that multiple steps referencing
+	// the same Integration do not each issue a separate API server call.
+	integCache := make(map[string]*automationv1alpha1.Integration)
+	ctx = context.WithValue(ctx, integrationCacheKey, integCache)
 
 	// Transition Pending → Running.
 	if flowRun.Status.Phase == "" || flowRun.Status.Phase == "Pending" {
@@ -609,13 +623,24 @@ func (r *FlowRunReconciler) executePublishStep(
 		return nil, fmt.Errorf("step %q has type=publish but no integrationRef.name", step.Name)
 	}
 
-	// Fetch the Integration.
-	var integration automationv1alpha1.Integration
-	if err := r.Get(ctx, types.NamespacedName{
-		Name:      step.Action.Publish.IntegrationRef.Name,
-		Namespace: flowRun.Namespace,
-	}, &integration); err != nil {
-		return nil, fmt.Errorf("fetching integration %q: %w", step.Action.Publish.IntegrationRef.Name, err)
+	// Fetch the Integration — use the per-reconcile cache when available.
+	integCacheKey := flowRun.Namespace + "/" + step.Action.Publish.IntegrationRef.Name
+	var integration *automationv1alpha1.Integration
+	if cache, _ := ctx.Value(integrationCacheKey).(map[string]*automationv1alpha1.Integration); cache != nil {
+		integration = cache[integCacheKey]
+	}
+	if integration == nil {
+		var fetched automationv1alpha1.Integration
+		if err := r.Get(ctx, types.NamespacedName{
+			Name:      step.Action.Publish.IntegrationRef.Name,
+			Namespace: flowRun.Namespace,
+		}, &fetched); err != nil {
+			return nil, fmt.Errorf("fetching integration %q: %w", step.Action.Publish.IntegrationRef.Name, err)
+		}
+		integration = &fetched
+		if cache, _ := ctx.Value(integrationCacheKey).(map[string]*automationv1alpha1.Integration); cache != nil {
+			cache[integCacheKey] = integration
+		}
 	}
 
 	// Route to appropriate publish backend based on integration type.
@@ -625,7 +650,7 @@ func (r *FlowRunReconciler) executePublishStep(
 		for k, v := range step.Action.Publish.Headers {
 			headers[k] = substituteVars(v, stepResults, triggerData)
 		}
-		return r.publishToKafka(&integration, step.Action.Publish.Topic, body, headers)
+		return r.publishToKafka(integration, step.Action.Publish.Topic, body, headers)
 	}
 
 	if integration.Spec.Plugin == nil {
@@ -715,12 +740,25 @@ func (r *FlowRunReconciler) applyHTTPIntegration(
 	stepResults map[string]map[string]string,
 	triggerData *automationv1alpha1.TriggerData,
 ) (string, error) {
-	var integration automationv1alpha1.Integration
-	if err := r.Get(ctx, types.NamespacedName{
-		Name:      integrationName,
-		Namespace: namespace,
-	}, &integration); err != nil {
-		return "", fmt.Errorf("fetching http integration %q: %w", integrationName, err)
+	// Use the per-reconcile Integration cache when available to avoid repeated
+	// API server calls when multiple HTTP steps reference the same Integration.
+	cacheKey := namespace + "/" + integrationName
+	var integration *automationv1alpha1.Integration
+	if cache, _ := ctx.Value(integrationCacheKey).(map[string]*automationv1alpha1.Integration); cache != nil {
+		integration = cache[cacheKey]
+	}
+	if integration == nil {
+		var fetched automationv1alpha1.Integration
+		if err := r.Get(ctx, types.NamespacedName{
+			Name:      integrationName,
+			Namespace: namespace,
+		}, &fetched); err != nil {
+			return "", fmt.Errorf("fetching http integration %q: %w", integrationName, err)
+		}
+		integration = &fetched
+		if cache, _ := ctx.Value(integrationCacheKey).(map[string]*automationv1alpha1.Integration); cache != nil {
+			cache[cacheKey] = integration
+		}
 	}
 	if integration.Spec.HTTP == nil {
 		return url, nil
@@ -1071,7 +1109,9 @@ func (r *FlowRunReconciler) enforceMaxFlowRunsByPhase(ctx context.Context, trigg
 
 // SetupWithManager sets up the controller with the Manager.
 // It also registers the reconciler as a Runnable so that cached Kafka producers
-// are closed cleanly when the manager shuts down.
+// are closed cleanly when the manager shuts down, and initializes the CEL
+// environment eagerly so that any startup failure is surfaced immediately rather
+// than silently degrading when condition evaluation is first attempted.
 func (r *FlowRunReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	if err := mgr.Add(r); err != nil {
 		return fmt.Errorf("registering FlowRunReconciler as runnable: %w", err)
@@ -1080,6 +1120,18 @@ func (r *FlowRunReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	if maxConcurrent <= 0 {
 		maxConcurrent = 10
 	}
+
+	// Initialize CEL environment eagerly — failure here aborts controller startup
+	// rather than silently disabling 'when' expression evaluation at runtime.
+	var celErr error
+	r.celEnv, celErr = cel.NewEnv(
+		cel.Variable("trigger", cel.MapType(cel.StringType, cel.DynType)),
+		cel.Variable("steps", cel.MapType(cel.StringType, cel.DynType)),
+	)
+	if celErr != nil {
+		return fmt.Errorf("initializing CEL environment: %w", celErr)
+	}
+
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&automationv1alpha1.FlowRun{}).
 		Named("flowrun").
@@ -1091,8 +1143,8 @@ func (r *FlowRunReconciler) SetupWithManager(mgr ctrl.Manager) error {
 
 // evaluateWhen evaluates all WhenExpression conditions using CEL.
 // Returns true if all conditions pass (or the list is empty), false if any fail.
-// The CEL environment is initialized once and reused; compiled programs are cached
-// per expression string for efficiency across reconcile calls.
+// The CEL environment is initialized eagerly in SetupWithManager and reused here;
+// compiled programs are cached per expression string for efficiency across reconcile calls.
 func (r *FlowRunReconciler) evaluateWhen(
 	when []automationv1alpha1.WhenExpression,
 	stepResults map[string]map[string]string,
@@ -1103,15 +1155,8 @@ func (r *FlowRunReconciler) evaluateWhen(
 		return true, nil
 	}
 
-	// Initialize the CEL environment exactly once for the lifetime of this reconciler.
-	r.celEnvOnce.Do(func() {
-		r.celEnv, r.celEnvErr = cel.NewEnv(
-			cel.Variable("trigger", cel.MapType(cel.StringType, cel.DynType)),
-			cel.Variable("steps", cel.MapType(cel.StringType, cel.DynType)),
-		)
-	})
-	if r.celEnvErr != nil {
-		return false, r.celEnvErr
+	if r.celEnv == nil {
+		return false, fmt.Errorf("CEL environment not initialized")
 	}
 	env := r.celEnv
 
@@ -1408,7 +1453,6 @@ func (r *FlowRunReconciler) Start(ctx context.Context) error {
 	}
 
 	<-ctx.Done()
-	// Existing Kafka producer teardown below (keep unchanged).
 	r.kafkaProducersMu.Lock()
 	defer r.kafkaProducersMu.Unlock()
 	for addr, p := range r.kafkaProducers {
@@ -1418,6 +1462,7 @@ func (r *FlowRunReconciler) Start(ctx context.Context) error {
 		}
 	}
 	r.kafkaProducers = nil
+	r.kafkaProducerLastUsed = nil
 	return nil
 }
 
@@ -1456,10 +1501,21 @@ func (r *FlowRunReconciler) publishToKafka(
 		if r.kafkaProducers != nil {
 			delete(r.kafkaProducers, brokerKey)
 		}
+		if r.kafkaProducerLastUsed != nil {
+			delete(r.kafkaProducerLastUsed, brokerKey)
+		}
 		r.kafkaProducersMu.Unlock()
 		_ = producer.Close()
 		return nil, fmt.Errorf("sending kafka message to topic %q: %w", topic, sendErr)
 	}
+
+	// Update last-used timestamp on success to reset the idle TTL window.
+	r.kafkaProducersMu.Lock()
+	if r.kafkaProducerLastUsed != nil {
+		r.kafkaProducerLastUsed[brokerKey] = time.Now()
+	}
+	r.kafkaProducersMu.Unlock()
+
 	return map[string]string{
 		"partition": fmt.Sprintf("%d", partition),
 		"offset":    fmt.Sprintf("%d", offset),
@@ -1468,6 +1524,8 @@ func (r *FlowRunReconciler) publishToKafka(
 
 // getOrCreateKafkaProducer returns a cached producer for brokerKey or creates
 // and caches a new one. integration is used only when a new producer is needed.
+// Producers that have been idle for longer than kafkaProducerIdleTTL are closed
+// and replaced so that stale broker connections do not survive indefinitely.
 func (r *FlowRunReconciler) getOrCreateKafkaProducer(
 	brokerKey string,
 	integration *automationv1alpha1.Integration,
@@ -1478,8 +1536,19 @@ func (r *FlowRunReconciler) getOrCreateKafkaProducer(
 	if r.kafkaProducers == nil {
 		r.kafkaProducers = make(map[string]sarama.SyncProducer)
 	}
+	if r.kafkaProducerLastUsed == nil {
+		r.kafkaProducerLastUsed = make(map[string]time.Time)
+	}
+
 	if p, ok := r.kafkaProducers[brokerKey]; ok {
-		return p, nil
+		// Evict and replace if the producer has been idle past the TTL.
+		if time.Since(r.kafkaProducerLastUsed[brokerKey]) > kafkaProducerIdleTTL {
+			_ = p.Close()
+			delete(r.kafkaProducers, brokerKey)
+			delete(r.kafkaProducerLastUsed, brokerKey)
+		} else {
+			return p, nil
+		}
 	}
 
 	config := sarama.NewConfig()
@@ -1491,5 +1560,7 @@ func (r *FlowRunReconciler) getOrCreateKafkaProducer(
 		return nil, fmt.Errorf("creating kafka producer for integration %q: %w", integration.Name, err)
 	}
 	r.kafkaProducers[brokerKey] = p
+	// Record creation time as the initial last-used timestamp.
+	r.kafkaProducerLastUsed[brokerKey] = time.Now()
 	return p, nil
 }

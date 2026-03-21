@@ -20,13 +20,23 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
+	"github.com/google/cel-go/cel"
+
 	automationv1alpha1 "github.com/borfswitch/kubezap/api/v1alpha1"
 )
 
 // newTestReconciler returns a FlowRunReconciler with no external dependencies,
 // suitable for unit-testing pure-logic methods such as evaluateWhen.
+// The CEL environment is initialized eagerly here, mirroring SetupWithManager.
 func newTestReconciler() *FlowRunReconciler {
-	return &FlowRunReconciler{}
+	env, err := cel.NewEnv(
+		cel.Variable("trigger", cel.MapType(cel.StringType, cel.DynType)),
+		cel.Variable("steps", cel.MapType(cel.StringType, cel.DynType)),
+	)
+	if err != nil {
+		panic("newTestReconciler: failed to initialize CEL env: " + err.Error())
+	}
+	return &FlowRunReconciler{celEnv: env}
 }
 
 var _ = Describe("evaluateWhen", func() {

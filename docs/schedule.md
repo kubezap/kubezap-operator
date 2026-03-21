@@ -277,6 +277,9 @@ Items are ordered to minimize rework:
 
 ## 10. Future / Backlog
 
+- [x] `docs/guides/using-the-cli.md` — CLI user guide (created 2026-03-20 review pass)
+- [x] `docs/guides/cron-triggers.md` — cron trigger how-to: schedule syntax, timezones, FlowRun naming, GC policy (created 2026-03-20 review pass)
+- [x] `docs/guides/troubleshooting.md` — consolidated troubleshooting guide: controller startup, trigger acceptance, webhook routing, FlowRun lifecycle, CEL errors, MockEndpoint, Kafka, RBAC, CLI (created 2026-03-20 review pass)
 - [ ] `docs/guides/amqp-setup.md` — write full AMQP setup guide (stub exists)
 - [ ] `docs/guides/nats-setup.md` — write full NATS setup guide (stub exists)
 - [ ] Kubernetes resource-event trigger type (`type: resource` — dynamic informers in controller; see `docs/architecture.md#kubernetes-resource-event-triggers` for design; required for Example 6)

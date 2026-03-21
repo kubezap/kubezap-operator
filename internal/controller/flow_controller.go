@@ -19,6 +19,7 @@ package controller
 import (
 	"context"
 	"fmt"
+	"time"
 
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -124,8 +125,18 @@ func validateFlowSpec(spec automationv1alpha1.FlowSpec) error {
 			if step.Action.Publish.Topic == "" {
 				return fmt.Errorf("step %q has type=publish but action.publish.topic is empty", step.Name)
 			}
+		case "wait":
+			if step.Action.Wait == nil {
+				return fmt.Errorf("step %q has type=wait but action.wait is not set", step.Name)
+			}
+			if step.Action.Wait.Duration == "" {
+				return fmt.Errorf("step %q has type=wait but action.wait.duration is empty", step.Name)
+			}
+			if _, err := time.ParseDuration(step.Action.Wait.Duration); err != nil {
+				return fmt.Errorf("step %q has type=wait but action.wait.duration %q is not a valid Go duration: %w", step.Name, step.Action.Wait.Duration, err)
+			}
 		default:
-			return fmt.Errorf("step %q has unknown action type %q: must be one of http, transform, publish", step.Name, step.Action.Type)
+			return fmt.Errorf("step %q has unknown action type %q: must be one of http, transform, publish, wait", step.Name, step.Action.Type)
 		}
 	}
 

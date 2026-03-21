@@ -690,6 +690,107 @@ var _ = Describe("FlowRunReconciler", func() {
 		})
 	})
 
+	Context("wait step timeout and requeue behavior", func() {
+		var (
+			flow    *automationv1alpha1.Flow
+			flowRun *automationv1alpha1.FlowRun
+		)
+
+		BeforeEach(func() {
+			seed := GinkgoRandomSeed()
+			flowName := fmt.Sprintf("flow-wait-%d", seed)
+			flowRunName := fmt.Sprintf("fr-wait-%d", seed)
+
+			// A wait step with a short duration (100ms) so we can assert both the
+			// "still waiting / requeue" path and the "wait elapsed / Succeeded" path.
+			flow = makeFlow(flowName, []automationv1alpha1.FlowStep{
+				{
+					Name: "wait-step",
+					Action: automationv1alpha1.StepAction{
+						Type: "wait",
+						Wait: &automationv1alpha1.WaitAction{Duration: "100ms"},
+					},
+				},
+			})
+			Expect(k8sClient.Create(ctx, flow)).To(Succeed())
+
+			flowRun = makeFlowRun(flowRunName, flowName)
+			Expect(k8sClient.Create(ctx, flowRun)).To(Succeed())
+
+			DeferCleanup(func() {
+				// Clear any finalizer so Delete is not blocked.
+				var fr automationv1alpha1.FlowRun
+				if err := k8sClient.Get(context.Background(),
+					types.NamespacedName{Name: flowRunName, Namespace: testNamespace}, &fr); err == nil {
+					fr.Finalizers = nil
+					_ = k8sClient.Update(context.Background(), &fr)
+				}
+				_ = k8sClient.Delete(context.Background(), flowRun)
+				_ = k8sClient.Delete(context.Background(), flow)
+			})
+		})
+
+		It("requeues (result.RequeueAfter > 0) on the first reconcile while the wait has not elapsed", func() {
+			r := newReconciler()
+			nn := types.NamespacedName{Name: flowRun.Name, Namespace: testNamespace}
+
+			result, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: nn})
+			Expect(err).NotTo(HaveOccurred())
+
+			// The reconciler must request a requeue because the wait period has not
+			// yet elapsed; it stores ResumeAfter in the step status and returns a
+			// positive RequeueAfter duration.
+			Expect(result.RequeueAfter).To(BeNumerically(">", 0),
+				"expected RequeueAfter > 0 while wait period is active")
+
+			// The step status must be Waiting, not Succeeded yet.
+			var updated automationv1alpha1.FlowRun
+			Expect(k8sClient.Get(ctx, nn, &updated)).To(Succeed())
+			waitStatus := findStepStatus(updated.Status.Steps, "wait-step")
+			Expect(waitStatus).NotTo(BeNil())
+			Expect(waitStatus.Phase).To(Equal("Waiting"))
+			Expect(waitStatus.ResumeAfter).NotTo(BeNil())
+		})
+
+		It("completes the step with phase=Succeeded after the wait duration elapses", func() {
+			r := newReconciler()
+			nn := types.NamespacedName{Name: flowRun.Name, Namespace: testNamespace}
+
+			// First reconcile: transitions Pending → Running, hits the wait step,
+			// stores ResumeAfter, and requeues.
+			_, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: nn})
+			Expect(err).NotTo(HaveOccurred())
+
+			// Verify the step is in Waiting state before sleeping.
+			var midRun automationv1alpha1.FlowRun
+			Expect(k8sClient.Get(ctx, nn, &midRun)).To(Succeed())
+			waitStatus := findStepStatus(midRun.Status.Steps, "wait-step")
+			Expect(waitStatus).NotTo(BeNil())
+			Expect(waitStatus.Phase).To(Equal("Waiting"))
+
+			// Sleep long enough for the 100ms wait to elapse.
+			time.Sleep(150 * time.Millisecond)
+
+			// Second reconcile: the wait has elapsed, step should now complete.
+			result2, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: nn})
+			Expect(err).NotTo(HaveOccurred())
+
+			// No further requeue is needed once the wait step completes and the
+			// FlowRun reaches a terminal phase.
+			Expect(result2.RequeueAfter).To(Equal(time.Duration(0)),
+				"expected no further requeue after wait elapsed and FlowRun succeeded")
+
+			var finished automationv1alpha1.FlowRun
+			Expect(k8sClient.Get(ctx, nn, &finished)).To(Succeed())
+			Expect(finished.Status.Phase).To(Equal("Succeeded"))
+
+			doneStep := findStepStatus(finished.Status.Steps, "wait-step")
+			Expect(doneStep).NotTo(BeNil())
+			Expect(doneStep.Phase).To(Equal("Succeeded"))
+			Expect(doneStep.CompletionTime).NotTo(BeNil())
+		})
+	})
+
 	Context("step retry with exponential backoff (T7)", func() {
 		var (
 			server  *httptest.Server

@@ -34,7 +34,7 @@ spec:
         type: http
         http:
           url: >-
-            http://kubezap-webhook-gateway.default.svc.cluster.local:8080/mock/customer-profile
+            http://mockoon.default.svc.cluster.local:3000/customer-profile
           method: POST
           headers:
             Content-Type: application/json
@@ -56,7 +56,7 @@ spec:
         type: http
         http:
           url: >-
-            http://kubezap-webhook-gateway.default.svc.cluster.local:8080/mock/enterprise-sink
+            http://mockoon.default.svc.cluster.local:3000/enterprise-sink
           method: POST
           headers:
             Content-Type: application/json
@@ -79,7 +79,7 @@ spec:
         type: http
         http:
           url: >-
-            http://kubezap-webhook-gateway.default.svc.cluster.local:8080/mock/standard-sink
+            http://mockoon.default.svc.cluster.local:3000/standard-sink
           method: POST
           headers:
             Content-Type: application/json
@@ -100,7 +100,7 @@ spec:
         type: http
         http:
           url: >-
-            http://kubezap-webhook-gateway.default.svc.cluster.local:8080/mock/trial-sink
+            http://mockoon.default.svc.cluster.local:3000/trial-sink
           method: POST
           headers:
             Content-Type: application/json

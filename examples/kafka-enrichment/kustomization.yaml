@@ -1,5 +1,5 @@
 resources:
   - integration.yaml
-  - mockendpoints.yaml
+  - mockoon.yaml
   - flow.yaml
   - trigger.yaml

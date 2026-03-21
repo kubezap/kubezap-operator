@@ -19,7 +19,7 @@ spec:
       action:
         type: http
         http:
-          url: "http://kubezap-webhook-gateway.default.svc.cluster.local:8080/mock/enrich-order"
+          url: "http://mockoon.default.svc.cluster.local:3000/enrich-order"
           method: POST
           body: '{"orderId":"$(trigger.headers.X-Order-Id)"}'
           headers:
@@ -37,7 +37,7 @@ spec:
       action:
         type: http
         http:
-          url: "http://kubezap-webhook-gateway.default.svc.cluster.local:8080/mock/notify-express"
+          url: "http://mockoon.default.svc.cluster.local:3000/notify-express"
           method: POST
           body: '{"customerId":"$(steps.enrich_order.results.customerId)","message":"Express order dispatched"}'
           headers:
@@ -51,7 +51,7 @@ spec:
       action:
         type: http
         http:
-          url: "http://kubezap-webhook-gateway.default.svc.cluster.local:8080/mock/notify-standard"
+          url: "http://mockoon.default.svc.cluster.local:3000/notify-standard"
           method: POST
           body: '{"customerId":"$(steps.enrich_order.results.customerId)","message":"Standard order queued"}'
           headers:

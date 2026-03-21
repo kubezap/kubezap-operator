@@ -2,14 +2,15 @@
 
 This example walks you through a complete working scenario that demonstrates the
 core KubeZap feature set: a webhook trigger, multi-step flow with data
-transformation, conditional branching, and a mock notification endpoint for
-development testing.
+transformation, conditional branching, and a Mockoon mock server for development
+testing.
 
 By the end you will have:
 
 - A webhook endpoint that accepts order events
 - A flow that inspects the order type and routes to different notification paths
-- A MockEndpoint that captures the notification so you can verify the result without a real Slack
+- A Mockoon in-cluster mock server that captures notifications so you can verify
+  the result without a real downstream service
 
 ---
 
@@ -31,15 +32,16 @@ POST /hooks/order-placed
    [transform]  extract orderType from body
         │
         ▼
-   [http]  enrich order from internal API (or mock)
+   [http]  enrich order from internal API (Mockoon /enrich-order)
         │
-        ├── when orderType == "express" ──► POST /mock/notify-express
+        ├── when tier == "express" ──► POST /notify-express
         │
-        └── when orderType == "standard" ─► POST /mock/notify-standard
+        └── when tier == "standard" ─► POST /notify-standard
 ```
 
-Two conditional branches, each verified via a MockEndpoint. The MockEndpoints capture
-the request so you can inspect exactly what was sent.
+Two conditional branches, each captured by Mockoon. The `/enrich-order` route
+cycles between express and standard responses (Mockoon's `SEQUENTIAL` mode),
+so the first request routes to express and the second to standard.
 
 ---
 
@@ -50,15 +52,16 @@ kubectl apply -k examples/order-router/
 ```
 
 This creates:
-- `MockEndpoint/enrich-order` — simulates the enrichment API with a `responseSequence` that alternates between express and standard responses
-- `MockEndpoint/notify-express` and `MockEndpoint/notify-standard` — capture routed notifications
+- `ConfigMap/mockoon-env` — Mockoon environment file with three stub routes
+- `Deployment/mockoon` + `Service/mockoon` — in-cluster Mockoon mock server
 - `Flow/order-router` — the four-step workflow
 - `Trigger/order-placed` — the webhook trigger on `/hooks/order-placed`
 
-The MockEndpoints register routes on the webhook gateway automatically. Check the gateway logs to confirm:
+Wait for the Mockoon pod to be ready:
 
 ```bash
-kubectl logs -l app=kubezap-webhook-gateway -n default | grep mock
+kubectl get pods -l app=mockoon -n default
+# Expected: mockoon-<hash>   1/1   Running
 ```
 
 ---
@@ -87,8 +90,8 @@ Forward the webhook gateway port if not already externally accessible:
 kubectl port-forward svc/kubezap-webhook-gateway 8080:8080 -n default
 ```
 
-Fire the first request (the enrich mock's `responseSequence` will return `tier: express`
-on the first call, routing to the express path):
+Fire the first request (the `/enrich-order` mock returns `tier: express` on the
+first call, routing to the express path):
 
 ```bash
 curl -X POST http://localhost:8080/hooks/order-placed \
@@ -133,13 +136,15 @@ was false. Skipped steps are not failures — the FlowRun phase is still `Succee
 
 ---
 
-## Step 5: Inspect captured MockEndpoint requests
+## Step 5: Inspect captured requests via Mockoon
 
-The MockEndpoints record everything they receive:
+The Mockoon admin API records all requests it receives:
 
 ```bash
-kubectl get mockendpoint notify-express \
-  -o jsonpath='{.status.recentRequests}' | jq .
+kubectl exec -n default \
+  $(kubectl get pod -n default -l app=mockoon -o jsonpath='{.items[0].metadata.name}') \
+  -- wget -q -O - http://localhost:3001/api/logs \
+  | jq '[.[] | select(.url == "/notify-express")]'
 ```
 
 Expected:
@@ -147,17 +152,27 @@ Expected:
 ```json
 [
   {
+    "UUID": "...",
     "timestamp": "...",
     "method": "POST",
-    "path": "/mock/notify-express",
+    "url": "/notify-express",
     "body": "{\"customerId\":\"cust-001\",\"message\":\"Express order dispatched\"}",
-    "responseStatusCode": 200
+    "response": {
+      "status": 200,
+      "body": "{\"notified\":true,\"tier\":\"express\"}"
+    }
   }
 ]
 ```
 
-Fire a second request — the enrich mock will now return `tier: standard`, so
-`notify-standard` runs instead:
+You can also stream Mockoon logs in real time:
+
+```bash
+kubectl logs -n default -l app=mockoon -f
+```
+
+Fire a second request — the enrich mock returns `tier: standard` on the second
+call (SEQUENTIAL mode), so `notify-standard` runs instead:
 
 ```bash
 curl -X POST http://localhost:8080/hooks/order-placed \
@@ -177,8 +192,8 @@ curl -X POST http://localhost:8080/hooks/order-placed \
 | Step result passing | `$(steps.enrich_order.results.*)` used in later steps |
 | Conditional branching | `when: expression` routes to express vs standard |
 | Skipped steps | One notify step is always `Skipped` |
-| MockEndpoint capture | Inspect received payloads via `kubectl get mockendpoint` |
-| responseSequence | Cycles through mock responses to demo both paths |
+| Mockoon request capture | Inspect received payloads via `GET /api/logs` on the admin API |
+| SEQUENTIAL responses | Cycles through mock responses to demo both paths |
 
 ---
 
@@ -196,16 +211,20 @@ kubectl logs -l control-plane=controller-manager -n kubezap-system
 
 Check the gateway logs and confirm the Trigger has `status.conditions[Accepted]=True`.
 
-**MockEndpoint not receiving requests**
+**Mockoon not receiving requests**
 
-Verify the gateway ServiceAccount has permission to patch `mockendpoints/status`:
+Verify the Mockoon pod is running and the route endpoint is correct:
 
 ```bash
-kubectl auth can-i patch mockendpoints/status \
-  --as=system:serviceaccount:default:kubezap-webhook-gateway
+kubectl get pods -l app=mockoon -n default
+kubectl logs -l app=mockoon -n default
 ```
 
-If not, see [Architecture → Gateway RBAC](../../docs/architecture.md#gateway-serviceaccount-and-rbac).
+Common issue: Flow steps must use the path without a `/mock/` prefix.
+The correct URL format is `http://mockoon.default.svc.cluster.local:3000/<endpoint>`.
+
+See [Troubleshooting → Mockoon not receiving requests](../../docs/guides/troubleshooting.md#mockoon-not-receiving-requests)
+and the [Mocking HTTP Endpoints guide](../../docs/guides/mocking-http-endpoints.md).
 
 ---
 
@@ -221,6 +240,6 @@ kubectl delete -k examples/order-router/
 
 - Add [HMAC authentication](../../docs/guides/webhook-security.md) to the trigger
 - Add a cron trigger that runs the flow on a schedule
-- Replace the MockEndpoints with real downstream services
+- Replace Mockoon with real downstream services using the [URL switching pattern](../../docs/guides/mocking-http-endpoints.md#url-switching-with-configmaps)
 - Set up [Prometheus metrics](../../docs/guides/observability.md) to track FlowRun durations
 - Explore the [Kafka enrichment example](../kafka-enrichment/) for a message-broker-driven pipeline

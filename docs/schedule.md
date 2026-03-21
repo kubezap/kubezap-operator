@@ -108,13 +108,13 @@ Items are ordered to minimize rework:
 - [x] Convert `docs/api/mock-endpoint.md` to `docs/guides/mocking-http-endpoints.md`: explain why MockEndpoint is removed, document Mockoon's in-cluster deployment (Docker image + Kubernetes `Deployment` + `Service`), show how to define stub responses, show how to inspect captured requests, cross-link to each example that uses it
 - [x] Add in-cluster `Deployment` + `Service` YAML for Mockoon as a reusable snippet referenced by examples and the guide
 - [x] Update `docs/overview.md` CRD Overview table: remove `MockEndpoint` row; add note redirecting to `docs/guides/mocking-http-endpoints.md`
-- [ ] Update `docs/architecture.md`: remove all MockEndpoint references; update the "Webhook gateway also serves `/mock/*` paths" note to reflect removal
-- [ ] Update `docs/guides/troubleshooting.md`: replace "MockEndpoint not capturing requests" section with Mockoon equivalent
+- [x] Update `docs/architecture.md`: remove all MockEndpoint references; update the "Webhook gateway also serves `/mock/*` paths" note to reflect removal
+- [x] Update `docs/guides/troubleshooting.md`: replace "MockEndpoint not capturing requests" section with Mockoon equivalent
 
 ### Phase 2 — Update existing example manifests
 
-- [ ] `config/samples/automation_v1alpha1_mockendpoint.yaml` — delete file; remove from `config/samples/kustomization.yaml` and OLM bundle alm-examples
-- [ ] `examples/order-router/` — replace MockEndpoint resources with Mockoon stub configs; update `kustomization.yaml` and `README.md`
+- [x] `config/samples/automation_v1alpha1_mockendpoint.yaml` — delete file; remove from `config/samples/kustomization.yaml` and OLM bundle alm-examples
+- [x] `examples/order-router/` — replace MockEndpoint resources with Mockoon stub configs; update `kustomization.yaml` and `README.md`
 - [ ] `examples/kafka-enrichment/` — replace `enterprise-sink`, `standard-sink`, `trial-sink`, `customer-profile` MockEndpoints with Mockoon stub configs; update `kustomization.yaml` and `README.md`
 - [ ] `examples/slack-router/` — replace MockEndpoint resources with Mockoon; update `kustomization.yaml` and `README.md`
 - [ ] `examples/incident-escalation/` — audit for MockEndpoint usage; update if present

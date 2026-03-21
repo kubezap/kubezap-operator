@@ -109,7 +109,6 @@ See [Architecture](architecture.md) for the full design including scaling, names
 | `Flow` | `automation.kubezap.io/v1alpha1` | Namespaced | Available |
 | `FlowRun` | `automation.kubezap.io/v1alpha1` | Namespaced | Available |
 | `Integration` | `automation.kubezap.io/v1alpha1` | Namespaced | Available |
-| `MockEndpoint` | `automation.kubezap.io/v1alpha1` | Namespaced | Available |
 | `Step` | `automation.kubezap.io/v1alpha1` | Namespaced | Planned |
 
 All CRDs are namespaced by default. Cluster-scoped variants are planned for multi-tenant deployments.
@@ -118,7 +117,7 @@ All CRDs are namespaced by default. Cluster-scoped variants are planned for mult
 
 `Integration` stores connection details and credentials for external systems (Kafka clusters, message brokers, community plugins) and is referenced by Triggers (subscriber) and Flow steps (publisher). See [Integration CRD](api/integration.md).
 
-`MockEndpoint` is a development and testing aid — it registers a local HTTP endpoint on the operator's webhook server that captures requests and logs them to the CRD status instead of calling real external services. See [MockEndpoint CRD](api/mock-endpoint.md).
+> **Note:** The `MockEndpoint` CRD has been removed. See [Mocking HTTP Endpoints](guides/mocking-http-endpoints.md) for the recommended Mockoon-based approach to mock HTTP servers in development and testing.
 
 ---
 

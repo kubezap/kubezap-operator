@@ -27,6 +27,7 @@ import (
 	"github.com/google/cel-go/cel"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -879,6 +880,94 @@ var _ = Describe("FlowRunReconciler", func() {
 			//   Expect(retryStep.Attempts).To(BeNumerically("==", 3))
 			// For now, verify the field is set (even if it's 1).
 			Expect(retryStep.Attempts).To(BeNumerically(">=", 1))
+		})
+	})
+
+	// §12c — Secret value redaction (P0)
+	// Verifies that raw secret values are never persisted to StepRunStatus.Message.
+	Context("secret value redaction in failed HTTP step (§12c)", func() {
+		var (
+			secret  *corev1.Secret
+			flow    *automationv1alpha1.Flow
+			flowRun *automationv1alpha1.FlowRun
+		)
+
+		const secretValue = "super-secret-token-12345"
+
+		BeforeEach(func() {
+			seed := GinkgoRandomSeed()
+			secretName := fmt.Sprintf("test-secret-%d", seed)
+			flowName := fmt.Sprintf("flow-secret-redact-%d", seed)
+			flowRunName := fmt.Sprintf("fr-secret-redact-%d", seed)
+
+			// Create a Kubernetes Secret containing a known value.
+			secret = &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      secretName,
+					Namespace: testNamespace,
+				},
+				Data: map[string][]byte{
+					"token": []byte(secretValue),
+				},
+			}
+			Expect(k8sClient.Create(ctx, secret)).To(Succeed())
+
+			// Create a Flow whose HTTP step URL embeds a $(secrets.*) reference.
+			// The host part of the URL is an unroutable address, so the HTTP call
+			// will always fail — giving us a failed step whose Message we can inspect.
+			flow = makeFlow(flowName, []automationv1alpha1.FlowStep{
+				{
+					Name: "http-with-secret",
+					Action: automationv1alpha1.StepAction{
+						Type: "http",
+						HTTP: &automationv1alpha1.HTTPAction{
+							// Embed the secret in the URL path so it would appear in
+							// the error message if not redacted.
+							URL:    fmt.Sprintf("http://192.0.2.1/api/$(secrets.%s.token)", secretName),
+							Method: "GET",
+						},
+					},
+				},
+			})
+			Expect(k8sClient.Create(ctx, flow)).To(Succeed())
+
+			flowRun = makeFlowRun(flowRunName, flowName)
+			Expect(k8sClient.Create(ctx, flowRun)).To(Succeed())
+
+			DeferCleanup(func() {
+				_ = k8sClient.Delete(context.Background(), secret)
+				_ = k8sClient.Delete(context.Background(), flowRun)
+				_ = k8sClient.Delete(context.Background(), flow)
+			})
+		})
+
+		It("does NOT store the raw secret value in StepRunStatus.Message after failure", func() {
+			// Reconcile with a short HTTP timeout so the dial fails quickly.
+			r := newReconciler()
+			r.HTTPClient = &http.Client{Timeout: 2 * time.Second}
+			nn := types.NamespacedName{Name: flowRun.Name, Namespace: testNamespace}
+			_, _ = r.Reconcile(ctx, ctrl.Request{NamespacedName: nn})
+
+			var updated automationv1alpha1.FlowRun
+			Expect(k8sClient.Get(ctx, nn, &updated)).To(Succeed())
+
+			// The FlowRun must have failed (unreachable host).
+			Expect(updated.Status.Phase).To(Equal("Failed"),
+				"expected FlowRun to fail because target host is unreachable")
+
+			// Find the failed step status.
+			stepStatus := findStepStatus(updated.Status.Steps, "http-with-secret")
+			Expect(stepStatus).NotTo(BeNil(), "expected step status to be recorded")
+			Expect(stepStatus.Phase).To(Equal("Failed"))
+
+			// THE SECURITY ASSERTION: the raw secret value must not appear in the
+			// persisted step message.
+			Expect(stepStatus.Message).NotTo(ContainSubstring(secretValue),
+				"secret value must not be stored in StepRunStatus.Message")
+
+			// The message must contain [REDACTED] so it is clear a secret was present.
+			Expect(stepStatus.Message).To(ContainSubstring("[REDACTED]"),
+				"[REDACTED] marker must appear in the error message in place of the secret value")
 		})
 	})
 })

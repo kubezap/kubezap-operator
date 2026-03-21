@@ -207,8 +207,8 @@ Items are ordered to minimize rework:
 **What it demonstrates:** Kubernetes resource-event trigger (watches for Pod phase=Failed), extracting pod name and namespace from the event, opening a ticket via HTTP, deduplication via pod UID as FlowRun name idempotency key.
 
 **Implementation tasks:**
-- [ ] Create manifests in `examples/k8s-pod-failure-ticket/`: KubernetesTrigger (placeholder spec), Flow (transform event → http ticket create), Mockoon deployment
-- [ ] Create `examples/k8s-pod-failure-ticket/README.md`: applying manifests, causing Pod failure, verifying FlowRun created; mark as `(requires kubernetes trigger type — not yet implemented)`
+- [x] Create manifests in `examples/k8s-pod-failure-ticket/`: KubernetesTrigger (placeholder spec), Flow (transform event → http ticket create), Mockoon deployment
+- [x] Create `examples/k8s-pod-failure-ticket/README.md`: applying manifests, causing Pod failure, verifying FlowRun created; mark as `(requires kubernetes trigger type — not yet implemented)`
 
 ---
 

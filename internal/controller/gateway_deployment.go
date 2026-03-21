@@ -81,16 +81,6 @@ func desiredWebhookGatewayRole(namespace string) *rbacv1.Role {
 				Resources: []string{"flowruns"},
 				Verbs:     []string{"create"},
 			},
-			{
-				APIGroups: []string{"automation.kubezap.io"},
-				Resources: []string{"mockendpoints"},
-				Verbs:     []string{"get", "list", "watch"},
-			},
-			{
-				APIGroups: []string{"automation.kubezap.io"},
-				Resources: []string{"mockendpoints/status"},
-				Verbs:     []string{"get", "update", "patch"},
-			},
 		},
 	}
 }

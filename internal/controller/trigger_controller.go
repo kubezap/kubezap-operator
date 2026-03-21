@@ -147,8 +147,8 @@ func (r *TriggerReconciler) SetupWithManager(mgr ctrl.Manager) error {
 }
 
 // ensureWebhookGateway ensures the webhook gateway Deployment, Service, RBAC, and HPA
-// exist in the given namespace. It is called by both the Trigger and MockEndpoint reconcilers
-// so that the gateway is present whenever webhook routes or mock endpoints are needed.
+// exist in the given namespace. It is called by the Trigger reconciler
+// so that the gateway is present whenever webhook routes are needed.
 //
 // TLS configuration is read from the Namespace annotations:
 //

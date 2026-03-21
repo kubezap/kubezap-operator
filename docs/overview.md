@@ -624,7 +624,7 @@ For a full setup walkthrough including namespace configuration and RBAC see [Get
 - [x] `Flow` CRD — DAG steps, HTTP actions, CEL conditions, data passing
 - [x] `FlowRun` CRD — execution history, GC, status conditions
 - [x] `Integration` CRD — Kafka (built-in), plugin protocol
-- [x] `MockEndpoint` CRD — in-cluster mock HTTP endpoints for dev/test
+- [x] `MockEndpoint` CRD — removed; replaced by Mockoon (see [mocking guide](guides/mocking-http-endpoints.md))
 - [x] Webhook auth — HMAC, bearer, OIDC/JWT, API-key, IP allowlist, mTLS
 - [x] Observability — Prometheus metrics, OpenTelemetry traces, structured access logs
 - [x] Multi-namespace — `WATCH_NAMESPACES`, all four OLM install modes

@@ -230,149 +230,286 @@ func (r *FlowRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		}
 	}
 
-	// Execute steps in order.
+	// §12b: One-step-per-reconcile execution model.
+	//
+	// Design: Each Reconcile call processes exactly one "wave" — the set of
+	// steps whose runAfter dependencies are all satisfied AND that have not yet
+	// started. Steps within the same wave (same dependency set) are executed in
+	// parallel goroutines within this call; their results are batched into a
+	// single status update. After the wave completes, we return Requeue: true so
+	// the next reconcile picks up the following wave. This keeps each goroutine
+	// short-lived and prevents reconciler goroutine starvation under load.
+	//
+	// Wait steps are handled specially: if the wait has not elapsed, we return
+	// RequeueAfter and do NOT execute other steps in that reconcile call — the
+	// wait step acts as a barrier until it completes.
+
+	// Rebuild stepResults from current step statuses so that downstream steps
+	// can reference outputs of already-completed steps on re-entry.
 	stepResults := make(map[string]map[string]string) // stepName → resultName → value
+	for _, ss := range flowRun.Status.Steps {
+		if (ss.Phase == "Succeeded" || ss.Phase == "Skipped") && ss.Results != nil {
+			stepResults[ss.Name] = resultsToMap(ss.Results)
+		}
+	}
 
+	// Check whether all steps have reached a terminal state. If yes, we fall
+	// through to the "All steps done — succeed" block below.
+	allTerminal := true
+	anyRunning := false
 	for _, step := range flow.Spec.Steps {
-		// Check runAfter dependencies.
-		if !r.dependenciesMet(step, flowRun.Status.Steps) {
-			continue
-		}
-
-		// Check if already completed.
 		existing := findStepStatus(flowRun.Status.Steps, step.Name)
-		if existing != nil && (existing.Phase == "Succeeded" || existing.Phase == "Skipped") {
-			if existing.Results != nil {
-				stepResults[step.Name] = resultsToMap(existing.Results)
+		if existing == nil {
+			allTerminal = false
+		} else {
+			switch existing.Phase {
+			case "Succeeded", "Skipped", "Failed":
+				// terminal — ok
+			case "Running", "Waiting":
+				anyRunning = true
+				allTerminal = false
+			default:
+				allTerminal = false
 			}
-			continue
 		}
-		if existing != nil && existing.Phase == "Failed" {
-			if step.OnFailure == "Continue" || flow.Spec.FailurePolicy == "Continue" {
+	}
+
+	if !allTerminal {
+		// Scan all steps and collect the ones that are ready to execute this wave.
+		// A step is "ready" when:
+		//   1. Its runAfter deps are all in Succeeded/Skipped state, AND
+		//   2. It has not yet started (no status entry, or status is empty/Pending).
+		//
+		// Cascade-skip and when-condition skips are resolved inline here because
+		// they do not require IO and complete immediately.
+
+		// First, handle any immediate (non-IO) transitions: cascade-skip and
+		// when=false skips. These may unblock subsequent waves so we process
+		// them inline before deciding whether to requeue.
+		skippedAny := false
+		for _, step := range flow.Spec.Steps {
+			if !r.dependenciesMet(step, flowRun.Status.Steps) {
 				continue
 			}
-			return ctrl.Result{}, r.failFlowRun(ctx, &flowRun, fmt.Sprintf("step %q failed", step.Name))
-		}
-
-		// Cascade-skip: if all runAfter deps were skipped, skip this step too.
-		if allDepsSkipped(step, &flowRun) {
-			now := metav1.Now()
-			flowRun.Status.Steps = upsertStepStatus(flowRun.Status.Steps, automationv1alpha1.StepRunStatus{
-				Name:           step.Name,
-				Phase:          "Skipped",
-				Message:        "all runAfter dependencies were skipped",
-				CompletionTime: &now,
-			})
-			if err := r.Status().Update(ctx, &flowRun); err != nil {
-				return ctrl.Result{}, err
+			existing := findStepStatus(flowRun.Status.Steps, step.Name)
+			if existing != nil && existing.Phase != "" && existing.Phase != "Pending" {
+				// Already processed.
+				continue
 			}
-			continue
-		}
 
-		// Evaluate when conditions.
-		if len(step.When) > 0 {
-			run, err := r.evaluateWhen(step.When, stepResults, flowRun.Status.Steps, flowRun.Spec.TriggerData)
-			if err != nil {
-				now := metav1.Now()
-				flowRun.Status.Steps = upsertStepStatus(flowRun.Status.Steps, automationv1alpha1.StepRunStatus{
-					Name:           step.Name,
-					Phase:          "Failed",
-					Message:        fmt.Sprintf("when expression error: %v", err),
-					CompletionTime: &now,
-				})
-				if err2 := r.Status().Update(ctx, &flowRun); err2 != nil {
-					return ctrl.Result{}, err2
-				}
-				if step.OnFailure == "Continue" || flow.Spec.FailurePolicy == "Continue" {
-					continue
-				}
-				return ctrl.Result{}, r.failFlowRun(ctx, &flowRun, fmt.Sprintf("step %q when expression error: %v", step.Name, err))
-			}
-			if !run {
+			// Cascade-skip: all runAfter deps were Skipped.
+			if allDepsSkipped(step, &flowRun) {
 				now := metav1.Now()
 				flowRun.Status.Steps = upsertStepStatus(flowRun.Status.Steps, automationv1alpha1.StepRunStatus{
 					Name:           step.Name,
 					Phase:          "Skipped",
-					Message:        "when condition evaluated to false",
+					Message:        "all runAfter dependencies were skipped",
 					CompletionTime: &now,
 				})
-				if err := r.Status().Update(ctx, &flowRun); err != nil {
-					return ctrl.Result{}, err
-				}
+				skippedAny = true
 				continue
+			}
+
+			// Evaluate when conditions (pure CEL — no IO).
+			if len(step.When) > 0 {
+				run, err := r.evaluateWhen(step.When, stepResults, flowRun.Status.Steps, flowRun.Spec.TriggerData)
+				if err != nil {
+					now := metav1.Now()
+					failMsg := fmt.Sprintf("when expression error: %v", err)
+					flowRun.Status.Steps = upsertStepStatus(flowRun.Status.Steps, automationv1alpha1.StepRunStatus{
+						Name:           step.Name,
+						Phase:          "Failed",
+						Message:        failMsg,
+						CompletionTime: &now,
+					})
+					if err2 := r.Status().Update(ctx, &flowRun); err2 != nil {
+						return ctrl.Result{}, err2
+					}
+					if step.OnFailure == "Continue" || flow.Spec.FailurePolicy == "Continue" {
+						skippedAny = true
+						continue
+					}
+					return ctrl.Result{}, r.failFlowRun(ctx, &flowRun, fmt.Sprintf("step %q when expression error: %v", step.Name, err))
+				}
+				if !run {
+					now := metav1.Now()
+					flowRun.Status.Steps = upsertStepStatus(flowRun.Status.Steps, automationv1alpha1.StepRunStatus{
+						Name:           step.Name,
+						Phase:          "Skipped",
+						Message:        "when condition evaluated to false",
+						CompletionTime: &now,
+					})
+					skippedAny = true
+					continue
+				}
 			}
 		}
 
-		// Handle wait steps specially: they may need to requeue rather than complete immediately.
-		if step.Action.Type == "wait" {
-			now := metav1.Now()
-			ss := automationv1alpha1.StepRunStatus{
-				Name:      step.Name,
-				StartTime: &now,
-				Attempts:  1,
+		// Persist any inline skip/fail transitions before checking for IO steps.
+		if skippedAny {
+			if err := r.Status().Update(ctx, &flowRun); err != nil {
+				return ctrl.Result{}, err
 			}
-			requeueAfter, err := r.executeWaitStep(ctx, log, &flowRun, step, &ss)
-			if err != nil {
+			// Re-fetch to get a fresh resourceVersion and up-to-date step statuses.
+			if err := r.Get(ctx, req.NamespacedName, &flowRun); err != nil {
+				return ctrl.Result{}, client.IgnoreNotFound(err)
+			}
+			// Requeue immediately: the skips may have made new steps ready.
+			return ctrl.Result{Requeue: true}, nil
+		}
+
+		// Collect all steps ready for IO execution this wave.
+		// A step is eligible if:
+		//   - Its runAfter deps are satisfied, AND
+		//   - It has not yet started (no status entry, or status is Pending), OR
+		//   - It is a wait step in "Waiting" phase that may have elapsed.
+		type readyStep struct {
+			step    automationv1alpha1.FlowStep
+			stepIdx int
+		}
+		var waveSteps []readyStep
+		for i, step := range flow.Spec.Steps {
+			if !r.dependenciesMet(step, flowRun.Status.Steps) {
+				continue
+			}
+			existing := findStepStatus(flowRun.Status.Steps, step.Name)
+			if existing != nil && existing.Phase != "" && existing.Phase != "Pending" {
+				// Re-admit wait steps that are in Waiting phase — they need to be
+				// rechecked to see if the wait duration has elapsed.
+				if existing.Phase == "Waiting" && step.Action.Type == "wait" {
+					waveSteps = append(waveSteps, readyStep{step: step, stepIdx: i})
+				}
+				continue
+			}
+			// Skip steps already handled inline above (cascade-skip, when=false).
+			// Those are already in terminal state from the loop above.
+			waveSteps = append(waveSteps, readyStep{step: step, stepIdx: i})
+		}
+
+		if len(waveSteps) == 0 {
+			if anyRunning {
+				// Something is still Running/Waiting (e.g. a wait step that
+				// set Waiting and returned; we are waiting for it to elapse).
+				return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
+			}
+			// All reachable steps are terminal — fall through to succeed.
+			goto allStepsDone
+		}
+
+		// Check for a wait step in the wave. A wait step acts as a serial
+		// barrier: if one is present and has not elapsed, we return RequeueAfter
+		// without executing any other steps in the wave.
+		for _, rs := range waveSteps {
+			step := rs.step
+			if step.Action.Type == "wait" {
+				now := metav1.Now()
+				ss := automationv1alpha1.StepRunStatus{
+					Name:      step.Name,
+					StartTime: &now,
+					Attempts:  1,
+				}
+				requeueAfter, err := r.executeWaitStep(ctx, log, &flowRun, step, &ss)
+				if err != nil {
+					completionTime := metav1.Now()
+					ss.Phase = "Failed"
+					ss.Message = err.Error()
+					ss.CompletionTime = &completionTime
+					flowRun.Status.Steps = upsertStepStatus(flowRun.Status.Steps, ss)
+					if err2 := r.Status().Update(ctx, &flowRun); err2 != nil {
+						return ctrl.Result{}, err2
+					}
+					if step.OnFailure == "Continue" || flow.Spec.FailurePolicy == "Continue" {
+						return ctrl.Result{Requeue: true}, nil
+					}
+					return ctrl.Result{}, r.failFlowRun(ctx, &flowRun, fmt.Sprintf("step %q failed: %s", step.Name, ss.Message))
+				}
+				if requeueAfter > 0 {
+					// Wait has not elapsed — persist Waiting status and requeue.
+					flowRun.Status.Steps = upsertStepStatus(flowRun.Status.Steps, ss)
+					if err2 := r.Status().Update(ctx, &flowRun); err2 != nil {
+						return ctrl.Result{}, err2
+					}
+					return ctrl.Result{RequeueAfter: requeueAfter}, nil
+				}
+				// Wait elapsed — mark Succeeded and requeue to process next wave.
 				completionTime := metav1.Now()
-				ss.Phase = "Failed"
-				ss.Message = err.Error()
+				ss.Phase = "Succeeded"
 				ss.CompletionTime = &completionTime
 				flowRun.Status.Steps = upsertStepStatus(flowRun.Status.Steps, ss)
 				if err2 := r.Status().Update(ctx, &flowRun); err2 != nil {
 					return ctrl.Result{}, err2
 				}
-				if step.OnFailure == "Continue" || flow.Spec.FailurePolicy == "Continue" {
-					continue
-				}
-				return ctrl.Result{}, r.failFlowRun(ctx, &flowRun, fmt.Sprintf("step %q failed: %s", step.Name, ss.Message))
+				return ctrl.Result{Requeue: true}, nil
 			}
-			if requeueAfter > 0 {
-				flowRun.Status.Steps = upsertStepStatus(flowRun.Status.Steps, ss)
-				if err2 := r.Status().Update(ctx, &flowRun); err2 != nil {
-					return ctrl.Result{}, err2
-				}
-				return ctrl.Result{RequeueAfter: requeueAfter}, nil
-			}
-			// Wait elapsed — mark Succeeded and continue.
-			completionTime := metav1.Now()
-			ss.Phase = "Succeeded"
-			ss.CompletionTime = &completionTime
-			flowRun.Status.Steps = upsertStepStatus(flowRun.Status.Steps, ss)
-			if err2 := r.Status().Update(ctx, &flowRun); err2 != nil {
-				return ctrl.Result{}, err2
-			}
-			continue
 		}
 
-		// Execute the step.
-		stepStart := time.Now()
-		stepStatus, err := r.executeStep(execCtx, log, &step, &flow, &flowRun, stepResults, flowRun.Spec.TriggerData)
-		if err != nil {
-			return ctrl.Result{}, err
+		// Execute all IO wave steps in parallel goroutines.
+		type stepResult struct {
+			name      string
+			stepType  string
+			status    automationv1alpha1.StepRunStatus
+			failFatal bool // true = non-Continue failure; stop FlowRun
+			failMsg   string
+			duration  time.Duration
 		}
-		metrics.StepDuration.WithLabelValues(
-			flowRun.Namespace, flowRun.Spec.FlowRef.Name,
-			step.Action.Type, string(stepStatus.Phase),
-		).Observe(time.Since(stepStart).Seconds())
+		results := make([]stepResult, len(waveSteps))
+		var wg sync.WaitGroup
+		for i, rs := range waveSteps {
+			wg.Add(1)
+			go func(i int, step automationv1alpha1.FlowStep) {
+				defer wg.Done()
+				stepStart := time.Now()
+				ss, err := r.executeStep(execCtx, log, &step, &flow, &flowRun, stepResults, flowRun.Spec.TriggerData)
+				dur := time.Since(stepStart)
+				if err != nil {
+					results[i] = stepResult{
+						name: step.Name, stepType: step.Action.Type,
+						status:   automationv1alpha1.StepRunStatus{Name: step.Name, Phase: "Failed", Message: err.Error()},
+						duration: dur,
+					}
+					return
+				}
+				fr := stepResult{
+					name: step.Name, stepType: step.Action.Type,
+					status:   *ss,
+					duration: dur,
+				}
+				if ss.Phase == "Failed" {
+					if step.OnFailure != "Continue" && flow.Spec.FailurePolicy != "Continue" {
+						fr.failFatal = true
+						fr.failMsg = fmt.Sprintf("step %q failed: %s", step.Name, ss.Message)
+					}
+				}
+				results[i] = fr
+			}(i, rs.step)
+		}
+		wg.Wait()
 
-		// Merge step status into FlowRun.
-		flowRun.Status.Steps = upsertStepStatus(flowRun.Status.Steps, *stepStatus)
+		// Batch all result statuses into the FlowRun status in one update.
+		var fatalMsg string
+		for _, res := range results {
+			metrics.StepDuration.WithLabelValues(
+				flowRun.Namespace, flowRun.Spec.FlowRef.Name,
+				res.stepType, res.status.Phase,
+			).Observe(res.duration.Seconds())
+			flowRun.Status.Steps = upsertStepStatus(flowRun.Status.Steps, res.status)
+			if res.failFatal && fatalMsg == "" {
+				fatalMsg = res.failMsg
+			}
+		}
 		if err := r.Status().Update(ctx, &flowRun); err != nil {
 			return ctrl.Result{}, err
 		}
 
-		if stepStatus.Phase == "Failed" {
-			if step.OnFailure == "Continue" || flow.Spec.FailurePolicy == "Continue" {
-				continue
-			}
-			return ctrl.Result{}, r.failFlowRun(ctx, &flowRun, fmt.Sprintf("step %q failed: %s", step.Name, stepStatus.Message))
+		if fatalMsg != "" {
+			return ctrl.Result{}, r.failFlowRun(ctx, &flowRun, fatalMsg)
 		}
 
-		if stepStatus.Results != nil {
-			stepResults[step.Name] = resultsToMap(stepStatus.Results)
-		}
+		// Wave complete — requeue immediately to process the next wave.
+		return ctrl.Result{Requeue: true}, nil
 	}
 
+allStepsDone:
 	// All steps done — succeed.
 	now := metav1.Now()
 	flowRun.Status.Phase = "Succeeded"
@@ -1148,6 +1285,10 @@ func (r *FlowRunReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	}
 	maxConcurrent := r.MaxConcurrentReconciles
 	if maxConcurrent <= 0 {
+		// WIRING NOTE: §12b — update --max-concurrent-flowruns default to 25 in cmd/main.go.
+		// With one-step-per-reconcile, each goroutine is short-lived (one step, not the full
+		// flow), so more concurrent reconciles are safe. The hot-file wiring pass should
+		// raise the default from 10 to 25.
 		maxConcurrent = 10
 	}
 

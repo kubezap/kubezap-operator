@@ -2,7 +2,7 @@ You are performing a periodic health review of the KubeZap Kubernetes operator p
 
 ## Rate-limit guardrail
 
-Before starting, estimate scope. This review uses **sequential** phases (not fan-out agents), so it is within safe limits. Proceed.
+Before starting, estimate scope. This review uses **two parallel read-only agents** for phases 1–2, then sequential writes. That is within safe limits. Proceed.
 
 ## 0. Setup
 
@@ -12,22 +12,26 @@ Create and check out a working branch for all review changes:
 git checkout -b review/$(date +%Y-%m-%d) 2>/dev/null || git checkout review/$(date +%Y-%m-%d)
 ```
 
-## 1. Doc review (read-only, no agents needed)
+## 1 & 2. Parallel read-only review
 
-Read every file in `docs/` (all subdirectories). For each file note:
+Launch **two Explore agents simultaneously** (no worktree isolation needed — both are read-only):
+
+### Agent A — Doc review
+
+Read every file in `docs/` (all subdirectories) and `CLAUDE.md`. For each file note:
 
 - **Gaps**: topics referenced in CLAUDE.md or other docs that have no corresponding doc page
 - **Staleness**: docs that describe things as "planned" or "future" that are now implemented (or vice versa)
 - **Inconsistencies**: fields, CRD names, API shapes, or behaviors described differently across docs
 - **Broken cross-references**: links to files or sections that don't exist
 
-Also read `CLAUDE.md` and compare its "Current Status" checklist against `docs/schedule.md` — flag any divergence.
+Also compare CLAUDE.md against `docs/schedule.md` — flag any divergence.
 
-Keep your findings as an in-memory list. Do NOT write anything yet.
+Return findings as a structured list (do not write any files).
 
-## 2. High-level code review (read-only, capacity-conscious)
+### Agent B — Code review
 
-Read the following files only — do not read every file in the repo:
+Read the following files only (do not read every file in the repo):
 
 - `api/v1alpha1/*_types.go` (all type files — skim for markers, field naming, status conditions)
 - `cmd/main.go`
@@ -43,7 +47,11 @@ For each area note:
 - **Design issues**: patterns that violate controller-runtime best practices, RBAC markers missing for resources being touched, missing status conditions, reconcilers that don't requeue on transient errors
 - **Gaps**: CRDs referenced in CLAUDE.md as "designed" but with no reconciler; reconcilers that exist but have no Ginkgo tests
 
-Keep findings in memory. Do NOT write code changes.
+Return findings as a structured list (do not write any files).
+
+---
+
+Wait for both agents to complete, then consolidate their findings in memory before proceeding.
 
 ## 3. Cross-check schedule vs. reality
 

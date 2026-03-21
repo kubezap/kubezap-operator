@@ -6,20 +6,65 @@ Read `docs/tech-debt/pending-input-required.md`. Look for any section tagged `<!
 
 If no pending inputs exist, continue immediately to Step 1.
 
-## 1. Select the backlog item
+## 1. Select backlog items and analyse parallelism
 
-If the user provided a specific item or keyword in `$ARGUMENTS`, find the matching `[ ]` item in `docs/schedule.md`.
+Read `docs/schedule.md`. Collect the **first 4 unchecked `[ ]` items** that are not in the `## 10. Future / Backlog` section (skip speculative items unless explicitly requested). If the user provided a specific item or keyword in `$ARGUMENTS`, that item is the sole candidate — skip parallelism analysis and jump straight to single-item execution.
 
-Otherwise, read `docs/schedule.md` and select the **first unchecked `[ ]` item** that is not in the `## 10. Future / Backlog` section (those are speculative; skip them unless explicitly requested). Prefer items in lower section numbers (higher priority).
+For each candidate item, list every file it will likely need to **write** (not just read). Use the hot-files list from CLAUDE.md as a guide:
 
-State clearly which item you selected and why.
+**Hot files (serialized — only one item at a time may touch these):**
+- `cmd/main.go`, `cmd/webhook-gateway/main.go`, `cmd/kafka-gateway/main.go`
+- `api/v1alpha1/groupversion_info.go`
+- `go.mod` / `go.sum`
+- `config/rbac/role.yaml`, `config/rbac/namespaced_role.yaml`
+- `docs/schedule.md`
 
-Create and check out a working branch for this item before making any changes:
+**Parallelism decision:**
+
+- If 2 or more candidates have **zero overlapping writable files** (including no shared hot files), select those items to run in parallel. Cap at 3 parallel items.
+- Otherwise, select only the **first** (highest-priority) candidate and run it alone.
+
+State clearly: which item(s) you selected, whether you are running in parallel or serial, and why.
+
+---
+
+### Single-item path (serial)
+
+Create and check out a working branch:
 
 ```bash
-# Derive a short slug from the item text (lowercase, hyphens, max 40 chars)
 git checkout -b backlog/<slug> 2>/dev/null || git checkout backlog/<slug>
 ```
+
+Then proceed to Step 2.
+
+---
+
+### Multi-item path (parallel)
+
+For each selected item, create a worktree branch:
+
+```bash
+git worktree add ../kubezap-agent-<N> -b backlog/<slug-N>
+```
+
+Spawn one Agent (with `isolation: "worktree"`) per item. Each agent receives:
+- Its backlog item text
+- The list of files it owns
+- This instruction: *"Do not touch hot files (cmd/main.go, go.mod, groupversion_info.go, docs/schedule.md, role.yaml). Stop before wiring. Commit your changes to the worktree branch."*
+
+After **all parallel agents complete**, run a single sequential **wiring agent** that:
+1. Reads what each parallel agent produced
+2. Wires new controllers/schemes/flags into `cmd/main.go` in one pass
+3. Runs `go mod tidy` once
+4. Merges each worktree branch into the main working branch via `git rebase` (one at a time, validating after each)
+5. Runs `make generate && make manifests` once after all merges
+6. Updates `docs/schedule.md` to mark all completed items `[x]`
+7. Commits everything with a message like `feat: parallel backlog — <item1>, <item2>`
+
+Then skip to Step 4 (Validate).
+
+---
 
 ## 2. Research
 

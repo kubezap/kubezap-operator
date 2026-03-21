@@ -45,13 +45,6 @@ type TriggerReconciler struct {
 	ResourceWatcher *ResourceWatcher
 }
 
-// TODO(wiring): ResourceWatcher must be constructed in cmd/main.go with a dynamic.Interface
-// client and passed into TriggerReconciler. Example:
-//
-//   dynClient, err := dynamic.NewForConfig(mgr.GetConfig())
-//   rw := controller.NewResourceWatcher(mgr.GetClient(), dynClient, setupLog)
-//   triggerReconciler.ResourceWatcher = rw
-
 // +kubebuilder:rbac:groups=automation.kubezap.io,resources=triggers,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=automation.kubezap.io,resources=triggers/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=automation.kubezap.io,resources=triggers/finalizers,verbs=update

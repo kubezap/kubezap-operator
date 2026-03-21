@@ -91,6 +91,37 @@ var _ = Describe("FlowRunReconciler", func() {
 		return &updated, fetchErr
 	}
 
+	// reconcileUntilTerminal drives Reconcile() in a loop until the FlowRun reaches
+	// a terminal phase (Succeeded, Failed, or Cancelled) or maxIterations is exhausted.
+	// This is required for multi-step flows under the §12b one-step-per-reconcile model,
+	// where each call processes exactly one step wave and returns Requeue: true.
+	reconcileUntilTerminal := func(r *FlowRunReconciler, flowRunName string, maxIterations int) (*automationv1alpha1.FlowRun, error) {
+		nn := types.NamespacedName{Name: flowRunName, Namespace: testNamespace}
+		for i := 0; i < maxIterations; i++ {
+			result, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: nn})
+			if err != nil {
+				return nil, err
+			}
+			var updated automationv1alpha1.FlowRun
+			if fetchErr := k8sClient.Get(ctx, nn, &updated); fetchErr != nil {
+				return nil, fetchErr
+			}
+			switch updated.Status.Phase {
+			case "Succeeded", "Failed", "Cancelled":
+				return &updated, nil
+			}
+			// If no requeue is requested and phase is not terminal, stop.
+			if !result.Requeue && result.RequeueAfter == 0 {
+				return &updated, nil
+			}
+		}
+		var final automationv1alpha1.FlowRun
+		if err := k8sClient.Get(ctx, nn, &final); err != nil {
+			return nil, err
+		}
+		return &final, nil
+	}
+
 	Context("when the referenced Flow does not exist", func() {
 		var flowRun *automationv1alpha1.FlowRun
 
@@ -152,13 +183,15 @@ var _ = Describe("FlowRunReconciler", func() {
 		})
 
 		It("sets FlowRun phase=Succeeded", func() {
-			updated, err := reconcileAndFetch(flowRun.Name)
+			r := newReconciler()
+			updated, err := reconcileUntilTerminal(r, flowRun.Name, 10)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(updated.Status.Phase).To(Equal("Succeeded"))
 		})
 
 		It("records the step result in status.stepStatuses with phase=Succeeded", func() {
-			updated, err := reconcileAndFetch(flowRun.Name)
+			r := newReconciler()
+			updated, err := reconcileUntilTerminal(r, flowRun.Name, 10)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(updated.Status.Steps).NotTo(BeEmpty())
 			Expect(updated.Status.Steps[0].Name).To(Equal("call-backend"))
@@ -210,7 +243,8 @@ var _ = Describe("FlowRunReconciler", func() {
 		})
 
 		It("sets FlowRun phase=Failed", func() {
-			updated, err := reconcileAndFetch(flowRun.Name)
+			r := newReconciler()
+			updated, err := reconcileUntilTerminal(r, flowRun.Name, 10)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(updated.Status.Phase).To(Equal("Failed"))
 		})
@@ -385,11 +419,10 @@ var _ = Describe("FlowRunReconciler", func() {
 
 			r := newReconciler()
 			nn := types.NamespacedName{Name: fastRun.Name, Namespace: testNamespace}
-			_, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: nn})
+			updated, err := reconcileUntilTerminal(r, fastRun.Name, 10)
 			Expect(err).NotTo(HaveOccurred())
+			_ = nn
 
-			var updated automationv1alpha1.FlowRun
-			Expect(k8sClient.Get(ctx, nn, &updated)).To(Succeed())
 			Expect(updated.Status.Phase).To(Equal("Succeeded"))
 			Expect(updated.Finalizers).NotTo(ContainElement("kubezap.io/executing"))
 		})
@@ -575,7 +608,8 @@ var _ = Describe("FlowRunReconciler", func() {
 		})
 
 		It("skips B (when=false), cascade-skips C (runAfter B), and succeeds overall", func() {
-			updated, err := reconcileAndFetch(flowRun.Name)
+			r := newReconciler()
+			updated, err := reconcileUntilTerminal(r, flowRun.Name, 20)
 			Expect(err).NotTo(HaveOccurred())
 
 			// Overall FlowRun should succeed — all steps reached a terminal state.
@@ -674,7 +708,8 @@ var _ = Describe("FlowRunReconciler", func() {
 		})
 
 		It("substitutes orderId from trigger body through transform into the HTTP URL", func() {
-			updated, err := reconcileAndFetch(flowRun.Name)
+			r := newReconciler()
+			updated, err := reconcileUntilTerminal(r, flowRun.Name, 15)
 			Expect(err).NotTo(HaveOccurred())
 
 			// Overall FlowRun must succeed.
@@ -779,23 +814,28 @@ var _ = Describe("FlowRunReconciler", func() {
 			// Sleep long enough for the 100ms wait to elapse.
 			time.Sleep(150 * time.Millisecond)
 
-			// Second reconcile: the wait has elapsed, step should now complete.
-			result2, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: nn})
+			// Second reconcile: the wait has elapsed, step should now complete
+			// (Succeeded) and return Requeue: true so the next reconcile can
+			// finalize the FlowRun. Under §12b one-step-per-reconcile, the step
+			// completion and the FlowRun terminal transition happen in separate calls.
+			_, err = r.Reconcile(ctx, ctrl.Request{NamespacedName: nn})
 			Expect(err).NotTo(HaveOccurred())
 
-			// No further requeue is needed once the wait step completes and the
-			// FlowRun reaches a terminal phase.
-			Expect(result2.RequeueAfter).To(Equal(time.Duration(0)),
-				"expected no further requeue after wait elapsed and FlowRun succeeded")
+			// Verify the wait step is now Succeeded before driving to terminal phase.
+			var midRun2 automationv1alpha1.FlowRun
+			Expect(k8sClient.Get(ctx, nn, &midRun2)).To(Succeed())
+			doneStep := findStepStatus(midRun2.Status.Steps, "wait-step")
+			Expect(doneStep).NotTo(BeNil())
+			Expect(doneStep.Phase).To(Equal("Succeeded"))
+			Expect(doneStep.CompletionTime).NotTo(BeNil())
+
+			// Third reconcile: all steps are terminal, FlowRun transitions to Succeeded.
+			_, err = r.Reconcile(ctx, ctrl.Request{NamespacedName: nn})
+			Expect(err).NotTo(HaveOccurred())
 
 			var finished automationv1alpha1.FlowRun
 			Expect(k8sClient.Get(ctx, nn, &finished)).To(Succeed())
 			Expect(finished.Status.Phase).To(Equal("Succeeded"))
-
-			doneStep := findStepStatus(finished.Status.Steps, "wait-step")
-			Expect(doneStep).NotTo(BeNil())
-			Expect(doneStep.Phase).To(Equal("Succeeded"))
-			Expect(doneStep.CompletionTime).NotTo(BeNil())
 		})
 	})
 
@@ -859,7 +899,8 @@ var _ = Describe("FlowRunReconciler", func() {
 		})
 
 		It("succeeds after retrying through 503s with exponential backoff", func() {
-			updated, err := reconcileAndFetch(flowRun.Name)
+			r := newReconciler()
+			updated, err := reconcileUntilTerminal(r, flowRun.Name, 10)
 			Expect(err).NotTo(HaveOccurred())
 
 			// The FlowRun should succeed because the 3rd attempt returns 200.

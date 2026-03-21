@@ -1,0 +1,4 @@
+resources:
+  - mockoon.yaml
+  - flow.yaml
+  - trigger.yaml

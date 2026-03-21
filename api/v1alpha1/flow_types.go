@@ -145,6 +145,12 @@ type HTTPAction struct {
 	// expressions of the form "$.field". Only single-level paths (e.g., "$.tier")
 	// are supported — multi-level paths (e.g., "$.order.id") silently return empty string.
 	ResultMappings map[string]string `json:"resultMappings,omitempty"`
+
+	// Reference to an http-type Integration providing base URL, auth, and default headers.
+	// When set, the Integration's auth and defaultHeaders are merged into the request.
+	// For type=secretUrl Integrations, the step URL is replaced by the Integration's URL secret.
+	// +optional
+	IntegrationRef *corev1.LocalObjectReference `json:"integrationRef,omitempty"`
 }
 
 // TransformAction represents a data transformation step.

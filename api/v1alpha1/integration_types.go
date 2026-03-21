@@ -169,6 +169,83 @@ type PluginIntegrationSpec struct {
 	Env []corev1.EnvVar `json:"env,omitempty"`
 }
 
+// HttpAuthType specifies the authentication strategy for an HTTP Integration.
+// +kubebuilder:validation:Enum=bearer;basic;apiKey;secretUrl
+type HttpAuthType string
+
+const (
+	HttpAuthBearer    HttpAuthType = "bearer"
+	HttpAuthBasic     HttpAuthType = "basic"
+	HttpAuthAPIKey    HttpAuthType = "apiKey"
+	HttpAuthSecretURL HttpAuthType = "secretUrl"
+)
+
+// HttpBearerAuth configures bearer token authentication.
+type HttpBearerAuth struct {
+	// Secret key containing the bearer token value.
+	TokenSecretRef corev1.SecretKeySelector `json:"tokenSecretRef"`
+}
+
+// HttpBasicAuth configures HTTP Basic authentication.
+type HttpBasicAuth struct {
+	// Secret key containing the username.
+	UsernameSecretRef corev1.SecretKeySelector `json:"usernameSecretRef"`
+	// Secret key containing the password.
+	PasswordSecretRef corev1.SecretKeySelector `json:"passwordSecretRef"`
+}
+
+// HttpAPIKeyAuth configures API key header authentication.
+type HttpAPIKeyAuth struct {
+	// HTTP header name to set (e.g. "X-Api-Key").
+	HeaderName string `json:"headerName"`
+	// Secret key containing the API key value.
+	ValueSecretRef corev1.SecretKeySelector `json:"valueSecretRef"`
+}
+
+// HttpSecretURLAuth configures URL-as-credential authentication (e.g. Slack incoming webhook URLs).
+// When type=secretUrl, the controller replaces the step URL entirely with the secret value.
+type HttpSecretURLAuth struct {
+	// Secret key containing the full URL (including embedded credentials).
+	URLSecretRef corev1.SecretKeySelector `json:"urlSecretRef"`
+}
+
+// HttpAuthSpec configures authentication for an HTTP Integration.
+type HttpAuthSpec struct {
+	// Authentication type.
+	// +kubebuilder:validation:Enum=bearer;basic;apiKey;secretUrl
+	Type HttpAuthType `json:"type"`
+
+	// Bearer token config. Required when type=bearer.
+	Bearer *HttpBearerAuth `json:"bearer,omitempty"`
+
+	// Basic auth config. Required when type=basic.
+	Basic *HttpBasicAuth `json:"basic,omitempty"`
+
+	// API key header config. Required when type=apiKey.
+	APIKey *HttpAPIKeyAuth `json:"apiKey,omitempty"`
+
+	// Secret URL config. Required when type=secretUrl.
+	SecretURL *HttpSecretURLAuth `json:"secretUrl,omitempty"`
+}
+
+// HttpIntegrationSpec contains configuration for HTTP-based integrations.
+type HttpIntegrationSpec struct {
+	// Base URL prepended to step URLs when this Integration is referenced.
+	// If set, the step's url field is treated as a path (e.g. "/repos/org/repo/labels").
+	// If the step url already starts with "http://" or "https://", baseUrl is ignored.
+	// +optional
+	BaseURL string `json:"baseUrl,omitempty"`
+
+	// Authentication configuration.
+	// +optional
+	Auth *HttpAuthSpec `json:"auth,omitempty"`
+
+	// Default headers merged into every request using this Integration.
+	// Step-level headers override these defaults.
+	// +optional
+	DefaultHeaders map[string]string `json:"defaultHeaders,omitempty"`
+}
+
 // IntegrationSpec defines desired state for Integration.
 type IntegrationSpec struct {
 	// Integration type.
@@ -178,7 +255,8 @@ type IntegrationSpec struct {
 	// nats: first-party NATS gateway; supports Core and JetStream.
 	// plugin: community or custom image implementing the KubeZap plugin contract.
 	//   See docs/api/plugin-contract.md.
-	// +kubebuilder:validation:Enum=kafka;amqp;nats;plugin
+	// http: lightweight HTTP endpoint with base URL, auth, and default headers.
+	// +kubebuilder:validation:Enum=kafka;amqp;nats;plugin;http
 	Type string `json:"type"`
 
 	// Kafka specific configuration. Required when type=kafka.
@@ -192,6 +270,9 @@ type IntegrationSpec struct {
 
 	// Plugin specific configuration. Required when type=plugin.
 	Plugin *PluginIntegrationSpec `json:"plugin,omitempty"`
+
+	// HTTP specific configuration. Required when type=http.
+	HTTP *HttpIntegrationSpec `json:"http,omitempty"`
 }
 
 // IntegrationStatus defines observed state for Integration.

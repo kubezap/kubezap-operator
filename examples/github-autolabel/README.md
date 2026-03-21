@@ -105,12 +105,13 @@ replace the placeholder repository with your actual repository path:
 
 ```yaml
 # flow.yaml — find and replace both occurrences
-url: https://api.github.com/repos/YOUR_ORG/YOUR_REPO/issues/$(steps.extract-pr.prNumber)/labels
+url: "/repos/YOUR_ORG/YOUR_REPO/issues/$(steps.extract_pr.results.prNumber)/labels"
 ```
 
 Replace `YOUR_ORG/YOUR_REPO` with your repository, for example `acme/platform`.
 The placeholder appears twice — once in each of the `label-needs-review` and
-`label-closed` step definitions.
+`label-closed` step definitions. The base URL (`https://api.github.com`) and
+auth headers are provided by the `github-api` Integration.
 
 ---
 
@@ -152,16 +153,18 @@ kubectl apply -k examples/github-autolabel/
 
 This creates:
 
+- `Integration/github-api` — `type: http` Integration providing the GitHub API
+  base URL, bearer token auth, and default headers (Content-Type, API version)
 - `Trigger/github-pr-label` — registers `/hooks/github-pr` on the gateway,
   configures HMAC-SHA256 verification against the `github-webhook-secret`
   Secret, and references the `github-autolabel` Flow
 - `Flow/github-autolabel` — three-step workflow: `extract-pr`, `label-needs-review`,
   `label-closed`
 
-> **No Integration needed**: this example calls the GitHub API via plain HTTP steps
-> using the PAT from the Secret. An `Integration` CRD is only required when
-> KubeZap manages a long-lived connection (e.g., a Kafka cluster or a plugin
-> Deployment).
+> **Integration CRD**: this example uses a `type: http` Integration to provide
+> the GitHub API base URL, bearer token auth, and default headers. Flow steps
+> reference the Integration by name via `integrationRef` instead of embedding
+> credentials inline.
 
 ---
 

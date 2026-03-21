@@ -17,6 +17,7 @@ An `Integration` stores the connection details and credentials for an external s
       - [Scaling with KEDA](#scaling-with-keda)
     - [AMQP (`type: amqp`) _(beta)_](#amqp-type-amqp-beta)
     - [NATS (`type: nats`) _(beta)_](#nats-type-nats-beta)
+    - [HTTP (`type: http`)](#http-type-http)
   - [Plugin Integration Type](#plugin-integration-type)
     - [How it works](#how-it-works)
   - [Plugin Protocol Specification](#plugin-protocol-specification)
@@ -36,6 +37,12 @@ An `Integration` stores the connection details and credentials for an external s
     - [SecretKeyRef](#secretkeyref)
     - [PluginIntegrationSpec](#pluginintegrationspec)
     - [PluginSecretRef](#pluginsecretref)
+    - [HttpIntegrationSpec](#httpintegrationspec)
+    - [HttpAuthSpec](#httpauthspec)
+    - [HttpBearerAuth](#httpbearerauth)
+    - [HttpBasicAuth](#httpbasicauth)
+    - [HttpAPIKeyAuth](#httpapikeyauth)
+    - [HttpSecretURLAuth](#httpsecreturlauth)
   - [Status Reference](#status-reference)
     - [IntegrationStatus](#integrationstatus)
     - [Conditions](#conditions)
@@ -50,6 +57,8 @@ An `Integration` stores the connection details and credentials for an external s
     - [Example 7: Community Plugin Integration](#example-7-community-plugin-integration)
     - [Example 8: Using an Integration in a Trigger](#example-8-using-an-integration-in-a-trigger)
     - [Example 9: Using an Integration as a Publisher in a Flow](#example-9-using-an-integration-as-a-publisher-in-a-flow)
+    - [Example 10: HTTP Integration (GitHub API)](#example-10-http-integration-github-api)
+    - [Example 11: HTTP Integration (Slack Webhook — secretUrl)](#example-11-http-integration-slack-webhook--secreturl)
   - [Community Plugin Graduation](#community-plugin-graduation)
     - [Graduation criteria](#graduation-criteria)
     - [What graduation changes](#what-graduation-changes)
@@ -190,6 +199,25 @@ Uses the `kubezap/nats-gateway` image with the official [nats.go](https://github
 
 Enable JetStream with `spec.nats.jetStream: true`. Without JetStream, the gateway uses Core NATS subjects (no persistence, no dedup key guarantee).
 
+### HTTP (`type: http`)
+
+Provides a reusable base URL, authentication, and default headers for Flow steps that call external HTTP APIs. No gateway Deployment is created — the controller resolves auth at step execution time.
+
+Supported auth types:
+
+| Auth type    | How it works                                                            |
+|--------------|-------------------------------------------------------------------------|
+| `bearer`     | Adds `Authorization: Bearer <token>` header from a Secret              |
+| `basic`      | Adds `Authorization: Basic <b64(user:pass)>` header from two Secrets   |
+| `apiKey`     | Adds a custom header (e.g. `X-Api-Key`) with value from a Secret       |
+| `secretUrl`  | Replaces the step URL entirely with a URL stored in a Secret (for Slack incoming webhooks, etc.) |
+
+When a Flow step sets `http.integrationRef`, the controller:
+1. Fetches the Integration
+2. Merges `defaultHeaders` (step-level headers override integration defaults)
+3. Prepends `baseUrl` to the step URL if the step URL is a relative path
+4. Injects auth (overrides any step-level `Authorization` header)
+
 ---
 
 ## Plugin Integration Type
@@ -329,11 +357,12 @@ The operator uses this for the Deployment readiness probe.
 
 | Field    | Type                  | Required | Default | Description                                                      |
 | -------- | --------------------- | -------- | ------- | ---------------------------------------------------------------- |
-| `type`   | string                | **Yes**  | —       | `kafka`, `amqp`, `nats`, or `plugin`                             |
+| `type`   | string                | **Yes**  | —       | `kafka`, `amqp`, `nats`, `plugin`, or `http`                     |
 | `kafka`  | KafkaIntegrationSpec  | No       | —       | Kafka connection details. Required when `type: kafka`.           |
 | `amqp`   | AmqpIntegrationSpec   | No       | —       | AMQP connection details. Required when `type: amqp`. _(planned)_ |
 | `nats`   | NatsIntegrationSpec   | No       | —       | NATS connection details. Required when `type: nats`. _(planned)_ |
 | `plugin` | PluginIntegrationSpec | No       | —       | Plugin configuration. Required when `type: plugin`.              |
+| `http`   | HttpIntegrationSpec   | No       | —       | HTTP endpoint config. Required when `type: http`.                |
 
 ### AmqpIntegrationSpec
 
@@ -427,6 +456,50 @@ The operator uses this for the Deployment readiness probe.
 | ---------------- | ----------------- | --------------------------------------------------------------------------------- |
 | `secretName`     | string            | Name of the Kubernetes Secret                                                     |
 | `envVarMappings` | map[string]string | Maps Secret keys to environment variable names: `{ "api-key": "PLUGIN_API_KEY" }` |
+
+### HttpIntegrationSpec
+
+| Field            | Type              | Required | Default | Description                                                                         |
+| ---------------- | ----------------- | -------- | ------- | ----------------------------------------------------------------------------------- |
+| `baseUrl`        | string            | No       | —       | Base URL prepended to step URLs. Ignored if the step URL is already absolute.       |
+| `auth`           | HttpAuthSpec      | No       | —       | Authentication configuration                                                        |
+| `defaultHeaders` | map[string]string | No       | —       | Default headers merged into every request. Step-level headers override these.        |
+
+### HttpAuthSpec
+
+| Field       | Type              | Required | Default | Description                                       |
+| ----------- | ----------------- | -------- | ------- | ------------------------------------------------- |
+| `type`      | string            | **Yes**  | —       | `bearer`, `basic`, `apiKey`, or `secretUrl`       |
+| `bearer`    | HttpBearerAuth    | No       | —       | Bearer token config. Required when `type=bearer`. |
+| `basic`     | HttpBasicAuth     | No       | —       | Basic auth config. Required when `type=basic`.    |
+| `apiKey`    | HttpAPIKeyAuth    | No       | —       | API key config. Required when `type=apiKey`.      |
+| `secretUrl` | HttpSecretURLAuth | No       | —       | Secret URL config. Required when `type=secretUrl`.|
+
+### HttpBearerAuth
+
+| Field            | Type         | Required | Default | Description                                   |
+| ---------------- | ------------ | -------- | ------- | --------------------------------------------- |
+| `tokenSecretRef` | SecretKeyRef | **Yes**  | —       | Secret key containing the bearer token value  |
+
+### HttpBasicAuth
+
+| Field               | Type         | Required | Default | Description                            |
+| ------------------- | ------------ | -------- | ------- | -------------------------------------- |
+| `usernameSecretRef` | SecretKeyRef | **Yes**  | —       | Secret key containing the username     |
+| `passwordSecretRef` | SecretKeyRef | **Yes**  | —       | Secret key containing the password     |
+
+### HttpAPIKeyAuth
+
+| Field            | Type         | Required | Default | Description                                        |
+| ---------------- | ------------ | -------- | ------- | -------------------------------------------------- |
+| `headerName`     | string       | **Yes**  | —       | HTTP header name to set (e.g. `X-Api-Key`)         |
+| `valueSecretRef` | SecretKeyRef | **Yes**  | —       | Secret key containing the API key value            |
+
+### HttpSecretURLAuth
+
+| Field          | Type         | Required | Default | Description                                                      |
+| -------------- | ------------ | -------- | ------- | ---------------------------------------------------------------- |
+| `urlSecretRef` | SecretKeyRef | **Yes**  | —       | Secret key containing the full URL (including embedded credentials) |
 
 ---
 
@@ -739,6 +812,92 @@ spec:
               "orderId": "$(params.orderId)",
               "status": "$(steps.process.results.status)"
             }
+```
+
+---
+
+### Example 10: HTTP Integration (GitHub API)
+
+A `type: http` Integration providing GitHub API base URL, bearer token auth, and default headers. A Flow step references it via `integrationRef` — no inline credentials:
+
+```yaml
+# Integration
+apiVersion: automation.kubezap.io/v1alpha1
+kind: Integration
+metadata:
+  name: github-api
+  namespace: automation
+spec:
+  type: http
+  http:
+    baseUrl: "https://api.github.com"
+    auth:
+      type: bearer
+      bearer:
+        tokenSecretRef:
+          name: github-api-token
+          key: token
+    defaultHeaders:
+      Content-Type: "application/vnd.github+json"
+      X-GitHub-Api-Version: "2022-11-28"
+---
+# Flow step using the integration
+- name: apply-label
+  action:
+    type: http
+    http:
+      integrationRef:
+        name: github-api
+      url: "/repos/acme/platform/issues/$(steps.extract_pr.results.prNumber)/labels"
+      method: POST
+      body: '{"labels":["needs-review"]}'
+```
+
+---
+
+### Example 11: HTTP Integration (Slack Webhook — secretUrl)
+
+For services where the URL itself is the credential (e.g. Slack incoming webhooks), use `type: secretUrl`. The controller replaces the step URL entirely with the secret value:
+
+```yaml
+# Integration — URL is the credential
+apiVersion: automation.kubezap.io/v1alpha1
+kind: Integration
+metadata:
+  name: slack-webhook
+  namespace: automation
+spec:
+  type: http
+  http:
+    auth:
+      type: secretUrl
+      secretUrl:
+        urlSecretRef:
+          name: slack-webhook-secret
+          key: url
+    defaultHeaders:
+      Content-Type: "application/json"
+---
+# Secret
+apiVersion: v1
+kind: Secret
+metadata:
+  name: slack-webhook-secret
+  namespace: automation
+type: Opaque
+stringData:
+  url: "https://hooks.slack.com/services/T.../B.../..."
+---
+# Flow step
+- name: notify-slack
+  action:
+    type: http
+    http:
+      integrationRef:
+        name: slack-webhook
+      url: ""          # ignored — URL comes from the Integration secret
+      method: POST
+      body: '{"text":"$(steps.export_data.results.status)"}'
 ```
 
 ---

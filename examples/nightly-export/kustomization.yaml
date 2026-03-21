@@ -1,5 +1,6 @@
 resources:
   - minio.yaml
   - mockoon.yaml
+  - integration.yaml
   - flow.yaml
   - trigger.yaml

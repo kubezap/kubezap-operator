@@ -1,0 +1,18 @@
+# Slack incoming webhook Integration (secretUrl type).
+# Create a Kubernetes Secret with key "url" containing your Slack webhook URL before applying.
+apiVersion: automation.kubezap.io/v1alpha1
+kind: Integration
+metadata:
+  name: slack-webhook
+  namespace: default
+spec:
+  type: http
+  http:
+    auth:
+      type: secretUrl
+      secretUrl:
+        urlSecretRef:
+          name: slack-webhook-secret
+          key: url
+    defaultHeaders:
+      Content-Type: "application/json"

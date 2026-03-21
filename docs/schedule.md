@@ -122,7 +122,7 @@ Items are ordered to minimize rework:
 
 ### Phase 3 — Update existing guides
 
-- [ ] `docs/guides/getting-started.md` — replace all MockEndpoint steps with Mockoon equivalent; update every `kubectl apply` command and expected output block
+- [x] `docs/guides/getting-started.md` — replace all MockEndpoint steps with Mockoon equivalent; update every `kubectl apply` command and expected output block
 
 ---
 
@@ -135,14 +135,14 @@ Items are ordered to minimize rework:
 > Completed examples (github-autolabel, slack-router, nightly-export) also have inline
 > credentials — update them after this is implemented.
 
-- [ ] Add `http` to the `IntegrationSpec.Type` enum in `api/v1alpha1/integration_types.go`
-- [ ] Add `HttpIntegrationSpec` struct: `baseUrl`, `auth` (types: `bearer`, `basic`, `apiKey`, `secretUrl`), `defaultHeaders`, auth `secretRef` fields
-- [ ] Add `integrationRef` field to `HTTPAction` in `api/v1alpha1/flow_types.go`; controller merges Integration auth headers before making the step request
-- [ ] Add `get` on `integrations` to RBAC markers in `flowrun_controller.go` (secrets `get` already present); run `make manifests`
-- [ ] Run `make generate && make manifests`
-- [ ] Add sample CR `config/samples/automation_v1alpha1_integration_http.yaml`
-- [ ] Update `docs/api/integration.md` with the new type, fields, and examples
-- [ ] Update completed examples to use `integrationRef`: `examples/nightly-export/` (Slack notify), `examples/github-autolabel/` (GitHub API token), `examples/slack-router/` (step-level credentials)
+- [x] Add `http` to the `IntegrationSpec.Type` enum in `api/v1alpha1/integration_types.go`
+- [x] Add `HttpIntegrationSpec` struct: `baseUrl`, `auth` (types: `bearer`, `basic`, `apiKey`, `secretUrl`), `defaultHeaders`, auth `secretRef` fields
+- [x] Add `integrationRef` field to `HTTPAction` in `api/v1alpha1/flow_types.go`; controller merges Integration auth headers before making the step request
+- [x] Add `get` on `integrations` to RBAC markers in `flowrun_controller.go` (secrets `get` already present); run `make manifests` (RBAC marker was already present; agent added secrets `get` marker which was missing)
+- [x] Run `make generate && make manifests`
+- [x] Add sample CR `config/samples/automation_v1alpha1_integration_http.yaml`
+- [x] Update `docs/api/integration.md` with the new type, fields, and examples
+- [x] Update completed examples to use `integrationRef`: `examples/nightly-export/` (Slack notify), `examples/github-autolabel/` (GitHub API token), `examples/slack-router/` (step-level credentials — N/A, only Mockoon URLs remain)
 
 ---
 

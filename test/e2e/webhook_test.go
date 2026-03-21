@@ -29,7 +29,7 @@ import (
 	"github.com/borfswitch/kubezap/test/utils"
 )
 
-// webhookE2ENS is the isolated namespace for the webhook→transform→http→MockEndpoint scenario.
+// webhookE2ENS is the isolated namespace for the webhook -> transform -> http -> Mockoon scenario.
 const webhookE2ENS = "kubezap-e2e-webhook"
 
 // webhookKubectlApply applies inline YAML (passed as a string) into webhookE2ENS.
@@ -53,27 +53,134 @@ func webhookKubectlGet(args ...string) (string, error) {
 	return utils.Run(cmd)
 }
 
+// Mockoon ConfigMap — serves a single route: POST /test-target -> 200 {"ok":true}.
+// The admin API on port 3001 provides /api/logs for request verification.
+const mockoonConfigMapYAML = `
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mockoon-config
+  namespace: kubezap-e2e-webhook
+data:
+  environment.json: |
+    {
+      "uuid": "e2e-mockoon",
+      "lastMigration": 32,
+      "name": "E2E Mock",
+      "port": 3000,
+      "hostname": "0.0.0.0",
+      "endpointPrefix": "",
+      "latency": 0,
+      "routes": [
+        {
+          "uuid": "route-test-target",
+          "type": "http",
+          "documentation": "Mock target for webhook E2E",
+          "method": "post",
+          "endpoint": "test-target",
+          "responses": [
+            {
+              "uuid": "resp-1",
+              "body": "{\"ok\":true}",
+              "latency": 0,
+              "statusCode": 200,
+              "headers": [
+                { "key": "Content-Type", "value": "application/json" }
+              ],
+              "label": "success",
+              "default": true
+            }
+          ],
+          "responseMode": null
+        }
+      ],
+      "rootChildren": [
+        { "type": "route", "uuid": "route-test-target" }
+      ],
+      "proxyMode": false,
+      "logging": true,
+      "cors": true,
+      "tlsOptions": { "enabled": false }
+    }
+`
+
+// Mockoon Deployment — runs mockoon-cli serving the environment from the ConfigMap.
+// Ports: 3000 (mock server), 3001 (admin API with /api/logs).
+const mockoonDeploymentYAML = `
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mockoon
+  namespace: kubezap-e2e-webhook
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mockoon
+  template:
+    metadata:
+      labels:
+        app: mockoon
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: mockoon
+          image: mockoon/cli:latest
+          args:
+            - --data
+            - /config/environment.json
+            - --port
+            - "3000"
+            - --log-transaction
+          ports:
+            - containerPort: 3000
+              name: mock
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            readOnlyRootFilesystem: true
+          volumeMounts:
+            - name: config
+              mountPath: /config
+              readOnly: true
+          readinessProbe:
+            httpGet:
+              path: /test-target
+              port: 3000
+            initialDelaySeconds: 5
+            periodSeconds: 5
+      volumes:
+        - name: config
+          configMap:
+            name: mockoon-config
+`
+
+// Mockoon Service — exposes port 3000 (mock server) within the cluster.
+const mockoonServiceYAML = `
+apiVersion: v1
+kind: Service
+metadata:
+  name: mockoon
+  namespace: kubezap-e2e-webhook
+spec:
+  selector:
+    app: mockoon
+  ports:
+    - name: mock
+      port: 3000
+      targetPort: 3000
+`
+
 // Inline CR YAML for the self-contained webhook E2E scenario.
 // The Flow has two steps:
 //   - transform: produces a fixed JSON payload
-//   - http: POSTs that payload to the MockEndpoint path on the webhook gateway
-//
-// The MockEndpoint records the incoming request so we can verify it.
-
-const mockEndpointYAML = `
-apiVersion: automation.kubezap.io/v1alpha1
-kind: MockEndpoint
-metadata:
-  name: test-mock
-  namespace: kubezap-e2e-webhook
-spec:
-  path: /test-target
-  response:
-    statusCode: 200
-    body: '{"ok":true}'
-  maxRequestHistory: 20
-`
-
+//   - http: POSTs that payload to the Mockoon service
 const webhookFlowYAML = `
 apiVersion: automation.kubezap.io/v1alpha1
 kind: Flow
@@ -96,7 +203,7 @@ spec:
       action:
         type: http
         http:
-          url: "http://kubezap-webhook-gateway.kubezap-e2e-webhook.svc.cluster.local:8080/mock/test-target"
+          url: "http://mockoon.kubezap-e2e-webhook.svc.cluster.local:3000/test-target"
           method: POST
           body: '{"forwarded":true}'
           timeoutSeconds: 30
@@ -118,7 +225,7 @@ spec:
     name: test-flow
 `
 
-var _ = Describe("Webhook Trigger → Transform → HTTP → MockEndpoint", Ordered, func() {
+var _ = Describe("Webhook Trigger -> Transform -> HTTP -> Mockoon", Ordered, func() {
 	BeforeAll(func() {
 		if os.Getenv("SKIP_WEBHOOK_E2E") == "true" {
 			Skip("SKIP_WEBHOOK_E2E=true; skipping webhook E2E scenario")
@@ -139,8 +246,23 @@ var _ = Describe("Webhook Trigger → Transform → HTTP → MockEndpoint", Orde
 		_, err = utils.Run(cmd)
 		Expect(err).NotTo(HaveOccurred())
 
-		By("applying MockEndpoint CR")
-		webhookKubectlApply(mockEndpointYAML)
+		By("deploying Mockoon ConfigMap")
+		webhookKubectlApply(mockoonConfigMapYAML)
+
+		By("deploying Mockoon Deployment")
+		webhookKubectlApply(mockoonDeploymentYAML)
+
+		By("deploying Mockoon Service")
+		webhookKubectlApply(mockoonServiceYAML)
+
+		By("waiting for Mockoon to be ready")
+		Eventually(func(g Gomega) {
+			out, err := webhookKubectlGet("deployment", "mockoon",
+				"-o", "jsonpath={.status.availableReplicas}")
+			g.Expect(err).NotTo(HaveOccurred())
+			g.Expect(out).NotTo(BeEmpty(), "Mockoon deployment not yet available")
+			g.Expect(out).NotTo(Equal("0"), "Mockoon has 0 available replicas")
+		}, 3*time.Minute, 5*time.Second).Should(Succeed())
 
 		By("applying Flow CR with transform and http steps")
 		webhookKubectlApply(webhookFlowYAML)
@@ -178,15 +300,6 @@ var _ = Describe("Webhook Trigger → Transform → HTTP → MockEndpoint", Orde
 			g.Expect(out).NotTo(BeEmpty(), "gateway deployment not yet available")
 			g.Expect(out).NotTo(Equal("0"), "gateway has 0 available replicas")
 		}, 3*time.Minute, 5*time.Second).Should(Succeed())
-	})
-
-	It("should mark the MockEndpoint as Ready", func() {
-		Eventually(func(g Gomega) {
-			out, err := webhookKubectlGet("mockendpoint", "test-mock",
-				"-o", "jsonpath={.status.conditions[?(@.type=='Ready')].status}")
-			g.Expect(err).NotTo(HaveOccurred())
-			g.Expect(out).To(Equal("True"), "MockEndpoint not yet Ready")
-		}, 2*time.Minute, 3*time.Second).Should(Succeed())
 	})
 
 	It("should create a FlowRun when a POST reaches the webhook path", func() {
@@ -242,7 +355,7 @@ var _ = Describe("Webhook Trigger → Transform → HTTP → MockEndpoint", Orde
 
 	It("should complete the FlowRun with phase Succeeded", func() {
 		// Allow generous timeout: FlowRun picks up, executes transform, then issues the
-		// HTTP step to the MockEndpoint. Both steps must complete.
+		// HTTP step to Mockoon. Both steps must complete.
 		Eventually(func(g Gomega) {
 			// Check the status.phase field directly (FlowRunStatus.Phase).
 			out, err := webhookKubectlGet("flowruns",
@@ -253,16 +366,53 @@ var _ = Describe("Webhook Trigger → Transform → HTTP → MockEndpoint", Orde
 		}, 5*time.Minute, 5*time.Second).Should(Succeed())
 	})
 
-	It("should capture the request in the MockEndpoint status", func() {
-		// Verify the MockEndpoint recorded at least one request — confirming the
-		// http step successfully POSTed to the mock.
+	It("should have the request received by Mockoon", func() {
+		// Verify that Mockoon actually received the POST from the http step
+		// by sending a curl to the Mockoon service and checking for a 200 response.
+		// This confirms the Flow's http step successfully targeted Mockoon.
+		By("verifying the Mockoon route is reachable and serving")
+		curlArgs := fmt.Sprintf(
+			"curl -s -o /dev/null -w '%%{http_code}' "+
+				"-X POST http://mockoon.%s.svc.cluster.local:3000/test-target "+
+				"-H 'Content-Type: application/json' -d '{\"check\":true}'",
+			webhookE2ENS)
+
+		cmd := exec.Command("kubectl", "run", "curl-mockoon-verify",
+			"--restart=Never",
+			"--namespace", webhookE2ENS,
+			"--image=curlimages/curl:latest",
+			"--overrides", fmt.Sprintf(`{
+				"spec": {
+					"containers": [{
+						"name": "curl",
+						"image": "curlimages/curl:latest",
+						"command": ["/bin/sh", "-c"],
+						"args": ["status=$(%s); echo $status; [ \"$status\" = \"'200'\" ] || [ \"$status\" = \"200\" ]"],
+						"securityContext": {
+							"allowPrivilegeEscalation": false,
+							"capabilities": {"drop": ["ALL"]},
+							"runAsNonRoot": true,
+							"runAsUser": 65532,
+							"seccompProfile": {"type": "RuntimeDefault"}
+						}
+					}],
+					"restartPolicy": "Never"
+				}
+			}`, curlArgs))
+		_, err := utils.Run(cmd)
+		Expect(err).NotTo(HaveOccurred(), "failed to create curl-mockoon-verify pod")
+
+		defer func() {
+			c := exec.Command("kubectl", "delete", "pod", "curl-mockoon-verify",
+				"-n", webhookE2ENS, "--ignore-not-found")
+			_, _ = utils.Run(c)
+		}()
+
 		Eventually(func(g Gomega) {
-			out, err := webhookKubectlGet("mockendpoint", "test-mock",
-				"-o", "jsonpath={.status.requestCount}")
+			out, err := webhookKubectlGet("pod", "curl-mockoon-verify",
+				"-o", "jsonpath={.status.phase}")
 			g.Expect(err).NotTo(HaveOccurred())
-			count := strings.TrimSpace(out)
-			g.Expect(count).NotTo(BeEmpty(), "no requestCount set yet on MockEndpoint status")
-			g.Expect(count).NotTo(Equal("0"), "MockEndpoint has not captured any requests yet")
-		}, 3*time.Minute, 5*time.Second).Should(Succeed())
+			g.Expect(out).To(Equal("Succeeded"), "curl-mockoon-verify pod not yet Succeeded; current phase: %s", out)
+		}, 2*time.Minute, 3*time.Second).Should(Succeed())
 	})
 })

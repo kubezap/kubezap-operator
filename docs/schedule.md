@@ -219,11 +219,11 @@ Items are ordered to minimize rework:
 
 ### Phase 4 — Update tests
 
-- [ ] `internal/controller/mockendpoint_controller_test.go` — delete entire file
-- [ ] `internal/controller/suite_test.go` (or equivalent) — remove MockEndpoint type registration if present
-- [ ] `test/e2e/` — search for all MockEndpoint usage; replace with HTTP calls to Mockoon stub server deployed in the test namespace; update `BeforeSuite` setup if the test suite relies on the webhook gateway's `/mock/*` serving
-- [ ] `test/e2e/webhook_test.go` — update the E2E scenario (webhook → transform → http step → MockEndpoint → verify FlowRun Succeeded) to target Mockoon instead
-- [ ] Audit all test files: `grep -r "MockEndpoint\|mockendpoint\|mock-endpoint" --include="*.go"` — fix every hit
+- [x] `internal/controller/mockendpoint_controller_test.go` — delete entire file
+- [x] `internal/controller/suite_test.go` (or equivalent) — remove MockEndpoint type registration if present
+- [x] `test/e2e/` — search for all MockEndpoint usage; replace with HTTP calls to Mockoon stub server deployed in the test namespace; update `BeforeSuite` setup if the test suite relies on the webhook gateway's `/mock/*` serving
+- [x] `test/e2e/webhook_test.go` — update the E2E scenario (webhook → transform → http step → MockEndpoint → verify FlowRun Succeeded) to target Mockoon instead
+- [x] Audit all test files: `grep -r "MockEndpoint\|mockendpoint\|mock-endpoint" --include="*.go"` — fix every hit
 
 ### Phase 5 — Remove code and CRD
 

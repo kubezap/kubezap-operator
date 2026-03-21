@@ -117,7 +117,6 @@ var _ = BeforeSuite(func() {
 		"flows.automation.kubezap.io",
 		"flowruns.automation.kubezap.io",
 		"integrations.automation.kubezap.io",
-		"mockendpoints.automation.kubezap.io",
 		"triggers.automation.kubezap.io",
 	} {
 		cmd = exec.Command("kubectl", "wait", "crd/"+crd,

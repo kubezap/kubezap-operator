@@ -592,6 +592,104 @@ var _ = Describe("FlowRunReconciler", func() {
 		})
 	})
 
+	Context("transform step + result chaining (T8)", func() {
+		var (
+			server      *httptest.Server
+			flow        *automationv1alpha1.Flow
+			flowRun     *automationv1alpha1.FlowRun
+			capturedURL string
+		)
+
+		BeforeEach(func() {
+			// httptest server captures the request URL so the test can assert that
+			// variable substitution placed the correct orderId in the path.
+			server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				capturedURL = r.URL.String()
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusOK)
+				_, _ = w.Write([]byte(`{"status":"ok"}`))
+			}))
+
+			seed := GinkgoRandomSeed()
+			flowName := fmt.Sprintf("flow-t8-%d", seed)
+			flowRunName := fmt.Sprintf("fr-t8-%d", seed)
+
+			// Step 1: transform — maps $(trigger.body.orderId) to result key "orderId".
+			// Step 2: http — uses $(steps.transform-step.results.orderId) in URL path.
+			flow = makeFlow(flowName, []automationv1alpha1.FlowStep{
+				{
+					Name: "transform-step",
+					Action: automationv1alpha1.StepAction{
+						Type: "transform",
+						Transform: &automationv1alpha1.TransformAction{
+							Mappings: map[string]string{
+								"orderId": "$(trigger.body.orderId)",
+							},
+						},
+					},
+				},
+				{
+					Name:     "http-step",
+					RunAfter: []string{"transform-step"},
+					Action: automationv1alpha1.StepAction{
+						Type: "http",
+						HTTP: &automationv1alpha1.HTTPAction{
+							URL:    server.URL + "/orders/$(steps.transform_step.results.orderId)",
+							Method: "GET",
+						},
+					},
+				},
+			})
+			Expect(k8sClient.Create(ctx, flow)).To(Succeed())
+
+			// FlowRun carries TriggerData with a JSON body containing orderId.
+			flowRun = &automationv1alpha1.FlowRun{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      flowRunName,
+					Namespace: testNamespace,
+				},
+				Spec: automationv1alpha1.FlowRunSpec{
+					FlowRef: automationv1alpha1.FlowReference{Name: flowName},
+					TriggerData: &automationv1alpha1.TriggerData{
+						Body:        `{"orderId":"ORD-42"}`,
+						ContentType: "application/json",
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, flowRun)).To(Succeed())
+
+			DeferCleanup(func() {
+				server.Close()
+				_ = k8sClient.Delete(context.Background(), flowRun)
+				_ = k8sClient.Delete(context.Background(), flow)
+			})
+		})
+
+		It("substitutes orderId from trigger body through transform into the HTTP URL", func() {
+			updated, err := reconcileAndFetch(flowRun.Name)
+			Expect(err).NotTo(HaveOccurred())
+
+			// Overall FlowRun must succeed.
+			Expect(updated.Status.Phase).To(Equal("Succeeded"))
+
+			// Transform step must have succeeded and emitted the orderId result.
+			transformStatus := findStepStatus(updated.Status.Steps, "transform-step")
+			Expect(transformStatus).NotTo(BeNil())
+			Expect(transformStatus.Phase).To(Equal("Succeeded"))
+			Expect(transformStatus.Results).To(ContainElement(
+				automationv1alpha1.ResultValue{Name: "orderId", Value: "ORD-42"},
+			))
+
+			// HTTP step must have succeeded.
+			httpStatus := findStepStatus(updated.Status.Steps, "http-step")
+			Expect(httpStatus).NotTo(BeNil())
+			Expect(httpStatus.Phase).To(Equal("Succeeded"))
+
+			// The server must have received a request whose URL contains the substituted orderId.
+			Expect(capturedURL).To(ContainSubstring("ORD-42"))
+		})
+	})
+
 	Context("step retry with exponential backoff (T7)", func() {
 		var (
 			server  *httptest.Server

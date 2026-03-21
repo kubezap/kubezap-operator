@@ -88,7 +88,7 @@ Items are ordered to minimize rework:
 - [x] **T5 — Cooldown window suppression**: Trigger with `maxInvocations: 2, window: 10s`. Fire 5 requests in sequence. Assert 2 FlowRuns created, 3 suppressed (metric `kubezap_webhook_rate_limited_total` incremented by 3). File: `internal/gateway/webhook/handler_test.go`.
 - [x] **T6 — FlowRun orphan recovery**: Create FlowRun in `Running` phase with finalizer set, no active execution context. Advance time past the orphan timeout (`--flowrun-ttl-failed` default). Assert controller transitions phase to `Failed` with reason `OrphanTimeout` and removes finalizer. File: `internal/controller/flowrun_controller_test.go`.
 - [x] **T7 — Step retry with exponential backoff**: Mock HTTP server that returns 503 for first 2 calls, 200 on 3rd. Step has `retryPolicy: {maxRetries: 3, backoffType: Exponential, initialDelay: 10ms, maxDelay: 100ms}`. Assert: step `attempts == 3`, step phase `Succeeded`, delay durations recorded in step status. File: `internal/controller/flowrun_controller_test.go`.
-- [ ] **T8 — Transform step + result chaining**: Flow with `type: transform` step that maps `$(trigger.body.orderId)` to result `orderId`, followed by HTTP step using `$(steps.transform.results.orderId)` in URL. Assert the HTTP call URL contains the correct substituted value. Use `httptest.NewServer` for the target. File: `internal/controller/flowrun_controller_test.go`.
+- [x] **T8 — Transform step + result chaining**: Flow with `type: transform` step that maps `$(trigger.body.orderId)` to result `orderId`, followed by HTTP step using `$(steps.transform.results.orderId)` in URL. Assert the HTTP call URL contains the correct substituted value. Use `httptest.NewServer` for the target. File: `internal/controller/flowrun_controller_test.go`.
 - [x] **T9 — Webhook FlowRun name uniqueness under concurrent load**: Fire 500 concurrent webhook requests at the same Trigger using a goroutine pool. Assert all 500 FlowRuns are created with unique names (no silent `AlreadyExists` drops). Collect all created FlowRun names and assert zero duplicates. Requires the `randomHex(8)` fix (R1 bug above) to pass reliably. File: `internal/gateway/webhook/handler_test.go`.
 
 ---
@@ -105,9 +105,9 @@ Items are ordered to minimize rework:
 
 ### Phase 1 — Write replacement documentation
 
-- [ ] Convert `docs/api/mock-endpoint.md` to `docs/guides/mocking-http-endpoints.md`: explain why MockEndpoint is removed, document Mockoon's in-cluster deployment (Docker image + Kubernetes `Deployment` + `Service`), show how to define stub responses, show how to inspect captured requests, cross-link to each example that uses it
-- [ ] Add in-cluster `Deployment` + `Service` YAML for Mockoon as a reusable snippet referenced by examples and the guide
-- [ ] Update `docs/overview.md` CRD Overview table: remove `MockEndpoint` row; add note redirecting to `docs/guides/mocking-http-endpoints.md`
+- [x] Convert `docs/api/mock-endpoint.md` to `docs/guides/mocking-http-endpoints.md`: explain why MockEndpoint is removed, document Mockoon's in-cluster deployment (Docker image + Kubernetes `Deployment` + `Service`), show how to define stub responses, show how to inspect captured requests, cross-link to each example that uses it
+- [x] Add in-cluster `Deployment` + `Service` YAML for Mockoon as a reusable snippet referenced by examples and the guide
+- [x] Update `docs/overview.md` CRD Overview table: remove `MockEndpoint` row; add note redirecting to `docs/guides/mocking-http-endpoints.md`
 - [ ] Update `docs/architecture.md`: remove all MockEndpoint references; update the "Webhook gateway also serves `/mock/*` paths" note to reflect removal
 - [ ] Update `docs/guides/troubleshooting.md`: replace "MockEndpoint not capturing requests" section with Mockoon equivalent
 

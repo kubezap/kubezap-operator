@@ -165,7 +165,7 @@ func TestHandleMessage_CoreNATS_Duplicate(t *testing.T) {
 	_ = h2.handleMessage(msg)
 }
 
-// TestHandleMessage_Labels verifies trigger-type label is set to "pubsub".
+// TestHandleMessage_Labels verifies trigger-type label is set to "nats".
 func TestHandleMessage_Labels(t *testing.T) {
 	fakeClient := fake.NewClientBuilder().WithScheme(newTestScheme()).Build()
 	log := zap.New()
@@ -190,8 +190,8 @@ func TestHandleMessage_Labels(t *testing.T) {
 	}
 
 	fr := list.Items[0]
-	if fr.Labels["kubezap.io/trigger-type"] != "pubsub" {
-		t.Errorf("trigger-type label = %q, want pubsub", fr.Labels["kubezap.io/trigger-type"])
+	if fr.Labels["kubezap.io/trigger-type"] != "nats" {
+		t.Errorf("trigger-type label = %q, want nats", fr.Labels["kubezap.io/trigger-type"])
 	}
 	if fr.Namespace != "ns1" {
 		t.Errorf("namespace = %q, want ns1", fr.Namespace)

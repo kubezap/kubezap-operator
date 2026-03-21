@@ -151,17 +151,14 @@ func (w *Watcher) onTriggerDelete(obj interface{}) {
 func (w *Watcher) reconcileTrigger(ctx context.Context, trigger *automationv1alpha1.Trigger) {
 	key := types.NamespacedName{Name: trigger.Name, Namespace: trigger.Namespace}
 
-	// Stop subscription if trigger is not a nats pubsub trigger or is disabled.
-	if trigger.Spec.Type != "pubsub" || trigger.Spec.PubSub == nil || trigger.Spec.PubSub.Type != "nats" || !trigger.Spec.Enabled {
+	// Stop subscription if trigger is not a nats trigger or is disabled.
+	if trigger.Spec.Type != "nats" || trigger.Spec.Nats == nil || !trigger.Spec.Enabled {
 		w.stopSubscription(key)
 		return
 	}
 
-	subject := trigger.Spec.PubSub.Subject
-	if subject == "" {
-		subject = trigger.Spec.PubSub.Topic
-	}
-	integrationName := trigger.Spec.PubSub.IntegrationRef.Name
+	subject := trigger.Spec.Nats.Subject
+	integrationName := trigger.Spec.Nats.IntegrationRef.Name
 
 	if existing, ok := w.subscriptions.Load(key); ok {
 		sub := existing.(*subscription)
@@ -180,14 +177,9 @@ func (w *Watcher) reconcileTrigger(ctx context.Context, trigger *automationv1alp
 
 // startSubscription creates a NATS subscription for the given Trigger.
 func (w *Watcher) startSubscription(ctx context.Context, trigger *automationv1alpha1.Trigger) error {
-	pubsub := trigger.Spec.PubSub
-	integrationName := pubsub.IntegrationRef.Name
-
-	// Determine subject: prefer explicit Subject field, fall back to Topic.
-	subject := pubsub.Subject
-	if subject == "" {
-		subject = pubsub.Topic
-	}
+	nats := trigger.Spec.Nats
+	integrationName := nats.IntegrationRef.Name
+	subject := nats.Subject
 
 	// Fetch the Integration CRD.
 	integration := &automationv1alpha1.Integration{}

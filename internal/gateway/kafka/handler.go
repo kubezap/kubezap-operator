@@ -89,7 +89,7 @@ func (h *MessageHandler) HandleMessage(ctx context.Context, topic string, partit
 			Namespace: h.triggerNamespace,
 			Labels: map[string]string{
 				"kubezap.io/trigger":      h.triggerName,
-				"kubezap.io/trigger-type": "pubsub",
+				"kubezap.io/trigger-type": "kafka",
 				"kubezap.io/flow":         h.flowRefName,
 			},
 		},
@@ -97,10 +97,10 @@ func (h *MessageHandler) HandleMessage(ctx context.Context, topic string, partit
 			FlowRef: automationv1alpha1.FlowReference{Name: h.flowRefName},
 			TriggerRef: &automationv1alpha1.TriggerReference{
 				Name: h.triggerName,
-				Type: "pubsub",
+				Type: "kafka",
 			},
 			TriggerData: &automationv1alpha1.TriggerData{
-				Source:    "pubsub",
+				Source:    "kafka",
 				Body:      string(payload),
 				Topic:     topic,
 				Partition: partition,

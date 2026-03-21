@@ -150,7 +150,9 @@ spec:
                     enum:
                     - webhook
                     - cron
-                    - pubsub
+                    - kafka
+                    - amqp
+                    - nats
                     - resource
                     type: string
                 required:

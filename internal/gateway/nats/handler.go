@@ -78,7 +78,7 @@ func (h *MessageHandler) handleMessage(msg *natsio.Msg) error {
 			Namespace: h.triggerNamespace,
 			Labels: map[string]string{
 				"kubezap.io/trigger":      h.triggerName,
-				"kubezap.io/trigger-type": "pubsub",
+				"kubezap.io/trigger-type": "nats",
 				"kubezap.io/flow":         h.flowRefName,
 			},
 		},
@@ -86,10 +86,10 @@ func (h *MessageHandler) handleMessage(msg *natsio.Msg) error {
 			FlowRef: automationv1alpha1.FlowReference{Name: h.flowRefName},
 			TriggerRef: &automationv1alpha1.TriggerReference{
 				Name: h.triggerName,
-				Type: "pubsub",
+				Type: "nats",
 			},
 			TriggerData: &automationv1alpha1.TriggerData{
-				Source: "pubsub",
+				Source: "nats",
 				Body:   string(msg.Data),
 				Topic:  msg.Subject,
 			},

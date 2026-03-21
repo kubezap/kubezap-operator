@@ -27,8 +27,8 @@ import (
 // TriggerSpec defines the desired state of Trigger.
 // +kubebuilder:validation:XValidation:rule="has(self.flowRef) != has(self.action)",message="exactly one of flowRef or action must be set"
 type TriggerSpec struct {
-	// Type of trigger (webhook, cron, pubsub, resource)
-	// +kubebuilder:validation:Enum=webhook;cron;pubsub;resource
+	// Type of trigger (webhook, cron, kafka, amqp, nats, resource)
+	// +kubebuilder:validation:Enum=webhook;cron;kafka;amqp;nats;resource
 	Type string `json:"type"`
 
 	// Whether this trigger is active
@@ -41,8 +41,14 @@ type TriggerSpec struct {
 	// Cron configuration (only for type=cron)
 	Cron *CronTrigger `json:"cron,omitempty"`
 
-	// PubSub configuration (only for type=pubsub)
-	PubSub *PubSubTrigger `json:"pubsub,omitempty"`
+	// Kafka configuration (only for type=kafka)
+	Kafka *KafkaTrigger `json:"kafka,omitempty"`
+
+	// Amqp configuration (only for type=amqp)
+	Amqp *AmqpTrigger `json:"amqp,omitempty"`
+
+	// Nats configuration (only for type=nats)
+	Nats *NatsTrigger `json:"nats,omitempty"`
 
 	// Resource configuration (only for type=resource).
 	// Watches a Kubernetes resource type for create/update/delete events
@@ -57,13 +63,8 @@ type TriggerSpec struct {
 	// Inline action definition (optional). Starts with webhook action type.
 	Action *ActionDefinition `json:"action,omitempty"`
 
-	// Optional target resource in the cluster to watch or reference. Kept
-	// optional for the MVP (external events only by default) but present
-	// so future resource-based triggers can be added without schema changes.
-	Target *TargetResource `json:"target,omitempty"`
-
 	// Event or condition type for resource triggers (create/update/delete).
-	// For external triggers (webhook/cron/pubsub) this is typically empty.
+	// For external triggers (webhook/cron/kafka/amqp/nats) this is typically empty.
 	// +kubebuilder:validation:Optional
 	Event string `json:"event,omitempty"`
 
@@ -175,21 +176,6 @@ type WebhookAction struct {
 	Body string `json:"body,omitempty"`
 }
 
-// TargetResource describes an optional cluster resource target for resource-based triggers.
-type TargetResource struct {
-	// Kind of resource (Pod, ConfigMap, CustomKind)
-	Kind string `json:"kind,omitempty"`
-
-	// Namespace of the resource. If empty and Name is set, it defaults to the Trigger's namespace.
-	Namespace string `json:"namespace,omitempty"`
-
-	// Name of a specific resource to target.
-	Name string `json:"name,omitempty"`
-
-	// LabelSelector allows selecting resources by labels instead of exact name.
-	LabelSelector *metav1.LabelSelector `json:"labelSelector,omitempty"`
-}
-
 // CooldownPolicy prevents trigger storms by limiting invocations in a time window.
 type CooldownPolicy struct {
 	// MaxInvocations allowed within Window. If zero, no limit is applied.
@@ -200,27 +186,38 @@ type CooldownPolicy struct {
 	Window *metav1.Duration `json:"window,omitempty"`
 }
 
-// PubSubTrigger configures a message-broker-based trigger.
-type PubSubTrigger struct {
-	// Message broker type.
-	// +kubebuilder:validation:Enum=kafka;amqp;nats
-	Type string `json:"type"`
-
-	// Reference to an Integration CR with broker connection details.
+// KafkaTrigger configures a Kafka-based trigger (type=kafka).
+type KafkaTrigger struct {
+	// Reference to an Integration CR with Kafka connection details.
 	IntegrationRef corev1.LocalObjectReference `json:"integrationRef"`
 
 	// Topic to consume from.
 	Topic string `json:"topic"`
 
-	// Kafka consumer group ID. Defaults to "kubezap-<trigger-name>" at runtime.
+	// ConsumerGroup ID. Defaults to "kubezap-<trigger-name>" at runtime.
 	ConsumerGroup string `json:"consumerGroup,omitempty"`
+}
 
-	// RoutingKey is the AMQP routing key or binding pattern. Used for type=amqp only.
+// AmqpTrigger configures an AMQP-based trigger (type=amqp).
+type AmqpTrigger struct {
+	// Reference to an Integration CR with AMQP connection details.
+	IntegrationRef corev1.LocalObjectReference `json:"integrationRef"`
+
+	// Topic (queue name) to consume from.
+	Topic string `json:"topic"`
+
+	// RoutingKey is the AMQP routing key or binding pattern.
 	RoutingKey string `json:"routingKey,omitempty"`
+}
 
-	// Subject is the NATS subject to subscribe to. Used for type=nats only.
+// NatsTrigger configures a NATS-based trigger (type=nats).
+type NatsTrigger struct {
+	// Reference to an Integration CR with NATS connection details.
+	IntegrationRef corev1.LocalObjectReference `json:"integrationRef"`
+
+	// Subject is the NATS subject to subscribe to.
 	// Supports NATS wildcards (e.g. "orders.*", "events.>").
-	Subject string `json:"subject,omitempty"`
+	Subject string `json:"subject"`
 }
 
 // ResourceTrigger watches a Kubernetes resource type for events.

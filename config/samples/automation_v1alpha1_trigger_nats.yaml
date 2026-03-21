@@ -7,10 +7,9 @@ metadata:
   name: nats-orders
   namespace: default
 spec:
-  type: pubsub
+  type: nats
   enabled: true
-  pubsub:
-    type: nats
+  nats:
     integrationRef:
       name: my-nats
     subject: orders.created

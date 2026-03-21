@@ -643,7 +643,7 @@ type kafkaTopicCGPair struct {
 func (r *IntegrationReconciler) reconcileKafkaScaledObject(ctx context.Context, integration *automationv1alpha1.Integration) error {
 	log := logf.FromContext(ctx)
 
-	// List all Triggers in this namespace and filter for kafka pubsub ones that reference this Integration.
+	// List all Triggers in this namespace and filter for kafka triggers that reference this Integration.
 	triggerList := &automationv1alpha1.TriggerList{}
 	if err := r.List(ctx, triggerList, client.InNamespace(integration.Namespace)); err != nil {
 		return fmt.Errorf("listing triggers: %w", err)
@@ -653,24 +653,21 @@ func (r *IntegrationReconciler) reconcileKafkaScaledObject(ctx context.Context, 
 	pairSet := make(map[kafkaTopicCGPair]struct{})
 
 	for _, trigger := range triggerList.Items {
-		if trigger.Spec.Type != "pubsub" {
+		if trigger.Spec.Type != "kafka" {
 			continue
 		}
-		ps := trigger.Spec.PubSub
-		if ps == nil {
+		k := trigger.Spec.Kafka
+		if k == nil {
 			continue
 		}
-		if ps.Type != "kafka" {
+		if k.IntegrationRef.Name != integration.Name {
 			continue
 		}
-		if ps.IntegrationRef.Name != integration.Name {
-			continue
-		}
-		cg := ps.ConsumerGroup
+		cg := k.ConsumerGroup
 		if cg == "" {
 			cg = "kubezap-" + trigger.Name
 		}
-		pairSet[kafkaTopicCGPair{topic: ps.Topic, cg: cg}] = struct{}{}
+		pairSet[kafkaTopicCGPair{topic: k.Topic, cg: cg}] = struct{}{}
 	}
 
 	pairs := make([]kafkaTopicCGPair, 0, len(pairSet))

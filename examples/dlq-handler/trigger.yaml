@@ -4,10 +4,9 @@ metadata:
   name: orders-dlq-trigger
   namespace: default
 spec:
-  type: pubsub
+  type: kafka
   enabled: true
-  pubsub:
-    type: kafka
+  kafka:
     integrationRef:
       name: orders-kafka
     topic: orders.dlq

@@ -4,10 +4,9 @@ metadata:
   name: customer-events
   namespace: default
 spec:
-  type: pubsub
+  type: kafka
   enabled: true
-  pubsub:
-    type: kafka
+  kafka:
     integrationRef:
       name: customer-kafka
     topic: customer-events

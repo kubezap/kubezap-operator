@@ -107,7 +107,7 @@ func TestHandleDelivery091_CreatesFlowRun(t *testing.T) {
 	if fr.Spec.TriggerData.Topic != "orders.created" {
 		t.Errorf("TriggerData.Topic = %q, want orders.created", fr.Spec.TriggerData.Topic)
 	}
-	if fr.Labels["kubezap.io/trigger-type"] != "pubsub" {
+	if fr.Labels["kubezap.io/trigger-type"] != "amqp" {
 		t.Errorf("trigger-type label = %q", fr.Labels["kubezap.io/trigger-type"])
 	}
 }

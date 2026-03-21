@@ -157,18 +157,18 @@ func (w *Watcher) onTriggerDelete(obj interface{}) {
 func (w *Watcher) reconcileTrigger(ctx context.Context, trigger *automationv1alpha1.Trigger) {
 	key := types.NamespacedName{Name: trigger.Name, Namespace: trigger.Namespace}
 
-	// Stop subscription if trigger is not a kafka pubsub trigger or is disabled.
-	if trigger.Spec.Type != "pubsub" || trigger.Spec.PubSub == nil || trigger.Spec.PubSub.Type != "kafka" || !trigger.Spec.Enabled {
+	// Stop subscription if trigger is not a kafka trigger or is disabled.
+	if trigger.Spec.Type != "kafka" || trigger.Spec.Kafka == nil || !trigger.Spec.Enabled {
 		w.stopSubscription(key)
 		return
 	}
 
-	topic := trigger.Spec.PubSub.Topic
-	cgID := trigger.Spec.PubSub.ConsumerGroup
+	topic := trigger.Spec.Kafka.Topic
+	cgID := trigger.Spec.Kafka.ConsumerGroup
 	if cgID == "" {
 		cgID = "kubezap-" + trigger.Name
 	}
-	integrationName := trigger.Spec.PubSub.IntegrationRef.Name
+	integrationName := trigger.Spec.Kafka.IntegrationRef.Name
 
 	if existing, ok := w.subscriptions.Load(key); ok {
 		sub := existing.(*subscription)
@@ -187,11 +187,11 @@ func (w *Watcher) reconcileTrigger(ctx context.Context, trigger *automationv1alp
 
 // startSubscription creates a sarama consumer group for the given Trigger.
 func (w *Watcher) startSubscription(ctx context.Context, trigger *automationv1alpha1.Trigger) error {
-	pubsub := trigger.Spec.PubSub
-	integrationName := pubsub.IntegrationRef.Name
-	topic := pubsub.Topic
+	kafka := trigger.Spec.Kafka
+	integrationName := kafka.IntegrationRef.Name
+	topic := kafka.Topic
 
-	cgID := pubsub.ConsumerGroup
+	cgID := kafka.ConsumerGroup
 	if cgID == "" {
 		cgID = "kubezap-" + trigger.Name
 	}

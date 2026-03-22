@@ -409,17 +409,17 @@ Items are ordered to minimize rework:
 #### Step 4 — Vue: scaffold + FlowRun list
 
 - [x] **VUE** — Scaffold `App.vue`, `NavBar.vue` (with `NamespaceSelect` calling `/api/v1/namespaces`), Vue Router with routes for all four views. Fetch namespace list on mount; default to first namespace or query-param override.
-- [ ] **VUE** — Implement `FlowRunList.vue`: fetches `/api/v1/:ns/flowruns`, `FilterBar.vue` (phase/trigger/flow dropdowns + since picker), `FlowRunTable.vue` + `FlowRunRow.vue`, `PhaseChip.vue` (colour-coded badge), `RelativeTime.vue` (updates every 10s), `DurationCell.vue`.
-- [ ] **VUE** — Add SSE to `FlowRunList`: `composables/useFlowRunEvents.ts` using `EventSource`. Merge incoming events into a reactive `Map<name, FlowRunSummary>` so in-flight updates appear without a full reload.
+- [x] **VUE** — Implement `FlowRunList.vue`: fetches `/api/v1/:ns/flowruns`, `FilterBar.vue` (phase/trigger/flow dropdowns + since picker), `FlowRunTable.vue` + `FlowRunRow.vue`, `PhaseChip.vue` (colour-coded badge), `RelativeTime.vue` (updates every 10s), `DurationCell.vue`.
+- [x] **VUE** — Add SSE to `FlowRunList`: `composables/useFlowRunEvents.ts` using `EventSource`. Merge incoming events into a reactive `Map<name, FlowRunSummary>` so in-flight updates appear without a full reload.
 
 #### Step 5 — Vue: FlowRun detail
 
-- [ ] **VUE** — Implement `FlowRunDetail.vue`: fetches `/api/v1/:ns/flowruns/:name`, `FlowRunHeader.vue` (name, trigger→flow link, phase, elapsed), `StepTimeline.vue` + `StepRow.vue`, `StepBadge.vue` (✓ ✗ ● ○ - matching CLI watch badges). SSE on the detail page re-fetches the single FlowRun on each event matching the viewed name.
+- [x] **VUE** — Implement `FlowRunDetail.vue`: fetches `/api/v1/:ns/flowruns/:name`, `FlowRunHeader.vue` (name, trigger→flow link, phase, elapsed), `StepTimeline.vue` + `StepRow.vue`, `StepBadge.vue` (✓ ✗ ● ○ - matching CLI watch badges). SSE on the detail page re-fetches the single FlowRun on each event matching the viewed name.
 
 #### Step 6 — Vue: trigger + flow lists
 
-- [ ] **VUE** — Implement `TriggerList.vue` + `TriggerRow.vue` + `TriggerTypeChip.vue`: fetches `/api/v1/:ns/triggers`, shows type badge, ready status, last-fired time, active FlowRun count.
-- [ ] **VUE** — Implement `FlowList.vue` + `FlowRow.vue`: fetches `/api/v1/:ns/flows`, shows step count, ready status, last-used time.
+- [x] **VUE** — Implement `TriggerList.vue` + `TriggerRow.vue` + `TriggerTypeChip.vue`: fetches `/api/v1/:ns/triggers`, shows type badge, ready status, last-fired time, active FlowRun count.
+- [x] **VUE** — Implement `FlowList.vue` + `FlowRow.vue`: fetches `/api/v1/:ns/flows`, shows step count, ready status, last-used time.
 
 #### Step 7 — Docs + service manifest
 

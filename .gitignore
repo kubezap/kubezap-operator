@@ -45,3 +45,7 @@ coredns.yaml
 /amqp-gateway
 /nats-gateway
 /kubezap
+
+# Vue UI build artifacts
+ui/node_modules/
+internal/ui/dist/

@@ -6,12 +6,17 @@ KubeZap includes a read-only web dashboard embedded in the operator binary. It p
 
 ## Overview
 
-The dashboard is disabled by default. Enable it with `--ui-port`:
+The dashboard is disabled by default. Enable it by adding `--enable-ui` to your controller Deployment args:
 
 ```bash
-# In your controller Deployment args:
---ui-port=8082
+# Minimal — starts on the default port (8082):
+--enable-ui
+
+# Override the port:
+--enable-ui --ui-port=9000
 ```
+
+When `--enable-ui` is set, the operator automatically creates a `kubezap-ui` Service in its own namespace exposing the configured port (detected via the `POD_NAMESPACE` environment variable injected by the Deployment). No manual Service YAML is required.
 
 Access it via port-forward:
 
@@ -19,6 +24,12 @@ Access it via port-forward:
 kubectl port-forward -n kubezap-system \
   deployment/kubezap-controller-manager 8082:8082
 # Open: http://localhost:8082/ui/
+```
+
+Or via the Service once it is created:
+
+```bash
+kubectl port-forward -n kubezap-system svc/kubezap-ui 8082:8082
 ```
 
 ---
@@ -162,7 +173,8 @@ The SSE endpoint sends `event: flowrun` events with a `FlowRunSummary` JSON payl
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--ui-port` | `0` (disabled) | Port for the UI HTTP server. Set to `8082` to enable. |
+| `--enable-ui` | `false` | Enable the web dashboard. Also creates a `kubezap-ui` Service in the operator namespace. |
+| `--ui-port` | `8082` | Port for the UI HTTP server (only used when `--enable-ui` is set). |
 | `--ui-bearer-token` | `""` (no auth) | Static bearer token for optional Ingress-level authentication. |
 
 ---

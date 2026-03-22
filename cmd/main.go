@@ -19,7 +19,6 @@ package main
 import (
 	"crypto/tls"
 	"flag"
-	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -78,6 +77,7 @@ func main() {
 	var maxConcurrentFlowRuns int
 	var flowRunExecutionTimeout time.Duration
 	var disableCELCache bool
+	var enableUI bool
 	var uiPort int
 	var uiBearerToken string
 	flag.StringVar(&metricsAddr, "metrics-bind-address", ":9090", "The address the metrics endpoint binds to. "+
@@ -102,8 +102,10 @@ func main() {
 	flag.IntVar(&maxConcurrentFlowRuns, "max-concurrent-flowruns", 25, "Maximum number of FlowRun reconciliations to run concurrently. With one-step-per-reconcile, the goroutine is held only for the duration of a single step (one HTTP call), not the entire flow.")
 	flag.DurationVar(&flowRunExecutionTimeout, "flowrun-execution-timeout", time.Hour, "Maximum time a FlowRun may remain in Running phase before being failed as orphaned (0 = disabled).")
 	flag.BoolVar(&disableCELCache, "disable-cel-cache", false, "Disable the CEL expression program cache. The cache is unbounded but converges once Flows stabilise; disable only when continuously deploying throwaway expressions or for debugging.")
-	flag.IntVar(&uiPort, "ui-port", 0,
-		"Port for the read-only web dashboard (0 = disabled). Access via kubectl port-forward.")
+	flag.BoolVar(&enableUI, "enable-ui", false,
+		"Enable the read-only web dashboard. When enabled, the operator serves the dashboard on --ui-port and ensures a 'kubezap-ui' Service exists in the operator namespace.")
+	flag.IntVar(&uiPort, "ui-port", 8082,
+		"Port for the read-only web dashboard (only used when --enable-ui=true). Default: 8082.")
 	flag.StringVar(&uiBearerToken, "ui-bearer-token", "",
 		"Optional bearer token to protect the dashboard. When set, requests must include 'Authorization: Bearer <token>'.")
 	flag.BoolVar(&developmentLogging, "development", false,
@@ -336,13 +338,18 @@ func main() {
 		os.Exit(1)
 	}
 
-	if uiPort > 0 {
+	if enableUI {
 		uiServer := ui.NewServer(mgr.GetClient(), uiBearerToken)
-		go func() {
-			if err := uiServer.Start(ctx, fmt.Sprintf(":%d", uiPort)); err != nil {
-				setupLog.Error(err, "dashboard UI server stopped")
-			}
-		}()
+		if err := mgr.Add(&ui.Runnable{
+			Server:    uiServer,
+			Port:      uiPort,
+			Namespace: os.Getenv("POD_NAMESPACE"),
+			Client:    mgr.GetClient(),
+		}); err != nil {
+			setupLog.Error(err, "unable to add UI server to manager")
+			os.Exit(1)
+		}
+		setupLog.Info("dashboard UI enabled", "port", uiPort)
 	}
 
 	setupLog.Info("starting manager")

@@ -2,7 +2,7 @@
 
 KubeZap is an enterprise-grade Kubernetes operator that provides declarative workflow automation. It lets you connect events to actions using standard Kubernetes custom resources — no web UI, no proprietary runtime, no vendor lock-in.
 
-If you have used tools like Zapier or Camunda, the concepts will feel familiar. The difference is that KubeZap runs entirely inside your cluster and is configured through YAML.
+Events flow into Triggers, Triggers fire Flows, Flows execute ordered Steps — each step can call APIs, transform data, evaluate conditions with CEL expressions, or publish to a message broker. Everything runs inside your cluster and is configured through YAML.
 
 ---
 
@@ -97,7 +97,7 @@ KubeZap runs as a controller plus purpose-built gateway pods per broker type:
 
 Gateways communicate trigger events to the controller by creating `FlowRun` CRDs. The controller watches FlowRuns and executes the referenced Flow. This decoupling means gateways scale independently from the controller, and every execution is a Kubernetes resource you can inspect.
 
-The operator also embeds a **read-only web dashboard** (enable with `--ui-port=8082`, access via `kubectl port-forward`). It provides live FlowRun execution views, step timelines, trigger and flow lists, with SSE-based live updates.
+The operator also embeds a **read-only web dashboard** (enable with `--enable-ui`, access via `kubectl port-forward`). It provides live FlowRun execution views, step timelines, trigger and flow lists, with SSE-based live updates.
 
 See [Architecture](architecture.md) for the full design including scaling, namespace isolation, and how to add new trigger types.
 
@@ -705,7 +705,7 @@ For a full setup walkthrough including namespace configuration and RBAC see [Get
 - [x] Metrics port normalization (`:9090` HTTP default across all components)
 - [x] `kubezap watch` CLI — live FlowRun execution timeline in terminal
 - [x] `type: http` Integration — centralized credentials for HTTP steps
-- [x] Web dashboard (read-only, embedded in operator binary, `--ui-port` flag)
+- [x] Web dashboard (read-only, embedded in operator binary, `--enable-ui` flag)
 - [ ] OperatorHub community-operators PR — submission in progress
 
 ### Future

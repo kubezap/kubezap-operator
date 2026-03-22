@@ -1,8 +1,11 @@
 name: E2E Tests
 
 on:
-  push:
-  pull_request:
+  # Run manually or from release workflow only — not on every push.
+  # E2E tests require Kind + Kafka and take several minutes; they are
+  # unsuitable as a per-commit gate. Run via: gh workflow run test-e2e.yml
+  workflow_dispatch:
+  workflow_call:
 
 jobs:
   test-e2e:

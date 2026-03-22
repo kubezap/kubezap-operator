@@ -147,23 +147,85 @@ spec:
       displayName: FlowRun
       kind: FlowRun
       name: flowruns.automation.kubezap.io
+      resources:
+      - kind: FlowRun
+        version: v1alpha1
+      specDescriptors:
+      - description: Reference to the Flow this FlowRun executes.
+        displayName: Flow Reference
+        path: flowRef
+      - description: Reference to the Trigger that created this FlowRun.
+        displayName: Trigger Reference
+        path: triggerRef
+      - description: Input parameters for the Flow execution.
+        displayName: Parameters
+        path: params
+      - description: Time-to-live after the FlowRun finishes before automatic deletion.
+        displayName: TTL After Finished
+        path: ttlAfterFinished
       version: v1alpha1
     - description: Flow defines an ordered workflow of steps with conditional logic
         and data transforms.
       displayName: Flow
       kind: Flow
       name: flows.automation.kubezap.io
+      resources:
+      - kind: Flow
+        version: v1alpha1
+      specDescriptors:
+      - description: Ordered list of steps to execute in this workflow.
+        displayName: Steps
+        path: steps
+      - description: Input parameters accepted by this Flow.
+        displayName: Parameters
+        path: params
       version: v1alpha1
     - description: Integration connects KubeZap to an external system (Kafka, plugin,
         etc.).
       displayName: Integration
       kind: Integration
       name: integrations.automation.kubezap.io
+      resources:
+      - kind: Deployment
+        version: v1
+      - kind: Service
+        version: v1
+      - kind: ServiceAccount
+        version: v1
+      - kind: Role
+        version: v1
+      - kind: RoleBinding
+        version: v1
+      specDescriptors:
+      - description: Integration type (kafka, amqp, nats, http, plugin).
+        displayName: Type
+        path: type
+      - description: Kafka integration configuration (bootstrap servers, SASL, TLS).
+        displayName: Kafka
+        path: kafka
       version: v1alpha1
     - description: Trigger is the Schema for the triggers API.
       displayName: Trigger
       kind: Trigger
       name: triggers.automation.kubezap.io
+      resources:
+      - kind: Deployment
+        version: v1
+      - kind: Service
+        version: v1
+      specDescriptors:
+      - description: Trigger type (webhook, cron, kafka, amqp, nats, resource).
+        displayName: Type
+        path: type
+      - description: Reference to the Flow this Trigger executes when it fires.
+        displayName: Flow Reference
+        path: flowRef
+      - description: Webhook trigger configuration (endpoint path, auth, rate limits).
+        displayName: Webhook
+        path: webhook
+      - description: Kafka trigger configuration (topic, consumer group, integration ref).
+        displayName: Kafka
+        path: kafka
       version: v1alpha1
   description: |
     KubeZap is an enterprise-grade Kubernetes operator providing declarative

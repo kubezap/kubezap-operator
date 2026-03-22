@@ -1,4 +1,4 @@
-module github.com/borfswitch/kubezap
+module github.com/kubezap/kubezap-operator
 
 go 1.24.0
 

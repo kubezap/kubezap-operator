@@ -22,7 +22,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/borfswitch/kubezap/internal/cli"
+	"github.com/kubezap/kubezap-operator/internal/cli"
 )
 
 // newWatchCmd returns the 'watch' subcommand.

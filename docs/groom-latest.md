@@ -25,7 +25,7 @@ None. §10 Future items are correctly scoped; no new evidence warrants promotion
 
 Two `<!-- BACKLOG-PROMPT -->` entries added to `docs/tech-debt/pending-input-required.md`:
 
-1. **Go module rename public org decision** — `github.com/borfswitch/kubezap` must be renamed before public release. Requires owner to decide on the public org/repo name (borfswitch personal, new org, or custom domain). Largest-blast-radius change in the project; must be decided before §16 P0 rename work begins.
+1. **Go module rename public org decision** — `github.com/kubezap/kubezap-operator` must be renamed before public release. Requires owner to decide on the public org/repo name (borfswitch personal, new org, or custom domain). Largest-blast-radius change in the project; must be decided before §16 P0 rename work begins.
 
 2. **WebhookAuth struct design** — YAML docs show nested `hmac:`/`bearer:`/`oidc:` sub-keys but Go types are flat fields. A user following the docs gets a CRD validation error. Decision required: restructure Go types to match docs (option 1, better UX) or update all docs to match flat types (option 2). Unblocks §16 P1 WebhookAuth consistency fix.
 

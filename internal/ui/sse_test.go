@@ -26,7 +26,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
-	"github.com/borfswitch/kubezap/internal/ui"
+	"github.com/kubezap/kubezap-operator/internal/ui"
 )
 
 // noWatchClient wraps a fake.Client but does NOT implement client.WithWatch.

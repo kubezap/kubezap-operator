@@ -25,8 +25,8 @@ builds:
         goarch: arm64
     ldflags:
       - -s -w
-      - -X github.com/borfswitch/kubezap/internal/cli.Version={{.Version}}
-      - -X github.com/borfswitch/kubezap/internal/cli.GitCommit={{.Commit}}
+      - -X github.com/kubezap/kubezap-operator/internal/cli.Version={{.Version}}
+      - -X github.com/kubezap/kubezap-operator/internal/cli.GitCommit={{.Commit}}
     mod_timestamp: "{{ .CommitTimestamp }}"
 
   - id: kubectl-kubezap
@@ -46,8 +46,8 @@ builds:
         goarch: arm64
     ldflags:
       - -s -w
-      - -X github.com/borfswitch/kubezap/internal/cli.Version={{.Version}}
-      - -X github.com/borfswitch/kubezap/internal/cli.GitCommit={{.Commit}}
+      - -X github.com/kubezap/kubezap-operator/internal/cli.Version={{.Version}}
+      - -X github.com/kubezap/kubezap-operator/internal/cli.GitCommit={{.Commit}}
     mod_timestamp: "{{ .CommitTimestamp }}"
 
 archives:
@@ -111,7 +111,7 @@ release:
 
     ### Installation
 
-    Download binaries from the assets below, or see [docs/overview.md](https://github.com/borfswitch/kubezap/blob/main/docs/overview.md#kubezap-cli) for install instructions.
+    Download binaries from the assets below, or see [docs/overview.md](https://github.com/kubezap/kubezap-operator/blob/main/docs/overview.md#kubezap-cli) for install instructions.
 
     Both `kubezap` and `kubectl-kubezap` are included in each archive. Place either binary in your `$PATH`.
     `kubectl-kubezap` enables invocation as `kubectl kubezap` via the kubectl plugin convention.

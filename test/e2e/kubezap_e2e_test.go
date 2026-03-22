@@ -27,7 +27,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
-	"github.com/borfswitch/kubezap/test/utils"
+	"github.com/kubezap/kubezap-operator/test/utils"
 )
 
 // e2eNS is the namespace used for all KubeZap functional E2E tests.

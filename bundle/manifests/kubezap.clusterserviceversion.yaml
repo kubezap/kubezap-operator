@@ -134,7 +134,7 @@ metadata:
     operatorframework.io/suggested-namespace: kubezap-system
     operators.operatorframework.io/builder: operator-sdk-v1.42.0
     operators.operatorframework.io/project_layout: go.kubebuilder.io/v4
-    repository: https://github.com/borfswitch/kubezap
+    repository: https://github.com/kubezap/kubezap-operator
     support: KubeZap Community
   name: kubezap.v0.0.1
   namespace: placeholder
@@ -523,9 +523,9 @@ spec:
   - operator
   links:
   - name: KubeZap Documentation
-    url: https://github.com/borfswitch/kubezap/docs
+    url: https://github.com/kubezap/kubezap-operator/docs
   - name: Source Code
-    url: https://github.com/borfswitch/kubezap
+    url: https://github.com/kubezap/kubezap-operator
   maintainers:
   - email: maintainers@kubezap.io
     name: KubeZap Maintainers
@@ -533,5 +533,5 @@ spec:
   minKubeVersion: 1.25.0
   provider:
     name: KubeZap Community
-    url: https://github.com/borfswitch/kubezap
+    url: https://github.com/kubezap/kubezap-operator
   version: 0.0.1

@@ -111,54 +111,20 @@ Schedule: §15
 
 ## Pre-Public Review — 2026-03-22
 
-<!-- BACKLOG-PROMPT -->
+<!-- ANSWERED -->
 **Q: Go module rename — what is the public org/repo name?**
 
-The module path `github.com/borfswitch/kubezap` must be renamed before any public release. This rename touches `go.mod`, every `.go` file import path, the CSV `repository` field, Goreleaser download URLs, and all documentation links.
+The module path `github.com/kubezap/kubezap-operator` must be renamed before any public release. This rename touches `go.mod`, every `.go` file import path, the CSV `repository` field, Goreleaser download URLs, and all documentation links.
 
-Options:
-- Keep `borfswitch` (personal account, publish under personal GitHub org)
-- Create a new org (e.g., `kubezap-io`, `kubezap-project`, or a company org)
-- Use a custom domain module path (e.g., `kubezap.io/operator`)
-
-This is a required decision before §16 P0 BRANDING item (module rename) can begin. It has the largest blast radius of any single change in the project.
+**Answer (2026-03-22):** New org `kubezap` on GitHub, repo name `kubezap-operator`. New module path: `github.com/kubezap/kubezap-operator`. Rename all import paths, `go.mod`, CSV `repository` field, and documentation links accordingly.
 
 Schedule reference: §16 P0 — "Go module path rename"
-<!-- BACKLOG-PROMPT -->
+<!-- ANSWERED -->
 
-<!-- BACKLOG-PROMPT -->
+<!-- ANSWERED -->
 **Q: WebhookAuth struct — nested YAML sub-keys vs flat Go fields?**
 
-The YAML docs (`docs/api/trigger.md`, `docs/guides/webhook-security.md`) show nested sub-keys:
-```yaml
-auth:
-  type: hmac
-  hmac:
-    secretRef: my-secret
-  bearer:
-    tokenSecretRef: my-bearer
-  oidc:
-    issuer: https://...
-```
-
-But the Go types are flat fields:
-```go
-type WebhookAuth struct {
-    Type              string
-    HMACSecretRef     *corev1.SecretKeySelector
-    BearerTokenSecretRef *corev1.SecretKeySelector
-    OIDCIssuer        string
-    // ...
-}
-```
-
-A user following the docs will write a Trigger spec that does not validate against the actual CRD schema.
-
-Options:
-1. **Restructure Go types to match docs** — add nested structs `HMACConfig`, `BearerConfig`, `OIDCConfig` inside `WebhookAuth`. Better UX; more idiomatic Kubernetes API design. More code change.
-2. **Update all docs to match flat Go types** — simpler now; less idiomatic; docs become harder to read.
-
-This decision unblocks §16 P1 item "WebhookAuth YAML examples show nested sub-keys..."
+**Answer (2026-03-22):** Option 1 — Restructure Go types to match the nested doc style. Add dedicated structs `HMACConfig`, `BearerConfig`, `OIDCConfig`, `APIKeyConfig`, `IPAllowlistConfig`, `MTLSConfig` nested inside `WebhookAuth`. This is the more idiomatic Kubernetes API design and produces cleaner, more readable YAML for users. Update the handler to read from the new nested fields.
 
 Schedule reference: §16 P1 — "docs/api/trigger.md + webhook-security.md: WebhookAuth YAML examples"
-<!-- BACKLOG-PROMPT -->
+<!-- ANSWERED -->

@@ -299,22 +299,24 @@ spec:
   webhook:
     auth:
       type: header-equals
-      headerEquals:
-        header: "X-API-Key"         # or "X-Gitlab-Token", "X-Custom-Auth", etc.
-        secretRef:
-          name: my-api-key-secret
-          key: apiKey
+      headerEqualsHeader: "X-API-Key"   # or "X-Gitlab-Token", "X-Custom-Auth", etc.
+      headerEqualsSecretRef:
+        name: my-api-key-secret
+        key: apiKey
 ```
 
 The gateway compares the header value to the secret value using a constant-time comparison.
 
 For GitLab webhooks:
 ```yaml
-      headerEquals:
-        header: "X-Gitlab-Token"
-        secretRef:
-          name: gitlab-webhook-token
-          key: token
+spec:
+  webhook:
+    auth:
+      type: header-equals
+      headerEqualsHeader: "X-Gitlab-Token"
+      headerEqualsSecretRef:
+        name: gitlab-webhook-token
+        key: token
 ```
 
 ---
@@ -440,10 +442,10 @@ spec:
 
 ### HeaderEqualsAuth
 
-| Field       | Type         | Required | Description                                 |
-| ----------- | ------------ | -------- | ------------------------------------------- |
-| `header`    | string       | **Yes**  | HTTP header name to check                   |
-| `secretRef` | SecretKeyRef | **Yes**  | Secret containing the expected header value |
+| Field                    | Type         | Required | Description                                 |
+| ------------------------ | ------------ | -------- | ------------------------------------------- |
+| `headerEqualsHeader`     | string       | **Yes**  | HTTP header name to check                   |
+| `headerEqualsSecretRef`  | SecretKeyRef | **Yes**  | Secret containing the expected header value |
 
 ---
 

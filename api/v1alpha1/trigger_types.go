@@ -267,7 +267,7 @@ type ResourceTrigger struct {
 // auth with broker gateways. Client-cert auth for HTTP webhooks is out of scope.
 type WebhookAuth struct {
 	// Authentication method.
-	// +kubebuilder:validation:Enum=hmac;bearer;oidc;basic;apiKey;ipAllowlist
+	// +kubebuilder:validation:Enum=hmac;bearer;oidc;basic;apiKey;ipAllowlist;header-equals
 	Type string `json:"type"`
 
 	// HMAC secret reference (key contains the shared secret). Used when type is "hmac".
@@ -295,6 +295,15 @@ type WebhookAuth struct {
 	// CIDR blocks allowed to call this endpoint. Used when type is "ipAllowlist".
 	// Example: ["10.0.0.0/8", "192.168.1.0/24"]
 	IPAllowlist []string `json:"ipAllowlist,omitempty"`
+
+	// Header name to match against the expected value. Used when type is "header-equals".
+	// Example: "X-Gitlab-Token"
+	// +optional
+	HeaderEqualsHeader string `json:"headerEqualsHeader,omitempty"`
+
+	// Secret reference for the expected header value. Used when type is "header-equals".
+	// +optional
+	HeaderEqualsSecretRef *corev1.SecretKeySelector `json:"headerEqualsSecretRef,omitempty"`
 }
 
 // WebhookBasicAuth configures HTTP Basic authentication for a webhook endpoint.

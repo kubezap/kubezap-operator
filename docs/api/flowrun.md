@@ -87,7 +87,9 @@ FlowRuns are always created by KubeZap components — never directly by users (t
 | Creator                   | Trigger Type                           | FlowRun Naming Pattern                          |
 | ------------------------- | -------------------------------------- | ----------------------------------------------- |
 | `kubezap-webhook-gateway` | `spec.type: webhook`                   | `<trigger-name>-<timestamp>-<random>`           |
-| `kubezap-kafka-gateway`   | `spec.type: pubsub` (Kafka)            | `<trigger-name>-p<partition>-offset-<offset>`   |
+| `kubezap-kafka-gateway`   | `spec.type: kafka`                     | `<trigger-name>-p<partition>-offset-<offset>`   |
+| `kubezap-amqp-gateway`    | `spec.type: amqp`                      | `<trigger-name>-p<partition>-offset-<offset>`   |
+| `kubezap-nats-gateway`    | `spec.type: nats`                      | `<trigger-name>-<subject>-<sequence>`           |
 | `kubezap-controller`      | `spec.type: cron`                      | `<trigger-name>-<scheduled-time>`               |
 | `kubezap-controller`      | Kubernetes resource events _(planned)_ | `<trigger-name>-<object-uid>-<resourceVersion>` |
 
@@ -112,7 +114,7 @@ The Kafka naming convention (`-p0-offset-12345`) is the deduplication key — se
 | Field  | Type   | Description                                   |
 | ------ | ------ | --------------------------------------------- |
 | `name` | string | Name of the Trigger that created this FlowRun |
-| `type` | string | Trigger type: `webhook`, `cron`, `pubsub`     |
+| `type` | string | Trigger type: `webhook`, `cron`, `kafka`, `amqp`, `nats`, `resource` |
 
 ### TriggerData
 
@@ -124,10 +126,10 @@ Snapshot of the event that caused this FlowRun. The full set of fields depends o
 | `method`        | string            | HTTP method (webhook only)                                 |
 | `path`          | string            | URL path (webhook only)                                    |
 | `headers`       | map[string]string | Request headers (webhook only; sensitive headers redacted) |
-| `topic`         | string            | Kafka topic (pubsub only)                                  |
-| `partition`     | integer           | Kafka partition (pubsub only)                              |
-| `offset`        | integer           | Kafka message offset (pubsub only)                         |
-| `kafkaHeaders`  | map[string]string | Kafka message headers (pubsub only)                        |
+| `topic`         | string            | Kafka topic (kafka only)                                   |
+| `partition`     | integer           | Kafka partition (kafka only)                               |
+| `offset`        | integer           | Kafka message offset (kafka only)                          |
+| `kafkaHeaders`  | map[string]string | Kafka message headers (kafka only)                         |
 | `scheduledTime` | timestamp         | Scheduled fire time (cron only)                            |
 | `body`          | string            | Request or message body (truncated at 4KB)                 |
 | `bodyTruncated` | boolean           | `true` if the body exceeded 4KB and was truncated          |
@@ -346,7 +348,7 @@ metadata:
   namespace: automation
   labels:
     kubezap.io/trigger: order-events
-    kubezap.io/trigger-type: pubsub
+    kubezap.io/trigger-type: kafka
     kubezap.io/flow: process-order
 spec:
   flowRef:
@@ -356,7 +358,7 @@ spec:
       value: "ORD-9922"
   triggerRef:
     name: order-events
-    type: pubsub
+    type: kafka
   triggerData:
     source: kafka
     topic: orders.created

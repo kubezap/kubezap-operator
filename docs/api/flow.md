@@ -69,17 +69,15 @@ KubeZap infers the payload format from the `Content-Type` of the triggering even
 
 | Content-Type                        | Parsed as   | Access pattern                                                     |
 | ----------------------------------- | ----------- | ------------------------------------------------------------------ |
-| `application/json`                  | JSON object | `$(trigger.body.userId)` — top-level fields only (see Limitations) |
+| `application/json`                  | JSON object | `$(trigger.body.userId)`, `$(trigger.body.order.id)` — full dot-path supported |
 | `application/xml`, `text/xml`       | raw string  | `$(trigger.body)` — full body as string                            |
 | `application/x-www-form-urlencoded` | raw string  | `$(trigger.body)` — full body as string                            |
 | `text/plain`                        | raw string  | `$(trigger.body)`                                                  |
 | Other / binary                      | raw string  | `$(trigger.body)`                                                  |
 
-> **Current limitation**: `$(trigger.body.<field>)` resolves **top-level JSON fields only**. Nested access like `$(trigger.body.order.id)` is not supported and returns an empty string. For nested fields, use a `type: transform` step to extract the value first. Full JSONPath access via `$(trigger.payload.*)` is planned for a future release.
-
 ### Accessing Trigger Body Fields
 
-Use `$(trigger.body)` for the raw body and `$(trigger.body.<field>)` for a top-level JSON field:
+Use `$(trigger.body)` for the raw body and `$(trigger.body.<field>)` for a JSON field. Full dot-path traversal is supported — for example, `$(trigger.body.order.id)` navigates into a nested object:
 
 ```yaml
 steps:
@@ -91,8 +89,6 @@ steps:
           orderId: "$(trigger.body.orderId)"
           raw: "$(trigger.body)"
 ```
-
-For nested fields, use a `type: transform` step to extract top-level values first, then chain to downstream steps that reference `$(steps.<step>.results.*)`.
 
 ### Using Trigger Data in CEL Conditions
 
@@ -161,7 +157,7 @@ Use `$(syntax)` to reference dynamic values in string fields (URLs, headers, bod
 | `$(trigger.namespace)`                     | Namespace of the Trigger                                                                     |
 | `$(trigger.type)`                          | Type of the Trigger (webhook, cron, pubsub)                                                  |
 | `$(trigger.body)`                          | Raw trigger event body (webhook request body or Kafka message value)                         |
-| `$(trigger.body.<field>)`                  | A top-level JSON field from the trigger body (nested fields not supported — see Limitations) |
+| `$(trigger.body.<field>)`                  | A JSON field from the trigger body; full dot-path supported (e.g., `$(trigger.body.order.id)`) |
 | `$(steps.<stepName>.results.<resultName>)` | A result produced by a previous step                                                         |
 | `$(secrets.<secretName>.<key>)`            | A value from a Kubernetes Secret in the same namespace                                       |
 

@@ -46,7 +46,7 @@ All of this is configured through Kubernetes custom resources, meaning it is ver
 
 A `Trigger` defines the event source that starts a workflow. It specifies what to listen for and which `Flow` to execute when the event fires.
 
-Supported trigger types: **webhook**, **cron**, **pubsub** (built-in: Kafka, AMQP, NATS; additional brokers via the `Integration` plugin model — see [Integration CRD](api/integration.md)).
+Supported trigger types: **webhook**, **cron**, **kafka**, **amqp**, **nats**, **resource** (alpha); additional brokers via the `Integration` plugin model — see [Integration CRD](api/integration.md).
 
 ### Flow
 
@@ -96,6 +96,8 @@ KubeZap runs as a controller plus purpose-built gateway pods per broker type:
 - **`kubezap-nats-gateway`** — a NATS consumer. Supports NATS Core and JetStream durable consumers. One Deployment per NATS cluster (Integration) per namespace.
 
 Gateways communicate trigger events to the controller by creating `FlowRun` CRDs. The controller watches FlowRuns and executes the referenced Flow. This decoupling means gateways scale independently from the controller, and every execution is a Kubernetes resource you can inspect.
+
+The operator also embeds a **read-only web dashboard** (enable with `--ui-port=8082`, access via `kubectl port-forward`). It provides live FlowRun execution views, step timelines, trigger and flow lists, with SSE-based live updates.
 
 See [Architecture](architecture.md) for the full design including scaling, namespace isolation, and how to add new trigger types.
 
@@ -158,7 +160,7 @@ spec:
     name: generate-nightly-report
 ```
 
-### Pub/Sub — Kafka
+### Kafka
 
 KubeZap subscribes to a Kafka topic and fires the trigger for each message consumed. The message payload and metadata (topic, partition, offset, headers) are passed to the Flow.
 
@@ -168,9 +170,8 @@ kind: Trigger
 metadata:
   name: order-events
 spec:
-  type: pubsub
-  pubsub:
-    type: kafka
+  type: kafka
+  kafka:
     integrationRef:
       name: kafka-cluster
     topic: orders.created
@@ -178,6 +179,57 @@ spec:
   flowRef:
     name: process-order
 ```
+
+### AMQP
+
+Subscribes to an AMQP queue or exchange. Supports AMQP 0-9-1 (RabbitMQ) and AMQP 1.0 (ActiveMQ Artemis, Azure Service Bus, IBM MQ).
+
+```yaml
+spec:
+  type: amqp
+  amqp:
+    integrationRef:
+      name: rabbitmq-cluster
+    queue: orders.created
+  flowRef:
+    name: process-order
+```
+
+### NATS
+
+Subscribes to a NATS subject. Supports NATS Core and JetStream durable consumers.
+
+```yaml
+spec:
+  type: nats
+  nats:
+    integrationRef:
+      name: nats-cluster
+    subject: orders.created
+    durableName: kubezap-order-processor
+  flowRef:
+    name: process-order
+```
+
+### Kubernetes Resource Events _(alpha)_
+
+Watches Kubernetes resource events via dynamic informers and fires the trigger when a matching resource is created, updated, or deleted. Useful for ITSM-style automation (e.g., Pod failure → open ticket).
+
+```yaml
+spec:
+  type: resource
+  resource:
+    apiVersion: v1
+    kind: Pod
+    watchEvents: [Modified]
+    watchFields:
+      - field: status.phase
+        value: Failed
+  flowRef:
+    name: pod-failure-ticket
+```
+
+> **Alpha stability.** See [known limitations](../docs/tech-debt/) for the resource trigger — naive pluralization for irregular kinds is handled via discovery API fallback.
 
 ### Rate Limiting
 
@@ -436,7 +488,7 @@ The trigger body is available in flow steps and CEL conditions via `$(trigger.bo
 | `$(trigger.body.<field>)`     | A top-level JSON field from the body  |
 | `$(trigger.headers.<header>)` | A request header value (webhook only) |
 
-> **Current limitation**: `$(trigger.body.<field>)` only resolves **top-level JSON fields**. Nested access returns an empty string. For nested fields, use a `type: transform` step to extract them first. Full dot-path access is planned for a future release.
+`$(trigger.body.<field>)` supports **full dot-path traversal** for nested JSON — e.g., `$(trigger.body.order.customer.email)` and array index access `$(trigger.body.items.0.sku)`. Missing paths return an empty string.
 
 For HTTP step responses, `resultMappings` support **JSONPath** (e.g., `$.user.id`) for JSON and **XPath** (e.g., `/response/user/id`) for XML — the syntax is auto-detected from the expression prefix.
 
@@ -597,9 +649,9 @@ kubectl kubezap version
 make build-cli   # produces bin/kubezap
 ```
 
-### OperatorHub / OLM _(coming in v0.3)_
+### OperatorHub / OLM _(submission in progress)_
 
-Install via the OpenShift OperatorHub catalog or the community OperatorHub.
+Install via the OpenShift OperatorHub catalog or the community OperatorHub. The OLM bundle is validated (`operator-sdk bundle validate`) and passes the OLM scorecard suite. Community-operators PR in progress.
 
 For a full setup walkthrough including namespace configuration and RBAC see [Getting Started](../examples/order-router/).
 
@@ -644,18 +696,22 @@ For a full setup walkthrough including namespace configuration and RBAC see [Get
 - [x] `type: publish` step — routes to Kafka/plugin `/publish` endpoint
 - [x] `type: wait` step — blocking pause with restart-safe `ResumeAfter` in status
 
-### v0.3 — Distribution _(in progress)_
+### v0.3 — Distribution & Observability ✅
 
 - [x] Helm chart
 - [x] Multi-platform CLI binaries via Goreleaser
 - [x] Additional message brokers (AMQP, NATS)
-- [ ] OLM bundle validated and submitted to OperatorHub
+- [x] OLM bundle validated (`operator-sdk bundle validate` + scorecard pass)
+- [x] Metrics port normalization (`:9090` HTTP default across all components)
+- [x] `kubezap watch` CLI — live FlowRun execution timeline in terminal
+- [x] `type: http` Integration — centralized credentials for HTTP steps
+- [x] Web dashboard (read-only, embedded in operator binary, `--ui-port` flag)
+- [ ] OperatorHub community-operators PR — submission in progress
 
 ### Future
 
 - [ ] `Step` CRD for reusable step definitions
 - [ ] Plugin marketplace and integration catalog
-- [ ] Web UI for flow monitoring
 - [ ] OpenLineage support
 - [ ] Multi-region HA support
 

@@ -423,7 +423,7 @@ Items are ordered to minimize rework:
 
 #### Step 7 — Docs + service manifest
 
-- [ ] **DOCS** — Write `docs/guides/dashboard.md`: enabling `--ui-port`, port-forward access pattern, `--ui-bearer-token` for optional Ingress exposure, kube-rbac-proxy sidecar pattern for production auth.
+- [x] **DOCS** — Write `docs/guides/dashboard.md`: enabling `--ui-port`, port-forward access pattern, `--ui-bearer-token` for optional Ingress exposure, kube-rbac-proxy sidecar pattern for production auth.
 
 ### Phase 3 — Future (Tier 3, deferred)
 

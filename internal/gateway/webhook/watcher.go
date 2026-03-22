@@ -258,6 +258,17 @@ func (w *TriggerWatcher) buildRouteEntry(ctx context.Context, trigger *automatio
 			return RouteEntry{}, fmt.Errorf("registering OIDC JWKS URL: %w", err)
 		}
 		entry.OIDCValidator = newOIDCValidator(jwksURL, auth.OIDCIssuer, auth.OIDCAudience, w.jwksCache)
+
+	case "header-equals":
+		if auth.HeaderEqualsSecretRef == nil {
+			return RouteEntry{}, fmt.Errorf("header-equals auth requires headerEqualsSecretRef")
+		}
+		val, err := w.readSecretKey(ctx, trigger.Namespace, auth.HeaderEqualsSecretRef.Name, auth.HeaderEqualsSecretRef.Key)
+		if err != nil {
+			return RouteEntry{}, fmt.Errorf("reading header-equals secret: %w", err)
+		}
+		entry.HeaderEqualsHeader = auth.HeaderEqualsHeader
+		entry.HeaderEqualsValue = val
 	}
 
 	return entry, nil

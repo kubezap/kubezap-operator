@@ -5,6 +5,7 @@ import (
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -220,6 +221,19 @@ func authenticateRequest(r *http.Request, body []byte, entry RouteEntry, trigger
 		if !allowed {
 			metrics.WebhookIPBlocked.WithLabelValues(triggerName, sourceRange(clientIP)).Inc()
 			return http.StatusForbidden, "source IP not in allowlist"
+		}
+
+	case "header-equals":
+		headerName := entry.HeaderEqualsHeader
+		if headerName == "" {
+			return http.StatusUnauthorized, "header-equals auth misconfigured: no header name"
+		}
+		val := r.Header.Get(headerName)
+		if val == "" {
+			return http.StatusUnauthorized, "missing required header"
+		}
+		if subtle.ConstantTimeCompare([]byte(val), []byte(entry.HeaderEqualsValue)) != 1 {
+			return http.StatusUnauthorized, "invalid header value"
 		}
 
 	case "":

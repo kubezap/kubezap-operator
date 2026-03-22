@@ -25,6 +25,7 @@ import (
 	"io"
 	"net/http"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -1592,7 +1593,7 @@ func redactSecretError(err error, actualURL, displayURL string) error {
 // Supported syntax:
 //   - $(steps.<name>.results.<key>) — step output value; hyphens in name are normalized to underscores
 //   - $(trigger.body) — raw trigger request body
-//   - $(trigger.body.<field>) — top-level JSON field from trigger body (resolved before $(trigger.body))
+//   - $(trigger.body.<field>) — dot-path into trigger body JSON (nested objects and array indices supported; resolved before $(trigger.body))
 //   - $(trigger.headers.<name>) — trigger request header value (case-insensitive)
 //   - $(trigger.topic), $(trigger.partition), $(trigger.offset), $(trigger.scheduledTime)
 func substituteVars(s string, stepResults map[string]map[string]string, triggerData *automationv1alpha1.TriggerData) string {
@@ -1610,11 +1611,11 @@ func substituteVars(s string, stepResults map[string]map[string]string, triggerD
 	}
 
 	// Handle $(trigger.body.<field>) BEFORE $(trigger.body) to avoid partial replacement.
-	// NOTE: Only top-level JSON fields are supported. Nested access (e.g., $(trigger.body.order.id))
-	// silently returns an empty string. This limitation is documented in the FlowRun API reference.
+	// Supports dot-path traversal into nested objects and arrays, e.g. $(trigger.body.order.id)
+	// or $(trigger.body.items.0). Missing paths silently resolve to empty string.
 	if triggerData.Body != "" {
-		var bodyFields map[string]interface{}
-		if jsonErr := json.Unmarshal([]byte(triggerData.Body), &bodyFields); jsonErr == nil {
+		var bodyRoot interface{}
+		if jsonErr := json.Unmarshal([]byte(triggerData.Body), &bodyRoot); jsonErr == nil {
 			const bodyFieldPrefix = "$(trigger.body."
 			for {
 				idx := strings.Index(s, bodyFieldPrefix)
@@ -1628,10 +1629,8 @@ func substituteVars(s string, stepResults map[string]map[string]string, triggerD
 				end += idx
 				placeholder := s[idx : end+1]
 				fieldName := s[idx+len(bodyFieldPrefix) : end]
-				var value string
-				if val, ok := bodyFields[fieldName]; ok {
-					value = fmt.Sprintf("%v", val)
-				}
+				parts := strings.Split(fieldName, ".")
+				value := resolveBodyPath(parts, bodyRoot)
 				s = strings.ReplaceAll(s, placeholder, value)
 			}
 		}
@@ -1669,6 +1668,40 @@ func substituteVars(s string, stepResults map[string]map[string]string, triggerD
 	}
 
 	return s
+}
+
+// resolveBodyPath recursively traverses v following the dot-path segments in parts.
+// It supports map (object) traversal and slice (array) traversal via numeric indices.
+// Returns the string representation of the value at the path, or "" if the path
+// does not exist or a segment cannot be traversed.
+func resolveBodyPath(parts []string, v interface{}) string {
+	if len(parts) == 0 {
+		if v == nil {
+			return ""
+		}
+		if s, ok := v.(string); ok {
+			return s
+		}
+		return fmt.Sprintf("%v", v)
+	}
+	key := parts[0]
+	rest := parts[1:]
+	switch node := v.(type) {
+	case map[string]interface{}:
+		child, ok := node[key]
+		if !ok {
+			return ""
+		}
+		return resolveBodyPath(rest, child)
+	case []interface{}:
+		idx, err := strconv.Atoi(key)
+		if err != nil || idx < 0 || idx >= len(node) {
+			return ""
+		}
+		return resolveBodyPath(rest, node[idx])
+	default:
+		return ""
+	}
 }
 
 // extractSimpleJSONPath extracts a value from a JSON object using a simple "$.field" path.

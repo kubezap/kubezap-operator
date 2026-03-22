@@ -1011,4 +1011,36 @@ var _ = Describe("FlowRunReconciler", func() {
 				"[REDACTED] marker must appear in the error message in place of the secret value")
 		})
 	})
+
+	Describe("substituteVars dot-path body access", func() {
+		It("resolves a top-level field", func() {
+			td := &automationv1alpha1.TriggerData{Body: `{"name":"alice"}`}
+			Expect(substituteVars("hello $(trigger.body.name)", nil, td)).To(Equal("hello alice"))
+		})
+		It("resolves a nested field", func() {
+			td := &automationv1alpha1.TriggerData{Body: `{"order":{"id":"42","customer":"bob"}}`}
+			Expect(substituteVars("order=$(trigger.body.order.id) by=$(trigger.body.order.customer)", nil, td)).
+				To(Equal("order=42 by=bob"))
+		})
+		It("resolves deep nesting", func() {
+			td := &automationv1alpha1.TriggerData{Body: `{"a":{"b":{"c":"deep"}}}`}
+			Expect(substituteVars("$(trigger.body.a.b.c)", nil, td)).To(Equal("deep"))
+		})
+		It("resolves array index", func() {
+			td := &automationv1alpha1.TriggerData{Body: `{"arr":["x","y","z"]}`}
+			Expect(substituteVars("$(trigger.body.arr.1)", nil, td)).To(Equal("y"))
+		})
+		It("returns empty string for missing path", func() {
+			td := &automationv1alpha1.TriggerData{Body: `{"a":{"b":"val"}}`}
+			Expect(substituteVars("$(trigger.body.a.c)", nil, td)).To(Equal(""))
+		})
+		It("returns empty string for non-object traversal", func() {
+			td := &automationv1alpha1.TriggerData{Body: `{"name":"alice"}`}
+			Expect(substituteVars("$(trigger.body.name.foo)", nil, td)).To(Equal(""))
+		})
+		It("handles out-of-bounds array index gracefully", func() {
+			td := &automationv1alpha1.TriggerData{Body: `{"arr":["x"]}`}
+			Expect(substituteVars("$(trigger.body.arr.5)", nil, td)).To(Equal(""))
+		})
+	})
 })

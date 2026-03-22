@@ -370,8 +370,8 @@ Items are ordered to minimize rework:
 
 ## 14. UX Improvements (from architecture review)
 
-- [ ] **UX** — Implement full dot-path access in `$()` variable interpolation: `$(trigger.body.order.id)` should recursively traverse nested JSON, not silently return empty string. This is the most common evaluation complaint and a likely dealbreaker in demos. File: `internal/controller/flowrun_controller.go` (`substituteVars` function and callers)
-- [ ] **UX** — Add Ginkgo tests for nested dot-path access: `$(trigger.body.a.b.c)`, `$(trigger.body.arr.0)`, missing path returns empty string, non-object traversal returns empty string. File: `internal/controller/flowrun_controller_test.go`
+- [x] **UX** — Implement full dot-path access in `$()` variable interpolation: `$(trigger.body.order.id)` should recursively traverse nested JSON, not silently return empty string. This is the most common evaluation complaint and a likely dealbreaker in demos. File: `internal/controller/flowrun_controller.go` (`substituteVars` function and callers)
+- [x] **UX** — Add Ginkgo tests for nested dot-path access: `$(trigger.body.a.b.c)`, `$(trigger.body.arr.0)`, missing path returns empty string, non-object traversal returns empty string. File: `internal/controller/flowrun_controller_test.go`
 
 ---
 

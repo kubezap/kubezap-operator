@@ -90,17 +90,14 @@ var _ = Describe("substituteVars", func() {
 			Expect(result).To(Equal(`id=ord-777 raw={"orderId":"ord-777"}`))
 		})
 
-		It("returns an empty string for a nested body field (known limitation — only top-level fields are supported)", func() {
-			// KNOWN LIMITATION: substituteVars only supports top-level JSON fields.
-			// $(trigger.body.order.id) will not resolve "id" inside the "order" sub-object;
-			// instead, it tries to find a top-level key named "order.id" (which does not exist)
-			// and silently replaces the placeholder with an empty string.
+		It("resolves a nested body field via dot-path traversal", func() {
+			// Dot-path access is now supported: $(trigger.body.order.id) traverses
+			// body["order"]["id"] recursively.
 			td := &automationv1alpha1.TriggerData{
 				Body: `{"order":{"id":"nested-id"}}`,
 			}
 			result := substituteVars("nested=$(trigger.body.order.id)", nil, td)
-			// The placeholder is replaced with "" — not left verbatim and not an error.
-			Expect(result).To(Equal("nested="))
+			Expect(result).To(Equal("nested=nested-id"))
 		})
 
 		It("leaves body field placeholder verbatim when body is empty", func() {

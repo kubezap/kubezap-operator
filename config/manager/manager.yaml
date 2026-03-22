@@ -68,6 +68,10 @@ spec:
             value: "kubezap/webhook-gateway:latest"
           - name: KAFKA_GATEWAY_IMAGE
             value: "kubezap/kafka-gateway:latest"
+          - name: POD_NAMESPACE
+            valueFrom:
+              fieldRef:
+                fieldPath: metadata.namespace
         image: controller:latest
         imagePullPolicy: IfNotPresent
         name: manager

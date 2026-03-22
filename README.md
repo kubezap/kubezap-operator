@@ -2,7 +2,7 @@
 
 **Declarative workflow automation for Kubernetes.** Define event-driven automations as CRDs — no web UI, no proprietary runtime, no vendor lock-in.
 
-Think Zapier meets Camunda, but Kubernetes-native: trigger on webhooks, Kafka messages, or cron schedules; execute multi-step flows with HTTP calls, data transforms, conditional branching, timed waits, and retry policies — all declared in YAML and version-controlled alongside your infrastructure.
+Trigger on webhooks, Kafka messages, cron schedules, or Kubernetes resource events. Execute multi-step flows with HTTP calls, data transforms, conditional branching, timed waits, and retry policies — all declared in YAML and version-controlled alongside your infrastructure.
 
 ---
 

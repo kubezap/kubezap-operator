@@ -30,7 +30,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	automationv1alpha1 "github.com/borfswitch/kubezap/api/v1alpha1"
+	automationv1alpha1 "github.com/kubezap/kubezap-operator/api/v1alpha1"
 )
 
 // ---- Response types ---------------------------------------------------------

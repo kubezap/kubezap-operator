@@ -22,8 +22,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	ctrlmetrics "sigs.k8s.io/controller-runtime/pkg/metrics"
 
-	automationv1alpha1 "github.com/borfswitch/kubezap/api/v1alpha1"
-	"github.com/borfswitch/kubezap/internal/metrics"
+	automationv1alpha1 "github.com/kubezap/kubezap-operator/api/v1alpha1"
+	"github.com/kubezap/kubezap-operator/internal/metrics"
 )
 
 func newWebhookTestScheme() *runtime.Scheme {

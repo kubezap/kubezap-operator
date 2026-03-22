@@ -29,8 +29,8 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	automationv1alpha1 "github.com/borfswitch/kubezap/api/v1alpha1"
-	"github.com/borfswitch/kubezap/internal/metrics"
+	automationv1alpha1 "github.com/kubezap/kubezap-operator/api/v1alpha1"
+	"github.com/kubezap/kubezap-operator/internal/metrics"
 )
 
 // +kubebuilder:rbac:groups=automation.kubezap.io,resources=flowruns,verbs=create

@@ -22,7 +22,7 @@ import (
 
 	"github.com/google/cel-go/cel"
 
-	automationv1alpha1 "github.com/borfswitch/kubezap/api/v1alpha1"
+	automationv1alpha1 "github.com/kubezap/kubezap-operator/api/v1alpha1"
 )
 
 // newTestReconciler returns a FlowRunReconciler with no external dependencies,

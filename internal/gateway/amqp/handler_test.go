@@ -11,7 +11,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
-	automationv1alpha1 "github.com/borfswitch/kubezap/api/v1alpha1"
+	automationv1alpha1 "github.com/kubezap/kubezap-operator/api/v1alpha1"
 )
 
 func newTestScheme() *runtime.Scheme {

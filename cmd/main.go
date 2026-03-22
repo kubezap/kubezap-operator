@@ -42,10 +42,10 @@ import (
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
-	automationv1alpha1 "github.com/borfswitch/kubezap/api/v1alpha1"
-	"github.com/borfswitch/kubezap/internal/controller"
-	"github.com/borfswitch/kubezap/internal/telemetry"
-	"github.com/borfswitch/kubezap/internal/ui"
+	automationv1alpha1 "github.com/kubezap/kubezap-operator/api/v1alpha1"
+	"github.com/kubezap/kubezap-operator/internal/controller"
+	"github.com/kubezap/kubezap-operator/internal/telemetry"
+	"github.com/kubezap/kubezap-operator/internal/ui"
 	// +kubebuilder:scaffold:imports
 )
 

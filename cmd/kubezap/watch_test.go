@@ -24,8 +24,8 @@ import (
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	automationv1alpha1 "github.com/borfswitch/kubezap/api/v1alpha1"
-	"github.com/borfswitch/kubezap/internal/cli"
+	automationv1alpha1 "github.com/kubezap/kubezap-operator/api/v1alpha1"
+	"github.com/kubezap/kubezap-operator/internal/cli"
 )
 
 // makeTime returns a pointer to a metav1.Time with the given offset from a

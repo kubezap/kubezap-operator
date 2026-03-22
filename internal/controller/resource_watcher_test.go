@@ -25,7 +25,7 @@ import (
 	toolscache "k8s.io/client-go/tools/cache"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
-	automationv1alpha1 "github.com/borfswitch/kubezap/api/v1alpha1"
+	automationv1alpha1 "github.com/kubezap/kubezap-operator/api/v1alpha1"
 )
 
 var _ = Describe("ResourceWatcher", func() {

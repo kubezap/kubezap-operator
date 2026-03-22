@@ -25,8 +25,8 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	automationv1alpha1 "github.com/borfswitch/kubezap/api/v1alpha1"
-	"github.com/borfswitch/kubezap/internal/cli/output"
+	automationv1alpha1 "github.com/kubezap/kubezap-operator/api/v1alpha1"
+	"github.com/kubezap/kubezap-operator/internal/cli/output"
 )
 
 // ListFlows lists Flow resources with enriched status and prints to stdout.

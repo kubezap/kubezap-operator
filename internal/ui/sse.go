@@ -24,7 +24,7 @@ import (
 	"k8s.io/apimachinery/pkg/watch"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	automationv1alpha1 "github.com/borfswitch/kubezap/api/v1alpha1"
+	automationv1alpha1 "github.com/kubezap/kubezap-operator/api/v1alpha1"
 )
 
 // handleSSE streams FlowRun watch events to the client via Server-Sent Events.

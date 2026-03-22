@@ -26,7 +26,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
-	"github.com/borfswitch/kubezap/test/utils"
+	"github.com/kubezap/kubezap-operator/test/utils"
 )
 
 // kindKubeconfigFile holds the path to the temp file written with the kind cluster kubeconfig.

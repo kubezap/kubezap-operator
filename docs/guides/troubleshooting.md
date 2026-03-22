@@ -407,7 +407,7 @@ See [Using the CLI](using-the-cli.md) for the full command reference.
 If you cannot find the answer here:
 
 1. Check the controller logs with verbose output enabled: set `--zap-devel=true` on the controller Deployment temporarily.
-2. Open an issue at [github.com/Borfswitch/kubezap](https://github.com/Borfswitch/kubezap/issues) with:
+2. Open an issue at [github.com/kubezap/kubezap-operator](https://github.com/kubezap/kubezap-operator/issues) with:
    - The controller version (`kubezap version`)
    - The relevant Trigger, Flow, and FlowRun YAML (with secrets redacted)
    - Controller and gateway logs from the time of the failure

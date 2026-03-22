@@ -600,21 +600,29 @@ kubectl apply -k config/default # deploy the operator
 ### Helm (recommended)
 
 ```bash
+# From the OCI registry (recommended for production)
+helm install kubezap oci://ghcr.io/kubezap/charts/kubezap \
+  --version 0.3.0 \
+  --namespace kubezap-system --create-namespace
+
 # AllNamespaces mode (default)
-helm install kubezap ./charts/kubezap --namespace kubezap-system --create-namespace
+helm install kubezap oci://ghcr.io/kubezap/charts/kubezap \
+  --version 0.3.0 --namespace kubezap-system --create-namespace
 
 # SingleNamespace mode
-helm install kubezap ./charts/kubezap \
+helm install kubezap oci://ghcr.io/kubezap/charts/kubezap \
+  --version 0.3.0 \
   --namespace tenant-a --create-namespace \
   --set watchNamespaces=tenant-a
 
 # Multi-namespace mode
-helm install kubezap ./charts/kubezap \
+helm install kubezap oci://ghcr.io/kubezap/charts/kubezap \
+  --version 0.3.0 \
   --namespace kubezap-system --create-namespace \
   --set watchNamespaces="tenant-a,tenant-b"
 ```
 
-See `charts/kubezap/values.yaml` for all configurable options.
+See `charts/kubezap/values.yaml` for all configurable options. Check [GitHub Releases](https://github.com/kubezap/kubezap-operator/releases) for the latest chart version.
 
 ### kubezap CLI
 
@@ -631,7 +639,9 @@ echo $GITHUB_TOKEN | docker login ghcr.io -u <user> --password-stdin
 If you need to override image paths in Helm:
 
 ```bash
-helm install kubezap ./charts/kubezap --set image.repository=ghcr.io/kubezap/controller --set gatewayImages.webhook=ghcr.io/kubezap/webhook-gateway:latest
+helm install kubezap oci://ghcr.io/kubezap/charts/kubezap --version 0.3.0 \
+  --set image.repository=ghcr.io/kubezap/controller \
+  --set gatewayImages.webhook=ghcr.io/kubezap/webhook-gateway:latest
 ```
 
 **Direct download (linux/darwin/windows)**

@@ -83,9 +83,32 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-  publish-latest-images:
-    name: Publish :latest on merge to main
+  release-helm:
+    name: Publish Helm chart to GHCR OCI
     runs-on: ubuntu-latest
-    if: false  # This job lives in the push-to-main workflow; stub kept for reference
+    needs: release-cli   # ensures the GitHub Release exists before chart publish
     steps:
-      - run: echo "See .github/workflows/publish-latest.yml"
+      - uses: actions/checkout@v4
+
+      - name: Install Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: "v3.17.0"
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract version from tag
+        id: version
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Package and push Helm chart
+        run: |
+          helm package charts/kubezap --version ${{ steps.version.outputs.version }} \
+            --app-version ${{ steps.version.outputs.version }}
+          helm push kubezap-${{ steps.version.outputs.version }}.tgz \
+            oci://ghcr.io/kubezap/charts

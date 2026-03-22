@@ -19,6 +19,7 @@ package main
 import (
 	"crypto/tls"
 	"flag"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -45,6 +46,7 @@ import (
 	automationv1alpha1 "github.com/borfswitch/kubezap/api/v1alpha1"
 	"github.com/borfswitch/kubezap/internal/controller"
 	"github.com/borfswitch/kubezap/internal/telemetry"
+	"github.com/borfswitch/kubezap/internal/ui"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -76,6 +78,8 @@ func main() {
 	var maxConcurrentFlowRuns int
 	var flowRunExecutionTimeout time.Duration
 	var disableCELCache bool
+	var uiPort int
+	var uiBearerToken string
 	flag.StringVar(&metricsAddr, "metrics-bind-address", ":9090", "The address the metrics endpoint binds to. "+
 		"Use :9090 for HTTP (default) or :8443 for HTTPS.")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
@@ -98,6 +102,10 @@ func main() {
 	flag.IntVar(&maxConcurrentFlowRuns, "max-concurrent-flowruns", 25, "Maximum number of FlowRun reconciliations to run concurrently. With one-step-per-reconcile, the goroutine is held only for the duration of a single step (one HTTP call), not the entire flow.")
 	flag.DurationVar(&flowRunExecutionTimeout, "flowrun-execution-timeout", time.Hour, "Maximum time a FlowRun may remain in Running phase before being failed as orphaned (0 = disabled).")
 	flag.BoolVar(&disableCELCache, "disable-cel-cache", false, "Disable the CEL expression program cache. The cache is unbounded but converges once Flows stabilise; disable only when continuously deploying throwaway expressions or for debugging.")
+	flag.IntVar(&uiPort, "ui-port", 0,
+		"Port for the read-only web dashboard (0 = disabled). Access via kubectl port-forward.")
+	flag.StringVar(&uiBearerToken, "ui-bearer-token", "",
+		"Optional bearer token to protect the dashboard. When set, requests must include 'Authorization: Bearer <token>'.")
 	flag.BoolVar(&developmentLogging, "development", false,
 		"Enable development logging mode (human-readable, with caller info). Defaults to false for production JSON logging.")
 	var opts zap.Options
@@ -326,6 +334,15 @@ func main() {
 	if err := mgr.AddReadyzCheck("readyz", healthz.Ping); err != nil {
 		setupLog.Error(err, "unable to set up ready check")
 		os.Exit(1)
+	}
+
+	if uiPort > 0 {
+		uiServer := ui.NewServer(mgr.GetClient(), uiBearerToken)
+		go func() {
+			if err := uiServer.Start(ctx, fmt.Sprintf(":%d", uiPort)); err != nil {
+				setupLog.Error(err, "dashboard UI server stopped")
+			}
+		}()
 	}
 
 	setupLog.Info("starting manager")

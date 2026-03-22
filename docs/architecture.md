@@ -135,7 +135,7 @@ The Kafka gateway manages consumer subscriptions for all Kafka pub/sub triggers 
 
 ### Topic subscription management
 
-When a `Trigger` with `type: pubsub` referencing this gateway's `Integration` is:
+When a `Trigger` with `type: kafka` referencing this gateway's `Integration` is:
 - **Created**: gateway adds the topic to its consumer subscriptions
 - **Deleted**: gateway unsubscribes from the topic
 - **`enabled: false`**: gateway pauses consumption (does not commit offsets)
@@ -332,7 +332,7 @@ The controller uses leader election and should run with 2–3 replicas. Only the
 | -------------------------- | ---------- | ------------------------------------------------------------------- |
 | Trigger, Flow, FlowRun     | Namespaced | Each namespace has independent CRDs                                 |
 | Webhook Gateway Deployment | Namespaced | One per namespace where webhook Triggers exist                      |
-| Pub/Sub gateway Deployment | Namespaced | One per (namespace × broker Integration); `kafka-gateway` for Kafka |
+| Broker gateway Deployment  | Namespaced | One per (namespace × broker Integration); separate gateway for each of `kafka`, `amqp`, `nats` |
 | Controller                 | Cluster    | Watches all namespaces; runs in `kubezap-system`                    |
 
 The controller watches CRDs in all namespaces and creates gateway Deployments within each namespace where they are needed. If all Triggers in a namespace are deleted, the controller garbage-collects the gateway Deployments.
@@ -566,7 +566,7 @@ To add support for a new trigger type (e.g., NATS, RabbitMQ, S3 events):
 3. Create a new gateway binary in `cmd/nats-gateway/`
 4. Add a new Dockerfile
 5. Update the controller's reconciler to create/manage the new gateway Deployment type
-6. Add the new trigger type to `PubSubTrigger.type` enum or as a new top-level type
+6. Add the new trigger type as a new top-level `type` value in `TriggerSpec` and a corresponding spec struct (following the `kafka`, `amqp`, `nats` pattern)
 
 The gateway pattern is designed so each new trigger type is a self-contained binary. Adding NATS support does not require changes to the webhook or Kafka gateways.
 

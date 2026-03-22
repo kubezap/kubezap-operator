@@ -3,7 +3,7 @@ replicaCount: 1
 
 # Controller image
 image:
-  repository: docker.io/kubezap/controller
+  repository: ghcr.io/kubezap/controller
   tag: "latest"
   pullPolicy: IfNotPresent
 
@@ -27,10 +27,10 @@ healthProbeBindAddress: ":8081"
 
 # Gateway images (injected into controller env vars; controller spawns these as Deployments)
 gatewayImages:
-  webhook: "docker.io/kubezap/webhook-gateway:latest"
-  kafka: "docker.io/kubezap/kafka-gateway:latest"
-  amqp: "docker.io/kubezap/amqp-gateway:latest"
-  nats: "docker.io/kubezap/nats-gateway:latest"
+  webhook: "ghcr.io/kubezap/webhook-gateway:latest"
+  kafka: "ghcr.io/kubezap/kafka-gateway:latest"
+  amqp: "ghcr.io/kubezap/amqp-gateway:latest"
+  nats: "ghcr.io/kubezap/nats-gateway:latest"
 
 # Pod security context (applied to pod spec)
 podSecurityContext:

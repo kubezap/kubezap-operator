@@ -156,14 +156,14 @@ helm upgrade kubezap ./charts/kubezap \
 
 The dashboard is backed by a read-only REST API served alongside the UI. All endpoints return JSON and require no authentication in the default configuration.
 
-| Method | Path | Description |
-|--------|------|-------------|
-| `GET` | `/api/v1/namespaces` | List namespaces the operator is watching |
-| `GET` | `/api/v1/:ns/flowruns` | List FlowRuns (supports `?phase`, `?trigger`, `?flow`, `?limit`, `?since`) |
-| `GET` | `/api/v1/:ns/flowruns/:name` | Get a single FlowRun with full step detail |
-| `GET` | `/api/v1/:ns/triggers` | List Triggers |
-| `GET` | `/api/v1/:ns/flows` | List Flows |
-| `GET` | `/api/v1/events?namespace=:ns` | SSE stream of FlowRun change events |
+| Method | Path                           | Description                                                                |
+| ------ | ------------------------------ | -------------------------------------------------------------------------- |
+| `GET`  | `/api/v1/namespaces`           | List namespaces the operator is watching                                   |
+| `GET`  | `/api/v1/:ns/flowruns`         | List FlowRuns (supports `?phase`, `?trigger`, `?flow`, `?limit`, `?since`) |
+| `GET`  | `/api/v1/:ns/flowruns/:name`   | Get a single FlowRun with full step detail                                 |
+| `GET`  | `/api/v1/:ns/triggers`         | List Triggers                                                              |
+| `GET`  | `/api/v1/:ns/flows`            | List Flows                                                                 |
+| `GET`  | `/api/v1/events?namespace=:ns` | SSE stream of FlowRun change events                                        |
 
 The SSE endpoint sends `event: flowrun` events with a `FlowRunSummary` JSON payload on each create/update/delete. The browser reconnects automatically on disconnect (`retry: 3000`).
 
@@ -171,11 +171,11 @@ The SSE endpoint sends `event: flowrun` events with a `FlowRunSummary` JSON payl
 
 ## Flags Reference
 
-| Flag | Default | Description |
-|------|---------|-------------|
-| `--enable-ui` | `false` | Enable the web dashboard. Also creates a `kubezap-ui` Service in the operator namespace. |
-| `--ui-port` | `8082` | Port for the UI HTTP server (only used when `--enable-ui` is set). |
-| `--ui-bearer-token` | `""` (no auth) | Static bearer token for optional Ingress-level authentication. |
+| Flag                | Default        | Description                                                                              |
+| ------------------- | -------------- | ---------------------------------------------------------------------------------------- |
+| `--enable-ui`       | `false`        | Enable the web dashboard. Also creates a `kubezap-ui` Service in the operator namespace. |
+| `--ui-port`         | `8082`         | Port for the UI HTTP server (only used when `--enable-ui` is set).                       |
+| `--ui-bearer-token` | `""` (no auth) | Static bearer token for optional Ingress-level authentication.                           |
 
 ---
 

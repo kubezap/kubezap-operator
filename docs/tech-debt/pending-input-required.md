@@ -40,12 +40,12 @@ The only genuine leak scenario is continuous deployment of Flows with unique, th
 
 **Trade-offs considered:**
 
-| Option | Pro | Con |
-|---|---|---|
-| Unbounded cache (chosen) | Zero complexity, zero new deps, optimal hit rate | Grows unboundedly under throwaway-expression workloads (unlikely) |
-| LRU eviction | Strict memory bound | Adds dependency (`golang-lru`), recompile cost on eviction, per-access lock contention |
-| TTL eviction | Handles deleted/replaced Flows naturally | Recompile cost for infrequent Flows (e.g. daily crons), more complex implementation |
-| Disable cache (`--disable-cel-cache`) | Zero memory, simplest code path | Recompile on every reconcile — negligible CPU cost (~µs), acceptable for debugging |
+| Option                                | Pro                                              | Con                                                                                    |
+| ------------------------------------- | ------------------------------------------------ | -------------------------------------------------------------------------------------- |
+| Unbounded cache (chosen)              | Zero complexity, zero new deps, optimal hit rate | Grows unboundedly under throwaway-expression workloads (unlikely)                      |
+| LRU eviction                          | Strict memory bound                              | Adds dependency (`golang-lru`), recompile cost on eviction, per-access lock contention |
+| TTL eviction                          | Handles deleted/replaced Flows naturally         | Recompile cost for infrequent Flows (e.g. daily crons), more complex implementation    |
+| Disable cache (`--disable-cel-cache`) | Zero memory, simplest code path                  | Recompile on every reconcile — negligible CPU cost (~µs), acceptable for debugging     |
 
 **Implementation:** `DisableCELCache bool` field on `FlowRunReconciler` + `--disable-cel-cache` flag in `cmd/main.go`. When true, cache reads and writes are both skipped; every `when` evaluation recompiles from source.
 

@@ -571,7 +571,7 @@ func (r *IntegrationReconciler) reconcileKafkaGateway(ctx context.Context, integ
 func desiredKafkaGatewayDeployment(integration *automationv1alpha1.Integration) *appsv1.Deployment {
 	image := os.Getenv("KAFKA_GATEWAY_IMAGE")
 	if image == "" {
-		image = "kubezap/kafka-gateway:latest"
+		image = "ghcr.io/kubezap/kafka-gateway:latest"
 	}
 
 	deploymentName := "kubezap-kafka-gateway-" + integration.Name
@@ -864,7 +864,7 @@ func (r *IntegrationReconciler) reconcileAmqpGateway(ctx context.Context, integr
 func desiredAmqpGatewayDeployment(integration *automationv1alpha1.Integration) *appsv1.Deployment {
 	image := os.Getenv("AMQP_GATEWAY_IMAGE")
 	if image == "" {
-		image = "kubezap/amqp-gateway:latest"
+		image = "ghcr.io/kubezap/amqp-gateway:latest"
 	}
 
 	deploymentName := "kubezap-amqp-gateway-" + integration.Name
@@ -1043,7 +1043,7 @@ func (r *IntegrationReconciler) reconcileNatsGateway(ctx context.Context, integr
 func desiredNatsGatewayDeployment(integration *automationv1alpha1.Integration) *appsv1.Deployment {
 	image := os.Getenv("NATS_GATEWAY_IMAGE")
 	if image == "" {
-		image = "kubezap/nats-gateway:latest"
+		image = "ghcr.io/kubezap/nats-gateway:latest"
 	}
 
 	deploymentName := "kubezap-nats-gateway-" + integration.Name

@@ -49,7 +49,7 @@ func webhookGatewayImage() string {
 	if img := os.Getenv("WEBHOOK_GATEWAY_IMAGE"); img != "" {
 		return img
 	}
-	return "kubezap/webhook-gateway:latest"
+	return "ghcr.io/kubezap/webhook-gateway:latest"
 }
 
 // desiredWebhookGatewayServiceAccount returns the desired ServiceAccount for the webhook gateway.

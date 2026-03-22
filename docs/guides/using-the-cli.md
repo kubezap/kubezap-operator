@@ -210,13 +210,13 @@ Phase:   Running     (12.4s elapsed)
 
 Status badges:
 
-| Badge | Phase              |
-|-------|--------------------|
-| `✓`   | Succeeded          |
-| `✗`   | Failed             |
-| `●`   | Running            |
-| `○`   | Pending / Waiting  |
-| `-`   | Skipped            |
+| Badge | Phase             |
+| ----- | ----------------- |
+| `✓`   | Succeeded         |
+| `✗`   | Failed            |
+| `●`   | Running           |
+| `○`   | Pending / Waiting |
+| `-`   | Skipped           |
 
 The command exits as soon as the FlowRun phase becomes `Succeeded`, `Failed`, or `Cancelled`.
 

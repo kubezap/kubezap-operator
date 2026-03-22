@@ -127,7 +127,7 @@ metadata:
       ]
     capabilities: Basic Install
     categories: Integration & Delivery
-    containerImage: docker.io/kubezap/controller:latest
+    containerImage: ghcr.io/kubezap/controller:latest
     createdAt: "2026-03-20T20:16:39Z"
     description: Declarative workflow automation for Kubernetes — Zapier meets Camunda,
       but Kubernetes-native.
@@ -433,10 +433,10 @@ spec:
                 - /manager
                 env:
                 - name: WEBHOOK_GATEWAY_IMAGE
-                  value: kubezap/webhook-gateway:latest
+                  value: ghcr.io/kubezap/webhook-gateway:latest
                 - name: KAFKA_GATEWAY_IMAGE
-                  value: kubezap/kafka-gateway:latest
-                image: docker.io/kubezap/controller:latest
+                  value: ghcr.io/kubezap/kafka-gateway:latest
+                image: ghcr.io/kubezap/controller:latest
                 imagePullPolicy: IfNotPresent
                 livenessProbe:
                   httpGet:

@@ -5,7 +5,7 @@ metadata:
     alm-examples: '[]'
     capabilities: Basic Install
     categories: Integration & Delivery
-    containerImage: docker.io/kubezap/controller:latest
+    containerImage: ghcr.io/kubezap/controller:latest
     description: Declarative workflow automation for Kubernetes — Zapier meets Camunda,
       but Kubernetes-native.
     operatorframework.io/suggested-namespace: kubezap-system

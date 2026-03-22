@@ -39,9 +39,9 @@ KubeZap exposes three complementary observability signals:
 
 All metrics use the `kubezap_` prefix. Each component exposes a `/metrics` endpoint on a dedicated metrics port:
 
-| Component                 | Default metrics port | Protocol                                                                |
-| ------------------------- | -------------------- | ----------------------------------------------------------------------- |
-| `kubezap-controller`      | `:9090`              | HTTP (default); HTTPS via `--metrics-secure` + `--metrics-cert-path`   |
+| Component                 | Default metrics port | Protocol                                                                     |
+| ------------------------- | -------------------- | ---------------------------------------------------------------------------- |
+| `kubezap-controller`      | `:9090`              | HTTP (default); HTTPS via `--metrics-secure` + `--metrics-cert-path`         |
 | `kubezap-webhook-gateway` | `:9090`              | HTTP (default); HTTPS via `--metrics-tls-cert-file`/`--metrics-tls-key-file` |
 | `kubezap-kafka-gateway`   | `:9090`              | HTTP (default); HTTPS via `--metrics-tls-cert-file`/`--metrics-tls-key-file` |
 
@@ -662,14 +662,14 @@ The OTLP gRPC endpoint set via `OTEL_EXPORTER_OTLP_ENDPOINT` must be reachable f
 
 Each component accepts flags to control its dedicated metrics server (port `:9090` by default).
 
-| Flag | Component | Default | Description |
-|------|-----------|---------|-------------|
-| `--metrics-bind-address` | controller | `:9090` | Address the metrics endpoint binds to. Use `:9090` for HTTP (default) or `:8443` for HTTPS. |
-| `--metrics-secure` | controller | `false` | When `true`, serves metrics over HTTPS. Requires `--metrics-cert-path`. |
-| `--metrics-cert-path` | controller | `""` | Directory containing `tls.crt` and `tls.key` for the metrics server (cert-manager compatible). |
-| `--metrics-port` | webhook-gateway, kafka-gateway | `9090` | Port for the dedicated Prometheus metrics server. |
-| `--metrics-tls-cert-file` | webhook-gateway, kafka-gateway | `""` | Path to TLS certificate PEM. When set with `--metrics-tls-key-file`, the metrics server uses HTTPS. |
-| `--metrics-tls-key-file` | webhook-gateway, kafka-gateway | `""` | Path to TLS private key PEM. Required when `--metrics-tls-cert-file` is set. |
+| Flag                      | Component                      | Default | Description                                                                                         |
+| ------------------------- | ------------------------------ | ------- | --------------------------------------------------------------------------------------------------- |
+| `--metrics-bind-address`  | controller                     | `:9090` | Address the metrics endpoint binds to. Use `:9090` for HTTP (default) or `:8443` for HTTPS.         |
+| `--metrics-secure`        | controller                     | `false` | When `true`, serves metrics over HTTPS. Requires `--metrics-cert-path`.                             |
+| `--metrics-cert-path`     | controller                     | `""`    | Directory containing `tls.crt` and `tls.key` for the metrics server (cert-manager compatible).      |
+| `--metrics-port`          | webhook-gateway, kafka-gateway | `9090`  | Port for the dedicated Prometheus metrics server.                                                   |
+| `--metrics-tls-cert-file` | webhook-gateway, kafka-gateway | `""`    | Path to TLS certificate PEM. When set with `--metrics-tls-key-file`, the metrics server uses HTTPS. |
+| `--metrics-tls-key-file`  | webhook-gateway, kafka-gateway | `""`    | Path to TLS private key PEM. Required when `--metrics-tls-cert-file` is set.                        |
 
 The webhook gateway hook server (port `:8080`) TLS flags (`--tls-cert-file`, `--tls-key-file`, `--mtls-ca-file`) are independent of the metrics server TLS flags.
 

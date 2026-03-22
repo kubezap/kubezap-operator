@@ -67,13 +67,13 @@ Conditional execution is controlled by `when` blocks using [CEL (Common Expressi
 
 KubeZap infers the payload format from the `Content-Type` of the triggering event (webhook request body or Kafka message value). The parsed data is then navigable in both `$(...)` interpolation and CEL conditions.
 
-| Content-Type                        | Parsed as   | Access pattern                                                     |
-| ----------------------------------- | ----------- | ------------------------------------------------------------------ |
+| Content-Type                        | Parsed as   | Access pattern                                                                 |
+| ----------------------------------- | ----------- | ------------------------------------------------------------------------------ |
 | `application/json`                  | JSON object | `$(trigger.body.userId)`, `$(trigger.body.order.id)` — full dot-path supported |
-| `application/xml`, `text/xml`       | raw string  | `$(trigger.body)` — full body as string                            |
-| `application/x-www-form-urlencoded` | raw string  | `$(trigger.body)` — full body as string                            |
-| `text/plain`                        | raw string  | `$(trigger.body)`                                                  |
-| Other / binary                      | raw string  | `$(trigger.body)`                                                  |
+| `application/xml`, `text/xml`       | raw string  | `$(trigger.body)` — full body as string                                        |
+| `application/x-www-form-urlencoded` | raw string  | `$(trigger.body)` — full body as string                                        |
+| `text/plain`                        | raw string  | `$(trigger.body)`                                                              |
+| Other / binary                      | raw string  | `$(trigger.body)`                                                              |
 
 ### Accessing Trigger Body Fields
 
@@ -150,16 +150,16 @@ When a `Trigger` fires, the KubeZap operator:
 
 Use `$(syntax)` to reference dynamic values in string fields (URLs, headers, bodies, parameter values):
 
-| Expression                                 | Resolves to                                                                                  |
-| ------------------------------------------ | -------------------------------------------------------------------------------------------- |
-| `$(params.<name>)`                         | A declared flow parameter                                                                    |
-| `$(trigger.name)`                          | Name of the Trigger that fired                                                               |
-| `$(trigger.namespace)`                     | Namespace of the Trigger                                                                     |
-| `$(trigger.type)`                          | Type of the Trigger (webhook, cron, pubsub)                                                  |
-| `$(trigger.body)`                          | Raw trigger event body (webhook request body or Kafka message value)                         |
+| Expression                                 | Resolves to                                                                                    |
+| ------------------------------------------ | ---------------------------------------------------------------------------------------------- |
+| `$(params.<name>)`                         | A declared flow parameter                                                                      |
+| `$(trigger.name)`                          | Name of the Trigger that fired                                                                 |
+| `$(trigger.namespace)`                     | Namespace of the Trigger                                                                       |
+| `$(trigger.type)`                          | Type of the Trigger (webhook, cron, pubsub)                                                    |
+| `$(trigger.body)`                          | Raw trigger event body (webhook request body or Kafka message value)                           |
 | `$(trigger.body.<field>)`                  | A JSON field from the trigger body; full dot-path supported (e.g., `$(trigger.body.order.id)`) |
-| `$(steps.<stepName>.results.<resultName>)` | A result produced by a previous step                                                         |
-| `$(secrets.<secretName>.<key>)`            | A value from a Kubernetes Secret in the same namespace                                       |
+| `$(steps.<stepName>.results.<resultName>)` | A result produced by a previous step                                                           |
+| `$(secrets.<secretName>.<key>)`            | A value from a Kubernetes Secret in the same namespace                                         |
 
 **Example:**
 ```yaml

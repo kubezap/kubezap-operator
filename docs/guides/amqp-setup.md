@@ -444,16 +444,16 @@ spec:
 
 Despite sharing the AMQP name, these are fundamentally different wire protocols. The KubeZap AMQP gateway uses a different client library for each.
 
-| Aspect | AMQP 0-9-1 | AMQP 1.0 |
-|---|---|---|
-| **Routing model** | Exchange + binding key + queue. Messages are published to an exchange and routed to queues via binding rules. | Address-based. Messages are sent to a named address; the broker decides how to route them. |
-| **Brokers** | RabbitMQ, ActiveMQ Classic | ActiveMQ Artemis, Solace PubSub+, Azure Service Bus, IBM MQ |
-| **`spec.amqp.version`** | `"0-9-1"` (default) | `"1.0"` |
-| **`topic` field meaning** | Queue name. The gateway declares this as a durable queue and consumes from it. | Address name. The gateway creates a receiver link on this address. |
-| **`routingKey` field** | Used as the binding key when the queue is bound to an exchange. Omit if consuming from a named queue directly. | Not applicable. Ignored if set. |
-| **Authentication** | Credentials embedded in the AMQP URL (`amqp://user:pass@host`). The gateway handles this automatically from `usernameSecretRef`/`passwordSecretRef`. | SASL PLAIN sent during the AMQP 1.0 connection handshake. Configured via the same `usernameSecretRef`/`passwordSecretRef` fields. |
-| **Client library** | [rabbitmq/amqp091-go](https://github.com/rabbitmq/amqp091-go) | [Azure/go-amqp](https://github.com/Azure/go-amqp) |
-| **Delivery guarantee** | At-least-once (manual ack after FlowRun creation) | At-least-once (message accepted after FlowRun creation) |
+| Aspect                    | AMQP 0-9-1                                                                                                                                           | AMQP 1.0                                                                                                                          |
+| ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| **Routing model**         | Exchange + binding key + queue. Messages are published to an exchange and routed to queues via binding rules.                                        | Address-based. Messages are sent to a named address; the broker decides how to route them.                                        |
+| **Brokers**               | RabbitMQ, ActiveMQ Classic                                                                                                                           | ActiveMQ Artemis, Solace PubSub+, Azure Service Bus, IBM MQ                                                                       |
+| **`spec.amqp.version`**   | `"0-9-1"` (default)                                                                                                                                  | `"1.0"`                                                                                                                           |
+| **`topic` field meaning** | Queue name. The gateway declares this as a durable queue and consumes from it.                                                                       | Address name. The gateway creates a receiver link on this address.                                                                |
+| **`routingKey` field**    | Used as the binding key when the queue is bound to an exchange. Omit if consuming from a named queue directly.                                       | Not applicable. Ignored if set.                                                                                                   |
+| **Authentication**        | Credentials embedded in the AMQP URL (`amqp://user:pass@host`). The gateway handles this automatically from `usernameSecretRef`/`passwordSecretRef`. | SASL PLAIN sent during the AMQP 1.0 connection handshake. Configured via the same `usernameSecretRef`/`passwordSecretRef` fields. |
+| **Client library**        | [rabbitmq/amqp091-go](https://github.com/rabbitmq/amqp091-go)                                                                                        | [Azure/go-amqp](https://github.com/Azure/go-amqp)                                                                                 |
+| **Delivery guarantee**    | At-least-once (manual ack after FlowRun creation)                                                                                                    | At-least-once (message accepted after FlowRun creation)                                                                           |
 
 **Choosing the right version:**
 

@@ -36,8 +36,7 @@ Claude should encourage the following workflow when implementing features:
 1. Architecture discussion
 2. Design/specification
 3. Implementation task breakdown
-4. Copilot prompt generation
-5. Code review
+4. Code review
 
 If a request jumps directly to implementation without design context, Claude should suggest a short design discussion first.
 
@@ -82,13 +81,13 @@ Key decisions:
 
 ## Core CRDs
 
-| CRD           | Purpose                                                                   | Docs                        |
-| ------------- | ------------------------------------------------------------------------- | --------------------------- |
-| `Trigger`     | Event source (webhook/cron/kafka/resource) → references a Flow            | `docs/api/trigger.md`       |
-| `Flow`        | Ordered steps with conditional logic and data transforms                  | `docs/api/flow.md`          |
-| `FlowRun`     | Execution instance created by gateways; controller picks up and runs      | `docs/api/flowrun.md`       |
-| `Integration` | External system connections and credentials; subscriber + publisher roles | `docs/api/integration.md`   |
-| `Step`        | Optional reusable/observable action unit                                  | Future — not yet designed   |
+| CRD           | Purpose                                                                   | Docs                      |
+| ------------- | ------------------------------------------------------------------------- | ------------------------- |
+| `Trigger`     | Event source (webhook/cron/kafka/resource) → references a Flow            | `docs/api/trigger.md`     |
+| `Flow`        | Ordered steps with conditional logic and data transforms                  | `docs/api/flow.md`        |
+| `FlowRun`     | Execution instance created by gateways; controller picks up and runs      | `docs/api/flowrun.md`     |
+| `Integration` | External system connections and credentials; subscriber + publisher roles | `docs/api/integration.md` |
+| `Step`        | Optional reusable/observable action unit                                  | Future — not yet designed |
 
 ## Trigger Types
 
@@ -128,56 +127,6 @@ Planned: GCP Pub/Sub, Solace (non-AMQP), S3/Git events, additional brokers via p
 - **Idempotent and resilient**: All reconcilers must be safe to re-run at any time
 - **Observability from day one**: All meaningful operations emit Prometheus metrics + OTel traces
 - **Enterprise-grade**: Security contexts, RBAC, HA, multi-namespace from the start
-
-## Claude Implementation Workflow
-
-Claude should primarily act as an architecture advisor, task planner, and reviewer rather than the primary code generator.
-
-Because GitHub Copilot is used for day-to-day implementation, Claude should prefer generating:
-
-- architecture guidance
-- implementation plans
-- step-by-step task breakdowns
-- Copilot prompts
-- review feedback
-
-rather than large code implementations.
-
-Preferred workflow for new features:
-
-1. Architecture discussion
-2. Design/specification
-3. Implementation task breakdown
-4. Copilot prompt generation
-5. Code review
-
-When generating implementation plans, prefer **step-by-step tasks referencing specific files in the repository**.
-
-Example:
-
-- Update `api/v1alpha1/flowrun_types.go` to add status conditions
-- Implement reconciler logic in `internal/controller/flowrun_controller.go`
-- Add RBAC markers for FlowRun in the controller
-- Add sample CR in `config/samples/`
-- Write Ginkgo tests in `internal/controller/flowrun_controller_test.go`
-
-Claude should generate prompts suitable for GitHub Copilot to complete each task.
-
-Example Copilot prompt:
-
-```
-Implement a controller-runtime reconciler for the FlowRun CRD.
-
-Requirements:
-- watch FlowRun resources
-- fetch referenced Flow
-- determine steps whose dependencies are satisfied
-- create StepRun resources
-- follow idempotent reconciliation patterns
-- update FlowRun status conditions
-```
-
-Claude should only generate full code implementations when explicitly requested or when doing so would clearly be more efficient.
 
 ## Developer Workflow
 

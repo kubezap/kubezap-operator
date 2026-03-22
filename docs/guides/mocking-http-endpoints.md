@@ -48,15 +48,15 @@ Mockoon is a purpose-built, actively maintained mock server. Running it as a sta
 
 Key properties relevant to KubeZap development:
 
-| Feature | Details |
-|---|---|
-| Docker image | `mockoon/mockoon:latest` |
-| Mock server port | `3000` (configurable via `--port`) |
-| Admin API port | `3001` (configurable via `--admin-api-port`) |
-| Configuration | JSON environment file — see [Mockoon data file format](https://mockoon.com/docs/latest/mockoon-data-files/data-storage-location/) |
-| Request history | Available via `GET /api/logs` on the admin API |
-| Templating | Handlebars syntax in response bodies |
-| Health check | `GET /health` on the admin API → `200 OK` |
+| Feature          | Details                                                                                                                           |
+| ---------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| Docker image     | `mockoon/mockoon:latest`                                                                                                          |
+| Mock server port | `3000` (configurable via `--port`)                                                                                                |
+| Admin API port   | `3001` (configurable via `--admin-api-port`)                                                                                      |
+| Configuration    | JSON environment file — see [Mockoon data file format](https://mockoon.com/docs/latest/mockoon-data-files/data-storage-location/) |
+| Request history  | Available via `GET /api/logs` on the admin API                                                                                    |
+| Templating       | Handlebars syntax in response bodies                                                                                              |
+| Health check     | `GET /health` on the admin API → `200 OK`                                                                                         |
 
 ---
 
@@ -107,12 +107,12 @@ Change the `namespace: default` field in the file to match your target namespace
 
 The sample ConfigMap in the file ships with four routes that match the services used in the KubeZap examples:
 
-| Route | Method | Used by |
-|---|---|---|
-| `/notify-express` | POST | [order-router example](../../examples/order-router/) |
-| `/notify-standard` | POST | [order-router example](../../examples/order-router/) |
-| `/customer-profile` | GET | [kafka-enrichment example](../../examples/kafka-enrichment/) |
-| `/deploy-sink` | POST | [slack-router example](../../examples/slack-router/) |
+| Route               | Method | Used by                                                      |
+| ------------------- | ------ | ------------------------------------------------------------ |
+| `/notify-express`   | POST   | [order-router example](../../examples/order-router/)         |
+| `/notify-standard`  | POST   | [order-router example](../../examples/order-router/)         |
+| `/customer-profile` | GET    | [kafka-enrichment example](../../examples/kafka-enrichment/) |
+| `/deploy-sink`      | POST   | [slack-router example](../../examples/slack-router/)         |
 
 ---
 

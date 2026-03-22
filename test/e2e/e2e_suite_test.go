@@ -44,7 +44,7 @@ var (
 
 	// projectImage is the name of the image which will be build and loaded
 	// with the code source changes to be tested.
-	projectImage = "kubezap/controller:latest"
+	projectImage = "ghcr.io/kubezap/controller:latest"
 )
 
 // TestE2E runs the end-to-end (e2e) test suite for the project. These tests execute in an isolated,
@@ -64,7 +64,7 @@ var _ = BeforeSuite(func() {
 	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to build the manager(Operator) image")
 
 	By("building the webhook gateway image")
-	cmd = exec.Command("docker", "build", "-t", "kubezap/webhook-gateway:latest", "-f", "cmd/webhook-gateway/Dockerfile", ".")
+	cmd = exec.Command("docker", "build", "-t", "ghcr.io/kubezap/webhook-gateway:latest", "-f", "cmd/webhook-gateway/Dockerfile", ".")
 	_, err = utils.Run(cmd)
 	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to build the webhook gateway image")
 
@@ -89,7 +89,7 @@ var _ = BeforeSuite(func() {
 	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to load the manager(Operator) image into Kind")
 
 	By("loading the webhook gateway image on Kind")
-	err = utils.LoadImageToKindClusterWithName("kubezap/webhook-gateway:latest")
+	err = utils.LoadImageToKindClusterWithName("ghcr.io/kubezap/webhook-gateway:latest")
 	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to load the webhook gateway image into Kind")
 
 	// The tests-e2e are intended to run on a temporary cluster that is created and destroyed for testing.

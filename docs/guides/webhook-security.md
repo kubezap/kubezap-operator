@@ -442,10 +442,10 @@ spec:
 
 ### HeaderEqualsAuth
 
-| Field                    | Type         | Required | Description                                 |
-| ------------------------ | ------------ | -------- | ------------------------------------------- |
-| `headerEqualsHeader`     | string       | **Yes**  | HTTP header name to check                   |
-| `headerEqualsSecretRef`  | SecretKeyRef | **Yes**  | Secret containing the expected header value |
+| Field                   | Type         | Required | Description                                 |
+| ----------------------- | ------------ | -------- | ------------------------------------------- |
+| `headerEqualsHeader`    | string       | **Yes**  | HTTP header name to check                   |
+| `headerEqualsSecretRef` | SecretKeyRef | **Yes**  | Secret containing the expected header value |
 
 ---
 

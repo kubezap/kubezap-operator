@@ -620,6 +620,20 @@ See `charts/kubezap/values.yaml` for all configurable options.
 
 The `kubezap` CLI provides rich FlowRun history and operator status views beyond what `kubectl get` offers.
 
+### GitHub Container Registry (GHCR) image defaults
+
+KubeZap now publishes container images under `ghcr.io/kubezap/*`. The Helm chart and operator defaults are configured to use these values by default. If you are using private GHCR repositories, authenticate first:
+
+```bash
+echo $GITHUB_TOKEN | docker login ghcr.io -u <user> --password-stdin
+```
+
+If you need to override image paths in Helm:
+
+```bash
+helm install kubezap ./charts/kubezap --set image.repository=ghcr.io/kubezap/controller --set gatewayImages.webhook=ghcr.io/kubezap/webhook-gateway:latest
+```
+
 **Direct download (linux/darwin/windows)**
 
 Download the latest release from [GitHub Releases](https://github.com/kubezap/kubezap/releases) and place the binary in your `$PATH`:

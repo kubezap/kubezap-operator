@@ -399,10 +399,10 @@ order-events-js-seq-2        process-order   Pending   0s
 
 The NATS gateway uses different FlowRun naming schemes depending on the delivery mode:
 
-| Mode      | FlowRun Name Pattern                           | Deterministic | Dedup |
-|-----------|-------------------------------------------------|---------------|-------|
-| Core NATS | `<trigger>-<timestamp-nanos>-<random-hex>`     | No            | No    |
-| JetStream | `<trigger>-seq-<consumer-sequence-number>`     | Yes           | Yes   |
+| Mode      | FlowRun Name Pattern                       | Deterministic | Dedup |
+| --------- | ------------------------------------------ | ------------- | ----- |
+| Core NATS | `<trigger>-<timestamp-nanos>-<random-hex>` | No            | No    |
+| JetStream | `<trigger>-seq-<consumer-sequence-number>` | Yes           | Yes   |
 
 For JetStream, the consumer sequence number is a monotonically increasing integer assigned by the NATS server. Because the FlowRun name is deterministic (derived from the trigger name and sequence), Kubernetes rejects `AlreadyExists` errors on duplicate creation attempts. This provides natural deduplication: if the same message is redelivered, the gateway attempts to create a FlowRun with the same name, the API server returns `AlreadyExists`, and the gateway treats it as a no-op.
 

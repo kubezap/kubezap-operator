@@ -6,18 +6,39 @@ A `FlowRun` is an execution instance of a `Flow`. Gateways create a `FlowRun` ea
 
 ## Contents
 
-- [Overview](#overview)
-- [Lifecycle](#lifecycle)
-- [Who Creates FlowRuns](#who-creates-flowruns)
-- [Spec Reference](#spec-reference)
-- [Status Reference](#status-reference)
-- [Garbage Collection](#garbage-collection)
-- [Deduplication](#deduplication)
-- [Examples](#examples)
-  - [Webhook-triggered FlowRun](#example-1-webhook-triggered-flowrun)
-  - [Kafka-triggered FlowRun](#example-2-kafka-triggered-flowrun)
-  - [Cron-triggered FlowRun](#example-3-cron-triggered-flowrun)
-- [kubectl Reference](#kubectl-reference)
+- [FlowRun CRD](#flowrun-crd)
+  - [Contents](#contents)
+  - [Overview](#overview)
+  - [Lifecycle](#lifecycle)
+    - [Step Lifecycle](#step-lifecycle)
+  - [Who Creates FlowRuns](#who-creates-flowruns)
+  - [Spec Reference](#spec-reference)
+    - [FlowRunSpec](#flowrunspec)
+    - [TriggerReference](#triggerreference)
+    - [TriggerData](#triggerdata)
+    - [ParamValue](#paramvalue)
+  - [Status Reference](#status-reference)
+    - [FlowRunStatus](#flowrunstatus)
+    - [Conditions](#conditions)
+    - [StepRunStatus](#steprunstatus)
+    - [ResultValue](#resultvalue)
+    - [Printer Columns](#printer-columns)
+  - [Garbage Collection](#garbage-collection)
+    - [TTL-Based GC (time-to-live)](#ttl-based-gc-time-to-live)
+    - [Count-Based GC (history limit)](#count-based-gc-history-limit)
+    - [Active FlowRuns are exempt](#active-flowruns-are-exempt)
+    - [Retain annotation](#retain-annotation)
+  - [Deduplication](#deduplication)
+    - [Kafka (at-least-once delivery)](#kafka-at-least-once-delivery)
+    - [Webhook](#webhook)
+  - [Examples](#examples)
+    - [Example 1: Webhook-triggered FlowRun](#example-1-webhook-triggered-flowrun)
+    - [Example 2: Kafka-triggered FlowRun](#example-2-kafka-triggered-flowrun)
+    - [Example 3: Cron-triggered FlowRun](#example-3-cron-triggered-flowrun)
+  - [kubectl Reference](#kubectl-reference)
+    - [Watch a FlowRun execute in real time](#watch-a-flowrun-execute-in-real-time)
+    - [Get all step results](#get-all-step-results)
+    - [Find the most recent FlowRun for a trigger](#find-the-most-recent-flowrun-for-a-trigger)
 
 ---
 
@@ -111,9 +132,9 @@ The Kafka naming convention (`-p0-offset-12345`) is the deduplication key — se
 
 ### TriggerReference
 
-| Field  | Type   | Description                                   |
-| ------ | ------ | --------------------------------------------- |
-| `name` | string | Name of the Trigger that created this FlowRun |
+| Field  | Type   | Description                                                          |
+| ------ | ------ | -------------------------------------------------------------------- |
+| `name` | string | Name of the Trigger that created this FlowRun                        |
 | `type` | string | Trigger type: `webhook`, `cron`, `kafka`, `amqp`, `nats`, `resource` |
 
 ### TriggerData

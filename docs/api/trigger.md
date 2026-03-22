@@ -22,6 +22,7 @@ A `Trigger` defines an event source that starts a `Flow`. It listens for an even
     - [ActionDefinition](#actiondefinition)
     - [WebhookAction](#webhookaction)
     - [CooldownPolicy](#cooldownpolicy)
+    - [ResourceTrigger](#resourcetrigger)
   - [Status Reference](#status-reference)
     - [TriggerStatus](#triggerstatus)
     - [`lastResult` Values](#lastresult-values)
@@ -30,7 +31,6 @@ A `Trigger` defines an event source that starts a `Flow`. It listens for an even
     - [Webhook](#webhook)
     - [Cron](#cron)
     - [Kafka, AMQP, NATS (Broker Triggers)](#kafka-amqp-nats-broker-triggers)
-    - [ResourceTrigger](#resourcetrigger)
     - [Kubernetes Resource Events](#kubernetes-resource-events)
   - [Exposing Webhook Triggers](#exposing-webhook-triggers)
     - [Kubernetes Ingress](#kubernetes-ingress)
@@ -48,6 +48,7 @@ A `Trigger` defines an event source that starts a `Flow`. It listens for an even
     - [Example 3: Kafka Trigger](#example-3-kafka-trigger)
     - [Example 4: With Cooldown Policy](#example-4-with-cooldown-policy)
     - [Example 5: Inline Action (No Flow)](#example-5-inline-action-no-flow)
+    - [Example 6: Resource Trigger (Pod Failure Watcher)](#example-6-resource-trigger-pod-failure-watcher)
   - [Rate Limiting](#rate-limiting)
   - [Status Conditions](#status-conditions)
   - [Limitations](#limitations)
@@ -137,25 +138,25 @@ Configures authentication for a webhook trigger endpoint. If omitted, the endpoi
 
 ### KafkaTrigger
 
-| Field            | Type                 | Required | Default                  | Description                                              |
-| ---------------- | -------------------- | -------- | ------------------------ | -------------------------------------------------------- |
+| Field            | Type                 | Required | Default                  | Description                                                    |
+| ---------------- | -------------------- | -------- | ------------------------ | -------------------------------------------------------------- |
 | `integrationRef` | LocalObjectReference | **Yes**  | —                        | Reference to an `Integration` CR with Kafka connection details |
-| `topic`          | string               | **Yes**  | —                        | Kafka topic to consume from                              |
-| `consumerGroup`  | string               | No       | `kubezap-<trigger-name>` | Consumer group ID                                        |
+| `topic`          | string               | **Yes**  | —                        | Kafka topic to consume from                                    |
+| `consumerGroup`  | string               | No       | `kubezap-<trigger-name>` | Consumer group ID                                              |
 
 ### AmqpTrigger
 
-| Field            | Type                 | Required | Default | Description                                              |
-| ---------------- | -------------------- | -------- | ------- | -------------------------------------------------------- |
+| Field            | Type                 | Required | Default | Description                                                   |
+| ---------------- | -------------------- | -------- | ------- | ------------------------------------------------------------- |
 | `integrationRef` | LocalObjectReference | **Yes**  | —       | Reference to an `Integration` CR with AMQP connection details |
-| `topic`          | string               | **Yes**  | —       | Queue name to consume from                               |
-| `routingKey`     | string               | No       | —       | AMQP routing key or binding pattern                      |
+| `topic`          | string               | **Yes**  | —       | Queue name to consume from                                    |
+| `routingKey`     | string               | No       | —       | AMQP routing key or binding pattern                           |
 
 ### NatsTrigger
 
-| Field            | Type                 | Required | Default | Description                                              |
-| ---------------- | -------------------- | -------- | ------- | -------------------------------------------------------- |
-| `integrationRef` | LocalObjectReference | **Yes**  | —       | Reference to an `Integration` CR with NATS connection details |
+| Field            | Type                 | Required | Default | Description                                                                    |
+| ---------------- | -------------------- | -------- | ------- | ------------------------------------------------------------------------------ |
+| `integrationRef` | LocalObjectReference | **Yes**  | —       | Reference to an `Integration` CR with NATS connection details                  |
 | `subject`        | string               | **Yes**  | —       | NATS subject to subscribe to. Supports wildcards (e.g. `orders.*`, `events.>`) |
 
 ### FlowReference
@@ -198,14 +199,14 @@ Prevents a trigger from firing more than a set number of times in a given window
 
 Watches a Kubernetes resource type for create, update, or delete events and fires the trigger when a matching event occurs. Resource triggers run inside the controller -- no separate gateway pod is needed.
 
-| Field           | Type          | Required | Default                  | Description                                                                                                 |
-| --------------- | ------------- | -------- | ------------------------ | ----------------------------------------------------------------------------------------------------------- |
-| `apiVersion`    | string        | **Yes**  | --                       | API version of the resource (e.g. `v1`, `apps/v1`, `automation.kubezap.io/v1alpha1`)                        |
-| `kind`          | string        | **Yes**  | --                       | Kind of the resource (e.g. `Pod`, `ConfigMap`, `Deployment`)                                                |
-| `namespace`     | string        | No       | Trigger's namespace      | Namespace to watch. Defaults to the Trigger's own namespace.                                                |
-| `labelSelector` | LabelSelector | No       | --                       | Only fire for resources matching these labels                                                               |
-| `events`        | []string      | No       | `[create]`               | Event types to watch: `create`, `update`, `delete`                                                          |
-| `watchFields`   | []string      | No       | --                       | Dot-notation paths (e.g. `.status.phase`). Only fire update events when these fields change.                |
+| Field           | Type          | Required | Default             | Description                                                                                  |
+| --------------- | ------------- | -------- | ------------------- | -------------------------------------------------------------------------------------------- |
+| `apiVersion`    | string        | **Yes**  | --                  | API version of the resource (e.g. `v1`, `apps/v1`, `automation.kubezap.io/v1alpha1`)         |
+| `kind`          | string        | **Yes**  | --                  | Kind of the resource (e.g. `Pod`, `ConfigMap`, `Deployment`)                                 |
+| `namespace`     | string        | No       | Trigger's namespace | Namespace to watch. Defaults to the Trigger's own namespace.                                 |
+| `labelSelector` | LabelSelector | No       | --                  | Only fire for resources matching these labels                                                |
+| `events`        | []string      | No       | `[create]`          | Event types to watch: `create`, `update`, `delete`                                           |
+| `watchFields`   | []string      | No       | --                  | Dot-notation paths (e.g. `.status.phase`). Only fire update events when these fields change. |
 
 **RBAC note:** The controller's ServiceAccount must have `get`, `list`, and `watch` permissions on the target resource type. KubeZap does not grant these automatically -- the cluster administrator must create the appropriate Role/ClusterRole.
 

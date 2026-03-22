@@ -328,12 +328,12 @@ The controller uses leader election and should run with 2–3 replicas. Only the
 
 ## Namespace Isolation
 
-| Resource                   | Scope      | Notes                                                               |
-| -------------------------- | ---------- | ------------------------------------------------------------------- |
-| Trigger, Flow, FlowRun     | Namespaced | Each namespace has independent CRDs                                 |
-| Webhook Gateway Deployment | Namespaced | One per namespace where webhook Triggers exist                      |
+| Resource                   | Scope      | Notes                                                                                          |
+| -------------------------- | ---------- | ---------------------------------------------------------------------------------------------- |
+| Trigger, Flow, FlowRun     | Namespaced | Each namespace has independent CRDs                                                            |
+| Webhook Gateway Deployment | Namespaced | One per namespace where webhook Triggers exist                                                 |
 | Broker gateway Deployment  | Namespaced | One per (namespace × broker Integration); separate gateway for each of `kafka`, `amqp`, `nats` |
-| Controller                 | Cluster    | Watches all namespaces; runs in `kubezap-system`                    |
+| Controller                 | Cluster    | Watches all namespaces; runs in `kubezap-system`                                               |
 
 The controller watches CRDs in all namespaces and creates gateway Deployments within each namespace where they are needed. If all Triggers in a namespace are deleted, the controller garbage-collects the gateway Deployments.
 
@@ -641,15 +641,15 @@ The trigger payload will include the full resource object, previous object (for 
 
 ## Future Trigger Types
 
-| Type                         | Implementation                        | Notes                                                          |
-| ---------------------------- | ------------------------------------- | -------------------------------------------------------------- |
+| Type                         | Implementation                        | Notes                                                                          |
+| ---------------------------- | ------------------------------------- | ------------------------------------------------------------------------------ |
 | Kubernetes resource events   | Controller extension (no new gateway) | **Implemented** — see resource trigger section above; production-readiness TBD |
-| NATS                         | `kubezap-nats-gateway`                | **Implemented** (beta) — separate image; NATS client library   |
-| RabbitMQ / ActiveMQ          | `kubezap-amqp-gateway`                | **Implemented** (beta) — AMQP 0-9-1 and 1.0; see integration.md |
-| Solace                       | `kubezap-solace-gateway`              | Solace Go API; likely separate image                           |
-| S3 / GCS events              | `kubezap-s3-gateway`                  | Polls or uses bucket notifications                             |
-| Git (GitHub/GitLab webhooks) | Webhook gateway (existing)            | Standard webhook with HMAC verification; no new gateway needed |
-| Remote cluster events        | `kubezap-remote-cluster-gateway`      | Future; requires cross-cluster API server access               |
+| NATS                         | `kubezap-nats-gateway`                | **Implemented** (beta) — separate image; NATS client library                   |
+| RabbitMQ / ActiveMQ          | `kubezap-amqp-gateway`                | **Implemented** (beta) — AMQP 0-9-1 and 1.0; see integration.md                |
+| Solace                       | `kubezap-solace-gateway`              | Solace Go API; likely separate image                                           |
+| S3 / GCS events              | `kubezap-s3-gateway`                  | Polls or uses bucket notifications                                             |
+| Git (GitHub/GitLab webhooks) | Webhook gateway (existing)            | Standard webhook with HMAC verification; no new gateway needed                 |
+| Remote cluster events        | `kubezap-remote-cluster-gateway`      | Future; requires cross-cluster API server access                               |
 
 ---
 

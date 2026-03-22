@@ -219,12 +219,12 @@ Provides a reusable base URL, authentication, and default headers for Flow steps
 
 Supported auth types:
 
-| Auth type    | How it works                                                            |
-|--------------|-------------------------------------------------------------------------|
-| `bearer`     | Adds `Authorization: Bearer <token>` header from a Secret              |
-| `basic`      | Adds `Authorization: Basic <b64(user:pass)>` header from two Secrets   |
-| `apiKey`     | Adds a custom header (e.g. `X-Api-Key`) with value from a Secret       |
-| `secretUrl`  | Replaces the step URL entirely with a URL stored in a Secret (for Slack incoming webhooks, etc.) |
+| Auth type   | How it works                                                                                     |
+| ----------- | ------------------------------------------------------------------------------------------------ |
+| `bearer`    | Adds `Authorization: Bearer <token>` header from a Secret                                        |
+| `basic`     | Adds `Authorization: Basic <b64(user:pass)>` header from two Secrets                             |
+| `apiKey`    | Adds a custom header (e.g. `X-Api-Key`) with value from a Secret                                 |
+| `secretUrl` | Replaces the step URL entirely with a URL stored in a Secret (for Slack incoming webhooks, etc.) |
 
 When a Flow step sets `http.integrationRef`, the controller:
 1. Fetches the Integration
@@ -369,14 +369,14 @@ The operator uses this for the Deployment readiness probe.
 
 ### IntegrationSpec
 
-| Field    | Type                  | Required | Default | Description                                                      |
-| -------- | --------------------- | -------- | ------- | ---------------------------------------------------------------- |
-| `type`   | string                | **Yes**  | —       | `kafka`, `amqp`, `nats`, `plugin`, or `http`                     |
-| `kafka`  | KafkaIntegrationSpec  | No       | —       | Kafka connection details. Required when `type: kafka`.           |
+| Field    | Type                  | Required | Default | Description                                                   |
+| -------- | --------------------- | -------- | ------- | ------------------------------------------------------------- |
+| `type`   | string                | **Yes**  | —       | `kafka`, `amqp`, `nats`, `plugin`, or `http`                  |
+| `kafka`  | KafkaIntegrationSpec  | No       | —       | Kafka connection details. Required when `type: kafka`.        |
 | `amqp`   | AmqpIntegrationSpec   | No       | —       | AMQP connection details. Required when `type: amqp`. _(beta)_ |
 | `nats`   | NatsIntegrationSpec   | No       | —       | NATS connection details. Required when `type: nats`. _(beta)_ |
-| `plugin` | PluginIntegrationSpec | No       | —       | Plugin configuration. Required when `type: plugin`.              |
-| `http`   | HttpIntegrationSpec   | No       | —       | HTTP endpoint config. Required when `type: http`.                |
+| `plugin` | PluginIntegrationSpec | No       | —       | Plugin configuration. Required when `type: plugin`.           |
+| `http`   | HttpIntegrationSpec   | No       | —       | HTTP endpoint config. Required when `type: http`.             |
 
 ### AmqpIntegrationSpec
 
@@ -473,46 +473,46 @@ The operator uses this for the Deployment readiness probe.
 
 ### HttpIntegrationSpec
 
-| Field            | Type              | Required | Default | Description                                                                         |
-| ---------------- | ----------------- | -------- | ------- | ----------------------------------------------------------------------------------- |
-| `baseUrl`        | string            | No       | —       | Base URL prepended to step URLs. Ignored if the step URL is already absolute.       |
-| `auth`           | HttpAuthSpec      | No       | —       | Authentication configuration                                                        |
-| `defaultHeaders` | map[string]string | No       | —       | Default headers merged into every request. Step-level headers override these.        |
+| Field            | Type              | Required | Default | Description                                                                   |
+| ---------------- | ----------------- | -------- | ------- | ----------------------------------------------------------------------------- |
+| `baseUrl`        | string            | No       | —       | Base URL prepended to step URLs. Ignored if the step URL is already absolute. |
+| `auth`           | HttpAuthSpec      | No       | —       | Authentication configuration                                                  |
+| `defaultHeaders` | map[string]string | No       | —       | Default headers merged into every request. Step-level headers override these. |
 
 ### HttpAuthSpec
 
-| Field       | Type              | Required | Default | Description                                       |
-| ----------- | ----------------- | -------- | ------- | ------------------------------------------------- |
-| `type`      | string            | **Yes**  | —       | `bearer`, `basic`, `apiKey`, or `secretUrl`       |
-| `bearer`    | HttpBearerAuth    | No       | —       | Bearer token config. Required when `type=bearer`. |
-| `basic`     | HttpBasicAuth     | No       | —       | Basic auth config. Required when `type=basic`.    |
-| `apiKey`    | HttpAPIKeyAuth    | No       | —       | API key config. Required when `type=apiKey`.      |
-| `secretUrl` | HttpSecretURLAuth | No       | —       | Secret URL config. Required when `type=secretUrl`.|
+| Field       | Type              | Required | Default | Description                                        |
+| ----------- | ----------------- | -------- | ------- | -------------------------------------------------- |
+| `type`      | string            | **Yes**  | —       | `bearer`, `basic`, `apiKey`, or `secretUrl`        |
+| `bearer`    | HttpBearerAuth    | No       | —       | Bearer token config. Required when `type=bearer`.  |
+| `basic`     | HttpBasicAuth     | No       | —       | Basic auth config. Required when `type=basic`.     |
+| `apiKey`    | HttpAPIKeyAuth    | No       | —       | API key config. Required when `type=apiKey`.       |
+| `secretUrl` | HttpSecretURLAuth | No       | —       | Secret URL config. Required when `type=secretUrl`. |
 
 ### HttpBearerAuth
 
-| Field            | Type         | Required | Default | Description                                   |
-| ---------------- | ------------ | -------- | ------- | --------------------------------------------- |
-| `tokenSecretRef` | SecretKeyRef | **Yes**  | —       | Secret key containing the bearer token value  |
+| Field            | Type         | Required | Default | Description                                  |
+| ---------------- | ------------ | -------- | ------- | -------------------------------------------- |
+| `tokenSecretRef` | SecretKeyRef | **Yes**  | —       | Secret key containing the bearer token value |
 
 ### HttpBasicAuth
 
-| Field               | Type         | Required | Default | Description                            |
-| ------------------- | ------------ | -------- | ------- | -------------------------------------- |
-| `usernameSecretRef` | SecretKeyRef | **Yes**  | —       | Secret key containing the username     |
-| `passwordSecretRef` | SecretKeyRef | **Yes**  | —       | Secret key containing the password     |
+| Field               | Type         | Required | Default | Description                        |
+| ------------------- | ------------ | -------- | ------- | ---------------------------------- |
+| `usernameSecretRef` | SecretKeyRef | **Yes**  | —       | Secret key containing the username |
+| `passwordSecretRef` | SecretKeyRef | **Yes**  | —       | Secret key containing the password |
 
 ### HttpAPIKeyAuth
 
-| Field            | Type         | Required | Default | Description                                        |
-| ---------------- | ------------ | -------- | ------- | -------------------------------------------------- |
-| `headerName`     | string       | **Yes**  | —       | HTTP header name to set (e.g. `X-Api-Key`)         |
-| `valueSecretRef` | SecretKeyRef | **Yes**  | —       | Secret key containing the API key value            |
+| Field            | Type         | Required | Default | Description                                |
+| ---------------- | ------------ | -------- | ------- | ------------------------------------------ |
+| `headerName`     | string       | **Yes**  | —       | HTTP header name to set (e.g. `X-Api-Key`) |
+| `valueSecretRef` | SecretKeyRef | **Yes**  | —       | Secret key containing the API key value    |
 
 ### HttpSecretURLAuth
 
-| Field          | Type         | Required | Default | Description                                                      |
-| -------------- | ------------ | -------- | ------- | ---------------------------------------------------------------- |
+| Field          | Type         | Required | Default | Description                                                         |
+| -------------- | ------------ | -------- | ------- | ------------------------------------------------------------------- |
 | `urlSecretRef` | SecretKeyRef | **Yes**  | —       | Secret key containing the full URL (including embedded credentials) |
 
 ---

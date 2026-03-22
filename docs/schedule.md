@@ -27,6 +27,7 @@ Items are ordered to minimize rework:
 5. **MockEndpoint code removal last** — safe to delete only after all examples, guides, and tests are migrated.
 6. **Example 6 (K8s ITSM) last among examples** — blocked on `type: resource` trigger (Future/Backlog). Other examples can proceed independently.
 7. **P0 security fixes before architectural refactors in the same code area** — a security vulnerability should not be blocked waiting for a large refactor even if the refactor would reduce rework. Fix the vulnerability now; port the fix after the refactor if needed.
+8. **Public readiness (§16) gates OperatorHub submission (§8)** — all P0 items in §16 must be complete before the OperatorHub submission PR is opened. P1 items should be resolved first; P2 items are nice-to-have.
 
 ---
 
@@ -245,9 +246,9 @@ Items are ordered to minimize rework:
 
 ## 8. Deployment & Distribution
 
-> **Unblocked 2026-03-21.** OperatorHub submission is now a target, but gated on §12 architecture blockers and OLM readiness tasks below.
+> **Unblocked 2026-03-21.** OperatorHub submission is now a target, but gated on §12 architecture blockers, §16 P0 items (pre-public readiness), and OLM readiness tasks below. **Paused 2026-03-22 pending §16 completion.**
 
-- [ ] OperatorHub submission PR — gates on §12 completion and OLM readiness tasks below
+- [ ] OperatorHub submission PR — gates on §12 completion, §16 P0 items, and OLM readiness tasks below
 
 ### OLM Readiness (required before submission)
 
@@ -311,8 +312,6 @@ Items are ordered to minimize rework:
 - [x] **TECH DEBT (Medium)** — Kafka producer pool (`kafkaProducers` map in `flowrun_controller.go`) has no TTL or health check. Stale connections survive indefinitely and are not detected until the next publish attempt fails. Add idle TTL eviction or a periodic health-check probe.
 - [x] **TECH DEBT (Low)** — `type: http` Integration is fetched from the API server on every step execution (no per-reconcile caching). Adds unnecessary latency and load on the API server for Flows with many HTTP steps. Cache the Integration object for the lifetime of a single reconcile pass.
 - [x] **TECH DEBT (Low)** — CEL environment init failure is cached permanently via `sync.Once` in `flowrun_controller.go`. A transient error at startup (e.g., missing CEL extension) permanently disables `when` evaluation for the pod lifetime. Replace with a re-initializable init path or log a clear fatal on startup failure.
-
----
 
 ---
 

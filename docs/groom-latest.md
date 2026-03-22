@@ -1,31 +1,40 @@
-# Backlog groom: 2026-03-21 (session 2)
+# Backlog groom: 2026-03-22
 
 ## Reordering applied
 
-- **§12c moved before §12b** — P0 security fix (secret redaction in `substituteVars`/`executeHTTPStep`/`executePublishStep`) should not be blocked behind the large FlowRun execution model refactor. Both sections touch `internal/controller/flowrun_controller.go`. Rule violated: new Rule 7 (P0 security before architectural refactors in same code area). New order in §12: 12a → 12c → 12b → 12d.
-- **§12 preamble updated** to reflect new ordering rationale.
+- **Duplicate `---` separator removed** between §11 and §12 (two consecutive `---` separators). No items moved; cosmetic fix.
 
 ## Items added
 
-- **§15 Phase 1 — CLI `watch` command** (3 tasks): `kubezap watch` subcommand streaming live FlowRun terminal timeline with box-drawing chars + per-step status, tests in `cmd/kubezap/watch_test.go`, docs addition to `docs/guides/using-the-cli.md`. Evidence: Q5 decision (2026-03-21) — build both CLI and web; CLI first.
-- **§15 Phase 2 — Read-only web dashboard** (4 tasks): `--ui-port` flag on controller (default `8082`), `internal/ui/` handlers using Go templates + htmx, handler tests in `internal/ui/handler_test.go`, `docs/guides/dashboard.md`. Evidence: Q5 decision (2026-03-21).
-- **Prioritization rule 7** added to the Prioritization rationale section: P0 security fixes before architectural refactors in the same code area.
+None. No speculative items added. All §16 items were already committed from backlog/schedule-review-items (cherry-picked into this branch).
 
 ## Items removed or annotated
 
-- **§15 placeholder** `_(pending owner input on CLI-vs-Web approach)_` replaced with concrete Phase 1 + Phase 2 tasks — decision answered (Both, 2026-03-21).
-- **§12 preamble note** updated from "§12a → §12b → §12c → §12d" to "§12a → §12c → §12b → §12d" to match new priority order.
-- **§12d note** added: can be folded into §12a (same file `trigger_types.go`) or done standalone after §12b.
+None.
 
 ## Items promoted from Future/Backlog
 
-- **§10 "Web UI for flow monitoring"** — marked `[x]` (superseded and promoted to active §15 Phase 2).
+None. §10 Future items are correctly scoped; no new evidence warrants promotion.
+
+## Gate conditions updated
+
+- **§8 OperatorHub submission gate**: Added `§16 P0 items` as a blocking condition. Section header and checklist item now read: "gates on §12 completion, §16 P0 items, and OLM readiness tasks below". Added "**Paused 2026-03-22 pending §16 completion**" to the section note.
+- **Prioritization rationale rule 8 added**: "Public readiness (§16) gates OperatorHub submission (§8) — all P0 items in §16 must be complete before the OperatorHub submission PR is opened."
+
+## Pending inputs added
+
+Two `<!-- BACKLOG-PROMPT -->` entries added to `docs/tech-debt/pending-input-required.md`:
+
+1. **Go module rename public org decision** — `github.com/borfswitch/kubezap` must be renamed before public release. Requires owner to decide on the public org/repo name (borfswitch personal, new org, or custom domain). Largest-blast-radius change in the project; must be decided before §16 P0 rename work begins.
+
+2. **WebhookAuth struct design** — YAML docs show nested `hmac:`/`bearer:`/`oidc:` sub-keys but Go types are flat fields. A user following the docs gets a CRD validation error. Decision required: restructure Go types to match docs (option 1, better UX) or update all docs to match flat types (option 2). Unblocks §16 P1 WebhookAuth consistency fix.
 
 ## No-change items
 
-~95 items reviewed across §1–§14 and §10, no change needed.
+491 items reviewed across §1–§16 and §10 Future/Backlog. No further reordering needed.
 
 ## Files changed
 
 - docs/schedule.md
+- docs/tech-debt/pending-input-required.md
 - docs/groom-latest.md

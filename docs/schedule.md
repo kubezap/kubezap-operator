@@ -387,10 +387,52 @@ Items are ordered to minimize rework:
 
 ### Phase 2 — Read-only web dashboard
 
-- [ ] **WEB UI** — Add `--ui-port` flag to `cmd/main.go` (default `8082`, `0` = disabled). When non-zero, start a read-only HTTP server on that port serving the dashboard.
-- [ ] **WEB UI** — Implement dashboard handlers in `internal/ui/`: index page lists active/recent FlowRuns with phase badges and trigger name; `/ui/flowruns/<namespace>/<name>` shows step timeline with status, duration, and error message. Use Go `html/template` + htmx for server-side rendering. Zero new external dependencies.
-- [ ] **WEB UI** — Write handler tests: HTTP response codes, `Content-Type` headers, basic template rendering with a mock FlowRun. File: `internal/ui/handler_test.go`
-- [ ] **DOCS** — Write `docs/guides/dashboard.md`: how to enable `--ui-port`, what the UI shows, local access via port-forward, production exposure options (same patterns as webhook gateway exposure guide).
+> **Design:** See `docs/design/dashboard.md` for full spec (stack, API contract, component tree, SSE protocol, auth decisions).
+> **Stack:** Vue 3 + Vite + `go:embed` embedded in operator binary. SSE for live updates. No auth (port-forward model). Read-only.
+
+#### Step 1 — Build pipeline
+
+- [ ] **BUILD** — Scaffold Vue 3 + Vite project in `ui/`: `npm create vue@latest ui` (select Router, no Pinia, no testing framework), add Tailwind CSS. Configure `vite.config.js` with `base: '/ui/'` and `outDir: '../ui/dist'`.
+- [ ] **BUILD** — Add `make ui` target: `cd ui && npm ci && npm run build`. Add `make build` dependency on `make ui`. Add `ui/node_modules/` and `ui/dist/` to `.gitignore`.
+
+#### Step 2 — Go API layer
+
+- [ ] **API** — Create `internal/ui/api.go`: JSON handlers for `GET /api/v1/namespaces`, `GET /api/v1/:ns/flowruns` (with `?phase`, `?trigger`, `?flow`, `?limit`, `?since` query params), `GET /api/v1/:ns/flowruns/:name`, `GET /api/v1/:ns/triggers`, `GET /api/v1/:ns/flows`. Use the manager's `client.Client`. Response types defined in spec.
+- [ ] **API** — Create `internal/ui/sse.go`: `GET /api/v1/events?namespace=<ns>` SSE endpoint. Watches FlowRuns via `client.Watch`, writes `event: flowrun\ndata: <json>\n\n` on each event, flushes via `http.Flusher`, closes on client disconnect.
+- [ ] **API** — Create `internal/ui/server.go`: embeds `ui/dist` via `//go:embed dist`, serves Vue SPA at `/ui/*` (with SPA fallback to `index.html`), registers all API routes. Exports `StartUIServer(ctx, client, port, bearerToken string)`.
+- [ ] **API** — Write `internal/ui/api_test.go` and `internal/ui/sse_test.go`: HTTP response codes, `Content-Type` headers, JSON shape assertions using a fake controller-runtime client.
+
+#### Step 3 — Wire into operator
+
+- [ ] **OPERATOR** — Add `--ui-port` flag to `cmd/main.go` (default `0` = disabled) and `--ui-bearer-token` flag (default empty = no auth). When `--ui-port > 0`, call `ui.StartUIServer` after manager start. Add `ui` named port (8082) to `config/default/` Service.
+
+#### Step 4 — Vue: scaffold + FlowRun list
+
+- [ ] **VUE** — Scaffold `App.vue`, `NavBar.vue` (with `NamespaceSelect` calling `/api/v1/namespaces`), Vue Router with routes for all four views. Fetch namespace list on mount; default to first namespace or query-param override.
+- [ ] **VUE** — Implement `FlowRunList.vue`: fetches `/api/v1/:ns/flowruns`, `FilterBar.vue` (phase/trigger/flow dropdowns + since picker), `FlowRunTable.vue` + `FlowRunRow.vue`, `PhaseChip.vue` (colour-coded badge), `RelativeTime.vue` (updates every 10s), `DurationCell.vue`.
+- [ ] **VUE** — Add SSE to `FlowRunList`: `composables/useFlowRunEvents.ts` using `EventSource`. Merge incoming events into a reactive `Map<name, FlowRunSummary>` so in-flight updates appear without a full reload.
+
+#### Step 5 — Vue: FlowRun detail
+
+- [ ] **VUE** — Implement `FlowRunDetail.vue`: fetches `/api/v1/:ns/flowruns/:name`, `FlowRunHeader.vue` (name, trigger→flow link, phase, elapsed), `StepTimeline.vue` + `StepRow.vue`, `StepBadge.vue` (✓ ✗ ● ○ - matching CLI watch badges). SSE on the detail page re-fetches the single FlowRun on each event matching the viewed name.
+
+#### Step 6 — Vue: trigger + flow lists
+
+- [ ] **VUE** — Implement `TriggerList.vue` + `TriggerRow.vue` + `TriggerTypeChip.vue`: fetches `/api/v1/:ns/triggers`, shows type badge, ready status, last-fired time, active FlowRun count.
+- [ ] **VUE** — Implement `FlowList.vue` + `FlowRow.vue`: fetches `/api/v1/:ns/flows`, shows step count, ready status, last-used time.
+
+#### Step 7 — Docs + service manifest
+
+- [ ] **DOCS** — Write `docs/guides/dashboard.md`: enabling `--ui-port`, port-forward access pattern, `--ui-bearer-token` for optional Ingress exposure, kube-rbac-proxy sidecar pattern for production auth.
+
+### Phase 3 — Future (Tier 3, deferred)
+
+> Design notes in `docs/design/dashboard.md` § "Phase 3 — Future Plans".
+
+- [ ] **FUTURE** — Integration health page (`/api/v1/:ns/integrations`, `IntegrationList.vue`)
+- [ ] **FUTURE** — Activity graph: FlowRun rate over time from in-process Prometheus registry
+- [ ] **FUTURE** — Search: `?q=` substring filter on trigger/FlowRun name
+- [ ] **FUTURE** — OIDC auth (`--ui-oidc-issuer` etc.) or document kube-rbac-proxy as the recommended production auth path
 
 ---
 

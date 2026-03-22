@@ -77,6 +77,7 @@ in-cluster credentials — in that order, matching kubectl behavior.`,
 		newFlowsCmd(),
 		newIntegrationsCmd(),
 		newVersionCmd(),
+		newWatchCmd(),
 	)
 
 	return root

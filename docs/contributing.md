@@ -113,6 +113,29 @@ make deploy IMG=ghcr.io/kubezap/controller:$TAG \
 
 The controller reads `WEBHOOK_GATEWAY_IMAGE` and `KAFKA_GATEWAY_IMAGE` at runtime to know which image to use when creating gateway Deployments.
 
+### Enabling the UI when deploying with `make deploy`
+
+`make deploy` does not accept `--enable-ui` as a make variable — it is a controller flag, not a Makefile option. After running `make deploy`, patch the Deployment to add the flag:
+
+```bash
+kubectl patch deployment kubezap-controller-manager -n kubezap-system \
+  --type=json \
+  -p='[{"op":"add","path":"/spec/template/spec/containers/0/args/-","value":"--enable-ui"}]'
+```
+
+To also override the port:
+
+```bash
+kubectl patch deployment kubezap-controller-manager -n kubezap-system \
+  --type=json \
+  -p='[
+    {"op":"add","path":"/spec/template/spec/containers/0/args/-","value":"--enable-ui"},
+    {"op":"add","path":"/spec/template/spec/containers/0/args/-","value":"--ui-port=9000"}
+  ]'
+```
+
+This patch persists until the next `make deploy` run (which re-applies the base manifests). Re-apply the patch if you redeploy.
+
 ## Code style
 
 ```bash

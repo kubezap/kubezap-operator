@@ -68,10 +68,44 @@ data:
           "enabled": true,
           "responseMode": null,
           "streamingMode": null
+        },
+        {
+          "uuid": "r0002-slack-webhook",
+          "type": "http",
+          "documentation": "Simulates a Slack incoming webhook. Accepts POST and returns 200 OK.",
+          "method": "post",
+          "endpoint": "slack-webhook",
+          "responses": [
+            {
+              "uuid": "resp-slack-webhook-200",
+              "body": "ok",
+              "latency": 0,
+              "statusCode": 200,
+              "label": "Success",
+              "headers": [
+                { "key": "Content-Type", "value": "text/plain" }
+              ],
+              "bodyType": "INLINE",
+              "filePath": "",
+              "databucketID": "",
+              "sendFileAsBody": false,
+              "rules": [],
+              "rulesOperator": "OR",
+              "disableTemplating": false,
+              "fallbackTo404": false,
+              "default": true,
+              "crudKey": "id",
+              "callbacks": []
+            }
+          ],
+          "enabled": true,
+          "responseMode": null,
+          "streamingMode": null
         }
       ],
       "rootChildren": [
-        { "type": "route", "uuid": "r0001-export-api" }
+        { "type": "route", "uuid": "r0001-export-api" },
+        { "type": "route", "uuid": "r0002-slack-webhook" }
       ],
       "proxyMode": false,
       "proxyHost": "",
@@ -131,40 +165,32 @@ spec:
           type: RuntimeDefault
       containers:
         - name: mockoon
-          image: mockoon/mockoon:latest
+          image: mockoon/cli:latest
           imagePullPolicy: IfNotPresent
           args:
             - "--data"
             - "/config/environment.json"
-            - "--port"
-            - "3000"
-            - "--admin-api-port"
-            - "3001"
           ports:
             - name: mock
               containerPort: 3000
-              protocol: TCP
-            - name: admin
-              containerPort: 3001
               protocol: TCP
           volumeMounts:
             - name: mockoon-config
               mountPath: /config
               readOnly: true
           readinessProbe:
-            httpGet:
-              path: /health
-              port: admin
-            initialDelaySeconds: 2
+            tcpSocket:
+              port: mock
+            initialDelaySeconds: 10
             periodSeconds: 5
             failureThreshold: 3
           livenessProbe:
-            httpGet:
-              path: /health
-              port: admin
-            initialDelaySeconds: 5
-            periodSeconds: 10
-            failureThreshold: 3
+            tcpSocket:
+              port: mock
+            initialDelaySeconds: 10
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 2
           resources:
             requests:
               cpu: "50m"
@@ -203,9 +229,5 @@ spec:
     - name: mock
       port: 3000
       targetPort: mock
-      protocol: TCP
-    - name: admin
-      port: 3001
-      targetPort: admin
       protocol: TCP
   type: ClusterIP

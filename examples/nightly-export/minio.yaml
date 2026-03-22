@@ -5,6 +5,21 @@
 # Default credentials: minioadmin / minioadmin
 # These must be rotated before any production use.
 ---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: minio-data
+  namespace: default
+  labels:
+    app.kubernetes.io/name: minio
+    app.kubernetes.io/part-of: kubezap-nightly-export-example
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 2Gi
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -29,7 +44,7 @@ spec:
         fsGroup: 1000
       containers:
         - name: minio
-          image: quay.io/minio/minio:RELEASE.2024-01-16T16-07-38Z
+          image: quay.io/minio/minio:latest
           args:
             - server
             - /data
@@ -63,7 +78,8 @@ spec:
               mountPath: /data
       volumes:
         - name: data
-          emptyDir: {}
+          persistentVolumeClaim:
+            claimName: minio-data
 ---
 apiVersion: v1
 kind: Service
@@ -83,3 +99,35 @@ spec:
     - name: console
       port: 9001
       targetPort: 9001
+---
+# Job: create the exports bucket and set anonymous read-write policy.
+# Runs once at deploy time. Data is stored on a PVC and persists across
+# MinIO pod restarts, so this Job only needs to run once per PVC lifetime.
+# To re-run (e.g. after deleting the PVC):
+#   kubectl delete job minio-bucket-setup -n default
+#   kubectl apply -f examples/nightly-export/minio.yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: minio-bucket-setup
+  namespace: default
+  labels:
+    app.kubernetes.io/part-of: kubezap-nightly-export-example
+spec:
+  backoffLimit: 10
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: mc
+          image: quay.io/minio/mc:latest
+          command:
+            - /bin/sh
+            - -c
+            - |
+              until mc alias set local http://minio.default.svc.cluster.local:9000 minioadmin minioadmin 2>/dev/null; do
+                echo "waiting for MinIO..."; sleep 2
+              done
+              mc mb --ignore-existing local/exports
+              mc anonymous set public local/exports
+              echo "bucket setup complete"

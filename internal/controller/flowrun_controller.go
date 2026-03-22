@@ -72,7 +72,7 @@ var integrationCacheKey = integrationCacheKeyType{}
 // +kubebuilder:rbac:groups=automation.kubezap.io,resources=flows,verbs=get;list;watch
 // +kubebuilder:rbac:groups=automation.kubezap.io,resources=triggers,verbs=get;list;watch
 // +kubebuilder:rbac:groups=automation.kubezap.io,resources=integrations,verbs=get
-// +kubebuilder:rbac:groups="",resources=secrets,verbs=get
+// +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch
 
 // FlowRunReconciler reconciles a FlowRun object.
 type FlowRunReconciler struct {
@@ -191,10 +191,10 @@ func (r *FlowRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 			if err := r.Update(ctx, &flowRun); err != nil {
 				return ctrl.Result{}, err
 			}
-			// Re-fetch after metadata update to get fresh resourceVersion.
-			if err := r.Get(ctx, req.NamespacedName, &flowRun); err != nil {
-				return ctrl.Result{}, client.IgnoreNotFound(err)
-			}
+			// r.Update returns the server-side object in-place (including the new
+			// resourceVersion), so no re-fetch is needed here.  A cache-based Get
+			// can return a stale pre-Update version and cause a conflict on the
+			// following Status().Update.
 		}
 		now := metav1.Now()
 		flowRun.Status.Phase = "Running"
@@ -516,7 +516,21 @@ func (r *FlowRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	}
 
 allStepsDone:
-	// All steps done — succeed.
+	// All steps done. With failurePolicy:Continue the flow runs to completion even
+	// after step failures, but the FlowRun is Failed if any step without
+	// onFailure:Continue ended in Failed state.
+	for _, ss := range flowRun.Status.Steps {
+		if ss.Phase != "Failed" {
+			continue
+		}
+		for _, step := range flow.Spec.Steps {
+			if step.Name == ss.Name && step.OnFailure != "Continue" {
+				msg := fmt.Sprintf("step %q failed: %s", ss.Name, ss.Message)
+				return ctrl.Result{}, r.failFlowRun(ctx, &flowRun, msg)
+			}
+		}
+	}
+
 	now := metav1.Now()
 	flowRun.Status.Phase = "Succeeded"
 	flowRun.Status.CompletionTime = &now

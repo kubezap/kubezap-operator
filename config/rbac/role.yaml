@@ -8,16 +8,11 @@ rules:
   - ""
   resources:
   - namespaces
+  - secrets
   verbs:
   - get
   - list
   - watch
-- apiGroups:
-  - ""
-  resources:
-  - secrets
-  verbs:
-  - get
 - apiGroups:
   - ""
   resources:

@@ -70,6 +70,11 @@ func (s *Server) registerRoutes(bearerToken string) {
 		mw = func(h http.Handler) http.Handler { return h }
 	}
 
+	// Redirect root to the dashboard.
+	s.mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/ui/", http.StatusFound)
+	})
+
 	// API routes.
 	s.mux.Handle("GET /api/v1/namespaces", mw(http.HandlerFunc(s.handleNamespaces)))
 	s.mux.Handle("GET /api/v1/{namespace}/flowruns", mw(http.HandlerFunc(s.handleFlowRunList)))
@@ -96,9 +101,17 @@ func (s *Server) registerRoutes(bearerToken string) {
 			stripped = "index.html"
 		}
 		// SPA fallback: serve index.html for paths that don't match a static file.
+		// NOTE: do not use fileServer here — http.FileServer redirects any path
+		// ending in "/index.html" to "./" (its parent dir), which creates an
+		// infinite redirect loop for deep routes like /ui/triggers/default.
 		if _, statErr := fs.Stat(distSubFS, stripped); statErr != nil {
-			r.URL.Path = "/index.html"
-			fileServer.ServeHTTP(w, r)
+			data, readErr := fs.ReadFile(distSubFS, "index.html")
+			if readErr != nil {
+				http.NotFound(w, r)
+				return
+			}
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			_, _ = w.Write(data)
 			return
 		}
 		r.URL.Path = path

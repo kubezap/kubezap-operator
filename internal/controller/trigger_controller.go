@@ -138,23 +138,39 @@ func (r *TriggerReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		}
 	}
 
-	// Update Trigger condition and status based on enabled state.
-	acceptedCondition := metav1.Condition{
-		Type:    "Accepted",
-		Status:  metav1.ConditionFalse,
-		Reason:  "Disabled",
-		Message: "Trigger is disabled",
+	// Re-fetch to get the latest resource version before patching status.
+	// The finalizer Update above (or a concurrent cron scheduler patch) may have
+	// advanced the resource version since we first fetched the object.
+	if err := r.Get(ctx, req.NamespacedName, &trg); err != nil {
+		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
-	if trg.Spec.Enabled {
-		acceptedCondition.Status = metav1.ConditionTrue
-		acceptedCondition.Reason = "Enabled"
-		acceptedCondition.Message = "Trigger is accepted and active"
 
+	// Update Trigger condition and status based on enabled state.
+	statusPatch := client.MergeFrom(trg.DeepCopy())
+	ready := trg.Spec.Enabled
+	condStatus := metav1.ConditionFalse
+	condReason := "Disabled"
+	condMsg := "Trigger is disabled"
+	if ready {
+		condStatus = metav1.ConditionTrue
+		condReason = "Enabled"
+		condMsg = "Trigger is accepted and active"
 		trg.Status.LastResult = "Accepted"
 	}
-	setTriggerCondition(&trg.Status, acceptedCondition)
+	setTriggerCondition(&trg.Status, metav1.Condition{
+		Type:    "Accepted",
+		Status:  condStatus,
+		Reason:  condReason,
+		Message: condMsg,
+	})
+	setTriggerCondition(&trg.Status, metav1.Condition{
+		Type:    "Ready",
+		Status:  condStatus,
+		Reason:  condReason,
+		Message: condMsg,
+	})
 
-	if err := r.Status().Update(ctx, &trg); err != nil {
+	if err := r.Status().Patch(ctx, &trg, statusPatch); err != nil {
 		return ctrl.Result{}, fmt.Errorf("updating Trigger status: %w", err)
 	}
 

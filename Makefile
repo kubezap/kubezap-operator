@@ -53,6 +53,8 @@ OPERATOR_SDK_VERSION ?= v1.42.0
 IMG ?= ghcr.io/kubezap/controller:latest
 WEBHOOK_GATEWAY_IMAGE ?= ghcr.io/kubezap/webhook-gateway:latest
 KAFKA_GATEWAY_IMAGE ?= ghcr.io/kubezap/kafka-gateway:latest
+AMQP_GATEWAY_IMAGE ?= ghcr.io/kubezap/amqp-gateway:latest
+NATS_GATEWAY_IMAGE ?= ghcr.io/kubezap/nats-gateway:latest
 
 # Get the currently used golang install path (in GOPATH/bin, unless GOBIN is set)
 ifeq (,$(shell go env GOBIN))
@@ -228,7 +230,9 @@ deploy: manifests kustomize ## Deploy controller to the K8s cluster specified in
 	$(KUSTOMIZE) build config/default | $(KUBECTL) apply -f -
 	$(KUBECTL) set env deployment/kubezap-controller-manager -n kubezap-system \
 		WEBHOOK_GATEWAY_IMAGE=$(WEBHOOK_GATEWAY_IMAGE) \
-		KAFKA_GATEWAY_IMAGE=$(KAFKA_GATEWAY_IMAGE)
+		KAFKA_GATEWAY_IMAGE=$(KAFKA_GATEWAY_IMAGE) \
+		AMQP_GATEWAY_IMAGE=$(AMQP_GATEWAY_IMAGE) \
+		NATS_GATEWAY_IMAGE=$(NATS_GATEWAY_IMAGE)
 
 .PHONY: undeploy
 undeploy: kustomize ## Undeploy controller from the K8s cluster specified in ~/.kube/config. Call with ignore-not-found=true to ignore resource not found errors during deletion.

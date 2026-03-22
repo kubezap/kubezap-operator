@@ -1,4 +1,5 @@
 resources:
+  - secrets.yaml
   - minio.yaml
   - mockoon.yaml
   - integration.yaml

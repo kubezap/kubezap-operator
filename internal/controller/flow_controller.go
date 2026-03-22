@@ -110,7 +110,7 @@ func validateFlowSpec(spec automationv1alpha1.FlowSpec) error {
 			if step.Action.HTTP == nil {
 				return fmt.Errorf("step %q has type=http but action.http is not set", step.Name)
 			}
-			if step.Action.HTTP.URL == "" {
+			if step.Action.HTTP.URL == "" && step.Action.HTTP.IntegrationRef == nil {
 				return fmt.Errorf("step %q has type=http but action.http.url is empty", step.Name)
 			}
 		case "transform":

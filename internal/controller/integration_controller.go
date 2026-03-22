@@ -223,6 +223,10 @@ func validateIntegrationSpec(spec automationv1alpha1.IntegrationSpec) error {
 		if len(spec.Nats.Servers) == 0 {
 			return fmt.Errorf("spec.nats.servers must be non-empty")
 		}
+	case "http":
+		if spec.HTTP == nil {
+			return fmt.Errorf("spec.http must be set when type=http")
+		}
 	case "plugin":
 		if spec.Plugin == nil {
 			return fmt.Errorf("spec.plugin must be set when type=plugin")

@@ -16,6 +16,6 @@ keywords:
   - kafka
   - nats
   - messaging
-home: https://github.com/kubezap/kubezap
+home: https://github.com/kubezap/kubezap-operator
 sources:
-  - https://github.com/kubezap/kubezap
+  - https://github.com/kubezap/kubezap-operator

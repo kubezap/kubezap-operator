@@ -35,7 +35,18 @@ Items are ordered to minimize rework:
 
 > **Unblocked 2026-03-21.** OperatorHub submission is now a target, but gated on §12 architecture blockers, §16 P0 items (pre-public readiness), and OLM readiness tasks below. **Paused 2026-03-22 pending §16 completion.**
 
+- [ ] **INFRA** — Create GitHub org `kubezap`, repo `kubezap-operator`, push codebase, update git remote. Module path and all code references are already updated to `github.com/kubezap/kubezap-operator`.
 - [ ] OperatorHub submission PR — gates on §12 completion, §16 P0 items, and OLM readiness tasks below
+
+### Release Process (document and automate before first public release)
+
+> Define the full release runbook so that cutting a release is a single documented procedure rather than ad-hoc steps.
+
+- [ ] **RELEASE** — Write `docs/releasing.md` (internal): step-by-step release runbook covering: (1) version bump in `go.mod`, `Chart.yaml`, CSV `spec.version`/`spec.replaces`, `CHANGELOG.md`; (2) `git tag vX.Y.Z` + push tag; (3) GoReleaser publish (`goreleaser release --clean`) → GitHub Release + CLI binaries; (4) GHCR image push (via CI or manual `docker push`); (5) Helm chart publish (OCI push to `ghcr.io/kubezap/charts/kubezap` or GitHub Pages chart repo); (6) OLM bundle regeneration (`make bundle`) + OperatorHub PR update; (7) post-release smoke test checklist.
+- [ ] **INFRA** — Add GoReleaser GitHub Actions workflow (`.github/workflows/release.yml`): triggers on `vX.Y.Z` tag push; builds CLI binaries for linux/darwin/windows amd64+arm64; builds and pushes all five container images to `ghcr.io/kubezap/*`; creates GitHub Release with changelog and binary attachments.
+- [ ] **INFRA** — Publish Helm chart: decide on distribution mechanism (OCI registry at `ghcr.io/kubezap/charts/kubezap` vs. GitHub Pages `helm repo`); add chart publish step to release workflow; document `helm repo add` or `helm install --oci` install path in `docs/overview.md`.
+- [ ] **INFRA** — Add `CHANGELOG.md` covering v0.1 → v0.3 milestones (required for enterprise evaluators and acquisition targets; also referenced from OperatorHub CSV `spec.replaces` chain). Follow Keep a Changelog format.
+- [ ] **INFRA** — Automate GHCR image publishing on merge to `main` (`:latest` tag) in addition to version tags, so contributors can always pull a fresh build without building locally.
 
 ### OLM Readiness (required before submission)
 
@@ -114,6 +125,8 @@ Items are ordered to minimize rework:
 
 ### P0 — Blocks public release
 
+- [ ] **TESTING** — E2E tests are failing. Triage failures (`make test-e2e`), determine if pre-existing or recent regressions, and fix. Must pass before public release.
+- [ ] **REPO HYGIENE** — Gitignore all Claude-related files before public availability. Currently `.gitignore` excludes `.claude/*` but re-includes `settings.json`, hooks, skills, commands, agents, and agent-memory. Decide which (if any) to retain for contributors; for a clean first-public commit, exclude everything under `.claude/`.
 - [x] **BRANDING** — `--ui-port` flag redesign: `--enable-ui` bool (default false) + `--ui-port` int (default 8082); auto-create `kubezap-ui` Service when enabled. Remove Zapier/Camunda references from README and overview. (PR #65)
 - [x] **BRANDING** — Go module path renamed from `github.com/borfswitch/kubezap` to `github.com/kubezap/kubezap-operator`. New GitHub org: `kubezap`, repo: `kubezap-operator`. All `.go` imports, `go.mod`, `PROJECT`, `.goreleaser.yaml`, CSV `repository` field, and docs updated. Makefile CRD generator split to fix controller-gen v0.18.0 `paths="./..."` storage-version issue.
 - [x] **DOCS** — `docs/api/flow.md` line 78: stale "top-level JSON fields only" limitation warning for `$(trigger.body.<field>)`. Full dot-path was implemented in §14; this contradicts `overview.md` and will confuse users immediately. Remove the limitation block.
@@ -123,6 +136,10 @@ Items are ordered to minimize rework:
 
 ### P1 — Should fix before public
 
+- [ ] **INFRA** — Set up GHCR image publishing: add a GitHub Actions workflow (`.github/workflows/release.yml` or similar) that builds and pushes all five images (`controller`, `webhook-gateway`, `kafka-gateway`, `amqp-gateway`, `nats-gateway`) to `ghcr.io/kubezap/*` on tag push and/or merge to main. Update `contributing.md` with authenticated pull instructions once the packages are public.
+- [ ] **VALIDATION** — Manual end-to-end pass: run through each example in `examples/`, exercise the `kubezap` CLI (watch, history, triggers, flows), and open the web dashboard (`--enable-ui`). Collect feedback and file follow-up tasks. Do this after e2e tests are green.
+- [ ] **DOCS** — Improve `docs/contributing.md`: add architecture orientation section (binary layout, reconciler entry points, gateway entry points, key packages); add "first contribution" guide (good-first-issue labels, how to run a single test, how to add a new step action type); expand e2e section with AMQP/NATS skip vars and amqp/nats gateway build steps (already fixed in Building section); add section on running the UI locally (`make ui && go run cmd/main.go --enable-ui`); add section on generating and validating OLM bundle.
+- [ ] **DOCS** — **User-facing documentation rewrite (Opus research task).** The current `docs/` tree is development-oriented (implementation specs, Claude context, internal design notes). Before public release, commission an Opus-model deep-dive to: (1) audit every doc file and classify as user-facing, internal/dev-only, or reference; (2) design a two-tier doc structure — `docs/` for user-facing content, `docs/dev/` (or `docs/internal/`) for internal/Claude context; (3) draft a rewrite plan for each user-facing doc to make it concise, task-oriented, and example-heavy rather than spec-heavy; (4) produce a priority-ordered implementation list. This task produces a plan only — implementation is a separate task. **Prompt:** `/research` with scope: "audit all docs for user-facing vs internal classification, design a two-tier doc structure, and produce a rewrite plan ordered by user impact."
 - [ ] **DOCS** — `docs/guides/observability.md` metrics table: lists `kubezap_webhook_requests_total` and `kubezap_webhook_request_body_bytes` which do not exist in `internal/metrics/metrics.go`. Reconcile the entire table against actual registered metrics.
 - [ ] **DOCS/API** — `docs/api/trigger.md` + `docs/guides/webhook-security.md`: WebhookAuth YAML examples show nested `hmac:` / `bearer:` / `oidc:` sub-keys, but Go types are flat fields (`HMACSecretRef`, `BearerTokenSecretRef`, `OIDCIssuer`). YAML in the docs doesn't match what the CRD accepts. Decide: restructure Go types to match docs (better UX) or update all examples to flat structure.
 - [ ] **DOCS** — `pubsub` terminology appears in 13+ doc files: `flow.md`, `integration.md`, `plugin-contract.md`, `amqp-setup.md`, `nats-setup.md`, `observability.md`, `troubleshooting.md`, `using-the-cli.md`. Global grep-and-replace pass needed.

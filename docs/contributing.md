@@ -23,9 +23,11 @@ make kustomize
 
 ```bash
 make build          # compile the operator binary
-make docker-build IMG=kubezap/controller:latest
-docker build -t kubezap/webhook-gateway:latest -f cmd/webhook-gateway/Dockerfile .
-docker build -t kubezap/kafka-gateway:latest   -f cmd/kafka-gateway/Dockerfile .
+make docker-build IMG=ghcr.io/kubezap/controller:latest
+docker build -t ghcr.io/kubezap/webhook-gateway:latest -f cmd/webhook-gateway/Dockerfile .
+docker build -t ghcr.io/kubezap/kafka-gateway:latest   -f cmd/kafka-gateway/Dockerfile .
+docker build -t ghcr.io/kubezap/amqp-gateway:latest    -f cmd/amqp-gateway/Dockerfile .
+docker build -t ghcr.io/kubezap/nats-gateway:latest    -f cmd/nats-gateway/Dockerfile .
 ```
 
 After any change to types in `api/`, regenerate before building:
@@ -88,19 +90,25 @@ Use a git SHA tag instead of `:latest` — with `imagePullPolicy: IfNotPresent`,
 TAG=$(git rev-parse --short HEAD)
 
 # Build
-make docker-build IMG=docker.io/kubezap/controller:$TAG
-docker build -t docker.io/kubezap/webhook-gateway:$TAG -f cmd/webhook-gateway/Dockerfile .
-docker build -t docker.io/kubezap/kafka-gateway:$TAG   -f cmd/kafka-gateway/Dockerfile .
+make docker-build IMG=ghcr.io/kubezap/controller:$TAG
+docker build -t ghcr.io/kubezap/webhook-gateway:$TAG -f cmd/webhook-gateway/Dockerfile .
+docker build -t ghcr.io/kubezap/kafka-gateway:$TAG   -f cmd/kafka-gateway/Dockerfile .
+docker build -t ghcr.io/kubezap/amqp-gateway:$TAG    -f cmd/amqp-gateway/Dockerfile .
+docker build -t ghcr.io/kubezap/nats-gateway:$TAG    -f cmd/nats-gateway/Dockerfile .
 
 # Import into k3s containerd
-docker save docker.io/kubezap/controller:$TAG      | sudo k3s ctr images import -
-docker save docker.io/kubezap/webhook-gateway:$TAG | sudo k3s ctr images import -
-docker save docker.io/kubezap/kafka-gateway:$TAG   | sudo k3s ctr images import -
+docker save ghcr.io/kubezap/controller:$TAG      | sudo k3s ctr images import -
+docker save ghcr.io/kubezap/webhook-gateway:$TAG | sudo k3s ctr images import -
+docker save ghcr.io/kubezap/kafka-gateway:$TAG   | sudo k3s ctr images import -
+docker save ghcr.io/kubezap/amqp-gateway:$TAG    | sudo k3s ctr images import -
+docker save ghcr.io/kubezap/nats-gateway:$TAG    | sudo k3s ctr images import -
 
 # Deploy
-make deploy IMG=docker.io/kubezap/controller:$TAG \
-  WEBHOOK_GATEWAY_IMAGE=docker.io/kubezap/webhook-gateway:$TAG \
-  KAFKA_GATEWAY_IMAGE=docker.io/kubezap/kafka-gateway:$TAG
+make deploy IMG=ghcr.io/kubezap/controller:$TAG \
+  WEBHOOK_GATEWAY_IMAGE=ghcr.io/kubezap/webhook-gateway:$TAG \
+  KAFKA_GATEWAY_IMAGE=ghcr.io/kubezap/kafka-gateway:$TAG \
+  AMQP_GATEWAY_IMAGE=ghcr.io/kubezap/amqp-gateway:$TAG \
+  NATS_GATEWAY_IMAGE=ghcr.io/kubezap/nats-gateway:$TAG
 ```
 
 The controller reads `WEBHOOK_GATEWAY_IMAGE` and `KAFKA_GATEWAY_IMAGE` at runtime to know which image to use when creating gateway Deployments.

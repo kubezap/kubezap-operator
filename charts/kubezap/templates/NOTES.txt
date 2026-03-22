@@ -11,6 +11,6 @@ Verify:
   kubectl logs -n {{ .Release.Namespace }} -l app.kubernetes.io/name={{ include "kubezap.name" . }}
 
 Create your first automation:
-  kubectl apply -f https://raw.githubusercontent.com/kubezap/kubezap/main/config/samples/automation_v1alpha1_trigger_webhook.yaml
+  kubectl apply -f https://raw.githubusercontent.com/kubezap/kubezap-operator/main/config/samples/automation_v1alpha1_trigger_webhook.yaml
 
-Docs: https://github.com/kubezap/kubezap/tree/main/docs
+Docs: https://github.com/kubezap/kubezap-operator/tree/main/docs

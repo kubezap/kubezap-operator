@@ -216,7 +216,7 @@ spec:
                   valueFrom:
                     fieldRef:
                       fieldPath: metadata.annotations['olm.targetNamespaces']
-                image: kubezap.io/kubezap/controller:v0.0.1
+                image: ghcr.io/kubezap/controller:latest
                 livenessProbe:
                   httpGet:
                     path: /healthz

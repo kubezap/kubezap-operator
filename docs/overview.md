@@ -636,15 +636,15 @@ helm install kubezap ./charts/kubezap --set image.repository=ghcr.io/kubezap/con
 
 **Direct download (linux/darwin/windows)**
 
-Download the latest release from [GitHub Releases](https://github.com/kubezap/kubezap/releases) and place the binary in your `$PATH`:
+Download the latest release from [GitHub Releases](https://github.com/kubezap/kubezap-operator/releases) and place the binary in your `$PATH`:
 
 ```bash
 # Linux amd64
-curl -Lo kubezap https://github.com/kubezap/kubezap/releases/latest/download/kubezap_linux_amd64.tar.gz \
+curl -Lo kubezap https://github.com/kubezap/kubezap-operator/releases/latest/download/kubezap_linux_amd64.tar.gz \
   | tar -xz kubezap && chmod +x kubezap && mv kubezap /usr/local/bin/
 
 # macOS (arm64)
-curl -Lo kubezap.tar.gz https://github.com/kubezap/kubezap/releases/latest/download/kubezap_darwin_arm64.tar.gz \
+curl -Lo kubezap.tar.gz https://github.com/kubezap/kubezap-operator/releases/latest/download/kubezap_darwin_arm64.tar.gz \
   && tar -xz -f kubezap.tar.gz kubezap && chmod +x kubezap && mv kubezap /usr/local/bin/
 ```
 

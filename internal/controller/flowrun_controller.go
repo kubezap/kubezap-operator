@@ -205,6 +205,11 @@ func (r *FlowRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 			Message:            "FlowRun is running",
 			LastTransitionTime: now,
 		})
+		// Observe scheduling latency: time from FlowRun creation to first Running transition.
+		queueSecs := now.Time.Sub(flowRun.CreationTimestamp.Time).Seconds()
+		metrics.FlowRunQueueDuration.WithLabelValues(
+			flowRun.Namespace, flowRun.Spec.FlowRef.Name,
+		).Observe(queueSecs)
 		if err := r.Status().Update(ctx, &flowRun); err != nil {
 			return ctrl.Result{}, err
 		}
@@ -1283,6 +1288,11 @@ func (r *FlowRunReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	if err := mgr.Add(r); err != nil {
 		return fmt.Errorf("registering FlowRunReconciler as runnable: %w", err)
 	}
+
+	// Register the custom FlowRunActiveCollector so kubezap_flowruns_active is scraped
+	// directly from the controller-runtime cache at each Prometheus scrape, avoiding
+	// stale values across controller restarts.
+	metrics.RegisterFlowRunActiveCollector(mgr.GetClient())
 	maxConcurrent := r.MaxConcurrentReconciles
 	if maxConcurrent <= 0 {
 		// WIRING NOTE: §12b — update --max-concurrent-flowruns default to 25 in cmd/main.go.

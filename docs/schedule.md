@@ -444,10 +444,10 @@ Items are ordered to minimize rework:
 
 - [x] **BRANDING** — `--ui-port` flag redesign: `--enable-ui` bool (default false) + `--ui-port` int (default 8082); auto-create `kubezap-ui` Service when enabled. Remove Zapier/Camunda references from README and overview. (PR #65)
 - [x] **BRANDING** — Go module path renamed from `github.com/borfswitch/kubezap` to `github.com/kubezap/kubezap-operator`. New GitHub org: `kubezap`, repo: `kubezap-operator`. All `.go` imports, `go.mod`, `PROJECT`, `.goreleaser.yaml`, CSV `repository` field, and docs updated. Makefile CRD generator split to fix controller-gen v0.18.0 `paths="./..."` storage-version issue.
-- [ ] **DOCS** — `docs/api/flow.md` line 78: stale "top-level JSON fields only" limitation warning for `$(trigger.body.<field>)`. Full dot-path was implemented in §14; this contradicts `overview.md` and will confuse users immediately. Remove the limitation block.
-- [ ] **DOCS** — `docs/api/flowrun.md` + `docs/architecture.md`: multiple `type: pubsub` references remain after §12a API refactor. FlowRun Creator table, TriggerReference type enum, Kafka YAML examples all still say `pubsub`. Users following these docs write broken Trigger specs.
+- [x] **DOCS** — `docs/api/flow.md` line 78: stale "top-level JSON fields only" limitation warning for `$(trigger.body.<field>)`. Full dot-path was implemented in §14; this contradicts `overview.md` and will confuse users immediately. Remove the limitation block.
+- [x] **DOCS** — `docs/api/flowrun.md` + `docs/architecture.md`: multiple `type: pubsub` references remain after §12a API refactor. FlowRun Creator table, TriggerReference type enum, Kafka YAML examples all still say `pubsub`. Users following these docs write broken Trigger specs.
 - [ ] **DOCS/CODE** — `docs/guides/webhook-security.md` documents `type: header-equals` auth (lines 100, 301–302) but it is not in `WebhookAuth.Type` enum and not handled in `handler.go`. A user following the guide gets a CRD validation error. Either implement (trivial, ~10 lines) or remove from docs.
-- [ ] **REPO HYGIENE** — Verify `.claude/worktrees/` and `ui/node_modules/` are excluded by `.gitignore` and not tracked in git. 20+ worktree directories exist on disk; shipping them (or copies of `node_modules/`) to a public repo is disqualifying.
+- [x] **REPO HYGIENE** — Verify `.claude/worktrees/` and `ui/node_modules/` are excluded by `.gitignore` and not tracked in git. Verified: all paths already correctly excluded by existing `.gitignore` rules; no changes needed.
 
 ### P1 — Should fix before public
 

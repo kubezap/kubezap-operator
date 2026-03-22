@@ -193,9 +193,16 @@ spec:
     - Empty (default) — AllNamespaces
     - Single value — OwnNamespace / SingleNamespace
     - Comma-separated — MultiNamespace
+
+    ## Resource Trigger RBAC Note
+
+    In AllNamespaces mode, `type: resource` triggers (alpha) watch arbitrary Kubernetes
+    resource kinds. The controller ServiceAccount must have `get`, `list`, and `watch`
+    permissions on each target resource type. These permissions are NOT included in the
+    default RBAC — users must grant them explicitly via an additional ClusterRole or Role.
   displayName: KubeZap
   icon:
-  - base64data: ""
+  - base64data: iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==
     mediatype: image/png
   install:
     spec:
@@ -455,6 +462,11 @@ spec:
   links:
   - name: KubeZap Documentation
     url: https://github.com/borfswitch/kubezap/docs
+  - name: Source Code
+    url: https://github.com/borfswitch/kubezap
+  maintainers:
+  - email: maintainers@kubezap.io
+    name: KubeZap Maintainers
   maturity: alpha
   minKubeVersion: 1.25.0
   provider:

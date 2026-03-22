@@ -1,0 +1,113 @@
+name: CI
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v8
+        with:
+          version: v2.1.0
+
+  test:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Run unit tests
+        run: |
+          go mod tidy
+          make test
+
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: ui/package-lock.json
+
+      - name: Build controller binary
+        run: make build
+
+      - name: Build CLI binary
+        run: make build-cli
+
+      - name: Build gateway binaries
+        run: |
+          go build -o bin/webhook-gateway ./cmd/webhook-gateway
+          go build -o bin/kafka-gateway   ./cmd/kafka-gateway
+          go build -o bin/amqp-gateway    ./cmd/amqp-gateway
+          go build -o bin/nats-gateway    ./cmd/nats-gateway
+
+  docker-build:
+    name: Docker Build (validate)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build controller image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          push: false
+
+      - name: Build webhook-gateway image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: cmd/webhook-gateway/Dockerfile
+          push: false
+
+      - name: Build kafka-gateway image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: cmd/kafka-gateway/Dockerfile
+          push: false
+
+      - name: Build amqp-gateway image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: cmd/amqp-gateway/Dockerfile
+          push: false
+
+      - name: Build nats-gateway image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: cmd/nats-gateway/Dockerfile
+          push: false

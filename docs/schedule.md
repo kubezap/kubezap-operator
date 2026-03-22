@@ -252,8 +252,8 @@ Items are ordered to minimize rework:
 ### OLM Readiness (required before submission)
 
 - [x] **OLM** — Complete required CSV fields in `bundle/manifests/kubezap.clusterserviceversion.yaml`: `spec.description` (full feature overview), `spec.icon` (base64 PNG), `spec.maintainers`, `spec.provider.name`, `spec.maturity` (`alpha`), `spec.links` (docs, source). These are required for OperatorHub acceptance.
-- [ ] **OLM** — Run `operator-sdk bundle validate ./bundle` and fix all failures. Must pass before submission.
-- [ ] **OLM** — Run `operator-sdk scorecard ./bundle` against a live cluster and fix all failures. Both `basic` and `olm` suites must pass.
+- [x] **OLM** — Run `operator-sdk bundle validate ./bundle` and fix all failures. Must pass before submission.
+- [x] **OLM** — Run `operator-sdk scorecard ./bundle` against a live cluster and fix all failures. Both `basic` and `olm` suites must pass.
 - [x] **OLM** — Add resource trigger RBAC caveat to CSV description: in AllNamespaces mode, user-configured `type: resource` triggers may require the controller SA to have broad watch permissions on target resource types. Users must grant these explicitly.
 
 ---
@@ -381,9 +381,9 @@ Items are ordered to minimize rework:
 
 ### Phase 1 — CLI `watch` command
 
-- [ ] **CLI** — Add `kubezap watch` subcommand (`cmd/kubezap/watch.go`): streams FlowRun events via the Watch API, renders a live terminal execution timeline (box-drawing characters, per-step status badges, elapsed duration, phase transitions). Register in `cmd/kubezap/main.go` `AddCommand` list.
-- [ ] **CLI** — Write tests for `watch` output formatting (unit tests against a fake Watch stream, assert terminal output structure). File: `cmd/kubezap/watch_test.go`
-- [ ] **DOCS** — Add `kubezap watch` to `docs/guides/using-the-cli.md`.
+- [x] **CLI** — Add `kubezap watch` subcommand (`cmd/kubezap/watch.go`): streams FlowRun events via the Watch API, renders a live terminal execution timeline (box-drawing characters, per-step status badges, elapsed duration, phase transitions). Register in `cmd/kubezap/main.go` `AddCommand` list.
+- [x] **CLI** — Write tests for `watch` output formatting (unit tests against a fake Watch stream, assert terminal output structure). File: `cmd/kubezap/watch_test.go`
+- [x] **DOCS** — Add `kubezap watch` to `docs/guides/using-the-cli.md`.
 
 ### Phase 2 — Read-only web dashboard
 

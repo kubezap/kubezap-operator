@@ -157,8 +157,12 @@ lint-config: golangci-lint ## Verify golangci-lint linter configuration
 
 ##@ Build
 
+.PHONY: ui
+ui: ## Build the Vue frontend (outputs to internal/ui/dist/).
+	cd ui && npm ci && npm run build
+
 .PHONY: build
-build: manifests generate fmt vet ## Build manager binary.
+build: ui manifests generate fmt vet ## Build manager binary.
 	go build -o bin/manager cmd/main.go
 
 .PHONY: build-cli

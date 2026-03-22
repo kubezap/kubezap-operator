@@ -57,7 +57,6 @@ rules:
       - flowruns/status
       - flows/status
       - integrations/status
-      - mockendpoints/status
       - triggers/status
     verbs:
       - get
@@ -68,7 +67,6 @@ rules:
     resources:
       - flows
       - integrations
-      - mockendpoints
     verbs:
       - get
       - list

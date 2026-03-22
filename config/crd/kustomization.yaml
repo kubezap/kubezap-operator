@@ -5,7 +5,6 @@ resources:
 - bases/automation.kubezap.io_flowruns.yaml
 - bases/automation.kubezap.io_flows.yaml
 - bases/automation.kubezap.io_integrations.yaml
-- bases/automation.kubezap.io_mockendpoints.yaml
 - bases/automation.kubezap.io_triggers.yaml
 # +kubebuilder:scaffold:crdkustomizeresource
 

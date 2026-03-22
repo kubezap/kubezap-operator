@@ -124,7 +124,7 @@ spec:
     spec:
       securityContext:
         runAsNonRoot: true
-        runAsUser: 65532
+        runAsUser: 1001
         seccompProfile:
           type: RuntimeDefault
       containers:
@@ -150,8 +150,7 @@ spec:
               mountPath: /config
               readOnly: true
           readinessProbe:
-            httpGet:
-              path: /test-target
+            tcpSocket:
               port: 3000
             initialDelaySeconds: 5
             periodSeconds: 5
@@ -373,8 +372,7 @@ var _ = Describe("Webhook Trigger -> Transform -> HTTP -> Mockoon", Ordered, fun
 		By("verifying the Mockoon route is reachable and serving")
 		curlArgs := fmt.Sprintf(
 			"curl -s -o /dev/null -w '%%{http_code}' "+
-				"-X POST http://mockoon.%s.svc.cluster.local:3000/test-target "+
-				"-H 'Content-Type: application/json' -d '{\"check\":true}'",
+				"-X POST http://mockoon.%s.svc.cluster.local:3000/test-target",
 			webhookE2ENS)
 
 		cmd := exec.Command("kubectl", "run", "curl-mockoon-verify",

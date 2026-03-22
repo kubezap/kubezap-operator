@@ -436,6 +436,41 @@ Items are ordered to minimize rework:
 
 ---
 
+## 16. Pre-Public Readiness — 2026-03-22 Review
+
+> Items from the Opus-model readiness audit before public availability. Ordered P0 → P1 → P2.
+> OperatorHub submission is **paused** pending this section's completion.
+
+### P0 — Blocks public release
+
+- [x] **BRANDING** — `--ui-port` flag redesign: `--enable-ui` bool (default false) + `--ui-port` int (default 8082); auto-create `kubezap-ui` Service when enabled. Remove Zapier/Camunda references from README and overview. (PR #65)
+- [ ] **BRANDING** — Go module path is `github.com/borfswitch/kubezap` — must be renamed to the public org path before any public release. Touches `go.mod` + every `.go` file import path + CSV `repository` field + Goreleaser download URLs. Decide public org name first.
+- [ ] **DOCS** — `docs/api/flow.md` line 78: stale "top-level JSON fields only" limitation warning for `$(trigger.body.<field>)`. Full dot-path was implemented in §14; this contradicts `overview.md` and will confuse users immediately. Remove the limitation block.
+- [ ] **DOCS** — `docs/api/flowrun.md` + `docs/architecture.md`: multiple `type: pubsub` references remain after §12a API refactor. FlowRun Creator table, TriggerReference type enum, Kafka YAML examples all still say `pubsub`. Users following these docs write broken Trigger specs.
+- [ ] **DOCS/CODE** — `docs/guides/webhook-security.md` documents `type: header-equals` auth (lines 100, 301–302) but it is not in `WebhookAuth.Type` enum and not handled in `handler.go`. A user following the guide gets a CRD validation error. Either implement (trivial, ~10 lines) or remove from docs.
+- [ ] **REPO HYGIENE** — Verify `.claude/worktrees/` and `ui/node_modules/` are excluded by `.gitignore` and not tracked in git. 20+ worktree directories exist on disk; shipping them (or copies of `node_modules/`) to a public repo is disqualifying.
+
+### P1 — Should fix before public
+
+- [ ] **DOCS** — `docs/guides/observability.md` metrics table: lists `kubezap_webhook_requests_total` and `kubezap_webhook_request_body_bytes` which do not exist in `internal/metrics/metrics.go`. Reconcile the entire table against actual registered metrics.
+- [ ] **DOCS/API** — `docs/api/trigger.md` + `docs/guides/webhook-security.md`: WebhookAuth YAML examples show nested `hmac:` / `bearer:` / `oidc:` sub-keys, but Go types are flat fields (`HMACSecretRef`, `BearerTokenSecretRef`, `OIDCIssuer`). YAML in the docs doesn't match what the CRD accepts. Decide: restructure Go types to match docs (better UX) or update all examples to flat structure.
+- [ ] **DOCS** — `pubsub` terminology appears in 13+ doc files: `flow.md`, `integration.md`, `plugin-contract.md`, `amqp-setup.md`, `nats-setup.md`, `observability.md`, `troubleshooting.md`, `using-the-cli.md`. Global grep-and-replace pass needed.
+- [ ] **DOCS** — `README.md`: "Helm chart _(coming in v0.3)_" and "OperatorHub _(coming in v0.3)_" are stale (both exist). Features section missing AMQP, NATS, resource trigger, web dashboard, CLI. Update to reflect current feature set.
+- [ ] **DOCS** — `docs/api/flowrun.md`: resource trigger creator still shows "_(planned)_" — implemented (alpha). Fix label and verify FlowRun naming pattern matches current `resource_watcher.go`.
+- [ ] **SECURITY** — `internal/gateway/webhook/handler.go`: bearer token and API key comparisons use plain string `!=` (not constant-time). HMAC already uses `hmac.Equal`. Fix: use `subtle.ConstantTimeCompare` for `bearer` and `apiKey` auth types.
+- [ ] **BRANDING** — CSV `bundle/manifests/kubezap.clusterserviceversion.yaml`: version is `v0.0.1`, icon is a 1×1 placeholder PNG. Update version to match actual release; create a real icon (≥64×64).
+- [ ] **BRANDING** — No `CHANGELOG.md`. Enterprise evaluators and acquisition targets expect a changelog. Create covering v0.1 → v0.3 milestones.
+- [ ] **DOCS** — `docs/overview.md` line ~493: claims `resultMappings` supports XPath for XML. No XPath parser exists in the codebase. Remove claim; document JSONPath only.
+
+### P2 — Nice to have before public
+
+- [ ] **DOCS** — `docs/architecture.md`: Component Overview table and ASCII diagram list only 3 components; AMQP and NATS gateways are missing. Add them.
+- [ ] **DOCS** — `docs/architecture.md` line 321: "KEDA integration planned for v0.3" — v0.3 is complete. Change to "KEDA is recommended as an external HPA replacement for Kafka gateways."
+- [ ] **CLEANUP** — Remove Kubebuilder scaffold boilerplate: `// TODO(user): If you enable certManager...` comment in `cmd/main.go`; `// EDIT THIS FILE! THIS IS SCAFFOLDING FOR YOU TO OWN!` in `api/v1alpha1/trigger_types.go`.
+- [ ] **DOCS** — `docs/overview.md` Getting Started link uses `../examples/order-router/` — relative path may break on hosted doc sites. Verify or use absolute GitHub link.
+
+---
+
 ## 10. Future / Backlog
 
 - [x] `docs/guides/using-the-cli.md` — CLI user guide (created 2026-03-20 review pass)

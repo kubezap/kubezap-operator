@@ -185,6 +185,45 @@ broken-plugin     plugin  Unhealthy       broken-plugin-plugin (0/1 Ready)
 
 ---
 
+## Watch a FlowRun in Real Time
+
+`kubezap watch` streams live phase and step status updates for a single FlowRun, rendering a terminal execution timeline on each Watch event. It exits automatically when the FlowRun reaches a terminal phase.
+
+```bash
+kubezap watch order-webhook-20260318-abc4f
+kubezap watch order-webhook-20260318-abc4f -n production
+```
+
+Each Watch event triggers a new snapshot prefixed by `---`:
+
+```
+---
+FlowRun: order-webhook-20260318-abc4f
+Trigger: order-webhook           Flow: order-processor
+Phase:   Running     (12.4s elapsed)
+
+  ✓  validate-order           Succeeded    1.2s
+  ●  enrich-customer          Running      ~2.1s
+  ○  notify-warehouse         Pending      -
+  ○  send-confirmation        Pending      -
+```
+
+Status badges:
+
+| Badge | Phase              |
+|-------|--------------------|
+| `✓`   | Succeeded          |
+| `✗`   | Failed             |
+| `●`   | Running            |
+| `○`   | Pending / Waiting  |
+| `-`   | Skipped            |
+
+The command exits as soon as the FlowRun phase becomes `Succeeded`, `Failed`, or `Cancelled`.
+
+Use `kubezap watch` during development to observe a flow's step-by-step progress without polling `kubectl get flowruns -w` or piecing together controller logs. For post-hoc inspection of a completed FlowRun, use `kubezap history <flowrun-name>` instead.
+
+---
+
 ## Tips for Debugging
 
 ### Find what triggered a stuck FlowRun

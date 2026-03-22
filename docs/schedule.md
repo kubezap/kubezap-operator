@@ -45,8 +45,8 @@ Items are ordered to minimize rework:
 - [x] **INFRA** — Set up GitHub Actions CI workflow (`.github/workflows/ci.yml`): runs on every push and PR; jobs: `lint` (`make lint`), `test` (`make test`), `build` (all five binaries), `docker-build` (build but don't push — validates Dockerfiles). Gate PRs on all jobs passing. Add badge to `README.md`.
 - [x] **RELEASE** — Write `docs/releasing.md` (internal): step-by-step release runbook covering: (1) version bump in `go.mod`, `Chart.yaml`, CSV `spec.version`/`spec.replaces`, `CHANGELOG.md`; (2) `git tag vX.Y.Z` + push tag; (3) GoReleaser publish (`goreleaser release --clean`) → GitHub Release + CLI binaries; (4) GHCR image push; (5) Helm chart publish (OCI push to `ghcr.io/kubezap/charts/kubezap` or GitHub Pages chart repo); (6) OLM bundle regeneration (`make bundle`) + OperatorHub PR update; (7) post-release smoke test checklist.
 - [x] **INFRA** — Add GoReleaser GitHub Actions workflow (`.github/workflows/release.yml`): triggers on `vX.Y.Z` tag push; builds CLI binaries for linux/darwin/windows amd64+arm64; builds and pushes all five container images to `ghcr.io/kubezap/*`; creates GitHub Release with changelog and binary attachments.
-- [ ] **INFRA** — Publish Helm chart: decide on distribution mechanism (OCI registry at `ghcr.io/kubezap/charts/kubezap` vs. GitHub Pages `helm repo`); add chart publish step to release workflow; document `helm repo add` or `helm install --oci` install path in `docs/overview.md`.
-- [ ] **INFRA** — Add `CHANGELOG.md` covering v0.1 → v0.3 milestones (required for enterprise evaluators and acquisition targets; also referenced from OperatorHub CSV `spec.replaces` chain). Follow Keep a Changelog format.
+- [x] **INFRA** — Publish Helm chart: decide on distribution mechanism (OCI registry at `ghcr.io/kubezap/charts/kubezap` vs. GitHub Pages `helm repo`); add chart publish step to release workflow; document `helm repo add` or `helm install --oci` install path in `docs/overview.md`.
+- [x] **INFRA** — Add `CHANGELOG.md` covering v0.1 → v0.3 milestones (required for enterprise evaluators and acquisition targets; also referenced from OperatorHub CSV `spec.replaces` chain). Follow Keep a Changelog format.
 - [x] **INFRA** — Automate GHCR image publishing on merge to `main` (`:latest` tag) in addition to version tags, so contributors can always pull a fresh build without building locally.
 
 ### OLM Readiness
@@ -78,7 +78,7 @@ Items are ordered to minimize rework:
 ### P0 — Blocks public release
 
 - [ ] **TESTING** — E2E tests are failing. Triage failures (`make test-e2e`), determine if pre-existing or recent regressions, and fix. Must pass before public release.
-- [ ] **REPO HYGIENE** — Gitignore all Claude-related files before public availability. Currently `.gitignore` excludes `.claude/*` but re-includes `settings.json`, hooks, skills, commands, agents, and agent-memory. Decide which (if any) to retain for contributors; for a clean first-public commit, exclude everything under `.claude/`.
+- [x] **REPO HYGIENE** — Gitignore all Claude-related files before public availability. Currently `.gitignore` excludes `.claude/*` but re-includes `settings.json`, hooks, skills, commands, agents, and agent-memory. Decide which (if any) to retain for contributors; for a clean first-public commit, exclude everything under `.claude/`.
 
 ### P1 — Should fix before public
 

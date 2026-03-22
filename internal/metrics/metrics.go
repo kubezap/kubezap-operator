@@ -17,7 +17,11 @@ limitations under the License.
 package metrics
 
 import (
+	"context"
+
+	automationv1alpha1 "github.com/borfswitch/kubezap/api/v1alpha1"
 	"github.com/prometheus/client_golang/prometheus"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	ctrlmetrics "sigs.k8s.io/controller-runtime/pkg/metrics"
 )
 
@@ -63,6 +67,14 @@ var (
 		Help:    "Duration of webhook HTTP requests in seconds.",
 		Buckets: prometheus.DefBuckets,
 	}, []string{"trigger", "result"})
+
+	// FlowRunQueueDuration measures time from FlowRun creation to first transition to Running.
+	// Indicates scheduling latency / controller backpressure.
+	FlowRunQueueDuration = prometheus.NewHistogramVec(prometheus.HistogramOpts{
+		Name:    "kubezap_flowrun_queue_duration_seconds",
+		Help:    "Time from FlowRun creation to first transition to Running phase.",
+		Buckets: prometheus.DefBuckets,
+	}, []string{"namespace", "flow"})
 )
 
 func init() {
@@ -73,5 +85,67 @@ func init() {
 		WebhookIPBlocked,
 		WebhookRateLimited,
 		WebhookRequestDuration,
+		FlowRunQueueDuration,
 	)
+}
+
+// flowRunsActiveDesc is the Prometheus descriptor for the kubezap_flowruns_active gauge.
+var flowRunsActiveDesc = prometheus.NewDesc(
+	"kubezap_flowruns_active",
+	"Number of FlowRuns currently in Running or Pending phase, by namespace and phase.",
+	[]string{"namespace", "phase"},
+	nil,
+)
+
+// FlowRunActiveCollector is a custom prometheus.Collector that lists FlowRuns from
+// the controller-runtime cache at scrape time to report active (Running/Pending) counts.
+// This avoids stale gauge values across controller restarts.
+type FlowRunActiveCollector struct {
+	Client client.Client
+}
+
+// RegisterFlowRunActiveCollector registers the custom FlowRunActiveCollector with the
+// controller-runtime metrics registry. Call this once from SetupWithManager.
+func RegisterFlowRunActiveCollector(c client.Client) {
+	ctrlmetrics.Registry.MustRegister(&FlowRunActiveCollector{Client: c})
+}
+
+func (col *FlowRunActiveCollector) Describe(ch chan<- *prometheus.Desc) {
+	ch <- flowRunsActiveDesc
+}
+
+func (col *FlowRunActiveCollector) Collect(ch chan<- prometheus.Metric) {
+	var list automationv1alpha1.FlowRunList
+	if err := col.Client.List(context.Background(), &list); err != nil {
+		// Emit no metrics rather than a stale value on list failure.
+		return
+	}
+
+	// counts[namespace][phase] → count
+	counts := make(map[string]map[string]int)
+	for i := range list.Items {
+		phase := list.Items[i].Status.Phase
+		if phase != "Running" && phase != "Pending" && phase != "" {
+			continue
+		}
+		if phase == "" {
+			phase = "Pending"
+		}
+		ns := list.Items[i].Namespace
+		if counts[ns] == nil {
+			counts[ns] = make(map[string]int)
+		}
+		counts[ns][phase]++
+	}
+
+	for ns, phases := range counts {
+		for phase, n := range phases {
+			ch <- prometheus.MustNewConstMetric(
+				flowRunsActiveDesc,
+				prometheus.GaugeValue,
+				float64(n),
+				ns, phase,
+			)
+		}
+	}
 }

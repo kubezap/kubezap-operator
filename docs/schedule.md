@@ -359,10 +359,10 @@ Items are ordered to minimize rework:
 
 ---
 
-## 13. Observability Gaps (from architecture review)
+## 13. Observability Gaps (from architecture review) — COMPLETE
 
-- [ ] **OBSERVABILITY** — Add `kubezap_flowruns_active` gauge: number of FlowRuns currently in `Running` or `Pending` phase. Most useful metric for capacity planning, alerting, and HPA decisions on the controller. Files: `internal/metrics/metrics.go`, `internal/controller/flowrun_controller.go`
-- [ ] **OBSERVABILITY** — Add `kubezap_flowrun_queue_duration_seconds` histogram: time between FlowRun creation and first transition to `Running`. Measures controller queue backpressure. Files: `internal/metrics/metrics.go`, `internal/controller/flowrun_controller.go`
+- [x] **OBSERVABILITY** — Add `kubezap_flowruns_active` gauge: number of FlowRuns currently in `Running` or `Pending` phase. Most useful metric for capacity planning, alerting, and HPA decisions on the controller. Files: `internal/metrics/metrics.go`, `internal/controller/flowrun_controller.go`
+- [x] **OBSERVABILITY** — Add `kubezap_flowrun_queue_duration_seconds` histogram: time between FlowRun creation and first transition to `Running`. Measures controller queue backpressure. Files: `internal/metrics/metrics.go`, `internal/controller/flowrun_controller.go`
 - [x] **OBSERVABILITY** — Propagate `traceparent` W3C header from inbound webhook HTTP request to the FlowRun `kubezap.io/traceparent` annotation. Currently the gateway trace and the controller execution trace are disconnected; this links them into a single end-to-end trace. File: `internal/gateway/webhook/handler.go`
 - [x] **OBSERVABILITY** — Add webhook gateway request latency histogram: `kubezap_webhook_request_duration_seconds` labeled by `trigger` and `result` (accepted/rejected/rate_limited). File: `internal/gateway/webhook/handler.go`
 

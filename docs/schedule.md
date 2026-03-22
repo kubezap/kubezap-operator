@@ -77,7 +77,7 @@ Items are ordered to minimize rework:
 
 ### P0 — Blocks public release
 
-- [ ] **TESTING** — E2E tests are failing. Triage failures (`make test-e2e`), determine if pre-existing or recent regressions, and fix. Must pass before public release.
+- [x] **TESTING** — E2E tests are failing. Triage failures (`make test-e2e`), determine if pre-existing or recent regressions, and fix. Must pass before public release.
 - [x] **REPO HYGIENE** — Gitignore all Claude-related files before public availability. Currently `.gitignore` excludes `.claude/*` but re-includes `settings.json`, hooks, skills, commands, agents, and agent-memory. Decide which (if any) to retain for contributors; for a clean first-public commit, exclude everything under `.claude/`.
 
 ### P1 — Should fix before public

@@ -124,7 +124,7 @@ spec:
     spec:
       securityContext:
         runAsNonRoot: true
-        runAsUser: 65532
+        runAsUser: 1001
         seccompProfile:
           type: RuntimeDefault
       containers:
@@ -150,8 +150,7 @@ spec:
               mountPath: /config
               readOnly: true
           readinessProbe:
-            httpGet:
-              path: /test-target
+            tcpSocket:
               port: 3000
             initialDelaySeconds: 5
             periodSeconds: 5
@@ -367,14 +366,11 @@ var _ = Describe("Webhook Trigger -> Transform -> HTTP -> Mockoon", Ordered, fun
 	})
 
 	It("should have the request received by Mockoon", func() {
-		// Verify that Mockoon actually received the POST from the http step
-		// by sending a curl to the Mockoon service and checking for a 200 response.
-		// This confirms the Flow's http step successfully targeted Mockoon.
+		// Verify that Mockoon is reachable from within the namespace and serving the POST route.
+		// Uses curl -f so the pod exits non-zero (Failed phase) on any HTTP error response.
 		By("verifying the Mockoon route is reachable and serving")
-		curlArgs := fmt.Sprintf(
-			"curl -s -o /dev/null -w '%%{http_code}' "+
-				"-X POST http://mockoon.%s.svc.cluster.local:3000/test-target "+
-				"-H 'Content-Type: application/json' -d '{\"check\":true}'",
+		mockoonURL := fmt.Sprintf(
+			"http://mockoon.%s.svc.cluster.local:3000/test-target",
 			webhookE2ENS)
 
 		cmd := exec.Command("kubectl", "run", "curl-mockoon-verify",
@@ -386,8 +382,7 @@ var _ = Describe("Webhook Trigger -> Transform -> HTTP -> Mockoon", Ordered, fun
 					"containers": [{
 						"name": "curl",
 						"image": "curlimages/curl:latest",
-						"command": ["/bin/sh", "-c"],
-						"args": ["status=$(%s); echo $status; [ \"$status\" = \"'200'\" ] || [ \"$status\" = \"200\" ]"],
+						"args": ["-f", "-s", "-X", "POST", %q],
 						"securityContext": {
 							"allowPrivilegeEscalation": false,
 							"capabilities": {"drop": ["ALL"]},
@@ -398,7 +393,7 @@ var _ = Describe("Webhook Trigger -> Transform -> HTTP -> Mockoon", Ordered, fun
 					}],
 					"restartPolicy": "Never"
 				}
-			}`, curlArgs))
+			}`, mockoonURL))
 		_, err := utils.Run(cmd)
 		Expect(err).NotTo(HaveOccurred(), "failed to create curl-mockoon-verify pod")
 

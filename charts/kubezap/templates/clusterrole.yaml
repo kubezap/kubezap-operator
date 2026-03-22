@@ -9,6 +9,14 @@ rules:
   - apiGroups:
       - ""
     resources:
+      - namespaces
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - ""
+    resources:
       - serviceaccounts
       - services
     verbs:
@@ -56,7 +64,6 @@ rules:
       - flowruns/status
       - flows/status
       - integrations/status
-      - mockendpoints/status
       - triggers/status
     verbs:
       - get
@@ -67,7 +74,6 @@ rules:
     resources:
       - flows
       - integrations
-      - mockendpoints
     verbs:
       - get
       - list

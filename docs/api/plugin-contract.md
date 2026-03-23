@@ -73,9 +73,8 @@ A plugin may implement one or both roles. A subscriber-only plugin (e.g., an inb
 The plugin must watch `Trigger` resources in its namespace (`KUBEZAP_NAMESPACE`) and process only those matching:
 
 ```
-spec.type == "pubsub"
-  AND spec.pubsub.type == <your-integration-type>  // e.g. "rabbitmq", "tibco"
-  AND spec.pubsub.integrationRef.name == KUBEZAP_INTEGRATION_NAME
+spec.type == <your-integration-type>  // e.g. the value matching this plugin, e.g. "kafka", or a custom type name
+  AND spec.<type>.integrationRef.name == KUBEZAP_INTEGRATION_NAME
   AND spec.enabled == true  (or spec.enabled is absent)
 ```
 
@@ -92,7 +91,7 @@ FlowRun{
         Namespace: trigger.Namespace,
         Labels: map[string]string{
             "kubezap.io/trigger":      trigger.Name,
-            "kubezap.io/trigger-type": "pubsub",
+            "kubezap.io/trigger-type": trigger.Spec.Type,  // e.g. "kafka", "amqp", "nats", or your custom type
             "kubezap.io/flow":         trigger.Spec.FlowRef.Name,
         },
         Annotations: map[string]string{
@@ -103,10 +102,10 @@ FlowRun{
         FlowRef:    trigger.Spec.FlowRef,
         TriggerRef: LocalObjectReference{Name: trigger.Name},
         Params: []ParamValue{
-            // extract from message body using trigger.spec.pubsub.payloadMappings if set
+            // extract from message body using trigger.spec.<type>.payloadMappings if set
         },
         TriggerData: TriggerData{
-            Source: "pubsub",
+            Source: trigger.Spec.Type,  // e.g. "kafka", "amqp", "nats", or your custom type
             Body:   messageBody,  // raw message payload as string
             Headers: map[string]string{
                 // message headers/properties as key-value pairs
@@ -244,7 +243,7 @@ Reference the full FlowRun spec in [docs/api/flowrun.md](./flowrun.md). Key fiel
 | `spec.flowRef.name`        | string            | Name of the Flow to execute. Copy from `trigger.spec.flowRef.name`. |
 | `spec.triggerRef.name`     | string            | Name of the Trigger that caused this FlowRun.                       |
 | `spec.params`              | []ParamValue      | Input parameters extracted from the message payload.                |
-| `spec.triggerData.source`  | string            | Set to `"pubsub"` for all plugin-created FlowRuns.                  |
+| `spec.triggerData.source`  | string            | Set to the trigger type (e.g. `"kafka"`, `"amqp"`, `"nats"`) matching `spec.type` on the Trigger. |
 | `spec.triggerData.body`    | string            | Raw message body.                                                   |
 | `spec.triggerData.headers` | map[string]string | Message headers or properties.                                      |
 | `spec.ttlAfterFinished`    | Duration          | Optional. Override the operator-level TTL for this FlowRun.         |

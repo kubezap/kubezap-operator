@@ -163,7 +163,7 @@ func authenticateRequest(r *http.Request, body []byte, entry RouteEntry, trigger
 		if authHeader == "" {
 			return http.StatusUnauthorized, "missing Authorization header"
 		}
-		if authHeader != "Bearer "+entry.BearerToken {
+		if subtle.ConstantTimeCompare([]byte(authHeader), []byte("Bearer "+entry.BearerToken)) != 1 {
 			return http.StatusUnauthorized, "invalid bearer token"
 		}
 
@@ -176,7 +176,7 @@ func authenticateRequest(r *http.Request, body []byte, entry RouteEntry, trigger
 		if val == "" {
 			return http.StatusUnauthorized, "missing API key header"
 		}
-		if val != entry.APIKey {
+		if subtle.ConstantTimeCompare([]byte(val), []byte(entry.APIKey)) != 1 {
 			return http.StatusUnauthorized, "invalid API key"
 		}
 

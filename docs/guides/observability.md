@@ -11,12 +11,9 @@ KubeZap exposes three complementary observability signals:
 ## Contents
 
 - [Prometheus Metrics](#prometheus-metrics)
+  - [Trigger Metrics](#trigger-metrics)
   - [Webhook Gateway Metrics](#webhook-gateway-metrics)
-  - [Auth Metrics](#auth-metrics)
-  - [Rate Limit Metrics](#rate-limit-metrics)
   - [Flow Execution Metrics](#flow-execution-metrics)
-  - [Kafka Gateway Metrics](#kafka-gateway-metrics)
-  - [Controller Metrics](#controller-metrics)
   - [Labels Reference](#labels-reference)
 - [Structured Access Logs](#structured-access-logs)
   - [Access Log Fields](#access-log-fields)
@@ -53,44 +50,41 @@ Each component runs a dedicated metrics server on `:9090`, separate from its mai
 > `ServiceMonitor` resources manually. See the [Prometheus ServiceMonitor](#prometheus-servicemonitor)
 > section at the end of this guide for ready-to-use templates.
 
-### Webhook Gateway Metrics
+### Trigger Metrics
 
-#### `kubezap_webhook_requests_total`
+#### `kubezap_trigger_firings_total`
 **Type**: Counter
 
-Total webhook requests received, by outcome.
+Total number of trigger firings.
 
-| Label         | Values                          | Description                                        |
-| ------------- | ------------------------------- | -------------------------------------------------- |
-| `namespace`   | string                          | Kubernetes namespace of the Trigger                |
-| `trigger`     | string                          | Name of the Trigger                                |
-| `method`      | `POST`, `GET`, …                | HTTP method of the request                         |
-| `status_code` | `200`, `401`, `429`, `500`, …   | HTTP response status code                          |
-| `auth_result` | `success`, `failure`, `skipped` | Whether auth passed, failed, or was not configured |
+| Label       | Values                                    | Description                         |
+| ----------- | ----------------------------------------- | ----------------------------------- |
+| `namespace` | string                                    | Kubernetes namespace of the Trigger |
+| `trigger`   | string                                    | Name of the Trigger                 |
+| `type`      | string                                    | Trigger type (e.g. `webhook`, `cron`, `kafka`) |
+| `result`    | `success`, `rate_limited`, `error`        | Outcome of the firing               |
 
 ```promql
-# Total requests per trigger
-sum by (trigger, namespace) (kubezap_webhook_requests_total)
+# Firing rate per trigger
+sum by (trigger, namespace) (rate(kubezap_trigger_firings_total[5m]))
 
-# Error rate per trigger (non-2xx)
-sum by (trigger) (rate(kubezap_webhook_requests_total{status_code!~"2.."}[5m]))
-  /
-sum by (trigger) (rate(kubezap_webhook_requests_total[5m]))
+# Error rate per trigger
+sum by (trigger) (rate(kubezap_trigger_firings_total{result="error"}[5m]))
 ```
 
 ---
 
+### Webhook Gateway Metrics
+
 #### `kubezap_webhook_request_duration_seconds`
 **Type**: Histogram
 
-End-to-end request latency from receipt to response (includes auth verification and FlowRun creation).
+Duration of webhook HTTP requests in seconds. Buckets: Prometheus default (`.005`, `.01`, `.025`, `.05`, `.1`, `.25`, `.5`, `1`, `2.5`, `5`, `10`).
 
-Buckets: 5ms, 10ms, 25ms, 50ms, 100ms, 250ms, 500ms, 1s, 2.5s, 5s, 10s
-
-| Label       | Description                         |
-| ----------- | ----------------------------------- |
-| `namespace` | Kubernetes namespace of the Trigger |
-| `trigger`   | Name of the Trigger                 |
+| Label      | Values                                  | Description                       |
+| ---------- | --------------------------------------- | --------------------------------- |
+| `trigger`  | string                                  | Name of the Trigger               |
+| `result`   | `accepted`, `rejected`, `rate_limited`  | Outcome of the request            |
 
 ```promql
 # 99th percentile latency per trigger
@@ -101,281 +95,136 @@ histogram_quantile(0.99, sum by (trigger, le) (
 
 ---
 
-#### `kubezap_webhook_request_body_bytes`
-**Type**: Histogram
-
-Size of incoming request bodies in bytes.
-
-Buckets: 256B, 1KB, 4KB, 16KB, 64KB, 256KB, 1MB, 4MB
-
-| Label          | Description                                                  |
-| -------------- | ------------------------------------------------------------ |
-| `namespace`    | Kubernetes namespace of the Trigger                          |
-| `trigger`      | Name of the Trigger                                          |
-| `content_type` | Parsed content type: `json`, `xml`, `form`, `text`, `binary` |
-
-```promql
-# Average request body size per trigger
-histogram_quantile(0.50, sum by (trigger, le) (
-  rate(kubezap_webhook_request_body_bytes_bucket[1h])
-))
-
-# Total data ingested per namespace (bytes/sec)
-sum by (namespace) (rate(kubezap_webhook_request_body_bytes_sum[5m]))
-```
-
----
-
-#### `kubezap_webhook_request_bytes_total`
-**Type**: Counter
-
-Cumulative bytes received across all requests (request body only, not headers).
-
-| Label       | Description                         |
-| ----------- | ----------------------------------- |
-| `namespace` | Kubernetes namespace of the Trigger |
-| `trigger`   | Name of the Trigger                 |
-
----
-
-#### `kubezap_webhook_active_routes`
-**Type**: Gauge
-
-Number of webhook paths currently registered in this gateway instance.
-
-| Label       | Description          |
-| ----------- | -------------------- |
-| `namespace` | Kubernetes namespace |
-
----
-
-### Auth Metrics
-
-#### `kubezap_webhook_auth_attempts_total`
-**Type**: Counter
-
-Total authentication attempts.
-
-| Label       | Values                                                     | Description                         |
-| ----------- | ---------------------------------------------------------- | ----------------------------------- |
-| `namespace` | string                                                     | Kubernetes namespace of the Trigger |
-| `trigger`   | string                                                     | Name of the Trigger                 |
-| `auth_type` | `hmac`, `bearer`, `oidc`, `basic`, `mtls`, `header_equals` | Authentication method in use        |
-| `result`    | `success`, `failure`                                       | Outcome                             |
-
----
-
-#### `kubezap_webhook_auth_failures_total`
-**Type**: Counter
-
-Authentication failures, broken down by failure reason. This is the primary metric for security alerting.
-
-| Label       | Values    | Description                         |
-| ----------- | --------- | ----------------------------------- |
-| `namespace` | string    | Kubernetes namespace of the Trigger |
-| `trigger`   | string    | Name of the Trigger                 |
-| `auth_type` | see above | Authentication method that failed   |
-| `reason`    | see below | Specific failure reason             |
-
-**`reason` values by auth type:**
-
-| `auth_type`     | `reason` values                                                                                                                     |
-| --------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
-| `hmac`          | `invalid_signature`, `missing_header`, `malformed_header`                                                                           |
-| `bearer`        | `missing_token`, `token_mismatch`                                                                                                   |
-| `oidc`          | `expired_token`, `invalid_signature`, `invalid_issuer`, `invalid_audience`, `missing_claim`, `malformed_token`, `jwks_fetch_failed` |
-| `basic`         | `invalid_credentials`, `missing_credentials`                                                                                        |
-| `mtls`          | `no_client_cert`, `cert_expired`, `ca_mismatch`, `cn_mismatch`, `san_mismatch`                                                      |
-| `header_equals` | `missing_header`, `value_mismatch`                                                                                                  |
-| `ip_allowlist`  | `ip_not_allowed`                                                                                                                    |
-
-```promql
-# Auth failure rate per trigger
-sum by (trigger, auth_type, reason) (
-  rate(kubezap_webhook_auth_failures_total[5m])
-)
-
-# Spike in OIDC expired tokens (could indicate clock skew or compromised token reuse)
-rate(kubezap_webhook_auth_failures_total{auth_type="oidc", reason="expired_token"}[5m]) > 1
-
-# IP allowlist blocks (potential scanning/probing)
-rate(kubezap_webhook_auth_failures_total{reason="ip_not_allowed"}[5m]) > 0.5
-```
-
----
-
 #### `kubezap_webhook_ip_blocked_total`
 **Type**: Counter
 
-Requests blocked by IP allowlist. Separate from `auth_failures` so that IP blocks can be alerted independently without raising the overall auth failure rate.
+Total requests blocked by the webhook IP allowlist, labelled by `/24` (IPv4) or `/48` (IPv6) source CIDR bucket.
+
+The `source_range` label uses CIDR truncation as a compromise: enough specificity to identify attack sources without per-IP cardinality explosion.
 
 | Label          | Description                                                                                               |
 | -------------- | --------------------------------------------------------------------------------------------------------- |
-| `namespace`    | Kubernetes namespace of the Trigger                                                                       |
 | `trigger`      | Name of the Trigger                                                                                       |
-| `source_range` | Source IP truncated to `/24` (e.g., `203.0.113.0/24`). See [Cardinality Guidance](#cardinality-guidance). |
+| `source_range` | Source IP truncated to `/24` (IPv4) or `/48` (IPv6), e.g. `203.0.113.0/24`. See [Cardinality Guidance](#cardinality-guidance). |
 
-The `source_range` label uses `/24` truncation as a compromise: enough specificity to identify attack sources without per-IP cardinality explosion.
+```promql
+# IP block rate by source range
+sort_desc(sum by (source_range) (
+  rate(kubezap_webhook_ip_blocked_total[5m])
+))
+```
 
 ---
-
-### Rate Limit Metrics
 
 #### `kubezap_webhook_rate_limited_total`
 **Type**: Counter
 
-Requests suppressed by the trigger's `cooldown` policy.
+Total requests suppressed by webhook cooldown window policy.
 
 | Label       | Description                         |
 | ----------- | ----------------------------------- |
-| `namespace` | Kubernetes namespace of the Trigger |
 | `trigger`   | Name of the Trigger                 |
-
----
-
-#### `kubezap_webhook_cooldown_invocations`
-**Type**: Gauge
-
-Current invocation count within the active cooldown window, per trigger.
-
-| Label       | Description                         |
-| ----------- | ----------------------------------- |
 | `namespace` | Kubernetes namespace of the Trigger |
-| `trigger`   | Name of the Trigger                 |
 
 ---
 
 ### Flow Execution Metrics
 
-These are emitted by the controller as it processes FlowRun resources, but they are attributable back to the originating trigger.
-
-#### `kubezap_flowrun_created_total`
-**Type**: Counter
-
-| Label          | Description                     |
-| -------------- | ------------------------------- |
-| `namespace`    | Namespace                       |
-| `trigger`      | Name of the originating Trigger |
-| `trigger_type` | `webhook`, `cron`, `pubsub`     |
-| `flow`         | Name of the Flow                |
-
----
-
-#### `kubezap_flowrun_completed_total`
-**Type**: Counter
-
-| Label       | Values                                               | Description      |
-| ----------- | ---------------------------------------------------- | ---------------- |
-| `namespace` | string                                               | Namespace        |
-| `flow`      | string                                               | Name of the Flow |
-| `result`    | `Succeeded`, `Failed`, `PartialFailure`, `Cancelled` | Outcome          |
-
----
+These are emitted by the controller as it processes FlowRun resources.
 
 #### `kubezap_flowrun_duration_seconds`
 **Type**: Histogram
 
-End-to-end flow execution duration.
+Duration of FlowRun execution from start to terminal phase. Buckets: Prometheus default.
+
+| Label       | Values                   | Description      |
+| ----------- | ------------------------ | ---------------- |
+| `namespace` | string                   | Namespace        |
+| `flow`      | string                   | Name of the Flow |
+| `phase`     | `Succeeded`, `Failed`    | Terminal phase   |
+
+```promql
+# P95 FlowRun duration per flow
+histogram_quantile(0.95, sum by (flow, le) (
+  rate(kubezap_flowrun_duration_seconds_bucket[5m])
+))
+```
+
+---
+
+#### `kubezap_flowrun_queue_duration_seconds`
+**Type**: Histogram
+
+Time from FlowRun creation to first transition to Running phase. Indicates scheduling latency and controller backpressure. Buckets: Prometheus default.
 
 | Label       | Description      |
 | ----------- | ---------------- |
 | `namespace` | Namespace        |
 | `flow`      | Name of the Flow |
 
+```promql
+# P99 queue wait time
+histogram_quantile(0.99, sum by (flow, le) (
+  rate(kubezap_flowrun_queue_duration_seconds_bucket[5m])
+))
+```
+
 ---
 
-#### `kubezap_flowrun_step_duration_seconds`
+#### `kubezap_step_duration_seconds`
 **Type**: Histogram
 
-Per-step execution duration.
+Duration of individual step execution. Buckets: Prometheus default.
 
-| Label         | Values                                | Description      |
-| ------------- | ------------------------------------- | ---------------- |
-| `namespace`   | string                                | Namespace        |
-| `flow`        | string                                | Name of the Flow |
-| `step`        | string                                | Name of the step |
-| `action_type` | `http`, `transform`, `kubernetes_job` | Step action type |
-| `result`      | `Succeeded`, `Failed`, `Skipped`      | Step outcome     |
+| Label       | Values                    | Description               |
+| ----------- | ------------------------- | ------------------------- |
+| `namespace` | string                    | Namespace                 |
+| `flow`      | string                    | Name of the Flow          |
+| `step_type` | string                    | Type of the step action   |
+| `outcome`   | `Succeeded`, `Failed`     | Outcome of the step       |
 
----
-
-### Kafka Gateway Metrics
-
-#### `kubezap_kafka_messages_consumed_total`
-**Type**: Counter
-
-| Label       | Description         |
-| ----------- | ------------------- |
-| `namespace` | Namespace           |
-| `trigger`   | Name of the Trigger |
-| `topic`     | Kafka topic         |
-| `partition` | Kafka partition     |
+```promql
+# Step failure rate by step type
+sum by (step_type) (rate(kubezap_step_duration_seconds_count{outcome="Failed"}[5m]))
+```
 
 ---
 
-#### `kubezap_kafka_consumer_lag`
+#### `kubezap_flowruns_active`
 **Type**: Gauge
 
-Current consumer group lag per topic/partition. Use this to drive KEDA autoscaling.
+Number of FlowRuns currently in Running or Pending phase, by namespace and phase. This is a custom collector — values are computed from the live controller-runtime cache at each scrape, so they remain accurate across controller restarts (no stale gauge values).
 
-| Label            | Description                             |
-| ---------------- | --------------------------------------- |
-| `namespace`      | Namespace                               |
-| `integration`    | Name of the Integration (Kafka cluster) |
-| `topic`          | Kafka topic                             |
-| `partition`      | Kafka partition                         |
-| `consumer_group` | Consumer group ID                       |
+| Label       | Values                 | Description               |
+| ----------- | ---------------------- | ------------------------- |
+| `namespace` | string                 | Namespace                 |
+| `phase`     | `Running`, `Pending`   | Current FlowRun phase     |
 
----
+```promql
+# Total active FlowRuns
+sum(kubezap_flowruns_active)
 
-#### `kubezap_kafka_message_size_bytes`
-**Type**: Histogram
-
-Size of consumed Kafka message values.
-
-| Label       | Description |
-| ----------- | ----------- |
-| `namespace` | Namespace   |
-| `topic`     | Kafka topic |
-
----
-
-### Controller Metrics
-
-Standard controller-runtime metrics are exposed automatically. KubeZap adds:
-
-#### `kubezap_reconcile_errors_total`
-**Type**: Counter
-
-| Label        | Description                                                          |
-| ------------ | -------------------------------------------------------------------- |
-| `controller` | Controller name (`trigger`, `flow`, `flowrun`, `mockendpoint`, etc.) |
-| `namespace`  | Namespace of the reconciled resource                                 |
-
----
-
-#### `kubezap_gateway_deployments_managed`
-**Type**: Gauge
-
-Number of gateway Deployments currently managed by the controller.
-
-| Label          | Values             | Description     |
-| -------------- | ------------------ | --------------- |
-| `gateway_type` | `webhook`, `kafka` | Type of gateway |
-| `namespace`    | string             | Namespace       |
+# Active FlowRuns by namespace
+sum by (namespace) (kubezap_flowruns_active)
+```
 
 ---
 
 ### Labels Reference
 
-All KubeZap metrics include these common labels where applicable:
+KubeZap metrics use these labels where applicable:
 
-| Label          | Description                          |
-| -------------- | ------------------------------------ |
-| `namespace`    | Kubernetes namespace of the resource |
-| `trigger`      | Name of the Trigger CRD              |
-| `flow`         | Name of the Flow CRD                 |
-| `gateway_type` | `webhook` or `kafka`                 |
+| Label       | Description                                              |
+| ----------- | -------------------------------------------------------- |
+| `namespace` | Kubernetes namespace of the resource                     |
+| `trigger`   | Name of the Trigger CRD                                  |
+| `flow`      | Name of the Flow CRD                                     |
+| `type`      | Trigger type: `webhook`, `cron`, `kafka`, etc.           |
+| `result`    | Outcome of an operation (metric-specific values)         |
+| `phase`     | FlowRun phase: `Running`, `Pending`, `Succeeded`, `Failed` |
+| `step_type` | Step action type                                         |
+| `outcome`   | Step execution outcome: `Succeeded`, `Failed`            |
+| `source_range` | Source IP CIDR bucket (`/24` IPv4 or `/48` IPv6) — used on `kubezap_webhook_ip_blocked_total` only |
 
 ---
 
@@ -789,7 +638,7 @@ PrometheusRule examples for common alerting scenarios.
 apiVersion: monitoring.coreos.com/v1
 kind: PrometheusRule
 metadata:
-  name: kubezap-webhook-alerts
+  name: kubezap-alerts
   namespace: monitoring
 spec:
   groups:
@@ -797,24 +646,9 @@ spec:
       interval: 30s
       rules:
 
-        - alert: WebhookAuthFailureSpike
-          expr: |
-            sum by (namespace, trigger, auth_type) (
-              rate(kubezap_webhook_auth_failures_total[5m])
-            ) > 1
-          for: 2m
-          labels:
-            severity: warning
-          annotations:
-            summary: "High webhook auth failure rate on {{ $labels.trigger }}"
-            description: >
-              Trigger {{ $labels.namespace }}/{{ $labels.trigger }} is seeing
-              {{ $value | humanize }} auth failures/sec using {{ $labels.auth_type }}.
-              This may indicate a misconfigured caller or a brute-force attempt.
-
         - alert: WebhookIPBlockSpike
           expr: |
-            sum by (namespace, trigger, source_range) (
+            sum by (trigger, source_range) (
               rate(kubezap_webhook_ip_blocked_total[5m])
             ) > 2
           for: 1m
@@ -824,47 +658,39 @@ spec:
             summary: "IP blocks on {{ $labels.trigger }} from {{ $labels.source_range }}"
             description: >
               {{ $value | humanize }} requests/sec from {{ $labels.source_range }}
-              are being blocked by IP allowlist on {{ $labels.namespace }}/{{ $labels.trigger }}.
+              are being blocked by the IP allowlist on trigger {{ $labels.trigger }}.
 
-        - alert: WebhookOIDCJWKSFetchFailed
+        - alert: WebhookHighRateLimiting
           expr: |
-            rate(kubezap_webhook_auth_failures_total{reason="jwks_fetch_failed"}[5m]) > 0
-          for: 5m
+            sum by (namespace, trigger) (
+              rate(kubezap_webhook_rate_limited_total[5m])
+            ) > 5
+          for: 2m
           labels:
-            severity: critical
+            severity: warning
           annotations:
-            summary: "OIDC JWKS endpoint unreachable for {{ $labels.trigger }}"
+            summary: "High rate-limiting on webhook trigger {{ $labels.trigger }}"
             description: >
-              The webhook gateway cannot reach the JWKS endpoint for trigger
-              {{ $labels.namespace }}/{{ $labels.trigger }}. All OIDC-authenticated
-              requests will be rejected until this is resolved.
+              Trigger {{ $labels.namespace }}/{{ $labels.trigger }} is suppressing
+              {{ $value | humanize }} requests/sec due to the cooldown window policy.
 
     - name: kubezap.webhook.health
       rules:
 
-        - alert: WebhookHighErrorRate
+        - alert: WebhookHighRejectionRate
           expr: |
-            sum by (namespace, trigger) (
-              rate(kubezap_webhook_requests_total{status_code=~"5.."}[5m])
+            sum by (trigger) (
+              rate(kubezap_webhook_request_duration_seconds_count{result="rejected"}[5m])
             )
             /
-            sum by (namespace, trigger) (
-              rate(kubezap_webhook_requests_total[5m])
+            sum by (trigger) (
+              rate(kubezap_webhook_request_duration_seconds_count[5m])
             ) > 0.05
           for: 5m
           labels:
             severity: warning
           annotations:
-            summary: "High 5xx error rate on webhook trigger {{ $labels.trigger }}"
-
-        - alert: WebhookGatewayDown
-          expr: |
-            kubezap_webhook_active_routes == 0
-          for: 2m
-          labels:
-            severity: critical
-          annotations:
-            summary: "Webhook gateway in {{ $labels.namespace }} has no active routes"
+            summary: "High rejection rate on webhook trigger {{ $labels.trigger }}"
 
         - alert: WebhookHighLatency
           expr: |
@@ -879,60 +705,72 @@ spec:
           annotations:
             summary: "P99 webhook latency > 2s on {{ $labels.trigger }}"
 
-    - name: kubezap.kafka.health
+    - name: kubezap.flowrun.health
       rules:
 
-        - alert: KafkaConsumerHighLag
+        - alert: FlowRunHighFailureRate
           expr: |
-            kubezap_kafka_consumer_lag > 10000
+            sum by (namespace, flow) (
+              rate(kubezap_flowrun_duration_seconds_count{phase="Failed"}[5m])
+            )
+            /
+            sum by (namespace, flow) (
+              rate(kubezap_flowrun_duration_seconds_count[5m])
+            ) > 0.1
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "High FlowRun failure rate for flow {{ $labels.flow }}"
+
+        - alert: FlowRunQueueLatencyHigh
+          expr: |
+            histogram_quantile(0.99,
+              sum by (flow, le) (
+                rate(kubezap_flowrun_queue_duration_seconds_bucket[5m])
+              )
+            ) > 30
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "FlowRun queue wait time > 30s for flow {{ $labels.flow }}"
+            description: >
+              The controller is taking more than 30s to pick up FlowRuns for
+              {{ $labels.namespace }}/{{ $labels.flow }}. Check controller health
+              and FlowRun backlog.
+
+        - alert: FlowRunsActiveBacklog
+          expr: |
+            sum by (namespace) (kubezap_flowruns_active) > 500
           for: 10m
           labels:
             severity: warning
           annotations:
-            summary: "Kafka consumer lag is high for topic {{ $labels.topic }}"
-            description: >
-              Consumer group {{ $labels.consumer_group }} on topic {{ $labels.topic }}
-              has a lag of {{ $value }} messages. Consider scaling the Kafka gateway.
+            summary: "Large FlowRun backlog in namespace {{ $labels.namespace }}"
 ```
 
 ---
 
 ## Example Grafana Panels
 
-Key panels for a webhook gateway dashboard:
+Key panels for a KubeZap dashboard:
 
-**Request rate:**
+**Trigger firing rate by result:**
 ```promql
-sum by (trigger) (rate(kubezap_webhook_requests_total[5m]))
+sum by (trigger, result) (rate(kubezap_trigger_firings_total[5m]))
 ```
 
-**Auth failure rate (stacked by reason):**
+**Webhook request rate by outcome:**
 ```promql
-sum by (reason) (rate(kubezap_webhook_auth_failures_total[5m]))
+sum by (trigger, result) (rate(kubezap_webhook_request_duration_seconds_count[5m]))
 ```
 
-**Request body size distribution (heatmap):**
-```promql
-sum by (le) (rate(kubezap_webhook_request_body_bytes_bucket[5m]))
-```
-
-**Total data ingested (bytes/sec):**
-```promql
-sum(rate(kubezap_webhook_request_bytes_total[5m]))
-```
-
-**P50 / P95 / P99 request latency:**
+**P50 / P95 / P99 webhook request latency:**
 ```promql
 histogram_quantile(0.50, sum by (le) (rate(kubezap_webhook_request_duration_seconds_bucket[5m])))
 histogram_quantile(0.95, sum by (le) (rate(kubezap_webhook_request_duration_seconds_bucket[5m])))
 histogram_quantile(0.99, sum by (le) (rate(kubezap_webhook_request_duration_seconds_bucket[5m])))
-```
-
-**Auth failures by trigger (table):**
-```promql
-sort_desc(sum by (trigger, auth_type, reason) (
-  increase(kubezap_webhook_auth_failures_total[1h])
-))
 ```
 
 **IP blocks by source range (bar chart):**
@@ -940,6 +778,35 @@ sort_desc(sum by (trigger, auth_type, reason) (
 sort_desc(sum by (source_range) (
   increase(kubezap_webhook_ip_blocked_total[1h])
 ))
+```
+
+**FlowRun success vs failure rate:**
+```promql
+sum by (flow, phase) (rate(kubezap_flowrun_duration_seconds_count[5m]))
+```
+
+**P95 FlowRun end-to-end duration:**
+```promql
+histogram_quantile(0.95, sum by (flow, le) (
+  rate(kubezap_flowrun_duration_seconds_bucket[5m])
+))
+```
+
+**FlowRun queue latency (P99):**
+```promql
+histogram_quantile(0.99, sum by (flow, le) (
+  rate(kubezap_flowrun_queue_duration_seconds_bucket[5m])
+))
+```
+
+**Active FlowRun backlog (stat panel):**
+```promql
+sum by (namespace, phase) (kubezap_flowruns_active)
+```
+
+**Step failure rate by step type:**
+```promql
+sum by (step_type) (rate(kubezap_step_duration_seconds_count{outcome="Failed"}[5m]))
 ```
 
 ---
@@ -962,14 +829,16 @@ Prometheus stores one time series per unique combination of label values. A busy
 
 ### Label cardinality table
 
-| Label          | Cardinality                              | Safe?                   |
-| -------------- | ---------------------------------------- | ----------------------- |
-| `namespace`    | Low (tens)                               | Yes                     |
-| `trigger`      | Medium (hundreds)                        | Yes                     |
-| `flow`         | Medium (hundreds)                        | Yes                     |
-| `status_code`  | Low (~10)                                | Yes                     |
-| `auth_type`    | Very low (6)                             | Yes                     |
-| `reason`       | Low (~15)                                | Yes                     |
-| `source_ip`    | Unbounded                                | **No — use access log** |
-| `user_agent`   | Unbounded                                | **No — use access log** |
-| `source_range` | Medium (/24 buckets, thousands possible) | **Limited use only**    |
+| Label          | Cardinality                              | Safe?                                      |
+| -------------- | ---------------------------------------- | ------------------------------------------ |
+| `namespace`    | Low (tens)                               | Yes                                        |
+| `trigger`      | Medium (hundreds)                        | Yes                                        |
+| `flow`         | Medium (hundreds)                        | Yes                                        |
+| `type`         | Very low (~5)                            | Yes                                        |
+| `result`       | Very low (~3–5)                          | Yes                                        |
+| `phase`        | Very low (~2)                            | Yes                                        |
+| `step_type`    | Low (tens)                               | Yes                                        |
+| `outcome`      | Very low (2)                             | Yes                                        |
+| `source_range` | Medium (/24 buckets, thousands possible) | **Limited — `ip_blocked` metric only**     |
+| `source_ip`    | Unbounded                                | **No — use structured access log**         |
+| `user_agent`   | Unbounded                                | **No — use structured access log**         |

@@ -490,7 +490,7 @@ The trigger body is available in flow steps and CEL conditions via `$(trigger.bo
 
 `$(trigger.body.<field>)` supports **full dot-path traversal** for nested JSON — e.g., `$(trigger.body.order.customer.email)` and array index access `$(trigger.body.items.0.sku)`. Missing paths return an empty string.
 
-For HTTP step responses, `resultMappings` support **JSONPath** (e.g., `$.user.id`) for JSON and **XPath** (e.g., `/response/user/id`) for XML — the syntax is auto-detected from the expression prefix.
+For HTTP step responses, `resultMappings` support **JSONPath** (e.g., `$.user.id`) to extract values from JSON responses.
 
 See [Flow CRD → Payload Formats](api/flow.md#payload-formats) for the full reference.
 

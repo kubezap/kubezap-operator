@@ -51,6 +51,10 @@ import (
 // ResourceWatcher manages per-Trigger dynamic informers for type:resource triggers.
 // It mirrors the CronScheduler pattern: the TriggerReconciler calls Register/Deregister
 // and ResourceWatcher owns the informer lifecycle.
+//
+// ResourceWatcher implements controller-runtime's Runnable interface. Register mgr.Add()
+// it so that the manager's root context is stored via Start() before any Trigger
+// reconciles begin. This ensures all watcher goroutines are cancelled cleanly on shutdown.
 type ResourceWatcher struct {
 	client          client.Client
 	dynamicClient   dynamic.Interface
@@ -58,6 +62,7 @@ type ResourceWatcher struct {
 	log             logr.Logger
 
 	mu              sync.Mutex
+	mgrCtx          context.Context               // set by Start(); nil until manager starts
 	watchers        map[string]context.CancelFunc // key: "namespace/name"
 	cooldownTracker map[string]time.Time          // key: "triggerNS/triggerName/resourceNS/resourceName/eventType"
 }
@@ -76,6 +81,20 @@ func NewResourceWatcher(c client.Client, dynClient dynamic.Interface, discoveryC
 	}
 }
 
+// Start implements controller-runtime's Runnable interface. The manager calls
+// Start once, passing its root context. ResourceWatcher stores this context so
+// that all subsequent Register calls derive their watcher goroutine contexts
+// from the manager lifecycle rather than context.Background().
+// Start blocks until ctx is done (manager shutdown), which satisfies the
+// Runnable contract.
+func (rw *ResourceWatcher) Start(ctx context.Context) error {
+	rw.mu.Lock()
+	rw.mgrCtx = ctx
+	rw.mu.Unlock()
+	<-ctx.Done()
+	return nil
+}
+
 // Register starts watching resources for the given Trigger. If a watcher already
 // exists for this trigger key, it is stopped and replaced.
 func (rw *ResourceWatcher) Register(trigger *automationv1alpha1.Trigger) {
@@ -92,7 +111,15 @@ func (rw *ResourceWatcher) Register(trigger *automationv1alpha1.Trigger) {
 		return
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
+	rw.mu.Lock()
+	parentCtx := rw.mgrCtx
+	rw.mu.Unlock()
+	if parentCtx == nil {
+		rw.log.Info("ResourceWatcher not yet started by manager, skipping resource watcher registration", "trigger", key)
+		return
+	}
+
+	ctx, cancel := context.WithCancel(parentCtx)
 
 	rw.mu.Lock()
 	rw.watchers[key] = cancel

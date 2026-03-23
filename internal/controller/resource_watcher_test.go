@@ -17,6 +17,8 @@ limitations under the License.
 package controller
 
 import (
+	"context"
+
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -48,6 +50,17 @@ var _ = Describe("ResourceWatcher", func() {
 		It("tracks watchers by key and removes them on Deregister", func() {
 			logger := logf.FromContext(ctx)
 			rw := NewResourceWatcher(k8sClient, dynClient, nil, logger)
+
+			// Simulate the manager calling Start so mgrCtx is populated.
+			startCtx, startCancel := context.WithCancel(ctx)
+			defer startCancel()
+			go func() { _ = rw.Start(startCtx) }() //nolint:errcheck
+			// Yield so Start can store mgrCtx before Register is called.
+			Eventually(func() bool {
+				rw.mu.Lock()
+				defer rw.mu.Unlock()
+				return rw.mgrCtx != nil
+			}).Should(BeTrue())
 
 			trigger := &automationv1alpha1.Trigger{
 				ObjectMeta: metav1.ObjectMeta{
@@ -91,6 +104,16 @@ var _ = Describe("ResourceWatcher", func() {
 		It("replaces an existing watcher on re-Register", func() {
 			logger := logf.FromContext(ctx)
 			rw := NewResourceWatcher(k8sClient, dynClient, nil, logger)
+
+			// Simulate the manager calling Start so mgrCtx is populated.
+			startCtx, startCancel := context.WithCancel(ctx)
+			defer startCancel()
+			go func() { _ = rw.Start(startCtx) }() //nolint:errcheck
+			Eventually(func() bool {
+				rw.mu.Lock()
+				defer rw.mu.Unlock()
+				return rw.mgrCtx != nil
+			}).Should(BeTrue())
 
 			trigger := &automationv1alpha1.Trigger{
 				ObjectMeta: metav1.ObjectMeta{

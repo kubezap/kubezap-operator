@@ -1,3 +1,37 @@
+# Backlog groom: 2026-03-22 (post-review pass)
+
+## Reordering applied (post-review decisions)
+
+- `§16 P2 BUG` resource_watcher.go:95 context detachment → **promoted to P0** (owner decision: goroutine leak blocks clean shutdown and E2E stability)
+- `§16 P2 INFRA` Gateway Deployments missing health probes → **promoted to P1** (owner decision: required before OperatorHub submission)
+- `§16 P2 SECURITY` Restrict secrets RBAC to OwnNamespace → **promoted to P1** (owner concern: cluster-wide secret read is a security blocker)
+
+## Items marked done
+
+- `§16 P2 DOCS` `docs/architecture.md` KEDA stale statement → **[x]** (fixed in review/2026-03-22)
+
+## Items removed
+
+- Duplicate `resource_watcher.go:95` entry in P2 (now in P0)
+- `INFRA` gateway probes duplicate in P2 (now in P1)
+- `SECURITY` secrets RBAC duplicate in P2 (now in P1)
+
+## Ordering violations from prior groom still valid
+
+- `§16 P1 SECURITY` (constant-time comparison) remains before `§16 P1 DOCS/API` (WebhookAuth restructure) — same handler, security fix must land first
+
+## No-change items
+
+40 items reviewed across §1, §10, §15, §16. All other items unchanged.
+
+## Files changed
+
+- `docs/schedule.md`
+- `docs/tech-debt/pending-input-required.md` — 2026-03-22 questions marked ANSWERED
+- `docs/groom-latest.md`
+
+---
+
 # Backlog groom: 2026-03-22
 
 ## Reordering applied

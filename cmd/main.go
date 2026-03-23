@@ -275,6 +275,10 @@ func main() {
 		os.Exit(1)
 	}
 	resourceWatcher := controller.NewResourceWatcher(mgr.GetClient(), dynClient, discoveryClient, ctrl.Log.WithName("resource-watcher"))
+	if err := mgr.Add(resourceWatcher); err != nil {
+		setupLog.Error(err, "unable to add ResourceWatcher to manager")
+		os.Exit(1)
+	}
 
 	if err = (&controller.TriggerReconciler{
 		Client:          mgr.GetClient(),

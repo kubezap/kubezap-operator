@@ -113,7 +113,7 @@ Items are ordered to minimize rework:
 - [ ] **TESTING** — Add E2E test for full `publish` → Kafka Integration path (Trigger → FlowRun → publishStep → Kafka producer). Current E2E suite covers HTTP steps only.
 - [ ] **OBSERVABILITY** — Add `kubezap_when_expression_errors_total{flow,reason}` Prometheus counter for CEL `when` evaluation failures. Currently errors are logged but not metered; makes per-flow skip-rate invisible at scale.
 - [ ] **TECH DEBT** — `internal/controller/flowrun_controller.go` ~line 402: `goto allStepsDone` for early loop exit. Replace with named helper function or structured break. Evidenced by `docs/review-latest.md`.
-- [ ] **TESTING** — Add E2E example test coverage using Kind: apply each `examples/` kustomization, enable trigger, assert FlowRun reaches Succeeded. See `docs/review-latest.md`.
+- [ ] **TESTING** — Add feature-matrix E2E test suite: one focused test per functional axis (step types: http/transform/wait/publish; trigger types: cron/webhook/resource; flow control: when/onFailure/retry/chaining; integration auth: secretUrl/bearer; FlowRun lifecycle: TTL/timeout). Kafka/AMQP/NATS tests marked Pending (require external broker). Goal: if each axis passes, all examples work by composition. Use shared Mockoon fixture; purpose-built minimal testdata, not example kustomizations.
 
 ---
 

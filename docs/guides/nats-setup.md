@@ -182,9 +182,9 @@ kubectl describe integration nats-jetstream -n default
 
 ## Creating a NATS Trigger
 
-A Trigger with `type: pubsub` and `pubsub.type: nats` subscribes to NATS subjects and creates a `FlowRun` for each message received.
+A Trigger with `type: nats` subscribes to NATS subjects and creates a `FlowRun` for each message received.
 
-See [Trigger CRD -- PubSubTrigger](../api/trigger.md#pubsubtrigger) for the full spec reference.
+See [Trigger CRD -- NatsTrigger](../api/trigger.md#natstrigger) for the full spec reference.
 
 ### NATS Core Trigger
 
@@ -197,10 +197,8 @@ metadata:
   name: order-events
   namespace: default
 spec:
-  type: pubsub
-  pubsub:
-    # Broker type
-    type: nats
+  type: nats
+  nats:
     # Reference to the Integration with connection details
     integrationRef:
       name: nats-core
@@ -221,9 +219,8 @@ metadata:
   name: order-events
   namespace: default
 spec:
-  type: pubsub
-  pubsub:
-    type: nats
+  type: nats
+  nats:
     integrationRef:
       name: nats-core
     subject: "orders.created"
@@ -245,9 +242,8 @@ metadata:
   name: order-events-js
   namespace: default
 spec:
-  type: pubsub
-  pubsub:
-    type: nats
+  type: nats
+  nats:
     integrationRef:
       name: nats-jetstream
     # Subject must match a subject bound to an existing JetStream stream
@@ -280,9 +276,8 @@ metadata:
   name: order-events-js
   namespace: default
 spec:
-  type: pubsub
-  pubsub:
-    type: nats
+  type: nats
+  nats:
     integrationRef:
       name: nats-jetstream
     subject: "orders.created"

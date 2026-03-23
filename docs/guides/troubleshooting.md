@@ -68,7 +68,7 @@ kubectl logs -n kubezap-system -l control-plane=controller-manager | grep <trigg
 
 - **Invalid cron expression**: The `spec.cron.schedule` field failed validation. The condition message will contain the parsing error.
 - **Referenced Flow not found**: If using `flowRef`, the Flow must exist in the same namespace (or the specified namespace). Create the Flow first or check the namespace.
-- **Integration not ready**: For `pubsub` triggers, the referenced Integration must have a `Ready: True` condition.
+- **Integration not ready**: For `kafka`, `amqp`, and `nats` triggers, the referenced Integration must have a `Ready: True` condition.
 - **Both `flowRef` and `action` set**: Only one of `spec.flowRef` or `spec.action` may be set — the CRD validation will reject the Trigger.
 
 ```bash

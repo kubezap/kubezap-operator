@@ -102,9 +102,8 @@ When referenced by a `Trigger`, the Integration acts as an event source. KubeZap
 ```yaml
 # Trigger referencing an Integration as a subscriber
 spec:
-  type: pubsub
-  pubsub:
-    type: kafka
+  type: kafka
+  kafka:
     integrationRef:
       name: kafka-cluster
     topic: orders.created
@@ -160,7 +159,7 @@ trigger:
   metadata:
     bootstrapServers: <from Integration.spec.kafka.bootstrapServers>
     consumerGroup: <kubezap-<trigger-name>>
-    topic: <from Trigger.spec.pubsub.topic>
+    topic: <from Trigger.spec.kafka.topic>
     lagThreshold: "50"
     offsetResetPolicy: latest
 ```
@@ -275,7 +274,7 @@ A plugin image must implement both the subscriber and publisher contracts. You m
 The plugin container must:
 
 1. Connect to the Kubernetes API (in-cluster `ServiceAccount` is provided)
-2. Watch `Trigger` resources in its namespace for `spec.type: pubsub` triggers that reference this Integration
+2. Watch `Trigger` resources in its namespace for triggers whose `spec.type` matches this Integration type and that reference this Integration
 3. Subscribe to the external system based on the Trigger spec
 4. For each received event, create a `FlowRun` in the same namespace:
 
@@ -286,14 +285,14 @@ FlowRun{
         Namespace: trigger.Namespace,
         Labels: {
             "kubezap.io/trigger":      trigger.Name,
-            "kubezap.io/trigger-type": "pubsub",
+            "kubezap.io/trigger-type": trigger.Spec.Type,  // e.g. "kafka", "amqp", "nats"
             "kubezap.io/flow":         trigger.Spec.FlowRef.Name,
         },
     },
     Spec: {
         FlowRef:     trigger.Spec.FlowRef,
         Params:      []ParamValue{ ... }, // extracted from message
-        TriggerRef:  { Name: trigger.Name, Type: "pubsub" },
+        TriggerRef:  { Name: trigger.Name, Type: trigger.Spec.Type },
         TriggerData: { Source: "plugin", Body: messageBody, ... },
     },
 }
@@ -767,9 +766,8 @@ metadata:
   name: order-events
   namespace: automation
 spec:
-  type: pubsub
-  pubsub:
-    type: kafka
+  type: kafka
+  kafka:
     integrationRef:
       name: kafka-prod          # references the Integration by name
     topic: orders.created

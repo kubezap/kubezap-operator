@@ -148,7 +148,7 @@ Lists Trigger resources with enriched status. Surfaces cross-referenced state th
 NAME              TYPE      STATUS     LAST FIRED         ACTIVE   GC POLICY
 order-webhook     webhook   Accepted   2m ago             3        max:10/50 ttl:24h/72h
 nightly-report    cron      Accepted   6h ago             0        ttl:24h/72h (default)
-order-events      pubsub    Accepted   30s ago            1        max:10/50 ttl:24h/72h
+order-events      kafka     Accepted   30s ago            1        max:10/50 ttl:24h/72h
 stale-trigger     webhook   Pending    never              0        default
 ```
 
@@ -157,7 +157,7 @@ stale-trigger     webhook   Pending    never              0        default
 | Column       | Source                                                         | Notes                                                       |
 | ------------ | -------------------------------------------------------------- | ----------------------------------------------------------- |
 | `NAME`       | `metadata.name`                                                |                                                             |
-| `TYPE`       | `spec.type`                                                    | `webhook`, `cron`, or `pubsub`                              |
+| `TYPE`       | `spec.type`                                                    | `webhook`, `cron`, `kafka`, `amqp`, `nats`, or `resource`   |
 | `STATUS`     | First `True` condition reason                                  | `Accepted`, `Pending`, or `Error: <reason>`                 |
 | `LAST FIRED` | `status.lastTriggeredTime`                                     | Human-readable elapsed; `never` if not set                  |
 | `ACTIVE`     | Count of FlowRuns with `status.phase=Running` for this trigger | Requires listing FlowRuns by label                          |

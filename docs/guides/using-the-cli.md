@@ -133,7 +133,7 @@ kubezap triggers
 NAME              TYPE      STATUS    LAST FIRED          ACTIVE FLOWRUNS   GC POLICY
 order-webhook     webhook   Enabled   2026-03-18T04:12Z   0                 max 100 succeeded
 nightly-report    cron      Enabled   2026-03-18T02:00Z   0                 ttl 24h
-customer-events   pubsub    Enabled   2026-03-18T04:09Z   1                 max 50 succeeded
+customer-events   kafka     Enabled   2026-03-18T04:09Z   1                 max 50 succeeded
 incident-alert    webhook   Disabled  —                   0                 —
 ```
 

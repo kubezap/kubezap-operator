@@ -155,7 +155,7 @@ Use `$(syntax)` to reference dynamic values in string fields (URLs, headers, bod
 | `$(params.<name>)`                         | A declared flow parameter                                                                      |
 | `$(trigger.name)`                          | Name of the Trigger that fired                                                                 |
 | `$(trigger.namespace)`                     | Namespace of the Trigger                                                                       |
-| `$(trigger.type)`                          | Type of the Trigger (webhook, cron, pubsub)                                                    |
+| `$(trigger.type)`                          | Type of the Trigger (webhook, cron, kafka, amqp, nats, resource)                               |
 | `$(trigger.body)`                          | Raw trigger event body (webhook request body or Kafka message value)                           |
 | `$(trigger.body.<field>)`                  | A JSON field from the trigger body; full dot-path supported (e.g., `$(trigger.body.order.id)`) |
 | `$(steps.<stepName>.results.<resultName>)` | A result produced by a previous step                                                           |
@@ -985,7 +985,7 @@ spec:
 $(params.<name>)                         → declared flow parameter
 $(trigger.name)                          → name of the Trigger CR
 $(trigger.namespace)                     → namespace of the Trigger CR
-$(trigger.type)                          → trigger type: webhook, cron, pubsub
+$(trigger.type)                          → trigger type: webhook, cron, kafka, amqp, nats, resource
 $(trigger.payload.<dotpath>)             → field from the trigger event payload
 $(trigger.header.<name>)                 → HTTP header from the triggering request
 $(steps.<step-name>.results.<result>)    → result from a completed step

@@ -2,7 +2,7 @@
 
 This guide walks through setting up KubeZap's built-in AMQP gateway to consume messages from RabbitMQ (AMQP 0-9-1) or ActiveMQ Artemis (AMQP 1.0) and trigger Flows automatically. By the end, you will have a working Integration, a Trigger subscribed to a queue, and a FlowRun created from a test message.
 
-For the full field reference, see the [Integration CRD spec](../api/integration.md#amqpintegrationspec) and the [Trigger CRD spec](../api/trigger.md#pubsubtrigger).
+For the full field reference, see the [Integration CRD spec](../api/integration.md#amqpintegrationspec) and the [Trigger CRD spec](../api/trigger.md#amqptrigger).
 
 ---
 
@@ -176,7 +176,7 @@ Look at `Status.Conditions` for details. Common issues include unreachable broke
 
 ## Creating an AMQP Trigger
 
-A `Trigger` with `type: pubsub` and `pubsub.type: amqp` tells KubeZap to consume messages from a queue and create a FlowRun for each one.
+A `Trigger` with `type: amqp` tells KubeZap to consume messages from a queue and create a FlowRun for each one.
 
 > **Note:** You need an existing Flow for the Trigger to reference. If you do not have one yet, create a simple echo Flow for testing. See the [Flow CRD docs](../api/flow.md) for details.
 
@@ -187,11 +187,8 @@ metadata:
   name: order-events
   namespace: default
 spec:
-  type: pubsub
-  pubsub:
-    # Must match the Integration type.
-    type: amqp
-
+  type: amqp
+  amqp:
     # Reference to the Integration created above.
     integrationRef:
       name: rabbitmq

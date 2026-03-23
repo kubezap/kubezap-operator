@@ -465,7 +465,7 @@ Key span attributes:
 | Attribute              | Set on              | Description                                             |
 | ---------------------- | ------------------- | ------------------------------------------------------- |
 | `kubezap.trigger.name` | Root span           | Name of the Trigger CRD                                 |
-| `kubezap.trigger.type` | Root span           | `webhook`, `cron`, `pubsub`                             |
+| `kubezap.trigger.type` | Root span           | `webhook`, `cron`, `kafka`, `amqp`, `nats`, `resource`  |
 | `kubezap.flowrun.name` | `flowrun_reconcile` | Name of the FlowRun resource                            |
 | `kubezap.flow.name`    | `flowrun_reconcile` | Name of the referenced Flow                             |
 | `kubezap.step.name`    | Each step span      | Step name within the Flow                               |

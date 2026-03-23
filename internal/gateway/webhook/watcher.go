@@ -191,35 +191,35 @@ func (w *TriggerWatcher) buildRouteEntry(ctx context.Context, trigger *automatio
 
 	switch auth.Type {
 	case "hmac":
-		if auth.HMACSecretRef == nil {
-			return RouteEntry{}, fmt.Errorf("hmac auth requires hmacSecretRef")
+		if auth.HMAC == nil {
+			return RouteEntry{}, fmt.Errorf("hmac auth requires hmac config")
 		}
-		val, err := w.readSecretKey(ctx, trigger.Namespace, auth.HMACSecretRef.Name, auth.HMACSecretRef.Key)
+		val, err := w.readSecretKey(ctx, trigger.Namespace, auth.HMAC.SecretRef.Name, auth.HMAC.SecretRef.Key)
 		if err != nil {
 			return RouteEntry{}, fmt.Errorf("reading HMAC secret: %w", err)
 		}
 		entry.HMACSecret = val
 
 	case "bearer":
-		if auth.BearerTokenSecretRef == nil {
-			return RouteEntry{}, fmt.Errorf("bearer auth requires bearerTokenSecretRef")
+		if auth.Bearer == nil {
+			return RouteEntry{}, fmt.Errorf("bearer auth requires bearer config")
 		}
-		val, err := w.readSecretKey(ctx, trigger.Namespace, auth.BearerTokenSecretRef.Name, auth.BearerTokenSecretRef.Key)
+		val, err := w.readSecretKey(ctx, trigger.Namespace, auth.Bearer.TokenSecretRef.Name, auth.Bearer.TokenSecretRef.Key)
 		if err != nil {
 			return RouteEntry{}, fmt.Errorf("reading bearer token secret: %w", err)
 		}
 		entry.BearerToken = val
 
 	case "apiKey":
-		if auth.APIKeySecretRef == nil {
-			return RouteEntry{}, fmt.Errorf("apiKey auth requires apiKeySecretRef")
+		if auth.APIKey == nil {
+			return RouteEntry{}, fmt.Errorf("apiKey auth requires apiKey config")
 		}
-		val, err := w.readSecretKey(ctx, trigger.Namespace, auth.APIKeySecretRef.Name, auth.APIKeySecretRef.Key)
+		val, err := w.readSecretKey(ctx, trigger.Namespace, auth.APIKey.SecretRef.Name, auth.APIKey.SecretRef.Key)
 		if err != nil {
 			return RouteEntry{}, fmt.Errorf("reading API key secret: %w", err)
 		}
 		entry.APIKey = val
-		entry.APIKeyHeader = auth.APIKeyHeader
+		entry.APIKeyHeader = auth.APIKey.Header
 		if entry.APIKeyHeader == "" {
 			entry.APIKeyHeader = "X-Api-Key"
 		}
@@ -248,26 +248,31 @@ func (w *TriggerWatcher) buildRouteEntry(ctx context.Context, trigger *automatio
 		entry.BasicPassword = password
 
 	case "ipAllowlist":
-		entry.IPAllowlist = append([]string(nil), auth.IPAllowlist...)
+		if auth.IPAllowlist != nil {
+			entry.IPAllowlist = append([]string(nil), auth.IPAllowlist.CIDRs...)
+		}
 
 	case "oidc":
-		// OIDCAudience is optional; OIDCIssuer is optional but recommended.
+		if auth.OIDC == nil {
+			return RouteEntry{}, fmt.Errorf("oidc auth requires oidc config")
+		}
+		// OIDC.Audience is optional; OIDC.Issuer is optional but recommended.
 		// JWKS URL is derived from the issuer using the standard well-known path.
-		jwksURL := auth.OIDCIssuer + "/.well-known/jwks.json"
+		jwksURL := auth.OIDC.Issuer + "/.well-known/jwks.json"
 		if err := RegisterJWKSURL(ctx, w.jwksCache, jwksURL); err != nil {
 			return RouteEntry{}, fmt.Errorf("registering OIDC JWKS URL: %w", err)
 		}
-		entry.OIDCValidator = newOIDCValidator(jwksURL, auth.OIDCIssuer, auth.OIDCAudience, w.jwksCache)
+		entry.OIDCValidator = newOIDCValidator(jwksURL, auth.OIDC.Issuer, auth.OIDC.Audience, w.jwksCache)
 
 	case "header-equals":
-		if auth.HeaderEqualsSecretRef == nil {
-			return RouteEntry{}, fmt.Errorf("header-equals auth requires headerEqualsSecretRef")
+		if auth.HeaderEquals == nil {
+			return RouteEntry{}, fmt.Errorf("header-equals auth requires headerEquals config")
 		}
-		val, err := w.readSecretKey(ctx, trigger.Namespace, auth.HeaderEqualsSecretRef.Name, auth.HeaderEqualsSecretRef.Key)
+		val, err := w.readSecretKey(ctx, trigger.Namespace, auth.HeaderEquals.SecretRef.Name, auth.HeaderEquals.SecretRef.Key)
 		if err != nil {
 			return RouteEntry{}, fmt.Errorf("reading header-equals secret: %w", err)
 		}
-		entry.HeaderEqualsHeader = auth.HeaderEqualsHeader
+		entry.HeaderEqualsHeader = auth.HeaderEquals.Header
 		entry.HeaderEqualsValue = val
 	}
 

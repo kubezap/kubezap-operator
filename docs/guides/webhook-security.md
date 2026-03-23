@@ -299,10 +299,11 @@ spec:
   webhook:
     auth:
       type: header-equals
-      headerEqualsHeader: "X-API-Key"   # or "X-Gitlab-Token", "X-Custom-Auth", etc.
-      headerEqualsSecretRef:
-        name: my-api-key-secret
-        key: apiKey
+      headerEquals:
+        header: "X-API-Key"   # or "X-Gitlab-Token", "X-Custom-Auth", etc.
+        secretRef:
+          name: my-api-key-secret
+          key: apiKey
 ```
 
 The gateway compares the header value to the secret value using a constant-time comparison.
@@ -313,10 +314,11 @@ spec:
   webhook:
     auth:
       type: header-equals
-      headerEqualsHeader: "X-Gitlab-Token"
-      headerEqualsSecretRef:
-        name: gitlab-webhook-token
-        key: token
+      headerEquals:
+        header: "X-Gitlab-Token"
+        secretRef:
+          name: gitlab-webhook-token
+          key: token
 ```
 
 ---
@@ -329,10 +331,12 @@ Not an authentication mechanism, but a defense-in-depth control. Restrict which 
 spec:
   webhook:
     auth:
+      type: ipAllowlist
       ipAllowlist:
-        - "192.168.1.0/24"
-        - "10.0.0.5/32"
-        - "203.0.113.0/28"   # GitHub webhook IP range (example)
+        cidrs:
+          - "192.168.1.0/24"
+          - "10.0.0.5/32"
+          - "203.0.113.0/28"   # GitHub webhook IP range (example)
 ```
 
 IP allowlist can be combined with any other auth type.
@@ -343,8 +347,10 @@ IP allowlist can be combined with any other auth type.
 spec:
   webhook:
     auth:
+      type: ipAllowlist
       ipAllowlist:
-        - "203.0.113.0/28"
+        cidrs:
+          - "203.0.113.0/28"
       trustedProxies:
         - "10.0.0.0/8"   # cluster-internal proxy IPs
 ```
@@ -394,17 +400,17 @@ spec:
 
 ### WebhookAuth
 
-| Field             | Type              | Required    | Description                                                                                                                                                                                                                           |
-| ----------------- | ----------------- | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `type`            | enum              | No          | Auth method: `hmac`, `bearer`, `oidc`, `basic`, `apiKey`, `ipAllowlist`. Omit for no authentication. mTLS is configured at the transport layer via Namespace annotations — see [mTLS (Client Certificate)](#mtls-client-certificate). |
-| `hmac`            | HMACAuth          | Conditional | Required when `type: hmac`                                                                                                                                                                                                            |
-| `bearer`          | BearerAuth        | Conditional | Required when `type: bearer`                                                                                                                                                                                                          |
-| `oidc`            | OIDCAuth          | Conditional | Required when `type: oidc`                                                                                                                                                                                                            |
-| `basic`           | BasicAuth         | Conditional | Required when `type: basic`                                                                                                                                                                                                           |
-| `apiKeySecretRef` | SecretKeySelector | Conditional | Secret key containing the API key value. Used when `type: apiKey`                                                                                                                                                                     |
-| `apiKeyHeader`    | string            | No          | Header name to check (default: `X-Api-Key`). Used when `type: apiKey`                                                                                                                                                                 |
-| `ipAllowlist`     | []string          | No          | CIDR ranges allowed to call this endpoint. Combinable with any `type`.                                                                                                                                                                |
-| `trustedProxies`  | []string          | No          | CIDR ranges of trusted proxy IPs for X-Forwarded-For header processing                                                                                                                                                                |
+| Field          | Type               | Required    | Description                                                                                                                                                                                                                            |
+| -------------- | ------------------ | ----------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `type`         | enum               | No          | Auth method: `hmac`, `bearer`, `oidc`, `basic`, `apiKey`, `ipAllowlist`, `header-equals`. Omit for no authentication. mTLS is configured at the transport layer via Namespace annotations — see [mTLS (Client Certificate)](#mtls-client-certificate). |
+| `hmac`         | HMACAuth           | Conditional | Required when `type: hmac`                                                                                                                                                                                                             |
+| `bearer`       | BearerAuth         | Conditional | Required when `type: bearer`                                                                                                                                                                                                           |
+| `oidc`         | OIDCAuth           | Conditional | Required when `type: oidc`                                                                                                                                                                                                             |
+| `basic`        | BasicAuth          | Conditional | Required when `type: basic`                                                                                                                                                                                                            |
+| `apiKey`       | APIKeyConfig       | Conditional | API key config. Required when `type: apiKey`.                                                                                                                                                                                          |
+| `ipAllowlist`  | IPAllowlistConfig  | Conditional | IP allowlist config. Required when `type: ipAllowlist`.                                                                                                                                                                                |
+| `headerEquals` | HeaderEqualsConfig | Conditional | Exact header match config. Required when `type: header-equals`.                                                                                                                                                                        |
+| `trustedProxies` | []string         | No          | CIDR ranges of trusted proxy IPs for X-Forwarded-For header processing                                                                                                                                                                |
 
 ### HMACAuth
 
@@ -442,10 +448,10 @@ spec:
 
 ### HeaderEqualsAuth
 
-| Field                   | Type         | Required | Description                                 |
-| ----------------------- | ------------ | -------- | ------------------------------------------- |
-| `headerEqualsHeader`    | string       | **Yes**  | HTTP header name to check                   |
-| `headerEqualsSecretRef` | SecretKeyRef | **Yes**  | Secret containing the expected header value |
+| Field       | Type         | Required | Description                                 |
+| ----------- | ------------ | -------- | ------------------------------------------- |
+| `header`    | string       | **Yes**  | HTTP header name to check                   |
+| `secretRef` | SecretKeyRef | **Yes**  | Secret containing the expected header value |
 
 ---
 

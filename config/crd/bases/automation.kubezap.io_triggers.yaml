@@ -369,38 +369,45 @@ spec:
                       Auth configures authentication for this webhook endpoint.
                       If omitted, the endpoint accepts requests from any caller.
                     properties:
-                      apiKeyHeader:
-                        default: X-Api-Key
-                        description: Header name to check for the API key. Used when
-                          type is "apiKey".
-                        type: string
-                      apiKeySecretRef:
-                        description: API key value secret reference. Used when type
-                          is "apiKey".
+                      apiKey:
+                        description: API key header verification. Used when type is
+                          "apiKey".
                         properties:
-                          key:
-                            description: The key of the secret to select from.  Must
-                              be a valid secret key.
+                          header:
+                            default: X-Api-Key
+                            description: Header name to check for the API key.
                             type: string
-                          name:
-                            default: ""
-                            description: |-
-                              Name of the referent.
-                              This field is effectively required, but due to backwards compatibility is
-                              allowed to be empty. Instances of this type with an empty value here are
-                              almost certainly wrong.
-                              More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
-                            type: string
-                          optional:
-                            description: Specify whether the Secret or its key must
-                              be defined
-                            type: boolean
+                          secretRef:
+                            description: Secret reference — key contains the expected
+                              API key value.
+                            properties:
+                              key:
+                                description: The key of the secret to select from.  Must
+                                  be a valid secret key.
+                                type: string
+                              name:
+                                default: ""
+                                description: |-
+                                  Name of the referent.
+                                  This field is effectively required, but due to backwards compatibility is
+                                  allowed to be empty. Instances of this type with an empty value here are
+                                  almost certainly wrong.
+                                  More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                                type: string
+                              optional:
+                                description: Specify whether the Secret or its key
+                                  must be defined
+                                type: boolean
+                            required:
+                            - key
+                            type: object
+                            x-kubernetes-map-type: atomic
                         required:
-                        - key
+                        - secretRef
                         type: object
-                        x-kubernetes-map-type: atomic
                       basic:
-                        description: Basic auth configuration. Used when type is "basic".
+                        description: HTTP Basic authentication. Used when type is
+                          "basic".
                         properties:
                           passwordKey:
                             default: password
@@ -428,99 +435,130 @@ spec:
                         required:
                         - secretRef
                         type: object
-                      bearerTokenSecretRef:
-                        description: Bearer token secret reference. Used when type
-                          is "bearer".
+                      bearer:
+                        description: Bearer token verification. Used when type is
+                          "bearer".
                         properties:
-                          key:
-                            description: The key of the secret to select from.  Must
-                              be a valid secret key.
-                            type: string
-                          name:
-                            default: ""
-                            description: |-
-                              Name of the referent.
-                              This field is effectively required, but due to backwards compatibility is
-                              allowed to be empty. Instances of this type with an empty value here are
-                              almost certainly wrong.
-                              More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
-                            type: string
-                          optional:
-                            description: Specify whether the Secret or its key must
-                              be defined
-                            type: boolean
+                          tokenSecretRef:
+                            description: Secret reference — key contains the expected
+                              bearer token value.
+                            properties:
+                              key:
+                                description: The key of the secret to select from.  Must
+                                  be a valid secret key.
+                                type: string
+                              name:
+                                default: ""
+                                description: |-
+                                  Name of the referent.
+                                  This field is effectively required, but due to backwards compatibility is
+                                  allowed to be empty. Instances of this type with an empty value here are
+                                  almost certainly wrong.
+                                  More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                                type: string
+                              optional:
+                                description: Specify whether the Secret or its key
+                                  must be defined
+                                type: boolean
+                            required:
+                            - key
+                            type: object
+                            x-kubernetes-map-type: atomic
                         required:
-                        - key
+                        - tokenSecretRef
                         type: object
-                        x-kubernetes-map-type: atomic
-                      headerEqualsHeader:
-                        description: |-
-                          Header name to match against the expected value. Used when type is "header-equals".
-                          Example: "X-Gitlab-Token"
-                        type: string
-                      headerEqualsSecretRef:
-                        description: Secret reference for the expected header value.
-                          Used when type is "header-equals".
+                      headerEquals:
+                        description: Exact header value match. Used when type is "header-equals".
                         properties:
-                          key:
-                            description: The key of the secret to select from.  Must
-                              be a valid secret key.
+                          header:
+                            description: Header name to check (e.g. "X-Gitlab-Token").
                             type: string
-                          name:
-                            default: ""
-                            description: |-
-                              Name of the referent.
-                              This field is effectively required, but due to backwards compatibility is
-                              allowed to be empty. Instances of this type with an empty value here are
-                              almost certainly wrong.
-                              More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
-                            type: string
-                          optional:
-                            description: Specify whether the Secret or its key must
-                              be defined
-                            type: boolean
+                          secretRef:
+                            description: Secret reference — key contains the expected
+                              header value.
+                            properties:
+                              key:
+                                description: The key of the secret to select from.  Must
+                                  be a valid secret key.
+                                type: string
+                              name:
+                                default: ""
+                                description: |-
+                                  Name of the referent.
+                                  This field is effectively required, but due to backwards compatibility is
+                                  allowed to be empty. Instances of this type with an empty value here are
+                                  almost certainly wrong.
+                                  More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                                type: string
+                              optional:
+                                description: Specify whether the Secret or its key
+                                  must be defined
+                                type: boolean
+                            required:
+                            - key
+                            type: object
+                            x-kubernetes-map-type: atomic
                         required:
-                        - key
+                        - header
+                        - secretRef
                         type: object
-                        x-kubernetes-map-type: atomic
-                      hmacSecretRef:
-                        description: HMAC secret reference (key contains the shared
-                          secret). Used when type is "hmac".
+                      hmac:
+                        description: HMAC signature verification. Used when type is
+                          "hmac".
                         properties:
-                          key:
-                            description: The key of the secret to select from.  Must
-                              be a valid secret key.
-                            type: string
-                          name:
-                            default: ""
-                            description: |-
-                              Name of the referent.
-                              This field is effectively required, but due to backwards compatibility is
-                              allowed to be empty. Instances of this type with an empty value here are
-                              almost certainly wrong.
-                              More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
-                            type: string
-                          optional:
-                            description: Specify whether the Secret or its key must
-                              be defined
-                            type: boolean
+                          secretRef:
+                            description: Secret reference — key contains the shared
+                              HMAC secret.
+                            properties:
+                              key:
+                                description: The key of the secret to select from.  Must
+                                  be a valid secret key.
+                                type: string
+                              name:
+                                default: ""
+                                description: |-
+                                  Name of the referent.
+                                  This field is effectively required, but due to backwards compatibility is
+                                  allowed to be empty. Instances of this type with an empty value here are
+                                  almost certainly wrong.
+                                  More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                                type: string
+                              optional:
+                                description: Specify whether the Secret or its key
+                                  must be defined
+                                type: boolean
+                            required:
+                            - key
+                            type: object
+                            x-kubernetes-map-type: atomic
                         required:
-                        - key
+                        - secretRef
                         type: object
-                        x-kubernetes-map-type: atomic
                       ipAllowlist:
-                        description: |-
-                          CIDR blocks allowed to call this endpoint. Used when type is "ipAllowlist".
-                          Example: ["10.0.0.0/8", "192.168.1.0/24"]
-                        items:
-                          type: string
-                        type: array
-                      oidcAudience:
-                        description: OIDC audience. Used when type is "oidc".
-                        type: string
-                      oidcIssuer:
-                        description: OIDC/JWT issuer URL. Used when type is "oidc".
-                        type: string
+                        description: IP address allowlist. Used when type is "ipAllowlist".
+                        properties:
+                          cidrs:
+                            description: |-
+                              CIDR blocks allowed to call this endpoint.
+                              Example: ["10.0.0.0/8", "192.168.1.0/24"]
+                            items:
+                              type: string
+                            type: array
+                        required:
+                        - cidrs
+                        type: object
+                      oidc:
+                        description: OIDC/JWT verification. Used when type is "oidc".
+                        properties:
+                          audience:
+                            description: Expected audience claim value.
+                            type: string
+                          issuer:
+                            description: OIDC issuer URL (e.g. https://accounts.google.com).
+                            type: string
+                        required:
+                        - issuer
+                        type: object
                       type:
                         description: Authentication method.
                         enum:

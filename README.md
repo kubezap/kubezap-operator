@@ -32,13 +32,13 @@ The controller starts in `kubezap-system`. Verify it is running:
 kubectl get pods -n kubezap-system
 ```
 
-### Helm chart _(coming in v0.3)_
+### Helm chart
 
 ```bash
 helm install kubezap kubezap/kubezap
 ```
 
-### OperatorHub / OLM _(coming in v0.3)_
+### OperatorHub / OLM _(submission pending)_
 
 Install via the OpenShift OperatorHub catalog or the community OperatorHub.
 

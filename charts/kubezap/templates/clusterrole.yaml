@@ -14,6 +14,17 @@ rules:
       - get
       - list
       - watch
+  # AllNamespaces mode: operator reads secrets to resolve secretRefs in Triggers and Integrations
+  # across all namespaces. To restrict secrets access to the operator namespace, use
+  # watchOwnNamespace: true (the default) instead of AllNamespaces mode.
+  - apiGroups:
+      - ""
+    resources:
+      - secrets
+    verbs:
+      - get
+      - list
+      - watch
   - apiGroups:
       - ""
     resources:

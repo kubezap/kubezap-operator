@@ -13,10 +13,22 @@ serviceAccount:
   annotations: {}
   name: ""
 
-# Watch namespace(s).
+# Installation scope. Controls which namespaces the operator watches and what RBAC is created.
+#
+# watchOwnNamespace: true  (default — most secure)
+#   Operator watches only its own release namespace. Uses a namespace-scoped Role; secrets
+#   access is restricted to the operator namespace. Recommended for production.
+#
+# watchOwnNamespace: false
+#   Operator watches all namespaces or the namespaces in watchNamespaces. Uses a ClusterRole;
+#   requires cluster-wide secrets read. Required when Triggers/Integrations span namespaces.
+#
+watchOwnNamespace: true
+
+# Explicit namespace list (only used when watchOwnNamespace is false).
 # ""           → AllNamespaces (ClusterRole + ClusterRoleBinding)
-# "ns"         → SingleNamespace / OwnNamespace (Role + RoleBinding scoped to release namespace)
-# "ns1,ns2"    → MultiNamespace (ClusterRole + ClusterRoleBinding, controller env WATCH_NAMESPACES set)
+# "ns"         → SingleNamespace (Role + RoleBinding scoped to that namespace)
+# "ns1,ns2"    → MultiNamespace (ClusterRole + ClusterRoleBinding, WATCH_NAMESPACES env set)
 watchNamespaces: ""
 
 # Leader election

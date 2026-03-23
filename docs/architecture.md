@@ -318,7 +318,7 @@ spec:
         lagThreshold: "50"
 ```
 
-KEDA integration is planned for v0.3.
+KEDA is supported for partition-bounded scaling of Kafka gateways via the Kafka scaler. See the [Integration CRD](../api/integration.md) for configuration details.
 
 ### Controller
 

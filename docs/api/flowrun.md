@@ -112,7 +112,7 @@ FlowRuns are always created by KubeZap components — never directly by users (t
 | `kubezap-amqp-gateway`    | `spec.type: amqp`                      | `<trigger-name>-p<partition>-offset-<offset>`   |
 | `kubezap-nats-gateway`    | `spec.type: nats`                      | `<trigger-name>-<subject>-<sequence>`           |
 | `kubezap-controller`      | `spec.type: cron`                      | `<trigger-name>-<scheduled-time>`               |
-| `kubezap-controller`      | Kubernetes resource events _(planned)_ | `<trigger-name>-<object-uid>-<resourceVersion>` |
+| `kubezap-controller`      | Kubernetes resource events _(alpha)_   | `<trigger-name>-<object-uid>-<resourceVersion>` |
 
 The Kafka naming convention (`-p0-offset-12345`) is the deduplication key — see [Deduplication](#deduplication).
 

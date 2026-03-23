@@ -106,6 +106,14 @@ Items are ordered to minimize rework:
 - [ ] **BUG** — `internal/controller/resource_watcher.go`: no cooldown mechanism. Rapidly-updated resources (e.g., Pod status churn) with no `watchFields` filter create a FlowRun on every update. Add `maxInvocations`/`window` rate-limiting consistent with other trigger types. Evidenced by `docs/tech-debt/pending-input-required.md` Q2.
 - [ ] **TECH DEBT** — `internal/controller/integration_controller.go`: Kafka producer pool (`kafkaProducers` map) has no TTL or health check; stale connections not detected until next publish attempt fails. Add periodic health check or TTL eviction. Evidenced by `docs/review-latest.md`.
 - [ ] **TECH DEBT** — `internal/controller/flowrun_controller.go`: CEL environment init failure cached forever via `sync.Once` — a transient failure permanently disables CEL evaluation for the pod lifetime. Replace with retriable init that resets on failure. Evidenced by `docs/review-latest.md`.
+- [ ] **BUG** — `internal/controller/resource_watcher.go:95`: watcher goroutine context derived from `context.Background()` instead of manager lifecycle context. Goroutine leaks on shutdown; prevents clean controller-manager teardown. Fix: derive context from manager or register as `mgr.Add()` Runnable. Evidenced by `docs/review-latest.md`.
+- [ ] **INFRA** — Gateway Deployments (webhook, kafka, amqp, nats) missing `livenessProbe`/`readinessProbe`. OperatorHub scorecard requires probes on managed Deployments. Target `GET /healthz` on each gateway's configured port. Evidenced by `docs/review-latest.md`.
+- [ ] **BUG** — `internal/controller/flowrun_controller.go` publish step: response body discarded on 4xx/5xx, making failures undebuggable from FlowRun status. Capture up to 1KB of error body in step message, consistent with HTTP step. Evidenced by `docs/review-latest.md`.
+- [ ] **TESTING** — Add E2E test for full `publish` → Kafka Integration path (Trigger → FlowRun → publishStep → Kafka producer). Current E2E suite covers HTTP steps only.
+- [ ] **OBSERVABILITY** — Add `kubezap_when_expression_errors_total{flow,reason}` Prometheus counter for CEL `when` evaluation failures. Currently errors are logged but not metered; makes per-flow skip-rate invisible at scale.
+- [ ] **TECH DEBT** — `internal/controller/flowrun_controller.go` ~line 402: `goto allStepsDone` for early loop exit. Replace with named helper function or structured break. Evidenced by `docs/review-latest.md`.
+- [ ] **TESTING** — Add E2E example test coverage using Kind: apply each `examples/` kustomization, enable trigger, assert FlowRun reaches Succeeded. See `docs/review-latest.md`.
+- [ ] **SECURITY** — Restrict secrets RBAC to operator namespace (OwnNamespace default). ClusterRole grants `get;list;watch` on secrets cluster-wide; default install should use namespace-scoped Role. See investigation task in session backlog.
 
 ---
 

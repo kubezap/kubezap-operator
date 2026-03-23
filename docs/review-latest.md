@@ -1,3 +1,53 @@
+# Review: 2026-03-22
+
+## Doc issues
+
+- **CRITICAL** — `docs/api/plugin-contract.md`, `docs/guides/amqp-setup.md`, `docs/guides/nats-setup.md`, `docs/guides/troubleshooting.md`: reference old `type: pubsub` / `spec.pubsub.*` API. Breaks plugin developers following the spec. (Tracked: §16 P1 pubsub terminology pass)
+- **HIGH** — `docs/guides/observability.md` metrics table lists `kubezap_webhook_requests_total` and `kubezap_webhook_request_body_bytes` — neither exists in `internal/metrics/metrics.go`. (Tracked: §16 P1)
+- **HIGH** — `README.md`: features section omits AMQP, NATS, resource trigger, web dashboard, CLI. Stale "coming in v0.3" markers on Helm chart and OperatorHub sections. (Fixed: heading text updated; features text tracked §16 P1)
+- **MEDIUM** — `docs/overview.md` line ~493 and `docs/api/flow.md`: claim XPath support in `resultMappings`. No XPath parser exists. (Tracked: §16 P1)
+- **MEDIUM** — `docs/architecture.md`: component table missing AMQP and NATS gateways. (Tracked: §16 P2)
+- **MEDIUM** — `docs/api/flowrun.md` line 115: resource trigger label was "_(planned)_". (Fixed: changed to "_(alpha)_")
+- **MEDIUM** — `docs/architecture.md` line 321: "KEDA planned for v0.3" — stale. (Fixed: updated to current status)
+- **MEDIUM** — `docs/guides/amqp-setup.md`, `docs/guides/nats-setup.md`: cross-reference `#pubsubtrigger` which no longer exists. (Tracked: §16 P1 pubsub pass)
+- **LOW** — `docs/api/flow.md` line 158: `$(trigger.type)` docs list `pubsub` instead of `kafka, amqp, nats, resource`. (Tracked: §16 P1 pubsub pass)
+- **LOW** — `docs/api/integration.md` line ~105: example uses `spec.type: pubsub` nested structure. (Tracked: §16 P1 pubsub pass)
+
+## Code issues
+
+- **HIGH** — `resource_watcher.go:95`: watcher goroutine context derived from `context.Background()` — not cancelled on manager shutdown. Goroutine leak, unclean teardown, E2E test hangs. Added to §16 P1; owner decision needed on severity.
+- **HIGH** — Gateway Deployments (all four) missing `livenessProbe`/`readinessProbe`. Required by OperatorHub scorecard. Added to §16 P1.
+- **MEDIUM** — `flowrun_controller.go` publish step: response body discarded on 4xx/5xx — publish failures cannot be debugged from FlowRun status. Added to §16 P2.
+- **MEDIUM** — `flowrun_controller.go` ~line 402: `goto allStepsDone` for control flow. Style violation; replace with helper function. Added to §16 P2.
+- **MEDIUM** — Missing `kubezap_when_expression_errors_total` metric for CEL `when` evaluation failures. Added to §16 P2.
+- **MEDIUM** — No E2E tests for `publish` → Kafka Integration path. Added to §16 P2.
+- **LOW** — `integration_controller.go:109-180`: three near-identical blocks for kafka/amqp/nats gateway condition. Extract into helper.
+- **LOW** — HTTP response body silently truncated at 64KB with no indicator in step results.
+
+## Schedule corrections
+
+- `docs/api/flowrun.md`: resource trigger label `_(planned)_` → `_(alpha)_`
+- `docs/architecture.md`: KEDA statement updated from "planned for v0.3" to current status
+- `README.md`: Helm chart and OperatorHub heading markers updated
+- 9 new items added to §16 P1/P2 from code review findings
+
+## Decisions needed
+
+- **Resource watcher context (P0 vs P1?)** — goroutine lifecycle bug, affects clean shutdown and E2E stability. Details in `docs/tech-debt/pending-input-required.md`.
+- **Gateway health probes (P1 vs P2?)** — required for OperatorHub scorecard. Mechanical fix. Details in `docs/tech-debt/pending-input-required.md`.
+
+## Files changed
+
+- `docs/api/flowrun.md` — fix resource trigger label
+- `docs/architecture.md` — fix KEDA statement
+- `README.md` — fix stale v0.3 heading markers
+- `docs/tech-debt/code-debt-2026-03-21.md` — append 4 new findings from 2026-03-22 review
+- `docs/tech-debt/pending-input-required.md` — append 2026-03-22 decisions section
+- `docs/schedule.md` — add 9 new §16 items from code review
+- `docs/review-latest.md` — this file
+
+---
+
 # Review: 2026-03-21
 
 ## Doc issues

@@ -628,6 +628,28 @@ func desiredKafkaGatewayDeployment(integration *automationv1alpha1.Integration) 
 									corev1.ResourceMemory: resource.MustParse("128Mi"),
 								},
 							},
+							LivenessProbe: &corev1.Probe{
+								ProbeHandler: corev1.ProbeHandler{
+									HTTPGet: &corev1.HTTPGetAction{
+										Path: "/healthz",
+										Port: intstr.FromInt32(8090),
+									},
+								},
+								InitialDelaySeconds: 5,
+								PeriodSeconds:       10,
+								FailureThreshold:    3,
+							},
+							ReadinessProbe: &corev1.Probe{
+								ProbeHandler: corev1.ProbeHandler{
+									HTTPGet: &corev1.HTTPGetAction{
+										Path: "/healthz",
+										Port: intstr.FromInt32(8090),
+									},
+								},
+								InitialDelaySeconds: 3,
+								PeriodSeconds:       5,
+								FailureThreshold:    3,
+							},
 						},
 					},
 				},
@@ -921,6 +943,28 @@ func desiredAmqpGatewayDeployment(integration *automationv1alpha1.Integration) *
 									corev1.ResourceMemory: resource.MustParse("128Mi"),
 								},
 							},
+							LivenessProbe: &corev1.Probe{
+								ProbeHandler: corev1.ProbeHandler{
+									HTTPGet: &corev1.HTTPGetAction{
+										Path: "/healthz",
+										Port: intstr.FromInt32(8090),
+									},
+								},
+								InitialDelaySeconds: 5,
+								PeriodSeconds:       10,
+								FailureThreshold:    3,
+							},
+							ReadinessProbe: &corev1.Probe{
+								ProbeHandler: corev1.ProbeHandler{
+									HTTPGet: &corev1.HTTPGetAction{
+										Path: "/healthz",
+										Port: intstr.FromInt32(8090),
+									},
+								},
+								InitialDelaySeconds: 3,
+								PeriodSeconds:       5,
+								FailureThreshold:    3,
+							},
 						},
 					},
 				},
@@ -1099,6 +1143,28 @@ func desiredNatsGatewayDeployment(integration *automationv1alpha1.Integration) *
 									corev1.ResourceCPU:    resource.MustParse("200m"),
 									corev1.ResourceMemory: resource.MustParse("128Mi"),
 								},
+							},
+							LivenessProbe: &corev1.Probe{
+								ProbeHandler: corev1.ProbeHandler{
+									HTTPGet: &corev1.HTTPGetAction{
+										Path: "/healthz",
+										Port: intstr.FromInt32(8090),
+									},
+								},
+								InitialDelaySeconds: 5,
+								PeriodSeconds:       10,
+								FailureThreshold:    3,
+							},
+							ReadinessProbe: &corev1.Probe{
+								ProbeHandler: corev1.ProbeHandler{
+									HTTPGet: &corev1.HTTPGetAction{
+										Path: "/healthz",
+										Port: intstr.FromInt32(8090),
+									},
+								},
+								InitialDelaySeconds: 3,
+								PeriodSeconds:       5,
+								FailureThreshold:    3,
 							},
 						},
 					},

@@ -79,6 +79,7 @@ Items are ordered to minimize rework:
 
 - [x] **TESTING** — E2E tests are failing. Triage failures (`make test-e2e`), determine if pre-existing or recent regressions, and fix. Must pass before public release.
 - [x] **REPO HYGIENE** — Gitignore all Claude-related files before public availability. Currently `.gitignore` excludes `.claude/*` but re-includes `settings.json`, hooks, skills, commands, agents, and agent-memory. Decide which (if any) to retain for contributors; for a clean first-public commit, exclude everything under `.claude/`.
+- [ ] **BUG** — `internal/controller/resource_watcher.go:95`: watcher goroutine context derived from `context.Background()` instead of manager lifecycle context. Goroutine leaks on shutdown; prevents clean controller-manager teardown. E2E test hangs. Fix: derive context from manager or register as `mgr.Add()` Runnable. Evidenced by `docs/review-latest.md`.
 
 ### P1 — Should fix before public
 
@@ -95,25 +96,24 @@ Items are ordered to minimize rework:
 - [ ] **DOCS** — `docs/overview.md` line ~493: claims `resultMappings` supports XPath for XML. No XPath parser exists in the codebase. Remove claim; document JSONPath only.
 - [ ] **BUG** — `internal/controller/resource_watcher.go` line ~113: naive pluralization (`strings.ToLower(kind) + "s"`) fails silently for irregular plurals (`Ingress` → `ingresss`, `NetworkPolicy` → `networkpolicys`). Fix: use discovery API to resolve correct plural form; fall back to naive `+s` with a warning log if discovery fails. Evidenced by `docs/tech-debt/pending-input-required.md` Q2.
 - [ ] **BUG** — `internal/controller/resource_watcher.go` line ~207: FlowRun names use Unix timestamp at second precision with no random suffix — two events for the same resource+eventtype within the same second collide silently (second FlowRun is dropped). Add a short random suffix. Evidenced by `docs/tech-debt/pending-input-required.md` Q2.
+- [ ] **INFRA** — Gateway Deployments (webhook, kafka, amqp, nats) missing `livenessProbe`/`readinessProbe`. OperatorHub scorecard requires probes on managed Deployments. Target `GET /healthz` on each gateway's configured port. Evidenced by `docs/review-latest.md`.
+- [ ] **SECURITY** — Restrict secrets RBAC to operator namespace (OwnNamespace default). ClusterRole grants `get;list;watch` on secrets cluster-wide; default install should use namespace-scoped Role. Investigate mitigation options (namespaced Role, per-namespace RBAC delegation, label selectors) before implementing.
 
 ### P2 — Nice to have before public
 
 - [ ] **DOCS** — `docs/architecture.md`: Component Overview table and ASCII diagram list only 3 components; AMQP and NATS gateways are missing. Add them.
-- [ ] **DOCS** — `docs/architecture.md` line 321: "KEDA integration planned for v0.3" — v0.3 is complete. Change to "KEDA is recommended as an external HPA replacement for Kafka gateways."
+- [x] **DOCS** — `docs/architecture.md` line 321: "KEDA integration planned for v0.3" — v0.3 is complete. Fixed: updated to "KEDA is supported for partition-bounded scaling of Kafka gateways."
 - [ ] **CLEANUP** — Remove Kubebuilder scaffold boilerplate: `// TODO(user): If you enable certManager...` comment in `cmd/main.go`; `// EDIT THIS FILE! THIS IS SCAFFOLDING FOR YOU TO OWN!` in `api/v1alpha1/trigger_types.go`.
 - [ ] **DOCS** — `docs/overview.md` Getting Started link uses `../examples/order-router/` — relative path may break on hosted doc sites. Verify or use absolute GitHub link.
 - [ ] **BUG** — `internal/controller/resource_watcher.go`: no retry when informer cache sync fails (transient RBAC issue or API server blip exits the watcher goroutine permanently). Trigger stays "registered" but is dead until reconciler re-registers on next Trigger touch. Add retry with backoff. Evidenced by `docs/tech-debt/pending-input-required.md` Q2.
 - [ ] **BUG** — `internal/controller/resource_watcher.go`: no cooldown mechanism. Rapidly-updated resources (e.g., Pod status churn) with no `watchFields` filter create a FlowRun on every update. Add `maxInvocations`/`window` rate-limiting consistent with other trigger types. Evidenced by `docs/tech-debt/pending-input-required.md` Q2.
 - [ ] **TECH DEBT** — `internal/controller/integration_controller.go`: Kafka producer pool (`kafkaProducers` map) has no TTL or health check; stale connections not detected until next publish attempt fails. Add periodic health check or TTL eviction. Evidenced by `docs/review-latest.md`.
 - [ ] **TECH DEBT** — `internal/controller/flowrun_controller.go`: CEL environment init failure cached forever via `sync.Once` — a transient failure permanently disables CEL evaluation for the pod lifetime. Replace with retriable init that resets on failure. Evidenced by `docs/review-latest.md`.
-- [ ] **BUG** — `internal/controller/resource_watcher.go:95`: watcher goroutine context derived from `context.Background()` instead of manager lifecycle context. Goroutine leaks on shutdown; prevents clean controller-manager teardown. Fix: derive context from manager or register as `mgr.Add()` Runnable. Evidenced by `docs/review-latest.md`.
-- [ ] **INFRA** — Gateway Deployments (webhook, kafka, amqp, nats) missing `livenessProbe`/`readinessProbe`. OperatorHub scorecard requires probes on managed Deployments. Target `GET /healthz` on each gateway's configured port. Evidenced by `docs/review-latest.md`.
 - [ ] **BUG** — `internal/controller/flowrun_controller.go` publish step: response body discarded on 4xx/5xx, making failures undebuggable from FlowRun status. Capture up to 1KB of error body in step message, consistent with HTTP step. Evidenced by `docs/review-latest.md`.
 - [ ] **TESTING** — Add E2E test for full `publish` → Kafka Integration path (Trigger → FlowRun → publishStep → Kafka producer). Current E2E suite covers HTTP steps only.
 - [ ] **OBSERVABILITY** — Add `kubezap_when_expression_errors_total{flow,reason}` Prometheus counter for CEL `when` evaluation failures. Currently errors are logged but not metered; makes per-flow skip-rate invisible at scale.
 - [ ] **TECH DEBT** — `internal/controller/flowrun_controller.go` ~line 402: `goto allStepsDone` for early loop exit. Replace with named helper function or structured break. Evidenced by `docs/review-latest.md`.
 - [ ] **TESTING** — Add E2E example test coverage using Kind: apply each `examples/` kustomization, enable trigger, assert FlowRun reaches Succeeded. See `docs/review-latest.md`.
-- [ ] **SECURITY** — Restrict secrets RBAC to operator namespace (OwnNamespace default). ClusterRole grants `get;list;watch` on secrets cluster-wide; default install should use namespace-scoped Role. See investigation task in session backlog.
 
 ---
 

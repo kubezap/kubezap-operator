@@ -135,14 +135,12 @@ Schedule reference: §16 P1 — "docs/api/trigger.md + webhook-security.md: Webh
 
 ### Decisions needed from owner
 
-<!-- BACKLOG-PROMPT -->
+<!-- ANSWERED -->
 **Q: Should the resource watcher context detachment bug (resource_watcher.go:95) be promoted to P0?**
-Why it matters: The watcher goroutine uses `context.Background()` and is never cancelled when the controller-manager shuts down. This causes goroutine leaks and can prevent clean shutdown in environments that rely on graceful termination (e.g. preStop hooks, SIGTERM draining). It also causes test hangs in E2E suites that wait for goroutine cleanup.
-Options: P0 (fix before any public release — blocks OperatorHub scorecard) / P1 (fix before first stable release) / P2 (nice to have — accept the leak for now)
-<!-- BACKLOG-PROMPT -->
+**Answer (2026-03-22):** P0. Fix before any public release. Promoted in `docs/schedule.md` §16 P0.
+<!-- ANSWERED -->
 
-<!-- BACKLOG-PROMPT -->
+<!-- ANSWERED -->
 **Q: Should gateway Deployment health probes be P1 (before OperatorHub) or P2?**
-Why it matters: OperatorHub scorecard runs `bundle validate` which checks that all managed Deployments have readiness probes. Without probes, gateways that crash-loop are not evicted and users get no clear signal of the problem. All gateways already expose `/healthz` per the plugin contract so the fix is mechanical.
-Options: P1 (required before OperatorHub submission — add probes to all four gateway constructors now) / P2 (defer — accept scorecard warning until just before submission)
-<!-- BACKLOG-PROMPT -->
+**Answer (2026-03-22):** P1. Required before OperatorHub submission. Promoted in `docs/schedule.md` §16 P1.
+<!-- ANSWERED -->

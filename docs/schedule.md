@@ -28,6 +28,7 @@ Items are ordered to minimize rework:
 6. **Example 6 (K8s ITSM) last among examples** — blocked on `type: resource` trigger stabilization (bugs tracked in §16 P1/P2).
 7. **P0 security fixes before architectural refactors in the same code area** — a security vulnerability should not be blocked waiting for a large refactor even if the refactor would reduce rework. Fix the vulnerability now; port the fix after the refactor if needed.
 8. **Public readiness (§16) gates OperatorHub submission (§1)** — all P0 items in §16 must be complete before the OperatorHub submission PR is opened. P1 items should be resolved first; P2 items are nice-to-have.
+9. **Security hardening (§17) gates OperatorHub submission** — §17 P0 items (SSRF, cross-namespace authz, secrets RBAC) must be resolved before public release. Several items require owner input on design direction — see `docs/tech-debt/pending-input-required.md`.
 
 ---
 
@@ -114,6 +115,34 @@ Items are ordered to minimize rework:
 - [ ] **OBSERVABILITY** — Add `kubezap_when_expression_errors_total{flow,reason}` Prometheus counter for CEL `when` evaluation failures. Currently errors are logged but not metered; makes per-flow skip-rate invisible at scale.
 - [ ] **TECH DEBT** — `internal/controller/flowrun_controller.go` ~line 402: `goto allStepsDone` for early loop exit. Replace with named helper function or structured break. Evidenced by `docs/review-latest.md`.
 - [ ] **TESTING** — Add feature-matrix E2E test suite: one focused test per functional axis (step types: http/transform/wait/publish; trigger types: cron/webhook/resource; flow control: when/onFailure/retry/chaining; integration auth: secretUrl/bearer; FlowRun lifecycle: TTL/timeout). Kafka/AMQP/NATS tests marked Pending (require external broker). Goal: if each axis passes, all examples work by composition. Use shared Mockoon fixture; purpose-built minimal testdata, not example kustomizations.
+
+---
+
+## 17. Security Hardening — 2026-03-24 Review
+
+> Items from the security design review (`docs/security-review-2026-03-24.md`). Ordered P0 → P1 → P2.
+> Pending owner input on several design decisions — see `docs/tech-debt/pending-input-required.md` §2026-03-24.
+
+### P0 — Blocks public release
+
+- [ ] **SECURITY** — SSRF protection for HTTP step URLs. `internal/controller/flowrun_controller.go` `executeHTTPStep()` and `applyHTTPIntegration()` make unvalidated HTTP requests. Block private IP ranges (RFC1918, link-local, loopback), cloud metadata IPs (169.254.169.254), and `.svc.cluster.local`. Add `--http-step-blocked-cidrs` flag. See `docs/security-review-2026-03-24.md` §C1. **Pending input: blocklist vs allowlist approach (Q5).**
+- [ ] **SECURITY** — Cross-namespace FlowRef authorization. `FlowRun.Spec.FlowRef.Namespace` allows namespace-A FlowRuns to execute namespace-B Flows without authorization checks. See `docs/security-review-2026-03-24.md` §C2. **Pending input: remove, annotation-gate, or FlowGrant CRD (Q1).**
+- [ ] **SECURITY** — Promote secrets RBAC restriction to P0 (was §16 P1). ClusterRole grants cluster-wide `get;list;watch` on Secrets. Controller compromise exposes all Secrets. See §C3. **Pending input: default namespace scope (Q4).**
+
+### P1 — Should fix before public
+
+- [ ] **SECURITY** — Webhook auth-required-by-default. Webhook triggers accept unauthenticated requests when `spec.webhook.auth` is omitted. See §H1. **Pending input: require auth by default vs document-only (Q2).**
+- [ ] **SECURITY** — Redact sensitive data from FlowRun TriggerData. Webhook body and non-standard auth headers persist in FlowRun objects readable by namespace users. Add configurable header redaction list and optional body truncation (`spec.webhook.redactBody`). See §H2.
+- [ ] **SECURITY** — Secret access audit logging. Add structured log entry + Prometheus counter (`kubezap_secret_accesses_total`) for every `$(secrets.*)` fetch during FlowRun execution. Required for PCI-DSS/SOC2 compliance. See §H3.
+- [ ] **SECURITY** — CEL expression cost limits. Add `cel.CostLimit()` budget to `evaluateWhen()`. Add `--cel-cost-limit` flag (default 10000). Prevents DoS via combinatorial comprehensions. See §H5.
+- [ ] **SECURITY** — FlowRun creation rate limiting. Add `spec.webhook.rateLimit` (requests per window) to Trigger CRD. Gateway enforces locally; controller enforces globally via FlowRun count. See §M1.
+
+### P2 — Nice to have before public
+
+- [ ] **SECURITY** — Plugin image digest pinning. Add optional `spec.plugin.imageDigest` field to Integration CRD. When set, operator validates resolved digest matches before creating/updating plugin Deployment. See §H4. **Pending input: optional vs mandatory digest (Q3).**
+- [ ] **SECURITY** — Consistent header redaction across all gateways. Extract webhook redaction logic to shared `internal/gateway/redact` package. Apply to Kafka and AMQP gateways. See §M3.
+- [ ] **SECURITY** — Ship example NetworkPolicies in `config/network-policy/`: controller egress, webhook gateway ingress/egress, plugin egress. Document in security guide. See §M4.
+- [ ] **DOCS** — Plugin-to-controller communication security. Document plain-HTTP limitation for `/publish` endpoint. Recommend service mesh (Istio/Linkerd) sidecar for sensitive deployments. See §M2.
 
 ---
 

@@ -144,3 +144,78 @@ Schedule reference: §16 P1 — "docs/api/trigger.md + webhook-security.md: Webh
 **Q: Should gateway Deployment health probes be P1 (before OperatorHub) or P2?**
 **Answer (2026-03-22):** P1. Required before OperatorHub submission. Promoted in `docs/schedule.md` §16 P1.
 <!-- ANSWERED -->
+
+---
+
+## Security Design Review — 2026-03-24
+
+> Full review: `docs/security-review-2026-03-24.md`
+> Schedule items: `docs/schedule.md` §17
+
+### Decisions needed from owner
+
+<!-- BACKLOG-PROMPT -->
+**Q1: Should cross-namespace FlowRef be removed from v1alpha1?**
+
+`FlowRun.Spec.FlowRef.Namespace` allows FlowRuns in namespace A to execute Flows in namespace B. The controller fetches the Flow (and its Secrets) using its ClusterRole — no per-namespace authorization check exists. This is the most significant multi-tenant vulnerability.
+
+Options:
+- **A. Remove cross-namespace FlowRef entirely** — eliminates attack surface; limits shared-utility-Flow use cases
+- **B. Require opt-in annotation** on target namespace (`kubezap.io/allow-cross-ns-flow-from: ns1,ns2`) — preserves feature with coarse authorization
+- **C. Add FlowGrant CRD** (like Gateway API's ReferenceGrant) — fine-grained, Kubernetes-native; adds CRD complexity
+- **D. Document risk, defer to v1beta1** — no code change; leaves vulnerability open
+
+Schedule: §17 P0
+<!-- BACKLOG-PROMPT -->
+
+<!-- BACKLOG-PROMPT -->
+**Q2: Should webhook triggers require authentication by default?**
+
+Currently `spec.webhook.auth` is optional. A Trigger with `type: webhook` and no auth block accepts requests from any caller. If exposed via Ingress, this means unauthenticated internet traffic can trigger Flows.
+
+Options:
+- **A. Require auth; explicit `auth: none` to opt out** — fail-closed; breaking change for existing users
+- **B. ValidatingWebhook that warns (admission warning, not rejection)** — non-breaking; raises visibility
+- **C. Document-only** (current state) — relies on user diligence
+
+Schedule: §17 P1
+<!-- BACKLOG-PROMPT -->
+
+<!-- BACKLOG-PROMPT -->
+**Q3: Should plugin Integrations support image digest pinning?**
+
+The operator deploys arbitrary container images for `type: plugin` Integrations. No signature or digest verification is performed. A compromised plugin image gets a ServiceAccount with `triggers:get` and `flowruns:create`, plus any Secrets injected via `secretRefs`.
+
+Options:
+- **A. Add optional `spec.plugin.imageDigest`** — operator validates digest at reconcile time; opt-in
+- **B. Enforce digest-only images** (`image@sha256:...` required) — strongest guarantee; poor DX
+- **C. Document-only** (current state) — no code protection
+
+Schedule: §17 P2
+<!-- BACKLOG-PROMPT -->
+
+<!-- BACKLOG-PROMPT -->
+**Q4: Should AllNamespaces mode remain the default?**
+
+`WATCH_NAMESPACES=""` (default) grants the controller ClusterRole with cluster-wide `get/list/watch` on Secrets. A compromised controller pod exposes every Secret in the cluster. This is the widest possible blast radius.
+
+Options:
+- **A. Default to OwnNamespace** — least privilege out of the box; requires opt-in for multi-namespace
+- **B. Keep AllNamespaces default, add startup warning log** — non-breaking; raises awareness
+- **C. Keep AllNamespaces default, restrict secrets RBAC** to namespaces labeled `kubezap.io/managed=true` — preserves UX; limits secret exposure; adds label requirement
+
+Schedule: §17 P0
+<!-- BACKLOG-PROMPT -->
+
+<!-- BACKLOG-PROMPT -->
+**Q5: SSRF protection model — blocklist or allowlist?**
+
+HTTP step URLs are currently unvalidated. The fix needs a strategy:
+
+Options:
+- **A. Blocklist** (block RFC1918, link-local, loopback, metadata IPs) — permissive; works for external APIs; vulnerable to DNS rebinding
+- **B. Allowlist** (only allow explicitly configured CIDRs/domains) — strongest; requires per-deployment config
+- **C. Blocklist default + allowlist opt-in** (`--http-step-mode=blocklist|allowlist`) — progressive security; two code paths
+
+Schedule: §17 P0
+<!-- BACKLOG-PROMPT -->

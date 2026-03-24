@@ -61,12 +61,32 @@ Service account name.
 
 {{/*
 Determine if namespace-scoped RBAC should be used.
-Returns "true" when watchNamespaces is a single non-empty namespace (OwnNamespace/SingleNamespace mode).
-Returns "" (falsy) for AllNamespaces ("") and MultiNamespace ("ns1,ns2").
+Returns "true" when:
+  - watchOwnNamespace is true (default), OR
+  - watchNamespaces is a single non-empty namespace (OwnNamespace/SingleNamespace mode).
+Returns "" (falsy) for AllNamespaces and MultiNamespace ("ns1,ns2").
 */}}
 {{- define "kubezap.namespacedRBAC" -}}
+{{- if .Values.watchOwnNamespace -}}
+true
+{{- else -}}
 {{- $ns := .Values.watchNamespaces -}}
 {{- if and (ne $ns "") (not (contains "," $ns)) -}}
 true
+{{- end -}}
+{{- end -}}
+{{- end }}
+
+{{/*
+Effective WATCH_NAMESPACES value for the controller.
+When watchOwnNamespace is true, uses the release namespace.
+When watchNamespaces is set (and watchOwnNamespace is false), uses that value.
+Otherwise empty (AllNamespaces mode).
+*/}}
+{{- define "kubezap.watchNamespaces" -}}
+{{- if .Values.watchOwnNamespace -}}
+{{- .Release.Namespace -}}
+{{- else -}}
+{{- .Values.watchNamespaces -}}
 {{- end -}}
 {{- end }}

@@ -52,26 +52,28 @@ If a request jumps directly to implementation without design context, Claude sho
 
 ## Runtime Architecture
 
-Three separate binaries/images — see `docs/architecture.md` for full design:
+Four separate binaries/images — see `docs/architecture.md` for full design:
 
 | Binary                               | Image                     | Purpose                                                                                                               |
 | ------------------------------------ | ------------------------- | --------------------------------------------------------------------------------------------------------------------- |
-| `cmd/main.go`                        | `kubezap/controller`      | Kubernetes operator: reconciles CRDs, manages gateway Deployments, executes flows via FlowRun                         |
+| `cmd/main.go`                        | `kubezap/controller`      | Kubernetes operator: reconciles CRDs, manages gateway Deployments, delegates HTTP steps to executor. **Does NOT make outbound HTTP calls.** |
 | `cmd/webhook-gateway/main.go`        | `kubezap/webhook-gateway` | HTTP server: watches Trigger CRDs, registers routes dynamically, creates FlowRuns                                     |
 | `cmd/kafka-gateway/main.go`          | `kubezap/kafka-gateway`   | Kafka consumer: watches Trigger CRDs, manages topic subscriptions, creates FlowRuns                                   |
+| `cmd/http-executor/main.go`          | `kubezap/http-executor`   | HTTP step executor: receives fully-resolved HTTP requests from controller via internal `POST /execute` RPC, executes with SSRF blocklist, returns results. Minimal RBAC (no secrets, no RBAC management). One Deployment per namespace. |
 | `cmd/main.go` (controller, extended) | —                         | Kubernetes resource event triggers handled IN the controller via dynamic informers — no separate gateway image needed |
 
 Key decisions:
 - Gateways are separate pods managed by the controller — NOT embedded in the controller pod
 - One webhook gateway Deployment per namespace (shared across all webhook Triggers in that namespace)
 - One Kafka gateway Deployment per (namespace × Kafka Integration/cluster)
+- HTTP executor receives fully-resolved requests (with credentials) from controller via internal HTTP RPC (`POST /execute`); credentials never written to etcd. Channel secured by NetworkPolicy (mandatory) + mTLS (opt-in via `--executor-mtls=true`, for clusters without a service mesh)
 - Gateways configure themselves by watching Trigger CRDs directly (no intermediate ConfigMap)
 - Gateway → Flow communication via `FlowRun` CRD (controller watches and executes)
 - FlowRun naming: webhook `<trigger>-<timestamp>-<random>`, kafka `<trigger>-p<partition>-offset-<offset>` (dedup key), cron `<trigger>-<scheduled-time>`
 - FlowRun GC: `spec.ttlAfterFinished` per FlowRun, operator-level `--flowrun-ttl-succeeded` / `--flowrun-ttl-failed` flags (defaults 24h/72h), or `spec.maxFlowRuns` on Trigger; annotate with `kubezap.io/retain=true` to exempt
 - Publish step action: `type: publish` with `integrationRef` + `topic` + `body` — controller calls plugin's `/publish` endpoint
 - HPA on webhook gateway; KEDA recommended for Kafka gateway (partition-bounded scaling)
-- `WATCH_NAMESPACES` env var controls scope: empty = AllNamespaces, comma-list = MultiNamespace, single = OwnNamespace
+- `WATCH_NAMESPACES` env var controls scope: empty = OwnNamespace (default, least privilege), `*` = AllNamespaces (secrets restricted to `kubezap.io/managed=true` namespaces), comma-list = MultiNamespace, single value = SingleNamespace
 - OwnNamespace/SingleNamespace modes use Role (not ClusterRole) — important for OpenShift and OperatorHub certification
 - All four OLM install modes must be supported in the CSV bundle
 - Webhook auth: HMAC, bearer token, OIDC/JWT, Basic, mTLS, API-key header, IP allowlist — all per-Trigger, configured via spec.webhook.auth (see docs/guides/webhook-security.md)

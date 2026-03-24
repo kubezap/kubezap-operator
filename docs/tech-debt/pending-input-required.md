@@ -144,3 +144,52 @@ Schedule reference: §16 P1 — "docs/api/trigger.md + webhook-security.md: Webh
 **Q: Should gateway Deployment health probes be P1 (before OperatorHub) or P2?**
 **Answer (2026-03-22):** P1. Required before OperatorHub submission. Promoted in `docs/schedule.md` §16 P1.
 <!-- ANSWERED -->
+
+---
+
+## Security Design Review — 2026-03-24
+
+> Full review: `docs/security-review-2026-03-24.md`
+> Schedule items: `docs/schedule.md` §17
+
+### Decisions needed from owner
+
+<!-- ANSWERED -->
+**Q1: Should cross-namespace FlowRef be removed from v1alpha1?**
+
+**Answer (2026-03-24):** Option A — Remove cross-namespace FlowRef entirely. `FlowRef.Namespace` field removed from the API; FlowRuns always execute Flows in their own namespace. Cross-namespace flows can be revisited in v1beta1 with a proper authorization model (e.g., FlowGrant CRD).
+
+Schedule: §17 P0
+<!-- ANSWERED -->
+
+<!-- ANSWERED -->
+**Q2: Should webhook triggers require authentication by default?**
+
+**Answer (2026-03-24):** Option B — ValidatingWebhookConfiguration that emits an admission warning (not rejection) when a Trigger with `type: webhook` is created/updated without `spec.webhook.auth`. Non-breaking; raises visibility without blocking dev workflows.
+
+Schedule: §17 P1
+<!-- ANSWERED -->
+
+<!-- ANSWERED -->
+**Q3: Should plugin Integrations support image digest pinning?**
+
+**Answer (2026-03-24):** Option A — Add optional `spec.plugin.imageDigest` field. When set, operator validates resolved digest at reconcile time before creating/updating the plugin Deployment. Opt-in; no enforcement for users who don't set it.
+
+Schedule: §17 P2
+<!-- ANSWERED -->
+
+<!-- ANSWERED -->
+**Q4: Should AllNamespaces mode remain the default?**
+
+**Answer (2026-03-24):** Hybrid of A + C. Default to OwnNamespace (least privilege out of the box). In AllNamespaces mode, restrict secrets RBAC to namespaces labeled `kubezap.io/managed=true`. This gives both a safe default and a scoped multi-namespace option.
+
+Schedule: §17 P0
+<!-- ANSWERED -->
+
+<!-- ANSWERED -->
+**Q5: SSRF protection model — blocklist or allowlist?**
+
+**Answer (2026-03-24):** Blocklist as the baseline (block RFC1918, link-local, loopback, metadata IPs), plus a separate HTTP executor controller architecture. The main controller (which holds broad RBAC) never makes outbound HTTP calls. A dedicated `kubezap/http-executor` pod with minimal RBAC (no cluster-wide secrets, no RBAC management) executes HTTP steps. This limits blast radius even if the blocklist is bypassed via DNS rebinding.
+
+Schedule: §17 P0
+<!-- ANSWERED -->

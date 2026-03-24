@@ -59,13 +59,14 @@ Four separate binaries/images — see `docs/architecture.md` for full design:
 | `cmd/main.go`                        | `kubezap/controller`      | Kubernetes operator: reconciles CRDs, manages gateway Deployments, delegates HTTP steps to executor. **Does NOT make outbound HTTP calls.** |
 | `cmd/webhook-gateway/main.go`        | `kubezap/webhook-gateway` | HTTP server: watches Trigger CRDs, registers routes dynamically, creates FlowRuns                                     |
 | `cmd/kafka-gateway/main.go`          | `kubezap/kafka-gateway`   | Kafka consumer: watches Trigger CRDs, manages topic subscriptions, creates FlowRuns                                   |
-| `cmd/http-executor/main.go`          | `kubezap/http-executor`   | HTTP step executor: picks up HTTP steps from FlowRun status, executes with SSRF blocklist, writes results back. Minimal RBAC (flowruns:get/update only, no secrets). One Deployment per namespace. |
+| `cmd/http-executor/main.go`          | `kubezap/http-executor`   | HTTP step executor: receives fully-resolved HTTP requests from controller via internal `POST /execute` RPC, executes with SSRF blocklist, returns results. Minimal RBAC (no secrets, no RBAC management). One Deployment per namespace. |
 | `cmd/main.go` (controller, extended) | —                         | Kubernetes resource event triggers handled IN the controller via dynamic informers — no separate gateway image needed |
 
 Key decisions:
 - Gateways are separate pods managed by the controller — NOT embedded in the controller pod
 - One webhook gateway Deployment per namespace (shared across all webhook Triggers in that namespace)
 - One Kafka gateway Deployment per (namespace × Kafka Integration/cluster)
+- HTTP executor receives fully-resolved requests (with credentials) from controller via internal HTTP RPC (`POST /execute`); credentials never written to etcd. Channel secured by NetworkPolicy (mandatory) + mTLS (opt-in via `--executor-mtls=true`, for clusters without a service mesh)
 - Gateways configure themselves by watching Trigger CRDs directly (no intermediate ConfigMap)
 - Gateway → Flow communication via `FlowRun` CRD (controller watches and executes)
 - FlowRun naming: webhook `<trigger>-<timestamp>-<random>`, kafka `<trigger>-p<partition>-offset-<offset>` (dedup key), cron `<trigger>-<scheduled-time>`

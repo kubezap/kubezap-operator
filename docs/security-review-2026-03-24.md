@@ -44,9 +44,89 @@ The operator has solid security fundamentals: restricted Pod Security Standards,
 | Main controller | get/list/watch (scoped) | roles, rolebindings | **None** | Full CRUD on all KubeZap CRDs |
 | HTTP executor | **None** | **None** | Yes (with blocklist) | flowruns:get/update only |
 
-Architecture: One HTTP executor Deployment per namespace (like webhook gateway). Main controller writes HTTP step spec into FlowRun status; executor picks it up, executes, writes result back. Even if SSRF bypasses the DNS blocklist (e.g., via DNS rebinding), the executor pod has no ServiceAccount token with secrets access.
+Architecture: One HTTP executor Deployment per namespace (like webhook gateway). Even if SSRF bypasses the DNS blocklist (e.g., via DNS rebinding), the executor pod has no ServiceAccount token with secrets access.
 
 New files: `cmd/http-executor/main.go`, `internal/executor/http/` package. New image: `kubezap/http-executor`.
+
+#### Credential flow: controller-to-executor RPC (Decision 2026-03-24)
+
+The executor has no secrets RBAC, but HTTP steps need auth credentials (bearer tokens, API keys, basic auth). The main controller resolves all `$(secrets.*)` placeholders and Integration auth in-memory, then sends the **fully-resolved HTTP request** to the executor via an internal HTTP call. Credentials transit over the wire but are never written to etcd.
+
+```
+Controller                              Executor
+   │                                       │
+   ├─ resolve $(secrets.api.token)         │
+   ├─ build full HTTP request spec         │
+   ├──── POST /execute ────────────────────►│
+   │     {url, method, headers (with       │
+   │      resolved Bearer token),          │
+   │      body, timeout_ms}               │
+   │                                       ├─ SSRF blocklist check (DNS resolve → IP check)
+   │                                       ├─ execute outbound HTTP call
+   │◄──── {status_code, headers, body} ────┤
+   ├─ write result to FlowRun status       │
+```
+
+**Why internal RPC over alternatives:**
+
+| Approach | Credentials in etcd | Executor needs secrets RBAC | Complexity |
+|----------|:---:|:---:|---|
+| **Internal RPC (chosen)** | No | No | One HTTP endpoint |
+| Ephemeral Secret | Yes (briefly) | Yes (`get`, `delete`) | Secret lifecycle management |
+| Per-step Pod (Argo-style) | No (kubelet injects) | No | Pod creation overhead per step; scheduler latency |
+
+**Protocol: HTTP/JSON** (not gRPC). The executor exposes a single `POST /execute` endpoint. The payload is one JSON object (url, method, headers, body, timeout) and one response (status_code, headers, body, error). gRPC would add protobuf tooling (`protoc`, codegen, `.proto` files) to the build pipeline for a single endpoint — not justified. HTTP is debuggable with `curl`, uses only stdlib `net/http`, and has equivalent mTLS support via `tls.Config`.
+
+#### Controller-to-executor channel security (Decision 2026-03-24)
+
+The channel carries resolved secrets (bearer tokens, API keys) in HTTP headers. Two layers:
+
+**Layer 1 — NetworkPolicy (mandatory, always shipped):**
+
+```yaml
+# Executor ingress: only from controller pods in same namespace
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: kubezap-http-executor
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: http-executor
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              control-plane: controller-manager
+      ports:
+        - port: 8091
+          protocol: TCP
+```
+
+NetworkPolicy is zero code change (just manifests), blocks rogue pods from calling the executor, and is the baseline for all deployments. Limitation: depends on CNI enforcement (Flannel without Calico doesn't enforce); does not encrypt traffic (credentials visible to compromised nodes or packet sniffers).
+
+**Layer 2 — mTLS (opt-in, for clusters without a service mesh):**
+
+Enabled via `--executor-mtls=true` on both controller and executor. When enabled:
+- Operator generates a self-signed CA at install time (or integrates with cert-manager via `--executor-mtls-cert-secret`)
+- Controller presents a client certificate when calling the executor
+- Executor verifies client certificate against the CA and rejects unauthenticated calls
+- Executor presents a server certificate; controller verifies it
+
+This mirrors the existing webhook gateway TLS pattern (opt-in via namespace annotations). For clusters with Istio/Linkerd, the service mesh already provides automatic mTLS — the opt-in flag is unnecessary and should not be enabled (double encryption is wasteful).
+
+**Why both, not just one:**
+
+| Threat | NetworkPolicy alone | mTLS alone | Both |
+|--------|:---:|:---:|:---:|
+| Rogue pod in namespace calls executor | Blocked | Blocked (no client cert) | Blocked |
+| CNI doesn't enforce NetworkPolicy | **Exposed** | Blocked | Blocked |
+| Traffic sniffing (compromised node) | **Exposed** | Encrypted | Encrypted |
+| Stolen ServiceAccount token from outside pod | N/A | Blocked (requires cert) | Blocked |
+| Misconfigured NetworkPolicy | **Exposed** | Blocked | Blocked |
+
+NetworkPolicy is cheap and catches the common case. mTLS handles the edge cases where NetworkPolicy fails. Defense-in-depth.
 
 ### C2. Cross-Namespace Flow Execution Without Authorization
 

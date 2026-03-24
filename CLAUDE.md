@@ -259,7 +259,7 @@ Before generating large outputs, Claude should consider whether a smaller archit
 
 ## Parallel Agent Guidelines
 
-Parallel agents are powerful but create merge conflicts when they touch shared files. Follow these rules every time agents are spawned.
+Parallel agents are powerful but create merge conflicts when they touch shared files. Follow these rules every time agents are spawned. The `/backlog` skill implements this protocol automatically — read it as the reference implementation.
 
 ### Step 1 — Audit file ownership before spawning
 
@@ -303,10 +303,11 @@ After all parallel agents complete, merge their work into main one branch at a t
 ```bash
 # after each merge:
 go build ./...
-go test ./... -count=1
+# after all merges:
+make test   # use make test, not go test ./... -count=1 — the latter includes E2E and times out
 ```
 
-Do not merge the next branch until the current merge builds and tests clean.
+Do not merge the next branch until the current merge builds clean. Run `make test` once after all branches are merged (not after each — it is slow).
 
 ### Step 5 — Post-merge codegen
 

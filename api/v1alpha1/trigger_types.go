@@ -21,8 +21,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
-// NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
+// NOTE: json tags are required. Any new fields you add must have json tags for the fields to be serialized.
 
 // TriggerSpec defines the desired state of Trigger.
 // +kubebuilder:validation:XValidation:rule="has(self.flowRef) != has(self.action)",message="exactly one of flowRef or action must be set"

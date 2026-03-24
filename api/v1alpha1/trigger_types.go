@@ -270,40 +270,88 @@ type WebhookAuth struct {
 	// +kubebuilder:validation:Enum=hmac;bearer;oidc;basic;apiKey;ipAllowlist;header-equals
 	Type string `json:"type"`
 
-	// HMAC secret reference (key contains the shared secret). Used when type is "hmac".
-	HMACSecretRef *corev1.SecretKeySelector `json:"hmacSecretRef,omitempty"`
+	// HMAC signature verification. Used when type is "hmac".
+	// +optional
+	HMAC *HMACConfig `json:"hmac,omitempty"`
 
-	// Bearer token secret reference. Used when type is "bearer".
-	BearerTokenSecretRef *corev1.SecretKeySelector `json:"bearerTokenSecretRef,omitempty"`
+	// Bearer token verification. Used when type is "bearer".
+	// +optional
+	Bearer *BearerConfig `json:"bearer,omitempty"`
 
-	// OIDC/JWT issuer URL. Used when type is "oidc".
-	OIDCIssuer string `json:"oidcIssuer,omitempty"`
+	// OIDC/JWT verification. Used when type is "oidc".
+	// +optional
+	OIDC *OIDCConfig `json:"oidc,omitempty"`
 
-	// OIDC audience. Used when type is "oidc".
-	OIDCAudience string `json:"oidcAudience,omitempty"`
-
-	// Basic auth configuration. Used when type is "basic".
+	// HTTP Basic authentication. Used when type is "basic".
+	// +optional
 	Basic *WebhookBasicAuth `json:"basic,omitempty"`
 
-	// API key value secret reference. Used when type is "apiKey".
-	APIKeySecretRef *corev1.SecretKeySelector `json:"apiKeySecretRef,omitempty"`
+	// API key header verification. Used when type is "apiKey".
+	// +optional
+	APIKey *APIKeyConfig `json:"apiKey,omitempty"`
 
-	// Header name to check for the API key. Used when type is "apiKey".
+	// IP address allowlist. Used when type is "ipAllowlist".
+	// +optional
+	IPAllowlist *IPAllowlistConfig `json:"ipAllowlist,omitempty"`
+
+	// Exact header value match. Used when type is "header-equals".
+	// +optional
+	HeaderEquals *HeaderEqualsConfig `json:"headerEquals,omitempty"`
+}
+
+// HMACConfig configures HMAC-SHA256 signature verification.
+type HMACConfig struct {
+	// Secret reference — key contains the shared HMAC secret.
+	// +kubebuilder:validation:Required
+	SecretRef corev1.SecretKeySelector `json:"secretRef"`
+}
+
+// BearerConfig configures bearer token verification.
+type BearerConfig struct {
+	// Secret reference — key contains the expected bearer token value.
+	// +kubebuilder:validation:Required
+	TokenSecretRef corev1.SecretKeySelector `json:"tokenSecretRef"`
+}
+
+// OIDCConfig configures OIDC/JWT verification.
+type OIDCConfig struct {
+	// OIDC issuer URL (e.g. https://accounts.google.com).
+	// +kubebuilder:validation:Required
+	Issuer string `json:"issuer"`
+
+	// Expected audience claim value.
+	// +optional
+	Audience string `json:"audience,omitempty"`
+}
+
+// APIKeyConfig configures API key header verification.
+type APIKeyConfig struct {
+	// Secret reference — key contains the expected API key value.
+	// +kubebuilder:validation:Required
+	SecretRef corev1.SecretKeySelector `json:"secretRef"`
+
+	// Header name to check for the API key.
 	// +kubebuilder:default="X-Api-Key"
-	APIKeyHeader string `json:"apiKeyHeader,omitempty"`
+	Header string `json:"header,omitempty"`
+}
 
-	// CIDR blocks allowed to call this endpoint. Used when type is "ipAllowlist".
+// IPAllowlistConfig configures IP address allowlisting.
+type IPAllowlistConfig struct {
+	// CIDR blocks allowed to call this endpoint.
 	// Example: ["10.0.0.0/8", "192.168.1.0/24"]
-	IPAllowlist []string `json:"ipAllowlist,omitempty"`
+	// +kubebuilder:validation:Required
+	CIDRs []string `json:"cidrs"`
+}
 
-	// Header name to match against the expected value. Used when type is "header-equals".
-	// Example: "X-Gitlab-Token"
-	// +optional
-	HeaderEqualsHeader string `json:"headerEqualsHeader,omitempty"`
+// HeaderEqualsConfig configures exact header value matching.
+type HeaderEqualsConfig struct {
+	// Header name to check (e.g. "X-Gitlab-Token").
+	// +kubebuilder:validation:Required
+	Header string `json:"header"`
 
-	// Secret reference for the expected header value. Used when type is "header-equals".
-	// +optional
-	HeaderEqualsSecretRef *corev1.SecretKeySelector `json:"headerEqualsSecretRef,omitempty"`
+	// Secret reference — key contains the expected header value.
+	// +kubebuilder:validation:Required
+	SecretRef corev1.SecretKeySelector `json:"secretRef"`
 }
 
 // WebhookBasicAuth configures HTTP Basic authentication for a webhook endpoint.

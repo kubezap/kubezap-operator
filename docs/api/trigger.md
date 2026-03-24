@@ -98,19 +98,57 @@ For authentication configuration examples and security guidance see [Securing We
 
 Configures authentication for a webhook trigger endpoint. If omitted, the endpoint accepts requests from any caller — always set `auth` in production.
 
-| Field                  | Type              | Required    | Default     | Description                                                                                                                      |
-| ---------------------- | ----------------- | ----------- | ----------- | -------------------------------------------------------------------------------------------------------------------------------- |
-| `type`                 | enum              | **Yes**     | —           | Authentication method: `hmac`, `bearer`, `oidc`, `basic`, `apiKey`, or `ipAllowlist`                                             |
-| `hmacSecretRef`        | SecretKeySelector | Conditional | —           | Reference to the Secret key containing the HMAC shared secret. Required when `type: hmac`.                                       |
-| `bearerTokenSecretRef` | SecretKeySelector | Conditional | —           | Reference to the Secret key containing the expected bearer token. Required when `type: bearer`.                                  |
-| `oidcIssuer`           | string            | Conditional | —           | OIDC/JWT issuer URL (e.g., `https://accounts.google.com`). Required when `type: oidc`.                                           |
-| `oidcAudience`         | string            | No          | —           | Expected `aud` claim value. When omitted, audience validation is skipped. Used when `type: oidc`.                                |
-| `basic`                | WebhookBasicAuth  | Conditional | —           | Basic auth configuration. Required when `type: basic`.                                                                           |
-| `apiKeySecretRef`      | SecretKeySelector | Conditional | —           | Reference to the Secret key containing the expected API key value. Required when `type: apiKey`.                                 |
-| `apiKeyHeader`         | string            | No          | `X-Api-Key` | Header name to check for the API key. Used when `type: apiKey`.                                                                  |
-| `ipAllowlist`          | []string          | Conditional | —           | List of CIDR blocks allowed to call this endpoint (e.g., `["10.0.0.0/8", "192.168.1.0/24"]`). Required when `type: ipAllowlist`. |
+| Field          | Type               | Required    | Description                                                                                    |
+| -------------- | ------------------ | ----------- | ---------------------------------------------------------------------------------------------- |
+| `type`         | enum               | **Yes**     | Authentication method: `hmac`, `bearer`, `oidc`, `basic`, `apiKey`, `ipAllowlist`, `header-equals` |
+| `hmac`         | HMACConfig         | Conditional | HMAC signature config. Required when `type: hmac`.                                             |
+| `bearer`       | BearerConfig       | Conditional | Bearer token config. Required when `type: bearer`.                                             |
+| `oidc`         | OIDCConfig         | Conditional | OIDC/JWT config. Required when `type: oidc`.                                                   |
+| `basic`        | WebhookBasicAuth   | Conditional | Basic auth config. Required when `type: basic`.                                                |
+| `apiKey`       | APIKeyConfig       | Conditional | API key config. Required when `type: apiKey`.                                                  |
+| `ipAllowlist`  | IPAllowlistConfig  | Conditional | IP allowlist config. Required when `type: ipAllowlist`.                                        |
+| `headerEquals` | HeaderEqualsConfig | Conditional | Exact header match config. Required when `type: header-equals`.                                |
 
 > **Note — mTLS**: Client-certificate authentication is not configured via `WebhookAuth`. It is enforced at the TLS termination layer using the `kubezap.io/webhook-mtls-ca-secret` annotation. See [TLS and mTLS Annotations](#tls-and-mtls-annotations) for details.
+
+### HMACConfig
+
+| Field       | Type              | Required | Description                              |
+| ----------- | ----------------- | -------- | ---------------------------------------- |
+| `secretRef` | SecretKeySelector | **Yes**  | Secret key containing the HMAC secret.   |
+
+### BearerConfig
+
+| Field            | Type              | Required | Description                                       |
+| ---------------- | ----------------- | -------- | ------------------------------------------------- |
+| `tokenSecretRef` | SecretKeySelector | **Yes**  | Secret key containing the expected bearer token.  |
+
+### OIDCConfig
+
+| Field      | Type   | Required | Default | Description                                                                           |
+| ---------- | ------ | -------- | ------- | ------------------------------------------------------------------------------------- |
+| `issuer`   | string | **Yes**  | —       | OIDC/JWT issuer URL (e.g., `https://accounts.google.com`).                            |
+| `audience` | string | No       | —       | Expected `aud` claim value. When omitted, audience validation is skipped.             |
+
+### APIKeyConfig
+
+| Field       | Type              | Required | Default     | Description                                                   |
+| ----------- | ----------------- | -------- | ----------- | ------------------------------------------------------------- |
+| `secretRef` | SecretKeySelector | **Yes**  | —           | Secret key containing the expected API key value.             |
+| `header`    | string            | No       | `X-Api-Key` | Header name to check for the API key.                         |
+
+### IPAllowlistConfig
+
+| Field   | Type     | Required | Description                                                                                  |
+| ------- | -------- | -------- | -------------------------------------------------------------------------------------------- |
+| `cidrs` | []string | **Yes**  | List of CIDR blocks allowed to call this endpoint (e.g., `["10.0.0.0/8", "192.168.1.0/24"]`). |
+
+### HeaderEqualsConfig
+
+| Field       | Type              | Required | Description                                            |
+| ----------- | ----------------- | -------- | ------------------------------------------------------ |
+| `header`    | string            | **Yes**  | HTTP header name to check (e.g., `X-Gitlab-Token`).    |
+| `secretRef` | SecretKeySelector | **Yes**  | Secret key containing the expected header value.       |
 
 ### WebhookBasicAuth
 

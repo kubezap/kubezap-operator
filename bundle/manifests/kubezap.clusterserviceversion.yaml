@@ -136,7 +136,7 @@ metadata:
     operators.operatorframework.io/project_layout: go.kubebuilder.io/v4
     repository: https://github.com/kubezap/kubezap-operator
     support: KubeZap Community
-  name: kubezap.v0.0.1
+  name: kubezap.v0.3.0
   namespace: placeholder
 spec:
   apiservicedefinitions: {}
@@ -264,7 +264,7 @@ spec:
     default RBAC — users must grant them explicitly via an additional ClusterRole or Role.
   displayName: KubeZap
   icon:
-  - base64data: iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==
+  - base64data: iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAIAAAAlC+aJAAAAv0lEQVR42u3ayw2AMAyD4Z4ZgCNnhmAC5mAuVoUZgNhJxC9lAH881MrtWLaj9QwAAAIB07y2GAAAAAAAkAHYz8s5AADoMAAAAEhdyBoDer+Bxp9Q739AsR6bALrdhAOg2wg5ANL0coA0uhxgSK8CeKKrAM70wQBz9GBASvoYQFb0GEBu+k8AaddQvdjKbOaKPPiXgFLRHwMKpjcBqrTTBdNrAeXOB+qUWQAAAOCICQAArhoAAAAAgBbAzV0APwTc+OiGxC5YJyAAAAAASUVORK5CYII=
     mediatype: image/png
   install:
     spec:
@@ -534,4 +534,4 @@ spec:
   provider:
     name: KubeZap Community
     url: https://github.com/kubezap/kubezap-operator
-  version: 0.0.1
+  version: 0.3.0

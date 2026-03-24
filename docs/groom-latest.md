@@ -1,3 +1,39 @@
+# Backlog groom: 2026-03-24
+
+## Reordering applied
+
+- **§16 P1 "Manual E2E pass" annotated with sequencing constraint** — must run after all §17 P0 items are complete. Rule violated: Rule 3 (prerequisites before dependents). §17 P0 changes (HTTP executor split, OwnNamespace default, cross-namespace FlowRef removal) alter the system the E2E pass validates; running validation before those changes means running it twice.
+
+- **§16 P1 "Restrict secrets RBAC" annotated as subsumed by §17 P0** — the §17 P0 "Default to OwnNamespace + label-restricted AllNamespaces" item implements the same OwnNamespace default and namespace-scoped secrets RBAC in one change. Implementing §16 P1 separately would duplicate work or create conflicts. Rule violated: Rule 3 (§17 P0 is the prerequisite design that resolves this concern).
+
+## Items added
+
+None — all findings from `docs/review-latest.md` and `docs/tech-debt/pending-input-required.md` are already tracked in §16 and §17.
+
+## Items removed or annotated
+
+- §16 P1 "SECURITY — Restrict secrets RBAC": annotated as subsumed by §17 P0. Not removed (confirm complete as part of the §17 P0 item).
+- §16 P1 "VALIDATION — Manual E2E pass": annotated with sequencing note.
+
+## Items promoted from Future/Backlog
+
+None — Future items are genuinely deferred and not evidenced by recent findings.
+
+## Prioritization rationale updated
+
+Added Rule 10: §17 P0 security changes must precede §16 P1 manual E2E validation pass.
+
+## No-change items
+
+54 items reviewed, no other changes needed.
+
+## Files changed
+
+- docs/schedule.md
+- docs/groom-latest.md
+
+---
+
 # Backlog groom: 2026-03-22 (post-review pass)
 
 ## Reordering applied (post-review decisions)

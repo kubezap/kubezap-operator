@@ -33,13 +33,20 @@ The operator has solid security fundamentals: restricted Pod Security Standards,
 
 **Severity:** Critical — this is the single highest-impact vulnerability.
 
-**Recommendation:** Implement a URL validation layer:
+**Decision (2026-03-24):** Two-layer mitigation:
 
-1. Resolve DNS before connecting; reject if resolved IP is in a blocked range
-2. Block schemes other than `http://` and `https://`
-3. Block well-known metadata IPs (169.254.169.254, metadata.google.internal, etc.)
-4. Make the blocklist configurable via `--http-step-blocked-cidrs` flag
-5. Optionally support an allowlist mode (`--http-step-allowed-cidrs`) for strict environments
+**Layer 1 — URL blocklist:** Resolve DNS before connecting; reject if resolved IP is in a blocked range (RFC1918, link-local, loopback, metadata IPs). Block schemes other than `http://` and `https://`. Add `--http-step-blocked-cidrs` flag for customization.
+
+**Layer 2 — Separate HTTP executor controller:** Extract HTTP step execution from the main controller into a dedicated `kubezap/http-executor` binary/image. The main controller (which holds broad RBAC: secrets, deployments, roles, RBAC management) never makes outbound HTTP calls. Instead, it delegates to the HTTP executor pod which has minimal RBAC:
+
+| Component | Secrets access | RBAC management | Outbound HTTP | CRD access |
+|-----------|---------------|-----------------|---------------|------------|
+| Main controller | get/list/watch (scoped) | roles, rolebindings | **None** | Full CRUD on all KubeZap CRDs |
+| HTTP executor | **None** | **None** | Yes (with blocklist) | flowruns:get/update only |
+
+Architecture: One HTTP executor Deployment per namespace (like webhook gateway). Main controller writes HTTP step spec into FlowRun status; executor picks it up, executes, writes result back. Even if SSRF bypasses the DNS blocklist (e.g., via DNS rebinding), the executor pod has no ServiceAccount token with secrets access.
+
+New files: `cmd/http-executor/main.go`, `internal/executor/http/` package. New image: `kubezap/http-executor`.
 
 ### C2. Cross-Namespace Flow Execution Without Authorization
 
@@ -56,7 +63,7 @@ Attack scenario:
 
 **Severity:** Critical in multi-tenant deployments; low in single-tenant.
 
-**Recommendation:** See pending input Q1 below. Options range from removing cross-namespace FlowRef entirely to adding explicit authorization via a `FlowGrant` CRD or namespace-level annotation.
+**Decision (2026-03-24):** Remove cross-namespace FlowRef entirely. Delete `FlowRef.Namespace` from the API. FlowRuns always execute Flows in their own namespace. Cross-namespace flows deferred to v1beta1 with a proper authorization model (e.g., FlowGrant CRD modeled after Gateway API's ReferenceGrant).
 
 ### C3. Cross-Namespace Secret Fetch
 
@@ -68,7 +75,7 @@ Even without cross-namespace FlowRef, the controller's ClusterRole grants `get/l
 
 **Severity:** Critical (cluster-wide secret exposure if controller is compromised).
 
-**Recommendation:** Already tracked as §16 P1 item (restrict secrets RBAC). This review promotes it to P0 — see schedule update below.
+**Decision (2026-03-24):** Default to OwnNamespace (operator's own namespace only). In AllNamespaces mode (`WATCH_NAMESPACES=*`), restrict secrets RBAC to namespaces labeled `kubezap.io/managed=true`. Combined with the HTTP executor architecture (C1), this means even the main controller's secret access is scoped, and the component making outbound HTTP calls has no secret access at all.
 
 ---
 
@@ -82,7 +89,7 @@ Even without cross-namespace FlowRef, the controller's ClusterRole grants `get/l
 
 **Impact:** Unauthorized Flow execution, potential data exfiltration via HTTP steps, resource exhaustion.
 
-**Recommendation:** See pending input Q2. Options: (a) require auth by default with an explicit `auth: none` opt-out, (b) add a ValidatingWebhookConfiguration that rejects Triggers without auth, (c) document-only (current state).
+**Decision (2026-03-24):** Option B — ValidatingWebhookConfiguration that emits an admission warning (not rejection) when a Trigger with `type: webhook` is created/updated without `spec.webhook.auth`. Non-breaking; raises visibility without blocking dev workflows.
 
 ### H2. Sensitive Data Persisted in FlowRun TriggerData
 
@@ -126,7 +133,7 @@ A compromised or malicious plugin image gets:
 
 **Impact:** Supply chain attack vector. Plugin compromise → FlowRun injection → arbitrary HTTP requests via Flows.
 
-**Recommendation:** See pending input Q3. Short-term: document the trust model prominently. Medium-term: add optional `spec.plugin.imageDigest` field that, when set, is validated against the resolved digest. Long-term: integrate with Sigstore/cosign.
+**Decision (2026-03-24):** Option A — Add optional `spec.plugin.imageDigest` field. When set, operator validates resolved digest at reconcile time before creating/updating the plugin Deployment. Opt-in; no enforcement for users who don't set it. Long-term: integrate with Sigstore/cosign.
 
 ### H5. CEL Expression Resource Exhaustion
 
@@ -175,54 +182,17 @@ The operator deployment includes no NetworkPolicy. Gateways and plugins can reac
 
 ---
 
-## Design Questions for Owner
+## Design Decisions (Resolved 2026-03-24)
 
-These are captured in `docs/tech-debt/pending-input-required.md` as formal pending inputs.
+All questions resolved. Full rationale in `docs/tech-debt/pending-input-required.md`.
 
-### Q1: Should cross-namespace FlowRef be removed from v1alpha1?
-
-Cross-namespace FlowRef (C2 above) is a significant attack surface in multi-tenant deployments. Options:
-
-| Option | Pro | Con |
-|--------|-----|-----|
-| **A. Remove entirely** | Eliminates cross-namespace attack surface; simplest | Limits legitimate use cases (shared utility Flows) |
-| **B. Require explicit opt-in annotation** on target namespace (`kubezap.io/allow-cross-ns-flow-from: ns1,ns2`) | Preserves feature with explicit authorization | Annotation-based authz is coarse-grained |
-| **C. Add FlowGrant CRD** (like ReferenceGrant in Gateway API) | Fine-grained, Kubernetes-native authorization | Adds CRD complexity; delays release |
-| **D. Document risk, defer to v1beta1** | No code change needed now | Leaves vulnerability open |
-
-### Q2: Should webhook triggers require authentication by default?
-
-| Option | Pro | Con |
-|--------|-----|-----|
-| **A. Require auth; explicit `auth: none` to opt out** | Fail-closed; prevents accidental exposure | Breaking change; friction for internal/dev use |
-| **B. ValidatingWebhook that warns (not rejects)** | Non-breaking; visibility | Doesn't prevent the issue |
-| **C. Document-only** (current) | No code change | Relies on user diligence |
-
-### Q3: Should plugin Integrations support image digest pinning?
-
-| Option | Pro | Con |
-|--------|-----|-----|
-| **A. Add `spec.plugin.imageDigest` (optional)** | Opt-in supply chain verification | Operator must resolve and compare digests at reconcile time |
-| **B. Enforce digest-only images (`image@sha256:...`)** | Strongest guarantee | Breaks tag-based workflows; poor DX |
-| **C. Document-only** (current) | No code change | No protection |
-
-### Q4: Should AllNamespaces mode remain the default?
-
-The current default (`WATCH_NAMESPACES=""`) grants cluster-wide secret read access. This is the widest blast radius.
-
-| Option | Pro | Con |
-|--------|-----|-----|
-| **A. Default to OwnNamespace** | Least privilege out of the box | Users must opt in to multi-namespace; more complex initial setup |
-| **B. Keep AllNamespaces default, add startup warning** | Non-breaking; raises awareness | Still insecure by default |
-| **C. Keep AllNamespaces default, restrict secrets RBAC** to labeled namespaces | Preserves UX; limits secret exposure | Requires namespace labeling; more RBAC complexity |
-
-### Q5: SSRF protection — blocklist or allowlist?
-
-| Option | Pro | Con |
-|--------|-----|-----|
-| **A. Blocklist** (block private ranges + metadata IPs) | Permissive; works for most external APIs | May miss novel internal ranges; bypass via DNS rebinding |
-| **B. Allowlist** (only allow explicitly listed CIDRs/domains) | Strongest protection | Requires configuration per deployment; poor DX for getting started |
-| **C. Blocklist default, allowlist opt-in** | Best of both; progressive security | Two code paths to maintain |
+| Question | Decision | Rationale |
+|----------|----------|-----------|
+| **Q1:** Cross-namespace FlowRef | **Remove entirely** | Eliminates the attack surface. Cross-namespace flows deferred to v1beta1 with FlowGrant CRD. |
+| **Q2:** Webhook auth default | **Admission warning** | ValidatingWebhook warns (not rejects) on unauthenticated webhook Triggers. Non-breaking. |
+| **Q3:** Plugin image digest | **Optional field** | `spec.plugin.imageDigest` validated at reconcile time when set. Opt-in. |
+| **Q4:** Namespace default | **OwnNamespace default + label-restricted AllNamespaces** | Least privilege by default. AllNamespaces mode (`WATCH_NAMESPACES=*`) restricts secrets to `kubezap.io/managed=true` namespaces. |
+| **Q5:** SSRF protection | **Blocklist + separate HTTP executor** | DNS-resolved IP blocklist as baseline. HTTP step execution extracted to dedicated `kubezap/http-executor` pod with no secrets RBAC — defense-in-depth against blocklist bypass. |
 
 ---
 

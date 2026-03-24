@@ -121,17 +121,18 @@ Items are ordered to minimize rework:
 ## 17. Security Hardening — 2026-03-24 Review
 
 > Items from the security design review (`docs/security-review-2026-03-24.md`). Ordered P0 → P1 → P2.
-> Pending owner input on several design decisions — see `docs/tech-debt/pending-input-required.md` §2026-03-24.
+> All design decisions resolved (2026-03-24) — see `docs/tech-debt/pending-input-required.md` §2026-03-24.
 
 ### P0 — Blocks public release
 
-- [ ] **SECURITY** — SSRF protection for HTTP step URLs. `internal/controller/flowrun_controller.go` `executeHTTPStep()` and `applyHTTPIntegration()` make unvalidated HTTP requests. Block private IP ranges (RFC1918, link-local, loopback), cloud metadata IPs (169.254.169.254), and `.svc.cluster.local`. Add `--http-step-blocked-cidrs` flag. See `docs/security-review-2026-03-24.md` §C1. **Pending input: blocklist vs allowlist approach (Q5).**
-- [ ] **SECURITY** — Cross-namespace FlowRef authorization. `FlowRun.Spec.FlowRef.Namespace` allows namespace-A FlowRuns to execute namespace-B Flows without authorization checks. See `docs/security-review-2026-03-24.md` §C2. **Pending input: remove, annotation-gate, or FlowGrant CRD (Q1).**
-- [ ] **SECURITY** — Promote secrets RBAC restriction to P0 (was §16 P1). ClusterRole grants cluster-wide `get;list;watch` on Secrets. Controller compromise exposes all Secrets. See §C3. **Pending input: default namespace scope (Q4).**
+- [ ] **SECURITY** — SSRF protection for HTTP step URLs. Block private IP ranges (RFC1918, link-local, loopback), cloud metadata IPs (169.254.169.254), and `.svc.cluster.local`. Resolve DNS before connecting; reject if resolved IP is in blocked range. Add `--http-step-blocked-cidrs` flag for customization. See §C1. **Decision (Q5): blocklist approach.**
+- [ ] **SECURITY/ARCH** — Extract HTTP step execution into a separate `kubezap/http-executor` controller binary. The main controller (broad RBAC: secrets, deployments, roles) delegates HTTP step execution to a dedicated pod with minimal RBAC (flowruns:get/update in its namespace, no secrets, no RBAC management). Defense-in-depth: even if SSRF bypasses the blocklist, the executor has no access to cluster secrets or API server credentials. New binary: `cmd/http-executor/main.go`. New image: `kubezap/http-executor`. One Deployment per namespace (like webhook gateway). See §C1 rationale.
+- [ ] **SECURITY** — Remove cross-namespace FlowRef. Delete `FlowRef.Namespace` field from `api/v1alpha1/flowrun_types.go`. Controller always uses FlowRun's own namespace to fetch the Flow. Add validation webhook to reject FlowRuns with non-empty `flowRef.namespace`. Run `make generate && make manifests`. Update docs. Cross-namespace flows deferred to v1beta1 with FlowGrant CRD. See §C2. **Decision (Q1): remove entirely.**
+- [ ] **SECURITY** — Default to OwnNamespace + label-restricted AllNamespaces. Change `WATCH_NAMESPACES` default behavior: empty = OwnNamespace (operator's own namespace only). New env var value `WATCH_NAMESPACES=*` for AllNamespaces mode, which restricts secrets RBAC to namespaces labeled `kubezap.io/managed=true`. Update `cmd/main.go` cache setup, RBAC markers, ClusterRole, and Helm chart values. See §C3. **Decision (Q4): OwnNamespace default + label restriction.**
 
 ### P1 — Should fix before public
 
-- [ ] **SECURITY** — Webhook auth-required-by-default. Webhook triggers accept unauthenticated requests when `spec.webhook.auth` is omitted. See §H1. **Pending input: require auth by default vs document-only (Q2).**
+- [ ] **SECURITY** — Webhook auth admission warning. Add ValidatingWebhookConfiguration that emits an admission warning (not rejection) when a Trigger with `type: webhook` is created/updated without `spec.webhook.auth`. Non-breaking; raises visibility. See §H1. **Decision (Q2): warn, don't reject.**
 - [ ] **SECURITY** — Redact sensitive data from FlowRun TriggerData. Webhook body and non-standard auth headers persist in FlowRun objects readable by namespace users. Add configurable header redaction list and optional body truncation (`spec.webhook.redactBody`). See §H2.
 - [ ] **SECURITY** — Secret access audit logging. Add structured log entry + Prometheus counter (`kubezap_secret_accesses_total`) for every `$(secrets.*)` fetch during FlowRun execution. Required for PCI-DSS/SOC2 compliance. See §H3.
 - [ ] **SECURITY** — CEL expression cost limits. Add `cel.CostLimit()` budget to `evaluateWhen()`. Add `--cel-cost-limit` flag (default 10000). Prevents DoS via combinatorial comprehensions. See §H5.
@@ -139,7 +140,7 @@ Items are ordered to minimize rework:
 
 ### P2 — Nice to have before public
 
-- [ ] **SECURITY** — Plugin image digest pinning. Add optional `spec.plugin.imageDigest` field to Integration CRD. When set, operator validates resolved digest matches before creating/updating plugin Deployment. See §H4. **Pending input: optional vs mandatory digest (Q3).**
+- [ ] **SECURITY** — Plugin image digest pinning. Add optional `spec.plugin.imageDigest` field to Integration CRD. When set, operator validates resolved digest matches before creating/updating plugin Deployment. See §H4. **Decision (Q3): optional field.**
 - [ ] **SECURITY** — Consistent header redaction across all gateways. Extract webhook redaction logic to shared `internal/gateway/redact` package. Apply to Kafka and AMQP gateways. See §M3.
 - [ ] **SECURITY** — Ship example NetworkPolicies in `config/network-policy/`: controller egress, webhook gateway ingress/egress, plugin egress. Document in security guide. See §M4.
 - [ ] **DOCS** — Plugin-to-controller communication security. Document plain-HTTP limitation for `/publish` endpoint. Recommend service mesh (Istio/Linkerd) sidecar for sensitive deployments. See §M2.
@@ -150,7 +151,7 @@ Items are ordered to minimize rework:
 
 - [x] Kubernetes resource-event trigger type (`type: resource`) — implemented (alpha). Four known bugs tracked in §16 P1/P2. Example 6 (K8s ITSM) is blocked on pluralization fix.
 - [ ] `Step` CRD for reusable step definitions
-- [ ] Multi-namespace flows (cross-namespace FlowRun)
+- [ ] Multi-namespace flows — deferred to v1beta1; requires FlowGrant CRD (like Gateway API ReferenceGrant) for cross-namespace authorization. `FlowRef.Namespace` removed in v1alpha1 per §17 P0.
 - [ ] Additional message brokers: GCP Pub/Sub, Solace (non-AMQP), TIBCO EMS (via plugin model)
 - [ ] Plugin catalog / marketplace in `docs/plugins/` with community registry and maturity levels
 - [ ] Reference plugin implementation in `docs/plugins/example-plugin/`

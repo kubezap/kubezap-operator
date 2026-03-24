@@ -52,13 +52,14 @@ If a request jumps directly to implementation without design context, Claude sho
 
 ## Runtime Architecture
 
-Three separate binaries/images — see `docs/architecture.md` for full design:
+Four separate binaries/images — see `docs/architecture.md` for full design:
 
 | Binary                               | Image                     | Purpose                                                                                                               |
 | ------------------------------------ | ------------------------- | --------------------------------------------------------------------------------------------------------------------- |
-| `cmd/main.go`                        | `kubezap/controller`      | Kubernetes operator: reconciles CRDs, manages gateway Deployments, executes flows via FlowRun                         |
+| `cmd/main.go`                        | `kubezap/controller`      | Kubernetes operator: reconciles CRDs, manages gateway Deployments, delegates HTTP steps to executor. **Does NOT make outbound HTTP calls.** |
 | `cmd/webhook-gateway/main.go`        | `kubezap/webhook-gateway` | HTTP server: watches Trigger CRDs, registers routes dynamically, creates FlowRuns                                     |
 | `cmd/kafka-gateway/main.go`          | `kubezap/kafka-gateway`   | Kafka consumer: watches Trigger CRDs, manages topic subscriptions, creates FlowRuns                                   |
+| `cmd/http-executor/main.go`          | `kubezap/http-executor`   | HTTP step executor: picks up HTTP steps from FlowRun status, executes with SSRF blocklist, writes results back. Minimal RBAC (flowruns:get/update only, no secrets). One Deployment per namespace. |
 | `cmd/main.go` (controller, extended) | —                         | Kubernetes resource event triggers handled IN the controller via dynamic informers — no separate gateway image needed |
 
 Key decisions:
@@ -71,7 +72,7 @@ Key decisions:
 - FlowRun GC: `spec.ttlAfterFinished` per FlowRun, operator-level `--flowrun-ttl-succeeded` / `--flowrun-ttl-failed` flags (defaults 24h/72h), or `spec.maxFlowRuns` on Trigger; annotate with `kubezap.io/retain=true` to exempt
 - Publish step action: `type: publish` with `integrationRef` + `topic` + `body` — controller calls plugin's `/publish` endpoint
 - HPA on webhook gateway; KEDA recommended for Kafka gateway (partition-bounded scaling)
-- `WATCH_NAMESPACES` env var controls scope: empty = AllNamespaces, comma-list = MultiNamespace, single = OwnNamespace
+- `WATCH_NAMESPACES` env var controls scope: empty = OwnNamespace (default, least privilege), `*` = AllNamespaces (secrets restricted to `kubezap.io/managed=true` namespaces), comma-list = MultiNamespace, single value = SingleNamespace
 - OwnNamespace/SingleNamespace modes use Role (not ClusterRole) — important for OpenShift and OperatorHub certification
 - All four OLM install modes must be supported in the CSV bundle
 - Webhook auth: HMAC, bearer token, OIDC/JWT, Basic, mTLS, API-key header, IP allowlist — all per-Trigger, configured via spec.webhook.auth (see docs/guides/webhook-security.md)

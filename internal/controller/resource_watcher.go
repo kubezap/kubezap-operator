@@ -299,13 +299,10 @@ func (rw *ResourceWatcher) handleEvent(
 
 	bodyJSON, _ := json.Marshal(u.Object)
 
+	// FlowRef.Namespace was removed in v1alpha1; Flow is always in the same namespace as the Trigger.
 	flowRef := ""
-	flowNS := trigger.Namespace
 	if trigger.Spec.FlowRef != nil {
 		flowRef = trigger.Spec.FlowRef.Name
-		if trigger.Spec.FlowRef.Namespace != "" {
-			flowNS = trigger.Spec.FlowRef.Namespace
-		}
 	}
 	if flowRef == "" {
 		return
@@ -329,8 +326,7 @@ func (rw *ResourceWatcher) handleEvent(
 		},
 		Spec: automationv1alpha1.FlowRunSpec{
 			FlowRef: automationv1alpha1.FlowReference{
-				Name:      flowRef,
-				Namespace: flowNS,
+				Name: flowRef,
 			},
 			TriggerRef: &automationv1alpha1.TriggerReference{
 				Name: trigger.Name,

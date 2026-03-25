@@ -141,11 +141,9 @@ type CronTrigger struct {
 }
 
 type FlowReference struct {
-	// Name of the Flow CR to execute
+	// Name of the Flow CR to execute. The Flow must be in the same namespace as the referencing resource.
+	// Cross-namespace FlowRefs are not supported in v1alpha1 and are deferred to v1beta1 with a FlowGrant CRD.
 	Name string `json:"name"`
-
-	// Namespace of the Flow CR. If omitted the Trigger's namespace is used.
-	Namespace string `json:"namespace,omitempty"`
 }
 
 // ActionDefinition defines a simple inline action for quick responses.

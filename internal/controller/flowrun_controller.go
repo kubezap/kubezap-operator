@@ -168,16 +168,12 @@ func (r *FlowRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return ctrl.Result{}, nil
 	}
 
-	// Fetch referenced Flow. FlowRef.Namespace allows cross-namespace flows;
-	// fall back to the FlowRun's own namespace when not specified.
+	// Fetch referenced Flow from the FlowRun's own namespace.
+	// Cross-namespace FlowRefs are not supported in v1alpha1.
 	var flow automationv1alpha1.Flow
-	flowNS := flowRun.Namespace
-	if flowRun.Spec.FlowRef.Namespace != "" {
-		flowNS = flowRun.Spec.FlowRef.Namespace
-	}
 	if err := r.Get(ctx, types.NamespacedName{
 		Name:      flowRun.Spec.FlowRef.Name,
-		Namespace: flowNS,
+		Namespace: flowRun.Namespace,
 	}, &flow); err != nil {
 		if apierrors.IsNotFound(err) {
 			return ctrl.Result{}, r.failFlowRun(ctx, &flowRun, "Flow not found: "+flowRun.Spec.FlowRef.Name)

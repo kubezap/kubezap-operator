@@ -154,11 +154,9 @@ spec:
                   be used to perform a quick action (e.g., call an external webhook).
                 properties:
                   name:
-                    description: Name of the Flow CR to execute
-                    type: string
-                  namespace:
-                    description: Namespace of the Flow CR. If omitted the Trigger's
-                      namespace is used.
+                    description: |-
+                      Name of the Flow CR to execute. The Flow must be in the same namespace as the referencing resource.
+                      Cross-namespace FlowRefs are not supported in v1alpha1 and are deferred to v1beta1 with a FlowGrant CRD.
                     type: string
                 required:
                 - name

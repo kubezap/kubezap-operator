@@ -59,8 +59,8 @@ type TriggerData struct {
 
 // FlowRunSpec defines the desired state of FlowRun.
 type FlowRunSpec struct {
-	// Reference to the Flow. Namespace may be set for cross-namespace flows;
-	// if omitted the FlowRun's own namespace is used.
+	// Reference to the Flow to execute. The Flow must be in the same namespace as the FlowRun.
+	// Cross-namespace FlowRefs are not supported in v1alpha1 and are deferred to v1beta1 with a FlowGrant CRD.
 	FlowRef FlowReference `json:"flowRef"`
 
 	// Optional runtime parameters.

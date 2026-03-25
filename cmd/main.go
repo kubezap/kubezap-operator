@@ -46,6 +46,7 @@ import (
 	"github.com/kubezap/kubezap-operator/internal/controller"
 	"github.com/kubezap/kubezap-operator/internal/telemetry"
 	"github.com/kubezap/kubezap-operator/internal/ui"
+	kubezapwebhook "github.com/kubezap/kubezap-operator/internal/webhook"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -219,22 +220,34 @@ func main() {
 		})
 	}
 
-	// WATCH_NAMESPACES controls operator scope:
-	//   empty        → AllNamespaces (cluster-wide)
-	//   single value → OwnNamespace / SingleNamespace
+	// WATCH_NAMESPACES controls operator scope (least-privilege by default):
+	//   ""           → OwnNamespace: only the operator's own namespace (default)
+	//   "*"          → AllNamespaces: cluster-wide watch; secrets RBAC is restricted
+	//                  to namespaces labeled kubezap.io/managed=true via ClusterRole
 	//   comma-list   → MultiNamespace
 	cacheOpts := cache.Options{}
-	if raw := os.Getenv("WATCH_NAMESPACES"); raw != "" {
+	watchNS := os.Getenv("WATCH_NAMESPACES")
+	switch {
+	case watchNS == "*":
+		setupLog.Info("AllNamespaces mode: watching all namespaces")
+	case watchNS == "":
+		// Default: OwnNamespace — watch only the operator's own namespace.
+		ownNS := os.Getenv("POD_NAMESPACE")
+		if ownNS == "" {
+			ownNS = "default"
+			setupLog.Info("POD_NAMESPACE not set; defaulting watch to namespace 'default'")
+		}
+		cacheOpts.DefaultNamespaces = map[string]cache.Config{ownNS: {}}
+		setupLog.Info("OwnNamespace mode: restricting watch to operator namespace", "namespace", ownNS)
+	default:
 		ns := map[string]cache.Config{}
-		for _, n := range strings.Split(raw, ",") {
+		for _, n := range strings.Split(watchNS, ",") {
 			if n = strings.TrimSpace(n); n != "" {
 				ns[n] = cache.Config{}
 			}
 		}
 		cacheOpts.DefaultNamespaces = ns
-		setupLog.Info("restricting watch to namespaces", "namespaces", raw)
-	} else {
-		setupLog.Info("watching all namespaces")
+		setupLog.Info("MultiNamespace mode: restricting watch to namespaces", "namespaces", watchNS)
 	}
 
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
@@ -323,6 +336,16 @@ func main() {
 		os.Exit(1)
 	}
 	// +kubebuilder:scaffold:builder
+
+	// Register admission webhooks.
+	if err := kubezapwebhook.SetupFlowRunWebhook(mgr); err != nil {
+		setupLog.Error(err, "unable to set up FlowRun validating webhook")
+		os.Exit(1)
+	}
+	if err := kubezapwebhook.SetupTriggerWebhook(mgr); err != nil {
+		setupLog.Error(err, "unable to set up Trigger validating webhook")
+		os.Exit(1)
+	}
 
 	if metricsCertWatcher != nil {
 		setupLog.Info("Adding metrics certificate watcher to manager")

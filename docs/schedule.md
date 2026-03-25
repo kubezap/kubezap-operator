@@ -98,15 +98,15 @@ Items are ordered to minimize rework:
 - [x] **DOCS** — `docs/overview.md` line ~493: removed false XPath claim from `resultMappings` docs; JSONPath only.
 - [x] **BUG** — `internal/controller/resource_watcher.go` line ~113: naive pluralization fixed — uses discovery API with `+s` fallback and warning log. Fixed in PR #48 (`backlog/resource-watcher-fixes`).
 - [x] **BUG** — `internal/controller/resource_watcher.go` line ~207: FlowRun name collision fixed — 4-char `crypto/rand` hex suffix added. Fixed in PR #48 (`backlog/resource-watcher-fixes`).
-- [ ] **INFRA** — Gateway Deployments (webhook, kafka, amqp, nats) missing `livenessProbe`/`readinessProbe`. OperatorHub scorecard requires probes on managed Deployments. Target `GET /healthz` on each gateway's configured port. Evidenced by `docs/review-latest.md`.
+- [x] **INFRA** — Gateway Deployments (webhook, kafka, amqp, nats) missing `livenessProbe`/`readinessProbe`. OperatorHub scorecard requires probes on managed Deployments. Target `GET /healthz` on each gateway's configured port. Evidenced by `docs/review-latest.md`.
 - [ ] **SECURITY** — Restrict secrets RBAC to operator namespace (OwnNamespace default). ClusterRole grants `get;list;watch` on secrets cluster-wide; default install should use namespace-scoped Role. Investigate mitigation options (namespaced Role, per-namespace RBAC delegation, label selectors) before implementing. **Note: implementation is subsumed by §17 P0 "Default to OwnNamespace + label-restricted AllNamespaces" — do not implement separately. Resolve as part of that item.**
 
 ### P2 — Nice to have before public
 
-- [ ] **DOCS** — `docs/architecture.md`: Component Overview table and ASCII diagram list only 3 components; AMQP and NATS gateways are missing. Add them.
+- [x] **DOCS** — `docs/architecture.md`: Component Overview table and ASCII diagram list only 3 components; AMQP and NATS gateways are missing. Add them.
 - [x] **DOCS** — `docs/architecture.md` line 321: "KEDA integration planned for v0.3" — v0.3 is complete. Fixed: updated to "KEDA is supported for partition-bounded scaling of Kafka gateways."
-- [ ] **CLEANUP** — Remove Kubebuilder scaffold boilerplate: `// TODO(user): If you enable certManager...` comment in `cmd/main.go`; `// EDIT THIS FILE! THIS IS SCAFFOLDING FOR YOU TO OWN!` in `api/v1alpha1/trigger_types.go`.
-- [ ] **DOCS** — `docs/overview.md` Getting Started link uses `../examples/order-router/` — relative path may break on hosted doc sites. Verify or use absolute GitHub link.
+- [x] **CLEANUP** — Remove Kubebuilder scaffold boilerplate: `// TODO(user): If you enable certManager...` comment in `cmd/main.go`; `// EDIT THIS FILE! THIS IS SCAFFOLDING FOR YOU TO OWN!` in `api/v1alpha1/trigger_types.go`.
+- [x] **DOCS** — `docs/overview.md` Getting Started link uses `../examples/order-router/` — relative path may break on hosted doc sites. Verify or use absolute GitHub link.
 - [ ] **BUG** — `internal/controller/resource_watcher.go`: no retry when informer cache sync fails (transient RBAC issue or API server blip exits the watcher goroutine permanently). Trigger stays "registered" but is dead until reconciler re-registers on next Trigger touch. Add retry with backoff. Evidenced by `docs/tech-debt/pending-input-required.md` Q2.
 - [ ] **BUG** — `internal/controller/resource_watcher.go`: no cooldown mechanism. Rapidly-updated resources (e.g., Pod status churn) with no `watchFields` filter create a FlowRun on every update. Add `maxInvocations`/`window` rate-limiting consistent with other trigger types. Evidenced by `docs/tech-debt/pending-input-required.md` Q2.
 - [ ] **TECH DEBT** — `internal/controller/integration_controller.go`: Kafka producer pool (`kafkaProducers` map) has no TTL or health check; stale connections not detected until next publish attempt fails. Add periodic health check or TTL eviction. Evidenced by `docs/review-latest.md`.

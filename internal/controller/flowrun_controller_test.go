@@ -19,6 +19,7 @@ package controller
 import (
 	"context"
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"sync/atomic"
@@ -46,12 +47,13 @@ var _ = Describe("FlowRunReconciler", func() {
 		)
 		Expect(err).NotTo(HaveOccurred(), "failed to initialize CEL env in test reconciler")
 		return &FlowRunReconciler{
-			Client:       k8sClient,
-			Scheme:       k8sClient.Scheme(),
-			HTTPClient:   http.DefaultClient,
-			TTLSucceeded: 24 * time.Hour,
-			TTLFailed:    72 * time.Hour,
-			celEnv:       env,
+			Client:           k8sClient,
+			Scheme:           k8sClient.Scheme(),
+			HTTPClient:       http.DefaultClient,
+			TTLSucceeded:     24 * time.Hour,
+			TTLFailed:        72 * time.Hour,
+			celEnv:           env,
+			SSRFBlockedCIDRs: []*net.IPNet{}, // disable SSRF checks in unit tests
 		}
 	}
 

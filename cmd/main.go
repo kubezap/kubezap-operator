@@ -77,6 +77,7 @@ func main() {
 	var maxConcurrentFlowRuns int
 	var flowRunExecutionTimeout time.Duration
 	var disableCELCache bool
+	var httpStepBlockedCIDRs string
 	var enableUI bool
 	var uiPort int
 	var uiBearerToken string
@@ -102,6 +103,7 @@ func main() {
 	flag.IntVar(&maxConcurrentFlowRuns, "max-concurrent-flowruns", 25, "Maximum number of FlowRun reconciliations to run concurrently. With one-step-per-reconcile, the goroutine is held only for the duration of a single step (one HTTP call), not the entire flow.")
 	flag.DurationVar(&flowRunExecutionTimeout, "flowrun-execution-timeout", time.Hour, "Maximum time a FlowRun may remain in Running phase before being failed as orphaned (0 = disabled).")
 	flag.BoolVar(&disableCELCache, "disable-cel-cache", false, "Disable the CEL expression program cache. The cache is unbounded but converges once Flows stabilise; disable only when continuously deploying throwaway expressions or for debugging.")
+	flag.StringVar(&httpStepBlockedCIDRs, "http-step-blocked-cidrs", "", "Comma-separated list of additional CIDR ranges to block for HTTP step outbound requests (added to the default RFC1918/loopback/link-local blocklist).")
 	flag.BoolVar(&enableUI, "enable-ui", false,
 		"Enable the read-only web dashboard. When enabled, the operator serves the dashboard on --ui-port and ensures a 'kubezap-ui' Service exists in the operator namespace.")
 	flag.IntVar(&uiPort, "ui-port", 8082,
@@ -288,6 +290,11 @@ func main() {
 		setupLog.Error(err, "unable to create controller", "controller", "Trigger")
 		os.Exit(1)
 	}
+	ssrfBlockedCIDRs, err := controller.ParseCIDRList(httpStepBlockedCIDRs)
+	if err != nil {
+		setupLog.Error(err, "invalid --http-step-blocked-cidrs flag")
+		os.Exit(1)
+	}
 	if err = (&controller.FlowRunReconciler{
 		Client:                  mgr.GetClient(),
 		Scheme:                  mgr.GetScheme(),
@@ -296,6 +303,7 @@ func main() {
 		MaxConcurrentReconciles: maxConcurrentFlowRuns,
 		ExecutionTimeout:        flowRunExecutionTimeout,
 		DisableCELCache:         disableCELCache,
+		SSRFBlockedCIDRs:        ssrfBlockedCIDRs,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "FlowRun")
 		os.Exit(1)

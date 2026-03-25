@@ -1,0 +1,21 @@
+apiVersion: automation.kubezap.io/v1alpha1
+kind: Flow
+metadata:
+  name: fm-chaining-flow
+spec:
+  timeout: 60s
+  steps:
+    - name: step1
+      action:
+        type: transform
+        transform:
+          mappings:
+            greeting: "hello"
+    - name: step2
+      runAfter:
+        - step1
+      action:
+        type: transform
+        transform:
+          mappings:
+            message: "$(steps.step1.results.greeting) world"

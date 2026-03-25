@@ -1,0 +1,25 @@
+apiVersion: automation.kubezap.io/v1alpha1
+kind: Flow
+metadata:
+  name: fm-transform-flow
+spec:
+  timeout: 60s
+  steps:
+    - name: produce
+      action:
+        type: http
+        http:
+          url: "http://fm-mockoon.kubezap-e2e.svc.cluster.local:3000/ok"
+          method: GET
+          timeoutSeconds: 15
+          resultMappings:
+            ok: "$.ok"
+    - name: reshape
+      runAfter:
+        - produce
+      action:
+        type: transform
+        transform:
+          mappings:
+            result: "$(steps.produce.results.ok)"
+            source: "feature-matrix"

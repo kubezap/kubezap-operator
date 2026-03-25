@@ -1,0 +1,23 @@
+apiVersion: automation.kubezap.io/v1alpha1
+kind: Flow
+metadata:
+  name: fm-onfailure-flow
+spec:
+  timeout: 60s
+  steps:
+    - name: will-fail
+      onFailure: Continue
+      action:
+        type: http
+        http:
+          url: "http://does-not-exist.invalid/nowhere"
+          method: GET
+          timeoutSeconds: 5
+    - name: runs-after-failure
+      runAfter:
+        - will-fail
+      action:
+        type: transform
+        transform:
+          mappings:
+            continued: "true"

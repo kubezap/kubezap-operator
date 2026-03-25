@@ -23,6 +23,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"sort"
 	"strconv"
@@ -100,6 +101,11 @@ type FlowRunReconciler struct {
 
 	// celEnv is the shared CEL environment, initialized eagerly in SetupWithManager.
 	celEnv *cel.Env
+
+	// SSRFBlockedCIDRs is the list of IP ranges that HTTP step outbound requests
+	// must not connect to. Defaults to defaultSSRFBlockedCIDRs (RFC1918, loopback,
+	// link-local, cloud metadata) when nil. Populated from --http-step-blocked-cidrs.
+	SSRFBlockedCIDRs []*net.IPNet
 
 	// DisableCELCache bypasses the compiled-program cache so every eval recompiles.
 	// The cache is unbounded: it grows to hold one entry per distinct `when` expression
@@ -690,6 +696,11 @@ func (r *FlowRunReconciler) executeHTTPStep(
 		if err != nil {
 			return nil, "", err
 		}
+	}
+
+	// SSRF protection: validate the resolved URL before connecting.
+	if err := checkSSRF(ctx, url, r.SSRFBlockedCIDRs); err != nil {
+		return nil, "", fmt.Errorf("step %q blocked by SSRF protection: %w", step.Name, err)
 	}
 
 	method := h.Method

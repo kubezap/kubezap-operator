@@ -1,0 +1,24 @@
+apiVersion: automation.kubezap.io/v1alpha1
+kind: Flow
+metadata:
+  name: e2e-publish-flow
+spec:
+  timeout: 60s
+  steps:
+    - name: prepare
+      action:
+        type: transform
+        transform:
+          mappings:
+            event: "$(trigger.body)"
+            source: "e2e-publish-test"
+    - name: publish-to-kafka
+      runAfter:
+        - prepare
+      action:
+        type: publish
+        publish:
+          integrationRef:
+            name: e2e-kafka
+          topic: e2e-publish-topic
+          body: '{"event":"$(steps.prepare.event)","source":"$(steps.prepare.source)"}'

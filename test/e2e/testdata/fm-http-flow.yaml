@@ -1,0 +1,16 @@
+apiVersion: automation.kubezap.io/v1alpha1
+kind: Flow
+metadata:
+  name: fm-http-flow
+spec:
+  timeout: 60s
+  steps:
+    - name: fetch
+      action:
+        type: http
+        http:
+          url: "http://fm-mockoon.kubezap-e2e.svc.cluster.local:3000/ok"
+          method: GET
+          timeoutSeconds: 15
+          resultMappings:
+            ok: "$.ok"

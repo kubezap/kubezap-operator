@@ -1,0 +1,22 @@
+apiVersion: automation.kubezap.io/v1alpha1
+kind: Flow
+metadata:
+  name: fm-retry-flow
+spec:
+  timeout: 60s
+  steps:
+    - name: retried-step
+      onFailure: Continue
+      retryPolicy:
+        maxRetries: 2
+        backoffType: Fixed
+        initialDelay: 1s
+        retryOn:
+          - 500
+          - 503
+      action:
+        type: http
+        http:
+          url: "http://fm-mockoon.kubezap-e2e.svc.cluster.local:3000/always-fail"
+          method: GET
+          timeoutSeconds: 10

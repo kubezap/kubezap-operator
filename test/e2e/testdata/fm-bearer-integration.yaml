@@ -1,0 +1,13 @@
+apiVersion: automation.kubezap.io/v1alpha1
+kind: Integration
+metadata:
+  name: fm-bearer-integration
+spec:
+  type: http
+  http:
+    auth:
+      type: bearer
+      bearer:
+        tokenSecretRef:
+          name: fm-bearer-token
+          key: token

@@ -1,0 +1,16 @@
+apiVersion: automation.kubezap.io/v1alpha1
+kind: Flow
+metadata:
+  name: fm-bearer-flow
+spec:
+  timeout: 60s
+  steps:
+    - name: call-authed
+      action:
+        type: http
+        http:
+          url: "http://fm-mockoon.kubezap-e2e.svc.cluster.local:3000/bearer-protected"
+          method: GET
+          timeoutSeconds: 15
+          integrationRef:
+            name: fm-bearer-integration

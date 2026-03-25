@@ -1,0 +1,12 @@
+apiVersion: automation.kubezap.io/v1alpha1
+kind: Trigger
+metadata:
+  name: fm-webhook
+spec:
+  type: webhook
+  enabled: true
+  webhook:
+    path: /hooks/fm-webhook
+    method: POST
+  flowRef:
+    name: fm-webhook-flow

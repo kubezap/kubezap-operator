@@ -75,6 +75,13 @@ var (
 		Help:    "Time from FlowRun creation to first transition to Running phase.",
 		Buckets: prometheus.DefBuckets,
 	}, []string{"namespace", "flow"})
+
+	// WhenExpressionErrors counts CEL 'when' expression evaluation failures per flow.
+	// reason values: "compile_error", "eval_error", "type_error"
+	WhenExpressionErrors = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "kubezap_when_expression_errors_total",
+		Help: "Total CEL 'when' expression evaluation failures, by flow and error reason.",
+	}, []string{"flow", "reason"})
 )
 
 func init() {
@@ -86,6 +93,7 @@ func init() {
 		WebhookRateLimited,
 		WebhookRequestDuration,
 		FlowRunQueueDuration,
+		WhenExpressionErrors,
 	)
 }
 

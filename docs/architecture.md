@@ -25,7 +25,7 @@ This document describes the runtime architecture of KubeZap — specifically how
 
 ## Component Overview
 
-KubeZap is composed of three distinct runtime components, each with its own binary and container image:
+KubeZap is composed of five distinct runtime components, each with its own binary and container image:
 
 ```
   External Events         Gateway Layer                  Control Plane

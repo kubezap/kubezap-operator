@@ -677,7 +677,7 @@ make build-cli   # produces bin/kubezap
 
 Install via the OpenShift OperatorHub catalog or the community OperatorHub. The OLM bundle is validated (`operator-sdk bundle validate`) and passes the OLM scorecard suite. Community-operators PR in progress.
 
-For a full setup walkthrough including namespace configuration and RBAC see [Getting Started](../examples/order-router/).
+For a full setup walkthrough including namespace configuration and RBAC see [Getting Started](https://github.com/kubezap/kubezap-operator/tree/main/examples/order-router).
 
 ---
 

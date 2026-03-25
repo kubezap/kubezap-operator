@@ -1,0 +1,12 @@
+apiVersion: automation.kubezap.io/v1alpha1
+kind: Flow
+metadata:
+  name: fm-wait-flow
+spec:
+  timeout: 60s
+  steps:
+    - name: pause
+      action:
+        type: wait
+        wait:
+          duration: 3s

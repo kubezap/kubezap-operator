@@ -1,0 +1,13 @@
+apiVersion: automation.kubezap.io/v1alpha1
+kind: Flow
+metadata:
+  name: fm-webhook-flow
+spec:
+  timeout: 60s
+  steps:
+    - name: echo
+      action:
+        type: transform
+        transform:
+          mappings:
+            received: "true"

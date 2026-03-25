@@ -1,0 +1,23 @@
+apiVersion: automation.kubezap.io/v1alpha1
+kind: Flow
+metadata:
+  name: fm-when-flow
+spec:
+  timeout: 60s
+  steps:
+    - name: always-runs
+      action:
+        type: transform
+        transform:
+          mappings:
+            step: "always-runs"
+    - name: skipped-step
+      runAfter:
+        - always-runs
+      when:
+        - expression: "false"
+      action:
+        type: transform
+        transform:
+          mappings:
+            step: "should-be-skipped"

@@ -158,10 +158,8 @@ func entryRoutePath(trigger *automationv1alpha1.Trigger) string {
 // buildRouteEntry constructs a RouteEntry from a Trigger, loading auth secrets as needed.
 // Returns an error if a required secret cannot be fetched; in that case the route must NOT be registered.
 func (w *TriggerWatcher) buildRouteEntry(ctx context.Context, trigger *automationv1alpha1.Trigger) (RouteEntry, error) {
+	// FlowRef.Namespace was removed in v1alpha1; Flow is always in the same namespace as the Trigger.
 	flowNamespace := trigger.Namespace
-	if trigger.Spec.FlowRef != nil && trigger.Spec.FlowRef.Namespace != "" {
-		flowNamespace = trigger.Spec.FlowRef.Namespace
-	}
 
 	method := "POST"
 	if trigger.Spec.Webhook != nil && trigger.Spec.Webhook.Method != "" {

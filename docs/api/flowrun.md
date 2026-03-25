@@ -14,9 +14,11 @@ A `FlowRun` is an execution instance of a `Flow`. Gateways create a `FlowRun` ea
   - [Who Creates FlowRuns](#who-creates-flowruns)
   - [Spec Reference](#spec-reference)
     - [FlowRunSpec](#flowrunspec)
+    - [FlowReference](#flowreference)
     - [TriggerReference](#triggerreference)
     - [TriggerData](#triggerdata)
     - [ParamValue](#paramvalue)
+  - [Cross-namespace flows](#cross-namespace-flows)
   - [Status Reference](#status-reference)
     - [FlowRunStatus](#flowrunstatus)
     - [Conditions](#conditions)
@@ -124,7 +126,7 @@ The Kafka naming convention (`-p0-offset-12345`) is the deduplication key — se
 
 | Field              | Type                 | Required | Description                                                                                                                                                      |
 | ------------------ | -------------------- | -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `flowRef`          | LocalObjectReference | **Yes**  | Name of the `Flow` to execute. Must be in the same namespace.                                                                                                    |
+| `flowRef`          | FlowReference        | **Yes**  | Reference to the `Flow` to execute. The `Flow` must be in the same namespace as the FlowRun. See [Cross-namespace flows](#cross-namespace-flows).                |
 | `params`           | []ParamValue         | No       | Input parameters passed to the Flow. Must satisfy the Flow's `params` declarations.                                                                              |
 | `triggerRef`       | TriggerReference     | No       | Reference to the Trigger that created this FlowRun.                                                                                                              |
 | `triggerData`      | TriggerData          | No       | Snapshot of the triggering event (payload, metadata).                                                                                                            |
@@ -156,12 +158,37 @@ Snapshot of the event that caused this FlowRun. The full set of fields depends o
 | `bodyTruncated` | boolean           | `true` if the body exceeded 4KB and was truncated          |
 | `contentType`   | string            | Content-Type of the body                                   |
 
+### FlowReference
+
+| Field  | Type   | Required | Description                                                                        |
+| ------ | ------ | -------- | ---------------------------------------------------------------------------------- |
+| `name` | string | **Yes**  | Name of the `Flow` CR to execute. Must be in the same namespace as the `FlowRun`. |
+
+Cross-namespace references (`flowRef.namespace`) are **not supported** in `v1alpha1`. Attempting to set this field is rejected by the validating admission webhook. See [Cross-namespace flows](#cross-namespace-flows) below.
+
 ### ParamValue
 
 | Field   | Type   | Description                                                  |
 | ------- | ------ | ------------------------------------------------------------ |
 | `name`  | string | Parameter name (must match a `Flow.spec.params` declaration) |
 | `value` | string | Parameter value                                              |
+
+---
+
+## Cross-namespace flows
+
+Cross-namespace FlowRefs — where a `FlowRun` in namespace A triggers a `Flow` in namespace B — are **not supported in v1alpha1**.
+
+This restriction exists for security reasons: allowing arbitrary cross-namespace access would require the controller to hold cluster-wide read access to `Flow` resources, which violates the least-privilege principle and conflicts with OpenShift restricted SCC requirements.
+
+A validating admission webhook enforces this at the API layer: any `FlowRun` whose `spec.flowRef` carries a `namespace` field (for example, created against an older schema via raw YAML) is rejected with:
+
+```
+cross-namespace FlowRef is not supported; FlowRef.Namespace must be empty
+(cross-namespace flows deferred to v1beta1 with FlowGrant CRD)
+```
+
+**Planned v1beta1 support:** Cross-namespace flows will be re-introduced in `v1beta1` via a `FlowGrant` CRD. A `FlowGrant` in the target namespace explicitly grants one or more source namespaces permission to reference a named `Flow`. This preserves namespace isolation while enabling controlled cross-namespace reuse.
 
 ---
 

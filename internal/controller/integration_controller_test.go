@@ -328,4 +328,136 @@ var _ = Describe("IntegrationReconciler", func() {
 			Expect(err.Error()).To(ContainSubstring("unknown integration type"))
 		})
 	})
+
+	// ---- Image digest pinning ----
+
+	Describe("pluginImageRef helper", func() {
+		Context("when ImageDigest is not set", func() {
+			It("returns the bare image tag unchanged", func() {
+				plugin := &automationv1alpha1.PluginIntegrationSpec{
+					Image: "ghcr.io/my-org/my-plugin:v1.2.3",
+				}
+				Expect(pluginImageRef(plugin)).To(Equal("ghcr.io/my-org/my-plugin:v1.2.3"))
+			})
+		})
+
+		Context("when ImageDigest is set", func() {
+			It("returns image@sha256:<digest>", func() {
+				digest := "a3b4c5d6e7f8a3b4c5d6e7f8a3b4c5d6e7f8a3b4c5d6e7f8a3b4c5d6e7f8a3b4"
+				plugin := &automationv1alpha1.PluginIntegrationSpec{
+					Image:       "ghcr.io/my-org/my-plugin:v1.2.3",
+					ImageDigest: digest,
+				}
+				Expect(pluginImageRef(plugin)).To(Equal("ghcr.io/my-org/my-plugin:v1.2.3@sha256:" + digest))
+			})
+		})
+	})
+
+	Context("when type=plugin with imageDigest set", func() {
+		const digestPluginName = "my-plugin-pinned"
+		const digestPluginImage = "ghcr.io/my-org/my-plugin:v1.2.3"
+		const testDigest = "a3b4c5d6e7f8a3b4c5d6e7f8a3b4c5d6e7f8a3b4c5d6e7f8a3b4c5d6e7f8a3b4"
+		const digestDeploymentName = "kubezap-plugin-" + digestPluginName
+
+		var digestIntegration *automationv1alpha1.Integration
+
+		BeforeEach(func() {
+			digestIntegration = &automationv1alpha1.Integration{
+				ObjectMeta: metav1.ObjectMeta{Name: digestPluginName, Namespace: namespace},
+				Spec: automationv1alpha1.IntegrationSpec{
+					Type: "plugin",
+					Plugin: &automationv1alpha1.PluginIntegrationSpec{
+						Image:       digestPluginImage,
+						ImageDigest: testDigest,
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, digestIntegration)).To(Succeed())
+			DeferCleanup(func() {
+				dep := &appsv1.Deployment{}
+				if err := k8sClient.Get(ctx, types.NamespacedName{Name: digestDeploymentName, Namespace: namespace}, dep); err == nil {
+					_ = k8sClient.Delete(ctx, dep)
+				}
+				_ = k8sClient.Delete(ctx, digestIntegration)
+			})
+
+			reconcile(digestPluginName)
+		})
+
+		It("sets the Deployment container image to image@sha256:<digest>", func() {
+			dep := &appsv1.Deployment{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: digestDeploymentName, Namespace: namespace}, dep)).To(Succeed())
+
+			Expect(dep.Spec.Template.Spec.Containers).To(HaveLen(1))
+			Expect(dep.Spec.Template.Spec.Containers[0].Image).To(Equal(digestPluginImage + "@sha256:" + testDigest))
+		})
+
+		It("sets the PluginDeployed condition message to include the digest-pinned image ref", func() {
+			fetched := &automationv1alpha1.Integration{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: digestPluginName, Namespace: namespace}, fetched)).To(Succeed())
+
+			cond := apimeta.FindStatusCondition(fetched.Status.Conditions, "PluginDeployed")
+			Expect(cond).NotTo(BeNil())
+			Expect(cond.Status).To(Equal(metav1.ConditionTrue))
+			Expect(cond.Message).To(ContainSubstring("@sha256:" + testDigest))
+		})
+
+		It("sets Ready=True", func() {
+			fetched := &automationv1alpha1.Integration{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: digestPluginName, Namespace: namespace}, fetched)).To(Succeed())
+
+			cond := apimeta.FindStatusCondition(fetched.Status.Conditions, "Ready")
+			Expect(cond).NotTo(BeNil())
+			Expect(cond.Status).To(Equal(metav1.ConditionTrue))
+		})
+	})
+
+	Context("when type=plugin without imageDigest", func() {
+		const plainPluginName = "my-plugin-plain"
+		const plainPluginImage = "ghcr.io/my-org/my-plugin:v1.0.0"
+		const plainDeploymentName = "kubezap-plugin-" + plainPluginName
+
+		var plainIntegration *automationv1alpha1.Integration
+
+		BeforeEach(func() {
+			plainIntegration = &automationv1alpha1.Integration{
+				ObjectMeta: metav1.ObjectMeta{Name: plainPluginName, Namespace: namespace},
+				Spec: automationv1alpha1.IntegrationSpec{
+					Type: "plugin",
+					Plugin: &automationv1alpha1.PluginIntegrationSpec{
+						Image: plainPluginImage,
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, plainIntegration)).To(Succeed())
+			DeferCleanup(func() {
+				dep := &appsv1.Deployment{}
+				if err := k8sClient.Get(ctx, types.NamespacedName{Name: plainDeploymentName, Namespace: namespace}, dep); err == nil {
+					_ = k8sClient.Delete(ctx, dep)
+				}
+				_ = k8sClient.Delete(ctx, plainIntegration)
+			})
+
+			reconcile(plainPluginName)
+		})
+
+		It("sets the Deployment container image to the bare image tag (no digest suffix)", func() {
+			dep := &appsv1.Deployment{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: plainDeploymentName, Namespace: namespace}, dep)).To(Succeed())
+
+			Expect(dep.Spec.Template.Spec.Containers).To(HaveLen(1))
+			Expect(dep.Spec.Template.Spec.Containers[0].Image).To(Equal(plainPluginImage))
+		})
+
+		It("sets the PluginDeployed condition message to include the bare image ref", func() {
+			fetched := &automationv1alpha1.Integration{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: plainPluginName, Namespace: namespace}, fetched)).To(Succeed())
+
+			cond := apimeta.FindStatusCondition(fetched.Status.Conditions, "PluginDeployed")
+			Expect(cond).NotTo(BeNil())
+			Expect(cond.Status).To(Equal(metav1.ConditionTrue))
+			Expect(cond.Message).To(ContainSubstring(plainPluginImage))
+			Expect(cond.Message).NotTo(ContainSubstring("@sha256:"))
+		})
+	})
 })

@@ -1,0 +1,14 @@
+apiVersion: automation.kubezap.io/v1alpha1
+kind: Integration
+metadata:
+  name: my-plugin-pinned
+  namespace: default
+spec:
+  type: plugin
+  plugin:
+    image: ghcr.io/my-org/my-plugin:v1.2.3
+    # imageDigest pins the Deployment to an exact content-addressed layer.
+    # Construct by running: crane digest ghcr.io/my-org/my-plugin:v1.2.3
+    # then strip the "sha256:" prefix and paste the 64-character hex here.
+    imageDigest: "a3b4c5d6e7f8a3b4c5d6e7f8a3b4c5d6e7f8a3b4c5d6e7f8a3b4c5d6e7f8a3b4"
+    publisherPort: 8090

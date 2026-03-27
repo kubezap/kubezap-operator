@@ -19,6 +19,7 @@ package main
 import (
 	"crypto/tls"
 	"flag"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -80,6 +81,7 @@ func main() {
 	var disableCELCache bool
 	var httpStepBlockedCIDRs string
 	var executorImage string
+	var executorMTLS bool
 	var enableUI bool
 	var uiPort int
 	var uiBearerToken string
@@ -109,6 +111,7 @@ func main() {
 	flag.StringVar(&executorImage, "executor-image", "ghcr.io/kubezap/http-executor:latest", "Container image for the http-executor Deployment managed in each namespace.")
 	var executorRPCBaseURL string
 	flag.StringVar(&executorRPCBaseURL, "executor-rpc-base-url", "http://kubezap-http-executor.%s.svc.cluster.local:8091", "Base URL format string for the http-executor Service RPC calls; %s is replaced with the target namespace.")
+	flag.BoolVar(&executorMTLS, "executor-mtls", false, "Enable mTLS between controller and http-executor. When true, the controller generates a self-signed CA at startup, injects certs into the executor Deployment, and rotates them every 23h.")
 	flag.BoolVar(&enableUI, "enable-ui", false,
 		"Enable the read-only web dashboard. When enabled, the operator serves the dashboard on --ui-port and ensures a 'kubezap-ui' Service exists in the operator namespace.")
 	flag.IntVar(&uiPort, "ui-port", 8082,
@@ -128,6 +131,29 @@ func main() {
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
 
 	ctx := ctrl.SetupSignalHandler()
+
+	// Generate initial mTLS bundle when --executor-mtls=true.
+	// The bundle is in-memory (never written to etcd as a Secret with the key material).
+	// The controller reconciler writes only the server cert + CA cert to a Secret in each
+	// managed namespace; the CA private key and client cert never leave the controller process.
+	var initialMTLSBundle *controller.MTLSBundle
+	if executorMTLS {
+		ownNS := os.Getenv("POD_NAMESPACE")
+		if ownNS == "" {
+			ownNS = "default"
+		}
+		dnsSANs := []string{
+			fmt.Sprintf("kubezap-http-executor.%s.svc.cluster.local", ownNS),
+			fmt.Sprintf("kubezap-http-executor.%s.svc", ownNS),
+		}
+		bundle, err := controller.GenerateMTLSBundle(dnsSANs)
+		if err != nil {
+			setupLog.Error(err, "failed to generate initial executor mTLS bundle")
+			os.Exit(1)
+		}
+		initialMTLSBundle = bundle
+		setupLog.Info("executor mTLS enabled", "expiresAt", bundle.ExpiresAt)
+	}
 
 	shutdownTracing, err := telemetry.InitTracerProvider(ctx, "kubezap-controller")
 	if err != nil {
@@ -312,7 +338,15 @@ func main() {
 		setupLog.Error(err, "invalid --http-step-blocked-cidrs flag")
 		os.Exit(1)
 	}
-	if err = (&controller.FlowRunReconciler{
+	// When mTLS is enabled, switch the executor RPC base URL to https.
+	rpcBaseURL := executorRPCBaseURL
+	var executorTLSConfig *tls.Config
+	if executorMTLS && initialMTLSBundle != nil {
+		rpcBaseURL = strings.ReplaceAll(rpcBaseURL, "http://", "https://")
+		executorTLSConfig = initialMTLSBundle.ClientTLSConfig()
+	}
+
+	flowRunReconciler := &controller.FlowRunReconciler{
 		Client:                  mgr.GetClient(),
 		Scheme:                  mgr.GetScheme(),
 		TTLSucceeded:            flowRunTTLSucceeded,
@@ -321,8 +355,10 @@ func main() {
 		ExecutionTimeout:        flowRunExecutionTimeout,
 		DisableCELCache:         disableCELCache,
 		SSRFBlockedCIDRs:        ssrfBlockedCIDRs,
-		ExecutorBaseURL:         executorRPCBaseURL,
-	}).SetupWithManager(mgr); err != nil {
+		ExecutorBaseURL:         rpcBaseURL,
+		ExecutorTLSConfig:       executorTLSConfig,
+	}
+	if err = flowRunReconciler.SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "FlowRun")
 		os.Exit(1)
 	}
@@ -340,13 +376,50 @@ func main() {
 		setupLog.Error(err, "unable to create controller", "controller", "Integration")
 		os.Exit(1)
 	}
-	if err = (&controller.ExecutorReconciler{
+	executorReconciler := &controller.ExecutorReconciler{
 		Client:        mgr.GetClient(),
 		Scheme:        mgr.GetScheme(),
 		ExecutorImage: executorImage,
-	}).SetupWithManager(mgr); err != nil {
+		MTLSEnabled:   executorMTLS,
+		MTLSBundle:    initialMTLSBundle,
+	}
+	if err = executorReconciler.SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Executor")
 		os.Exit(1)
+	}
+
+	// Start mTLS rotation goroutine (23h rotation, 1h before expiry).
+	if executorMTLS && initialMTLSBundle != nil {
+		go func() {
+			ticker := time.NewTicker(5 * time.Minute)
+			defer ticker.Stop()
+			ownNS := os.Getenv("POD_NAMESPACE")
+			if ownNS == "" {
+				ownNS = "default"
+			}
+			dnsSANs := []string{
+				fmt.Sprintf("kubezap-http-executor.%s.svc.cluster.local", ownNS),
+				fmt.Sprintf("kubezap-http-executor.%s.svc", ownNS),
+			}
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case <-ticker.C:
+					if !executorReconciler.MTLSBundle.NeedsRotation() {
+						continue
+					}
+					newBundle, err := controller.GenerateMTLSBundle(dnsSANs)
+					if err != nil {
+						setupLog.Error(err, "failed to rotate executor mTLS bundle")
+						continue
+					}
+					executorReconciler.MTLSBundle = newBundle
+					flowRunReconciler.ExecutorTLSConfig = newBundle.ClientTLSConfig()
+					setupLog.Info("executor mTLS bundle rotated", "expiresAt", newBundle.ExpiresAt)
+				}
+			}
+		}()
 	}
 	// +kubebuilder:scaffold:builder
 

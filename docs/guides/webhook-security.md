@@ -455,6 +455,33 @@ spec:
 
 ---
 
+## Redacting Sensitive Data from FlowRun TriggerData
+
+By default, KubeZap redacts the following headers before storing them in
+`FlowRun.Spec.TriggerData`: `Authorization`, `X-Api-Key`, `X-Webhook-Secret`,
+`X-Hub-Signature`, `X-Hub-Signature-256`, `X-Amz-Security-Token`, `Cookie`,
+`Set-Cookie`, `X-Auth-Token`, `Proxy-Authorization`.
+
+To redact additional headers or the entire request body, configure
+`spec.webhook.redactHeaders` and `spec.webhook.redactBody` on the Trigger:
+
+```yaml
+spec:
+  webhook:
+    redactHeaders:
+      - X-Custom-Token
+      - X-My-Api-Key
+    redactBody: true  # store [REDACTED] instead of the full body
+```
+
+The built-in list is always applied — `redactHeaders` extends it, it does not replace it.
+
+When `redactBody: true`, the webhook body is not available via `$(trigger.body.*)` in Flow
+step templates. Use this only when the body contains credentials you never want persisted
+in etcd.
+
+---
+
 ## Limitations
 
 - **Replay attacks**: HMAC verification does not protect against replay attacks by default. For replay protection, require a timestamp header (e.g., `X-Timestamp`) and add a `when` condition on the Flow to reject stale timestamps. Some providers (GitHub, Stripe) include a timestamp in the signature payload.

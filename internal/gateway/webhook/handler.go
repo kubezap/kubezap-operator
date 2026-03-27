@@ -97,22 +97,48 @@ func randomHex(length int) string {
 	return hexString
 }
 
-// sensitiveHeaders is a set of lowercase header names that must be redacted before
-// storing header values in FlowRun.Spec.TriggerData.Headers. Use a map for O(1) lookup.
-var sensitiveHeaders = map[string]struct{}{
-	"authorization":       {},
-	"x-api-key":           {},
-	"cookie":              {},
-	"set-cookie":          {},
-	"x-auth-token":        {},
-	"proxy-authorization": {},
+// builtInRedactedHeaders is always redacted regardless of Trigger config.
+// Header names are stored lower-cased for case-insensitive matching.
+var builtInRedactedHeaders = []string{
+	"authorization",
+	"x-api-key",
+	"x-webhook-secret",
+	"x-hub-signature",
+	"x-hub-signature-256",
+	"x-amz-security-token",
+	"cookie",
+	"set-cookie",
+	"x-auth-token",
+	"proxy-authorization",
 }
 
-func redactHeader(name string, values []string) string {
-	if _, sensitive := sensitiveHeaders[strings.ToLower(name)]; sensitive {
-		return "[redacted]"
+// buildRedactedTriggerData copies headers with sensitive values replaced by
+// "[REDACTED]" and optionally replaces the body.
+// redactExtra is a list of additional header names (case-insensitive) to redact
+// beyond the built-in list. redactBody replaces the body with "[REDACTED]" when true.
+func buildRedactedTriggerData(headers http.Header, body string, redactExtra []string, redactBody bool) (map[string]string, string) {
+	toRedact := make(map[string]bool, len(builtInRedactedHeaders)+len(redactExtra))
+	for _, h := range builtInRedactedHeaders {
+		toRedact[h] = true
 	}
-	return strings.Join(values, ",")
+	for _, h := range redactExtra {
+		toRedact[strings.ToLower(h)] = true
+	}
+
+	out := make(map[string]string, len(headers))
+	for k, vals := range headers {
+		if toRedact[strings.ToLower(k)] {
+			out[k] = "[REDACTED]"
+		} else {
+			out[k] = strings.Join(vals, ",")
+		}
+	}
+
+	outBody := body
+	if redactBody {
+		outBody = "[REDACTED]"
+	}
+	return out, outBody
 }
 
 func writeJSON(w http.ResponseWriter, status int, body interface{}) {
@@ -350,16 +376,13 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	headers := make(map[string]string, len(r.Header))
-	for k, v := range r.Header {
-		headers[k] = redactHeader(k, v)
-	}
-
 	bodyString := string(bodyBytes)
 	if len(bodyString) > 4096 {
 		bodyTruncated = true
 		bodyString = bodyString[:4096]
 	}
+
+	headers, bodyString := buildRedactedTriggerData(r.Header, bodyString, entry.RedactHeaders, entry.RedactBody)
 
 	flowRunName = fmt.Sprintf("%s-%d-%s", entry.TriggerName, time.Now().Unix(), randomHex(8))
 

@@ -125,6 +125,20 @@ type WebhookTrigger struct {
 	// Auth configures authentication for this webhook endpoint.
 	// If omitted, the endpoint accepts requests from any caller.
 	Auth *WebhookAuth `json:"auth,omitempty"`
+
+	// RedactHeaders is a list of HTTP header names (case-insensitive) whose values
+	// are replaced with "[REDACTED]" before storing in FlowRun.Spec.TriggerData.
+	// The built-in list (Authorization, X-Api-Key, X-Webhook-Secret, X-Hub-Signature,
+	// X-Hub-Signature-256, X-Amz-Security-Token) is always applied regardless of this field.
+	// +optional
+	// +listType=atomic
+	RedactHeaders []string `json:"redactHeaders,omitempty"`
+
+	// RedactBody when true replaces the webhook request body stored in
+	// FlowRun.Spec.TriggerData with "[REDACTED]". Use when the body contains
+	// credentials or sensitive payloads.
+	// +optional
+	RedactBody bool `json:"redactBody,omitempty"`
 }
 
 // CronTrigger configures a cron-based scheduled trigger.

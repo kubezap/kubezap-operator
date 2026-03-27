@@ -34,6 +34,10 @@ type RouteEntry struct {
 	// Cooldown fields — pre-loaded from Trigger.Spec.Cooldown at registration time.
 	MaxInvocations int32         // 0 means no limit
 	CooldownWindow time.Duration // window for counting invocations
+
+	// Redaction fields — pre-loaded from Trigger.Spec.Webhook at registration time.
+	RedactHeaders []string // additional header names to redact beyond the built-in list
+	RedactBody    bool     // when true, body is replaced with "[REDACTED]" in TriggerData
 }
 
 // RouteRegistry is a thread-safe in-memory registry for webhook routes.

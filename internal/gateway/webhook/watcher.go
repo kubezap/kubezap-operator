@@ -177,6 +177,11 @@ func (w *TriggerWatcher) buildRouteEntry(ctx context.Context, trigger *automatio
 		FlowRef:          flowRef,
 		FlowNamespace:    flowNamespace,
 		AllowedMethod:    method,
+		RedactBody:       trigger.Spec.Webhook.RedactBody,
+	}
+
+	if len(trigger.Spec.Webhook.RedactHeaders) > 0 {
+		entry.RedactHeaders = append([]string(nil), trigger.Spec.Webhook.RedactHeaders...)
 	}
 
 	auth := trigger.Spec.Webhook.Auth

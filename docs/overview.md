@@ -492,6 +492,13 @@ The trigger body is available in flow steps and CEL conditions via `$(trigger.bo
 
 For HTTP step responses, `resultMappings` support **JSONPath** (e.g., `$.user.id`) to extract values from JSON responses.
 
+HTTP steps are executed by a dedicated `kubezap-http-executor` pod that runs in the same
+namespace as the Flow. The controller resolves all credential references in-memory and sends
+a fully-substituted request to the executor via an internal `POST /execute` RPC call.
+The executor enforces SSRF protection independently of the controller. This separation limits
+the blast radius of SSRF vulnerabilities: the executor pod has no Kubernetes API access and
+no secrets RBAC. See [HTTP Executor design](docs/dev/http-executor.md) for details.
+
 See [Flow CRD → Payload Formats](api/flow.md#payload-formats) for the full reference.
 
 ---

@@ -38,11 +38,12 @@ KubeZap is composed of five distinct runtime components, each with its own binar
   AMQP Message  ────────► amqp-gateway    ──┤               │ creates & manages
                           (one per broker)  │               ▼
   NATS Message  ────────► nats-gateway    ──┤         gateway Deployments
-                          (one per server) │
-                                │          │
-                                │ watch    │
-                                └─────────►┘
-                           Trigger CRDs
+                          (one per server) │               │
+                                │          │               │ POST /execute (RPC)
+                                │ watch    │               ▼
+                                └─────────►┘        http-executor pod
+                           Trigger CRDs              (one per namespace;
+                                                      no RBAC, SSRF guard)
                                             ──────────────────────────────────
                           Prometheus metrics + OpenTelemetry traces
 ```
@@ -54,6 +55,7 @@ KubeZap is composed of five distinct runtime components, each with its own binar
 | `kubezap-kafka-gateway`   | `cmd/kafka-gateway/main.go`   | Kafka consumer. Watches Trigger CRDs and manages topic subscriptions. Creates FlowRun on each message.       |
 | `kubezap-amqp-gateway`    | `cmd/amqp-gateway/main.go`    | AMQP consumer (RabbitMQ, Azure Service Bus, etc.). One Deployment per broker Integration per namespace.      |
 | `kubezap-nats-gateway`    | `cmd/nats-gateway/main.go`    | NATS JetStream consumer. One Deployment per NATS server Integration per namespace.                           |
+| `kubezap-http-executor`   | `cmd/http-executor/main.go`   | HTTP step executor: receives fully-resolved HTTP requests from controller via internal `POST /execute` RPC, executes with SSRF blocklist, returns results. Minimal RBAC (no secrets, no RBAC management). One Deployment per namespace. |
 
 The controller and gateways are separate processes deployed as separate Kubernetes `Deployment` resources. The controller creates and manages the gateway Deployments.
 

@@ -35,6 +35,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 
 	automationv1alpha1 "github.com/kubezap/kubezap-operator/api/v1alpha1"
+	executorhttp "github.com/kubezap/kubezap-operator/internal/executor/http"
 )
 
 var _ = Describe("FlowRunReconciler", func() {
@@ -46,14 +47,26 @@ var _ = Describe("FlowRunReconciler", func() {
 			cel.Variable("steps", cel.MapType(cel.StringType, cel.DynType)),
 		)
 		Expect(err).NotTo(HaveOccurred(), "failed to initialize CEL env in test reconciler")
+
+		// Start a real executor test server with SSRF disabled so tests can target
+		// httptest servers bound to 127.0.0.1 without being blocked by the blocklist.
+		execHandler := &executorhttp.Handler{
+			BlockedCIDRs:   []*net.IPNet{}, // no SSRF blocking in tests
+			BodyLimitBytes: 64 * 1024,
+			HTTPClient:     http.DefaultClient,
+		}
+		execServer := httptest.NewServer(executorhttp.New(execHandler))
+		DeferCleanup(execServer.Close)
+
 		return &FlowRunReconciler{
 			Client:           k8sClient,
 			Scheme:           k8sClient.Scheme(),
-			HTTPClient:       http.DefaultClient,
+			HTTPClient:       http.DefaultClient, // used for RPC to execServer
 			TTLSucceeded:     24 * time.Hour,
 			TTLFailed:        72 * time.Hour,
 			celEnv:           env,
-			SSRFBlockedCIDRs: []*net.IPNet{}, // disable SSRF checks in unit tests
+			SSRFBlockedCIDRs: []*net.IPNet{}, // disable SSRF pre-check in tests
+			ExecutorBaseURL:  execServer.URL, // plain URL, namespace placeholder not needed
 		}
 	}
 

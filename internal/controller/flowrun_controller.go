@@ -51,6 +51,7 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	automationv1alpha1 "github.com/kubezap/kubezap-operator/api/v1alpha1"
+	executorhttp "github.com/kubezap/kubezap-operator/internal/executor/http"
 	"github.com/kubezap/kubezap-operator/internal/metrics"
 )
 
@@ -105,7 +106,13 @@ type FlowRunReconciler struct {
 	// SSRFBlockedCIDRs is the list of IP ranges that HTTP step outbound requests
 	// must not connect to. Defaults to defaultSSRFBlockedCIDRs (RFC1918, loopback,
 	// link-local, cloud metadata) when nil. Populated from --http-step-blocked-cidrs.
+	// Used as a defence-in-depth pre-flight check before forwarding to the executor.
 	SSRFBlockedCIDRs []*net.IPNet
+
+	// ExecutorBaseURL is the base URL format string for the http-executor Service,
+	// with a single %s placeholder for the target namespace.
+	// Default: "http://kubezap-http-executor.%s.svc.cluster.local:8091"
+	ExecutorBaseURL string
 
 	// DisableCELCache bypasses the compiled-program cache so every eval recompiles.
 	// The cache is unbounded: it grows to hold one entry per distinct `when` expression
@@ -668,6 +675,8 @@ func (r *FlowRunReconciler) executeHTTPStep(
 	}
 
 	h := step.Action.HTTP
+	// url is the fully-resolved URL (with secret values substituted).
+	// displayURL has secret placeholders intact for safe inclusion in log/error messages.
 	url, displayURL, err := r.substituteVarsWithSecrets(ctx, namespace, h.URL, stepResults, triggerData)
 	if err != nil {
 		return nil, "", fmt.Errorf("resolving secrets in URL for step %q: %w", step.Name, err)
@@ -694,7 +703,9 @@ func (r *FlowRunReconciler) executeHTTPStep(
 		}
 	}
 
-	// SSRF protection: validate the resolved URL before connecting.
+	// Defence-in-depth SSRF pre-check: reject blocked targets before forwarding
+	// to the executor. The executor re-validates independently to guard against
+	// DNS rebinding between this check and the outbound connection.
 	if err := checkSSRF(ctx, url, r.SSRFBlockedCIDRs); err != nil {
 		return nil, "", fmt.Errorf("step %q blocked by SSRF protection: %w", step.Name, err)
 	}
@@ -725,6 +736,15 @@ func (r *FlowRunReconciler) executeHTTPStep(
 		maxAttempts = int(retryPolicy.MaxRetries) + 1
 	}
 
+	// Build the executor request once — it is the same for every retry attempt.
+	execReq := executorhttp.ExecuteRequest{
+		Method:         method,
+		URL:            url,
+		Headers:        headers,
+		Body:           body,
+		TimeoutSeconds: int(timeoutSec),
+	}
+
 	var lastErr error
 	for attempt := 0; attempt < maxAttempts; attempt++ {
 		if attempt > 0 {
@@ -736,50 +756,41 @@ func (r *FlowRunReconciler) executeHTTPStep(
 			}
 		}
 
-		var bodyReader io.Reader
-		if body != "" {
-			bodyReader = bytes.NewBufferString(body)
-		}
-
-		req, err := http.NewRequestWithContext(stepCtx, method, url, bodyReader)
+		execResp, err := r.callExecutor(stepCtx, namespace, execReq)
 		if err != nil {
-			// Use displayURL so any secret embedded in the URL does not appear
-			// in the error message that is persisted to StepRunStatus.Message.
-			return nil, "", fmt.Errorf("building HTTP request to %s: %w",
-				displayURL, redactSecretError(err, url, displayURL))
-		}
-		for k, v := range headers {
-			req.Header.Set(k, v)
-		}
-
-		httpClient := r.HTTPClient
-		if httpClient == nil {
-			httpClient = http.DefaultClient
-		}
-
-		resp, err := httpClient.Do(req)
-		if err != nil {
-			// Sanitise the error string: Go's net/http embeds the actual URL inside
-			// the error message.  Replace the real URL with the display URL so that
-			// secret values are not leaked into StepRunStatus.Message.
-			lastErr = fmt.Errorf("%s", redactSecretError(err, url, displayURL))
-			log.Error(err, "HTTP step request failed", "step", step.Name, "attempt", attempt+1)
+			// RPC transport error (executor unreachable, timeout, etc.).
+			// Use displayURL in the error so secrets from the step URL are not persisted.
+			lastErr = fmt.Errorf("executor RPC for step %q (target: %s): %w", step.Name, displayURL, err)
+			log.Error(err, "executor RPC failed", "step", step.Name, "attempt", attempt+1)
 			continue
 		}
 
-		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
-		// Close the body explicitly here rather than via defer so that connections
-		// are returned to the pool after each iteration instead of accumulating
-		// until executeHTTPStep returns.
-		resp.Body.Close()
+		if execResp.Error != "" {
+			// The executor reached the target but the call failed (SSRF block, DNS error,
+			// upstream connection failure, etc.). Prefixed error strings (ssrf_blocked:,
+			// dns_error:, etc.) allow callers to distinguish permanent failures from transient.
+			//
+			// Redact the resolved URL from the error string: Go's net/http embeds the full
+			// URL (including any secret values substituted into it) in transport error messages.
+			// Replace it with displayURL so secret values are not persisted to etcd via
+			// StepRunStatus.Message.
+			errMsg := execResp.Error
+			if url != displayURL {
+				errMsg = strings.ReplaceAll(errMsg, url, displayURL)
+			}
+			lastErr = fmt.Errorf("%s", errMsg)
+			log.Info("HTTP step executor error", "step", step.Name, "error", errMsg, "attempt", attempt+1)
+			continue
+		}
 
-		if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-			results := make(map[string]string)
-			results["body"] = string(respBody)
-			results["status"] = fmt.Sprintf("%d", resp.StatusCode)
+		if execResp.StatusCode >= 200 && execResp.StatusCode < 300 {
+			results := map[string]string{
+				"body":   execResp.Body,
+				"status": fmt.Sprintf("%d", execResp.StatusCode),
+			}
 			if len(h.ResultMappings) > 0 {
 				var jsonBody map[string]interface{}
-				if jsonErr := json.Unmarshal(respBody, &jsonBody); jsonErr == nil {
+				if jsonErr := json.Unmarshal([]byte(execResp.Body), &jsonBody); jsonErr == nil {
 					for resultKey, jsonPath := range h.ResultMappings {
 						if val := extractSimpleJSONPath(jsonPath, jsonBody); val != "" {
 							results[resultKey] = val
@@ -787,14 +798,61 @@ func (r *FlowRunReconciler) executeHTTPStep(
 					}
 				}
 			}
-			return results, fmt.Sprintf("HTTP %d", resp.StatusCode), nil
+			return results, fmt.Sprintf("HTTP %d", execResp.StatusCode), nil
 		}
 
-		lastErr = fmt.Errorf("HTTP %d: %s", resp.StatusCode, truncate(string(respBody), 256))
-		log.Info("HTTP step non-2xx response", "step", step.Name, "status", resp.StatusCode, "attempt", attempt+1)
+		lastErr = fmt.Errorf("HTTP %d: %s", execResp.StatusCode, truncate(execResp.Body, 256))
+		log.Info("HTTP step non-2xx response", "step", step.Name, "status", execResp.StatusCode, "attempt", attempt+1)
 	}
 
 	return nil, "", lastErr
+}
+
+// callExecutor sends a fully-resolved ExecuteRequest to the http-executor Service
+// running in the given namespace and returns the response. The caller holds all
+// resolved secret values; none are written to etcd or logged here.
+func (r *FlowRunReconciler) callExecutor(ctx context.Context, namespace string, req executorhttp.ExecuteRequest) (*executorhttp.ExecuteResponse, error) {
+	baseURL := r.ExecutorBaseURL
+	if baseURL == "" {
+		baseURL = "http://kubezap-http-executor.%s.svc.cluster.local:8091"
+	}
+	// Use strings.ReplaceAll so that a plain URL (no %s placeholder) also works,
+	// e.g. when ExecutorBaseURL is set to a test server address in unit tests.
+	executorURL := strings.ReplaceAll(baseURL, "%s", namespace) + "/execute"
+
+	reqBody, err := json.Marshal(req)
+	if err != nil {
+		return nil, fmt.Errorf("marshalling executor request: %w", err)
+	}
+
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, executorURL, bytes.NewReader(reqBody))
+	if err != nil {
+		return nil, fmt.Errorf("building executor HTTP request: %w", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+
+	httpClient := r.HTTPClient
+	if httpClient == nil {
+		httpClient = http.DefaultClient
+	}
+
+	resp, err := httpClient.Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("sending request to executor: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		errBody, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
+		return nil, fmt.Errorf("executor returned HTTP %d: %s", resp.StatusCode, string(errBody))
+	}
+
+	var execResp executorhttp.ExecuteResponse
+	if err := json.NewDecoder(resp.Body).Decode(&execResp); err != nil {
+		return nil, fmt.Errorf("decoding executor response: %w", err)
+	}
+
+	return &execResp, nil
 }
 
 func (r *FlowRunReconciler) executePublishStep(
@@ -1613,17 +1671,6 @@ func (r *FlowRunReconciler) substituteVarsWithSecrets(
 	}
 
 	return actualStr, displayStr, nil
-}
-
-// redactSecretError returns an error whose message has every occurrence of
-// actualURL replaced by displayURL.  This prevents secret values embedded in
-// the URL from appearing in error strings that are later persisted to etcd via
-// StepRunStatus.Message.
-func redactSecretError(err error, actualURL, displayURL string) error {
-	if err == nil || actualURL == displayURL {
-		return err
-	}
-	return fmt.Errorf("%s", strings.ReplaceAll(err.Error(), actualURL, displayURL))
 }
 
 // substituteVars replaces template placeholders in s with values from stepResults and triggerData.

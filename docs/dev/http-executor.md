@@ -178,7 +178,9 @@ Enabled via `--executor-mtls=true` on the controller. When enabled:
 4. The executor's HTTP server requires client certificate authentication.
 5. The controller's HTTP client presents its client cert and verifies the server cert against the CA.
 
-**Certificate rotation:** The controller regenerates certs on startup. Cert lifetime is 24 hours; the controller rotates the executor Deployment's cert Secret and rolls the executor Deployment every 23 hours.
+**Certificate rotation:** The controller regenerates certs on startup. Cert lifetime is 24 hours; the controller rotates the executor Deployment's cert Secret and rolls the executor Deployment every 23 hours. `ExecutorReconciler` handles Secret rotation: `cmd/main.go` starts a goroutine that calls `MTLSBundle.NeedsRotation()` (which returns `true` when expiry is less than 1 hour away, i.e. at the 23h mark) and regenerates the bundle. It then updates both `ExecutorReconciler.MTLSBundle` and `FlowRunReconciler.ExecutorTLSConfig` before the next reconcile writes the fresh Secret.
+
+**DNS SANs:** Server certificates include both `kubezap-http-executor.<ns>.svc.cluster.local` and `kubezap-http-executor.<ns>.svc` as Subject Alternative Names. This covers both the fully-qualified in-cluster DNS name and the short-form service DNS name. `cmd/main.go` passes the correct names to `controller.GenerateMTLSBundle(dnsSANs)` at startup using the operator's own namespace (from the `POD_NAMESPACE` env var or the `--namespace` flag).
 
 **Use case:** Clusters without a NetworkPolicy-capable CNI (e.g., vanilla kubeadm with Flannel) or environments where a service mesh is not available. Clusters with Istio/Linkerd can use their mTLS instead; set `--executor-mtls=false` (default).
 

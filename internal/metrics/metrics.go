@@ -82,6 +82,15 @@ var (
 		Name: "kubezap_when_expression_errors_total",
 		Help: "Total CEL 'when' expression evaluation failures, by flow and error reason.",
 	}, []string{"flow", "reason"})
+
+	// SecretAccesses counts every Kubernetes Secret read performed during FlowRun execution.
+	// Used for PCI-DSS/SOC2 compliance audit trails. Labels:
+	//   namespace   — namespace the secret lives in
+	//   secret_name — name of the Kubernetes Secret object (never the key or value)
+	SecretAccesses = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "kubezap_secret_accesses_total",
+		Help: "Total number of Kubernetes Secret reads performed during FlowRun step execution, by namespace and secret name.",
+	}, []string{"namespace", "secret_name"})
 )
 
 func init() {
@@ -94,6 +103,7 @@ func init() {
 		WebhookRequestDuration,
 		FlowRunQueueDuration,
 		WhenExpressionErrors,
+		SecretAccesses,
 	)
 }
 

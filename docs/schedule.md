@@ -140,7 +140,7 @@ Items are ordered to minimize rework:
 
 - [x] **SECURITY** — Webhook auth admission warning. Add ValidatingWebhookConfiguration that emits an admission warning (not rejection) when a Trigger with `type: webhook` is created/updated without `spec.webhook.auth`. Non-breaking; raises visibility. See §H1. **Decision (Q2): warn, don't reject.**
 - [x] **SECURITY** — Redact sensitive data from FlowRun TriggerData. Webhook body and non-standard auth headers persist in FlowRun objects readable by namespace users. Add configurable header redaction list and optional body truncation (`spec.webhook.redactBody`). See §H2.
-- [ ] **SECURITY** — Secret access audit logging. Add structured log entry + Prometheus counter (`kubezap_secret_accesses_total`) for every `$(secrets.*)` fetch during FlowRun execution. Required for PCI-DSS/SOC2 compliance. See §H3.
+- [x] **SECURITY** — Secret access audit logging. Add structured log entry + Prometheus counter (`kubezap_secret_accesses_total`) for every `$(secrets.*)` fetch during FlowRun execution. Required for PCI-DSS/SOC2 compliance. See §H3.
 - [ ] **SECURITY** — CEL expression cost limits. Add `cel.CostLimit()` budget to `evaluateWhen()`. Add `--cel-cost-limit` flag (default 10000). Prevents DoS via combinatorial comprehensions. See §H5.
 - [ ] **SECURITY** — FlowRun creation rate limiting. Add `spec.webhook.rateLimit` (requests per window) to Trigger CRD. Gateway enforces locally; controller enforces globally via FlowRun count. See §M1.
 

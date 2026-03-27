@@ -1,0 +1,63 @@
+# config/network-policy/webhook-gateway-ingress.yaml
+#
+# Controls traffic in/out of the KubeZap webhook-gateway pod.
+#
+# Ingress: the webhook gateway accepts public HTTP(S) webhook traffic on port 8080
+# (plain HTTP) or 8443 (TLS). Expose only the port your Trigger specs use.
+# If you terminate TLS at an ingress controller or load balancer instead of the
+# gateway pod itself, keep only port 8080 and apply an appropriate ingress policy
+# on the ingress controller namespace.
+#
+# Egress: the webhook gateway only creates FlowRun CRDs — it does not make
+# outbound calls to external services. It therefore only needs egress to the
+# Kubernetes API server and DNS.
+#
+# Customization notes:
+#   - To restrict webhook sources to a specific CIDR (e.g., a GitHub webhook IP
+#     range), replace the 0.0.0.0/0 ipBlock with the appropriate CIDR list.
+#   - To allow traffic from a specific ingress controller namespace only, replace
+#     the ipBlock with a namespaceSelector matching that namespace.
+#   - Remove port 8443 if you are not using TLS on the gateway pod directly.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: kubezap-webhook-gateway-ingress
+  namespace: kubezap-system  # replace with your operator namespace
+  labels:
+    app.kubernetes.io/name: kubezap
+    app.kubernetes.io/component: webhook-gateway
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: kubezap
+      app.kubernetes.io/component: webhook-gateway
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Accept incoming webhook HTTP(S) traffic from any source.
+    # Narrow this to a specific CIDR or namespaceSelector if your threat model
+    # requires it (e.g., only traffic from a specific ingress controller).
+    - from:
+        - ipBlock:
+            cidr: 0.0.0.0/0  # TODO: narrow to known webhook sender CIDRs if possible
+      ports:
+        - protocol: TCP
+          port: 8080  # plain HTTP webhook port
+        - protocol: TCP
+          port: 8443  # TLS webhook port; remove if not using TLS on the gateway pod
+
+  egress:
+    # Allow the gateway to reach the Kubernetes API server to create FlowRun CRDs
+    # and to watch Trigger CRDs for dynamic route registration.
+    - ports:
+        - protocol: TCP
+          port: 6443  # Kubernetes API server; adjust if your cluster uses a different port
+
+    # Allow DNS resolution.
+    - ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53

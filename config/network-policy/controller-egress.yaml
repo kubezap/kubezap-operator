@@ -1,0 +1,55 @@
+# config/network-policy/controller-egress.yaml
+#
+# Restricts egress from the KubeZap controller pod.
+# The controller needs to reach:
+#   - The Kubernetes API server (port 6443) to reconcile CRDs and manage resources.
+#   - The http-executor pods (port 8091) to delegate outbound HTTP step execution.
+#   - DNS (port 53 UDP+TCP) for cluster-internal service resolution.
+#
+# Requires a NetworkPolicy-capable CNI (Calico, Cilium, Weave Net, etc.).
+#
+# Customization notes:
+#   - If your API server listens on a non-standard port, update the port below.
+#   - If the executor port was changed via --executor-port, update port 8091 accordingly.
+#   - In AllNamespaces mode the controller manages multiple namespaces; add additional
+#     namespaceSelector entries under the executor egress rule if needed.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: kubezap-controller-egress
+  namespace: kubezap-system  # replace with your operator namespace
+  labels:
+    app.kubernetes.io/name: kubezap
+    app.kubernetes.io/component: controller
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: kubezap
+      app.kubernetes.io/component: controller
+  policyTypes:
+    - Egress
+  egress:
+    # Allow communication with the Kubernetes API server.
+    # Adjust the port if your cluster uses a non-default API server port.
+    - ports:
+        - protocol: TCP
+          port: 6443
+
+    # Allow the controller to call the http-executor's /execute RPC endpoint.
+    # The executor pod must carry these labels (set by the operator automatically).
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: kubezap
+              app.kubernetes.io/component: http-executor
+      ports:
+        - protocol: TCP
+          port: 8091  # default executor RPC port; update if --executor-port was changed
+
+    # Allow DNS resolution (required for service discovery within the cluster).
+    - ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53

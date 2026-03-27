@@ -1,0 +1,77 @@
+# config/network-policy/plugin-egress.yaml
+#
+# Controls traffic for KubeZap plugin pods.
+#
+# KubeZap plugins expose POST /publish on a configurable port (default 8090).
+# The controller calls this endpoint when executing a "publish" step. Plugins also
+# typically need egress to an external broker or service (e.g., Kafka, Slack API).
+#
+# This policy does two things:
+#   1. Restricts who can call the plugin's /publish port — only the controller.
+#   2. Restricts plugin egress to the specific external service it integrates with.
+#      This limits the blast radius if a plugin pod is compromised.
+#
+# Customization notes:
+#   - Replace the 0.0.0.0/0 egress CIDR in the "external service" rule with the
+#     actual CIDR(s) of the broker/API the plugin talks to. For example:
+#       - Kafka on-prem: your Kafka broker CIDR and port (e.g., 9092, 9093)
+#       - Slack API: 52.88.0.0/16, 54.149.0.0/16 on port 443
+#   - If the plugin uses a different publisher port, update port 8090 below.
+#   - For built-in gateway images (kafka, amqp, nats), the app.kubernetes.io/component
+#     label is set to the integration type (e.g., "kafka-gateway"). Adjust the
+#     podSelector accordingly, or use a broader label such as:
+#       kubezap.io/managed-by: kubezap-operator
+#
+# Security note:
+#   A compromised plugin pod can read its own environment variables, which include
+#   credentials injected via spec.plugin.secretRefs. Use a service mesh (Istio/Linkerd)
+#   for mTLS on the controller-to-plugin channel. See docs/guides/plugin-security.md.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: kubezap-plugin-egress
+  namespace: kubezap-system  # replace with the namespace where plugins run
+  labels:
+    app.kubernetes.io/name: kubezap
+    app.kubernetes.io/component: kubezap-plugin
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: kubezap-plugin  # label applied by the operator to all plugin Deployments
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Only allow the controller to reach the plugin's /publish endpoint.
+    # This prevents other pods from calling the publish API directly.
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: kubezap
+              app.kubernetes.io/component: controller
+      ports:
+        - protocol: TCP
+          port: 8090  # default publisherPort; update if spec.plugin.publisherPort differs
+
+  egress:
+    # Allow the plugin to reach its external integration target.
+    # TODO: Replace 0.0.0.0/0 with the specific CIDR(s) and port(s) for your
+    # integration service. Examples:
+    #   Kafka (SASL/TLS):      port 9093
+    #   RabbitMQ (AMQP/TLS):   port 5671
+    #   NATS JetStream (TLS):  port 4222
+    #   Slack/HTTP API:        port 443
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0  # TODO: narrow to your broker/service CIDR
+      ports:
+        - protocol: TCP
+          port: 443   # HTTPS / TLS-wrapped broker traffic
+
+    # Allow DNS resolution for broker hostname lookups.
+    - ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53

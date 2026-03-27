@@ -1013,6 +1013,14 @@ func (r *FlowRunReconciler) fetchSecretValue(ctx context.Context, namespace stri
 	if !ok {
 		return "", fmt.Errorf("key %q not found in secret %q", ref.Key, ref.Name)
 	}
+	// Audit: emit structured log + Prometheus counter for every secret read.
+	// Secret values are never included — only the name and key are logged.
+	ctrl.LoggerFrom(ctx).V(1).Info("secret accessed",
+		"namespace", namespace,
+		"secretName", ref.Name,
+		"secretKey", ref.Key,
+	)
+	metrics.SecretAccesses.WithLabelValues(namespace, ref.Name).Inc()
 	return string(val), nil
 }
 

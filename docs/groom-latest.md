@@ -1,3 +1,32 @@
+# Backlog groom: 2026-03-27
+
+## Reordering applied
+
+None. All existing items are in correct dependency order. The newly added HTTP executor chunks [1/6]–[6/6] are sequenced correctly: API contract → binary scaffold → Deployment management → RPC wiring → mTLS → E2E tests. Cross-section dependency (§16 P1 manual E2E pass after §17 P0) is already documented inline.
+
+## Items added
+
+- **§17 P2 TECH DEBT** — `integration_controller.go` lines 109–180: extract three near-identical kafka/amqp/nats gateway condition blocks into a shared helper. Evidence: `docs/review-latest.md` 2026-03-22 LOW finding.
+
+## Items removed or annotated
+
+- **§16 P1 SECURITY** "Restrict secrets RBAC" — marked `[x]`. The item was explicitly annotated as subsumed by §17 P0 "Default to OwnNamespace + label-restricted AllNamespaces", which was completed 2026-03-24. The `[ ]` status was a tracking oversight.
+
+## Items promoted from Future/Backlog
+
+None.
+
+## No-change items
+
+All other pending items reviewed; no changes needed.
+
+## Files changed
+
+- docs/schedule.md
+- docs/groom-latest.md
+
+---
+
 # Backlog groom: 2026-03-24
 
 ## Reordering applied

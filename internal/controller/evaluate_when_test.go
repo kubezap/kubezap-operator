@@ -222,4 +222,34 @@ var _ = Describe("evaluateWhen", func() {
 			Expect(result2).To(BeTrue())
 		})
 	})
+
+	Context("CEL cost limits", func() {
+		It("returns an error when CELCostLimit is set very low and a complex expression exceeds it", func() {
+			// Set a cost limit of 1 — any non-trivial expression should exceed this.
+			r.CELCostLimit = 1
+			// A nested list comprehension is combinatorially expensive: the outer
+			// filter iterates the list and the inner exists() re-iterates for each
+			// element, giving O(n²) cost. Even with a tiny list, this blows the
+			// budget of 1 almost immediately.
+			complexExpr := `[1, 2, 3, 4, 5].filter(x, [1, 2, 3, 4, 5].exists(y, y == x)).size() > 0`
+			_, err := r.evaluateWhen(when(complexExpr), nil, nil, nil)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("cost limit"))
+		})
+
+		It("does not error for a simple expression when CELCostLimit is set to 10000 (default)", func() {
+			r.CELCostLimit = 10000
+			result, err := r.evaluateWhen(when("true"), nil, nil, nil)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result).To(BeTrue())
+		})
+
+		It("does not apply a cost limit when CELCostLimit is 0 (unlimited)", func() {
+			r.CELCostLimit = 0
+			// This expression would fail under a budget of 1 but must succeed with no limit.
+			result, err := r.evaluateWhen(when(`trigger.topic == ""`), nil, nil, nil)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result).To(BeTrue())
+		})
+	})
 })

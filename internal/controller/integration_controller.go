@@ -364,6 +364,7 @@ func (r *IntegrationReconciler) reconcilePluginRBAC(ctx context.Context, integra
 var errRoleRefChanged = fmt.Errorf("rolebinding RoleRef has changed and must be recreated")
 
 // reconcilePluginDeployment ensures the plugin Deployment exists and is up to date.
+// It also records the resolved image reference in the PluginDeployed condition for auditability.
 func (r *IntegrationReconciler) reconcilePluginDeployment(ctx context.Context, integration *automationv1alpha1.Integration) error {
 	log := logf.FromContext(ctx)
 	desired := desiredPluginDeployment(integration)
@@ -382,7 +383,29 @@ func (r *IntegrationReconciler) reconcilePluginDeployment(ctx context.Context, i
 	if op != controllerutil.OperationResultNone {
 		log.Info("reconciled plugin deployment", "deployment", desired.Name, "namespace", integration.Namespace, "result", op)
 	}
+
+	// Record the resolved image reference in a condition for operator auditability.
+	imageRef := pluginImageRef(integration.Spec.Plugin)
+	pluginDeployedCond := metav1.Condition{
+		Type:               "PluginDeployed",
+		Status:             metav1.ConditionTrue,
+		Reason:             "DeploymentReconciled",
+		Message:            fmt.Sprintf("Plugin Deployment reconciled with image %s", imageRef),
+		ObservedGeneration: integration.Generation,
+	}
+	apimeta.SetStatusCondition(&integration.Status.Conditions, pluginDeployedCond)
+
 	return nil
+}
+
+// pluginImageRef returns the fully-resolved container image reference for a plugin.
+// When ImageDigest is set the reference is constructed as "image@sha256:<digest>" to
+// pin the Deployment to an exact content-addressed layer and prevent silent tag overwrites.
+func pluginImageRef(plugin *automationv1alpha1.PluginIntegrationSpec) string {
+	if plugin.ImageDigest != "" {
+		return plugin.Image + "@sha256:" + plugin.ImageDigest
+	}
+	return plugin.Image
 }
 
 // desiredPluginDeployment returns the desired Deployment for a plugin Integration.
@@ -446,7 +469,7 @@ func desiredPluginDeployment(integration *automationv1alpha1.Integration) *appsv
 					Containers: []corev1.Container{
 						{
 							Name:  "plugin",
-							Image: plugin.Image,
+							Image: pluginImageRef(plugin),
 							Ports: []corev1.ContainerPort{
 								{Name: "publisher", ContainerPort: publisherPort, Protocol: corev1.ProtocolTCP},
 							},

@@ -158,6 +158,20 @@ type PluginIntegrationSpec struct {
 	// Container image for plugin.
 	Image string `json:"image"`
 
+	// ImageDigest is an optional SHA256 digest that pins the plugin image to a
+	// specific content-addressed layer. When set, the operator constructs the
+	// Deployment image reference as "image@sha256:<digest>", preventing silent
+	// updates when the image tag is overwritten.
+	//
+	// Format: the 64-character hex portion of a SHA256 digest (without the
+	// "sha256:" prefix).
+	//
+	// Example: "abc123...64chars..."
+	// +optional
+	// +kubebuilder:validation:Optional
+	// +kubebuilder:validation:Pattern=`^[a-f0-9]{64}$`
+	ImageDigest string `json:"imageDigest,omitempty"`
+
 	// Publisher service port.
 	// +kubebuilder:default=8090
 	PublisherPort int32 `json:"publisherPort,omitempty"`

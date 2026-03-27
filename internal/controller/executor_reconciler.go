@@ -18,6 +18,7 @@ package controller
 
 import (
 	"context"
+	"fmt"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -38,6 +39,7 @@ import (
 const (
 	executorDeploymentName    = "kubezap-http-executor"
 	executorNetworkPolicyName = "kubezap-executor-ingress"
+	executorMTLSSecretName    = "kubezap-executor-mtls-cert"
 	defaultExecutorImage      = "ghcr.io/kubezap/http-executor:latest"
 	defaultExecutorPort       = int32(8091)
 )
@@ -57,11 +59,25 @@ func executorLabels() map[string]string {
 // +kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups="",resources=services,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=networking.k8s.io,resources=networkpolicies,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch;create;update;patch;delete
 type ExecutorReconciler struct {
 	client.Client
 	Scheme        *runtime.Scheme
 	ExecutorImage string
 	ExecutorPort  int32
+
+	// MTLSEnabled controls whether the executor channel is secured with mTLS.
+	// When true, reconcileExecutorCertSecret injects the cert Secret into each
+	// managed namespace and reconcileExecutorDeployment mounts it into the pod.
+	MTLSEnabled bool
+
+	// MTLSBundle is set by cmd/main.go when --executor-mtls=true.
+	// The bundle is generated once at startup and rotated every 23h.
+	// cmd/main.go is responsible for:
+	//   1. Generating the initial MTLSBundle via controller.GenerateMTLSBundle(dnsSANs)
+	//   2. Setting ExecutorReconciler.MTLSBundle and FlowRunReconciler.ExecutorTLSConfig
+	//   3. Starting a goroutine that calls NeedsRotation() and regenerates when needed
+	MTLSBundle *MTLSBundle
 }
 
 func (r *ExecutorReconciler) executorImage() string {
@@ -110,6 +126,13 @@ func (r *ExecutorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		return ctrl.Result{}, err
 	}
 
+	if r.MTLSEnabled {
+		if err := r.reconcileExecutorCertSecret(ctx, namespace); err != nil {
+			log.Error(err, "Failed to reconcile executor mTLS cert Secret", "namespace", namespace)
+			return ctrl.Result{}, err
+		}
+	}
+
 	return ctrl.Result{}, nil
 }
 
@@ -129,6 +152,37 @@ func (r *ExecutorReconciler) reconcileExecutorDeployment(ctx context.Context, na
 
 	_, err := controllerutil.CreateOrUpdate(ctx, r.Client, desired, func() error {
 		desired.Labels = labels
+
+		// Build container args and optional volume/mounts for mTLS.
+		containerArgs := []string{"--port=8091"}
+		var volumeMounts []corev1.VolumeMount
+		var volumes []corev1.Volume
+		if r.MTLSEnabled {
+			containerArgs = append(containerArgs,
+				"--mtls=true",
+				"--tls-cert-file=/etc/kubezap/tls/tls.crt",
+				"--tls-key-file=/etc/kubezap/tls/tls.key",
+				"--tls-ca-file=/etc/kubezap/tls/ca.crt",
+			)
+			volumeMounts = []corev1.VolumeMount{
+				{
+					Name:      "mtls-certs",
+					MountPath: "/etc/kubezap/tls",
+					ReadOnly:  true,
+				},
+			}
+			volumes = []corev1.Volume{
+				{
+					Name: "mtls-certs",
+					VolumeSource: corev1.VolumeSource{
+						Secret: &corev1.SecretVolumeSource{
+							SecretName: executorMTLSSecretName,
+						},
+					},
+				},
+			}
+		}
+
 		desired.Spec = appsv1.DeploymentSpec{
 			Replicas: &replicas,
 			Selector: &metav1.LabelSelector{
@@ -147,12 +201,14 @@ func (r *ExecutorReconciler) reconcileExecutorDeployment(ctx context.Context, na
 						RunAsNonRoot:   ptr.To(true),
 						SeccompProfile: &corev1.SeccompProfile{Type: corev1.SeccompProfileTypeRuntimeDefault},
 					},
+					Volumes: volumes,
 					Containers: []corev1.Container{
 						{
 							Name:            "http-executor",
 							Image:           r.executorImage(),
 							ImagePullPolicy: corev1.PullIfNotPresent,
-							Args:            []string{"--port=8091"},
+							Args:            containerArgs,
+							VolumeMounts:    volumeMounts,
 							Ports: []corev1.ContainerPort{
 								{
 									Name:          "http",
@@ -196,6 +252,36 @@ func (r *ExecutorReconciler) reconcileExecutorDeployment(ctx context.Context, na
 					},
 				},
 			},
+		}
+		return nil
+	})
+	return err
+}
+
+// reconcileExecutorCertSecret creates or updates the mTLS cert Secret in the given namespace.
+// The Secret contains three keys: tls.crt (server cert PEM), tls.key (server key PEM),
+// and ca.crt (CA cert PEM). The executor pod mounts this Secret at /etc/kubezap/tls.
+//
+// This method is a no-op when MTLSBundle is nil (e.g. during initial startup before the
+// first bundle is generated). cmd/main.go sets MTLSBundle before starting the manager.
+func (r *ExecutorReconciler) reconcileExecutorCertSecret(ctx context.Context, namespace string) error {
+	if r.MTLSBundle == nil {
+		return fmt.Errorf("mTLS enabled but MTLSBundle is nil — bundle must be set before reconciliation")
+	}
+
+	desired := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      executorMTLSSecretName,
+			Namespace: namespace,
+		},
+	}
+
+	_, err := controllerutil.CreateOrUpdate(ctx, r.Client, desired, func() error {
+		desired.Type = corev1.SecretTypeOpaque
+		desired.Data = map[string][]byte{
+			"tls.crt": r.MTLSBundle.ServerCertPEM(),
+			"tls.key": r.MTLSBundle.ServerKeyPEM(),
+			"ca.crt":  r.MTLSBundle.CACertPEM(),
 		}
 		return nil
 	})

@@ -25,8 +25,11 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"flag"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -45,13 +48,17 @@ func main() {
 	var bodyLimitBytes int
 	var allowTLSSkipVerify bool
 	var mtls bool
+	var tlsCertFile, tlsKeyFile, tlsCAFile string
 	var logLevel string
 
 	flag.IntVar(&port, "port", 8091, "Port to listen on")
 	flag.StringVar(&blockedCIDRs, "blocked-cidrs", "", "Comma-separated extra CIDRs to block in addition to defaults (e.g. '203.0.113.0/24')")
 	flag.IntVar(&bodyLimitBytes, "body-limit-bytes", 4096, "Maximum upstream response body size in bytes; larger bodies are truncated")
 	flag.BoolVar(&allowTLSSkipVerify, "allow-tls-skip-verify", false, "Allow callers to request TLS verification skip via tlsSkipVerify:true in the request; off by default")
-	flag.BoolVar(&mtls, "mtls", false, "Enable mTLS (stub — implemented in chunk [5/6]); requires --tls-cert-file, --tls-key-file, --tls-ca-file")
+	flag.BoolVar(&mtls, "mtls", false, "Enable mTLS; requires --tls-cert-file, --tls-key-file, --tls-ca-file")
+	flag.StringVar(&tlsCertFile, "tls-cert-file", "", "Path to PEM-encoded server certificate (required when --mtls=true)")
+	flag.StringVar(&tlsKeyFile, "tls-key-file", "", "Path to PEM-encoded server private key (required when --mtls=true)")
+	flag.StringVar(&tlsCAFile, "tls-ca-file", "", "Path to PEM-encoded CA certificate for client cert verification (required when --mtls=true)")
 	flag.StringVar(&logLevel, "log-level", "info", "Log level: debug|info|warn|error")
 	flag.Parse()
 
@@ -70,8 +77,9 @@ func main() {
 	defer func() { _ = coreLogger.Sync() }()
 	log := zapr.NewLogger(coreLogger).WithName("http-executor")
 
-	if mtls {
-		log.Info("WARNING: --mtls=true is set but mTLS support is not yet implemented (stub for chunk [5/6]); the flag is accepted but ignored")
+	if mtls && (tlsCertFile == "" || tlsKeyFile == "" || tlsCAFile == "") {
+		log.Error(fmt.Errorf("--mtls=true requires --tls-cert-file, --tls-key-file, and --tls-ca-file"), "missing mTLS flags")
+		os.Exit(1)
 	}
 
 	// Parse SSRF blocklist.
@@ -99,10 +107,49 @@ func main() {
 
 	// Start server in background.
 	go func() {
-		log.Info("starting http-executor server", "port", port, "bodyLimitBytes", bodyLimitBytes, "allowTLSSkipVerify", allowTLSSkipVerify)
-		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Error(err, "http-executor server failed")
-			os.Exit(1)
+		log.Info("starting http-executor server", "port", port, "mtls", mtls, "bodyLimitBytes", bodyLimitBytes, "allowTLSSkipVerify", allowTLSSkipVerify)
+		if mtls {
+			// Load server cert and CA for client cert verification.
+			serverCert, err := tls.LoadX509KeyPair(tlsCertFile, tlsKeyFile)
+			if err != nil {
+				log.Error(err, "failed to load mTLS server certificate")
+				os.Exit(1)
+			}
+			caPEM, err := os.ReadFile(tlsCAFile)
+			if err != nil {
+				log.Error(err, "failed to read mTLS CA certificate")
+				os.Exit(1)
+			}
+			caPool := x509.NewCertPool()
+			if !caPool.AppendCertsFromPEM(caPEM) {
+				log.Error(fmt.Errorf("no valid certificates found in %s", tlsCAFile), "failed to parse mTLS CA certificate")
+				os.Exit(1)
+			}
+			tlsCfg := &tls.Config{
+				Certificates: []tls.Certificate{serverCert},
+				ClientCAs:    caPool,
+				ClientAuth:   tls.RequireAndVerifyClientCert,
+				MinVersion:   tls.VersionTLS13,
+			}
+			ln, err := tls.Listen("tcp", srv.Addr, tlsCfg)
+			if err != nil {
+				log.Error(err, "failed to start mTLS listener")
+				os.Exit(1)
+			}
+			if err := srv.Serve(ln); err != nil && err != http.ErrServerClosed {
+				log.Error(err, "http-executor server failed")
+				os.Exit(1)
+			}
+		} else {
+			ln, err := net.Listen("tcp", srv.Addr)
+			if err != nil {
+				log.Error(err, "failed to start listener")
+				os.Exit(1)
+			}
+			if err := srv.Serve(ln); err != nil && err != http.ErrServerClosed {
+				log.Error(err, "http-executor server failed")
+				os.Exit(1)
+			}
 		}
 	}()
 

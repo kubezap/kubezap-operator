@@ -19,6 +19,7 @@ package controller
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -112,7 +113,14 @@ type FlowRunReconciler struct {
 	// ExecutorBaseURL is the base URL format string for the http-executor Service,
 	// with a single %s placeholder for the target namespace.
 	// Default: "http://kubezap-http-executor.%s.svc.cluster.local:8091"
+	// When mTLS is enabled the scheme is automatically overridden to https by executorScheme().
 	ExecutorBaseURL string
+
+	// ExecutorTLSConfig is the TLS config to use for executor RPC calls.
+	// Nil when mTLS is disabled (plain HTTP). When non-nil, callExecutor builds
+	// a dedicated *http.Client with this config and uses https:// instead of http://.
+	// Set by cmd/main.go when --executor-mtls=true using MTLSBundle.ClientTLSConfig().
+	ExecutorTLSConfig *tls.Config
 
 	// DisableCELCache bypasses the compiled-program cache so every eval recompiles.
 	// The cache is unbounded: it grows to hold one entry per distinct `when` expression
@@ -808,13 +816,24 @@ func (r *FlowRunReconciler) executeHTTPStep(
 	return nil, "", lastErr
 }
 
+// executorScheme returns "https" when mTLS is enabled and "http" otherwise.
+func (r *FlowRunReconciler) executorScheme() string {
+	if r.ExecutorTLSConfig != nil {
+		return "https"
+	}
+	return "http"
+}
+
 // callExecutor sends a fully-resolved ExecuteRequest to the http-executor Service
 // running in the given namespace and returns the response. The caller holds all
 // resolved secret values; none are written to etcd or logged here.
+//
+// When ExecutorTLSConfig is non-nil (mTLS enabled) a dedicated *http.Client with
+// the appropriate TLS transport is used for this call; r.HTTPClient is unchanged.
 func (r *FlowRunReconciler) callExecutor(ctx context.Context, namespace string, req executorhttp.ExecuteRequest) (*executorhttp.ExecuteResponse, error) {
 	baseURL := r.ExecutorBaseURL
 	if baseURL == "" {
-		baseURL = "http://kubezap-http-executor.%s.svc.cluster.local:8091"
+		baseURL = r.executorScheme() + "://kubezap-http-executor.%s.svc.cluster.local:8091"
 	}
 	// Use strings.ReplaceAll so that a plain URL (no %s placeholder) also works,
 	// e.g. when ExecutorBaseURL is set to a test server address in unit tests.
@@ -831,9 +850,20 @@ func (r *FlowRunReconciler) callExecutor(ctx context.Context, namespace string, 
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
 
-	httpClient := r.HTTPClient
-	if httpClient == nil {
-		httpClient = http.DefaultClient
+	// When mTLS is enabled, use a dedicated client with the TLS transport.
+	// Do NOT modify r.HTTPClient — it is used for non-TLS calls elsewhere.
+	var httpClient *http.Client
+	if r.ExecutorTLSConfig != nil {
+		httpClient = &http.Client{
+			Transport: &http.Transport{
+				TLSClientConfig: r.ExecutorTLSConfig,
+			},
+		}
+	} else {
+		httpClient = r.HTTPClient
+		if httpClient == nil {
+			httpClient = http.DefaultClient
+		}
 	}
 
 	resp, err := httpClient.Do(httpReq)

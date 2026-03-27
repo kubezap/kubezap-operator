@@ -1,0 +1,29 @@
+# config/samples/network-policy-executor.yaml
+# Sample NetworkPolicy for the kubezap-http-executor Deployment.
+# This policy is created automatically by the operator in each managed namespace.
+# It is provided here as a reference for manual inspection or cluster auditing.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: kubezap-executor-ingress
+  namespace: kubezap-system  # replace with your namespace
+  labels:
+    app.kubernetes.io/name: kubezap
+    app.kubernetes.io/component: http-executor
+    app.kubernetes.io/managed-by: kubezap-operator
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: kubezap
+      app.kubernetes.io/component: http-executor
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: kubezap
+              app.kubernetes.io/component: controller
+      ports:
+        - protocol: TCP
+          port: 8091
+  policyTypes:
+    - Ingress

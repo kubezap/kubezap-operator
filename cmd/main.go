@@ -79,6 +79,7 @@ func main() {
 	var flowRunExecutionTimeout time.Duration
 	var disableCELCache bool
 	var httpStepBlockedCIDRs string
+	var executorImage string
 	var enableUI bool
 	var uiPort int
 	var uiBearerToken string
@@ -105,6 +106,7 @@ func main() {
 	flag.DurationVar(&flowRunExecutionTimeout, "flowrun-execution-timeout", time.Hour, "Maximum time a FlowRun may remain in Running phase before being failed as orphaned (0 = disabled).")
 	flag.BoolVar(&disableCELCache, "disable-cel-cache", false, "Disable the CEL expression program cache. The cache is unbounded but converges once Flows stabilise; disable only when continuously deploying throwaway expressions or for debugging.")
 	flag.StringVar(&httpStepBlockedCIDRs, "http-step-blocked-cidrs", "", "Comma-separated list of additional CIDR ranges to block for HTTP step outbound requests (added to the default RFC1918/loopback/link-local blocklist).")
+	flag.StringVar(&executorImage, "executor-image", "ghcr.io/kubezap/http-executor:latest", "Container image for the http-executor Deployment managed in each namespace.")
 	flag.BoolVar(&enableUI, "enable-ui", false,
 		"Enable the read-only web dashboard. When enabled, the operator serves the dashboard on --ui-port and ensures a 'kubezap-ui' Service exists in the operator namespace.")
 	flag.IntVar(&uiPort, "ui-port", 8082,
@@ -333,6 +335,14 @@ func main() {
 		Scheme: mgr.GetScheme(),
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Integration")
+		os.Exit(1)
+	}
+	if err = (&controller.ExecutorReconciler{
+		Client:        mgr.GetClient(),
+		Scheme:        mgr.GetScheme(),
+		ExecutorImage: executorImage,
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "Executor")
 		os.Exit(1)
 	}
 	// +kubebuilder:scaffold:builder

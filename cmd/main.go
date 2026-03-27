@@ -79,6 +79,7 @@ func main() {
 	var maxConcurrentFlowRuns int
 	var flowRunExecutionTimeout time.Duration
 	var disableCELCache bool
+	var celCostLimit int
 	var httpStepBlockedCIDRs string
 	var executorImage string
 	var executorMTLS bool
@@ -107,6 +108,7 @@ func main() {
 	flag.IntVar(&maxConcurrentFlowRuns, "max-concurrent-flowruns", 25, "Maximum number of FlowRun reconciliations to run concurrently. With one-step-per-reconcile, the goroutine is held only for the duration of a single step (one HTTP call), not the entire flow.")
 	flag.DurationVar(&flowRunExecutionTimeout, "flowrun-execution-timeout", time.Hour, "Maximum time a FlowRun may remain in Running phase before being failed as orphaned (0 = disabled).")
 	flag.BoolVar(&disableCELCache, "disable-cel-cache", false, "Disable the CEL expression program cache. The cache is unbounded but converges once Flows stabilise; disable only when continuously deploying throwaway expressions or for debugging.")
+	flag.IntVar(&celCostLimit, "cel-cost-limit", 10000, "Maximum CEL evaluation cost budget per 'when' expression. 0 disables the limit. Prevents DoS via combinatorially-expensive expressions (e.g. nested comprehensions).")
 	flag.StringVar(&httpStepBlockedCIDRs, "http-step-blocked-cidrs", "", "Comma-separated list of additional CIDR ranges to block for HTTP step outbound requests (added to the default RFC1918/loopback/link-local blocklist).")
 	flag.StringVar(&executorImage, "executor-image", "ghcr.io/kubezap/http-executor:latest", "Container image for the http-executor Deployment managed in each namespace.")
 	var executorRPCBaseURL string
@@ -354,6 +356,7 @@ func main() {
 		MaxConcurrentReconciles: maxConcurrentFlowRuns,
 		ExecutionTimeout:        flowRunExecutionTimeout,
 		DisableCELCache:         disableCELCache,
+		CELCostLimit:            celCostLimit,
 		SSRFBlockedCIDRs:        ssrfBlockedCIDRs,
 		ExecutorBaseURL:         rpcBaseURL,
 		ExecutorTLSConfig:       executorTLSConfig,

@@ -734,6 +734,19 @@ spec:
                   image:
                     description: Container image for plugin.
                     type: string
+                  imageDigest:
+                    description: |-
+                      ImageDigest is an optional SHA256 digest that pins the plugin image to a
+                      specific content-addressed layer. When set, the operator constructs the
+                      Deployment image reference as "image@sha256:<digest>", preventing silent
+                      updates when the image tag is overwritten.
+
+                      Format: the 64-character hex portion of a SHA256 digest (without the
+                      "sha256:" prefix).
+
+                      Example: "abc123...64chars..."
+                    pattern: ^[a-f0-9]{64}$
+                    type: string
                   publisherPort:
                     default: 8090
                     description: Publisher service port.

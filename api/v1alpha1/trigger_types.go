@@ -126,6 +126,14 @@ type WebhookTrigger struct {
 	// If omitted, the endpoint accepts requests from any caller.
 	Auth *WebhookAuth `json:"auth,omitempty"`
 
+	// RateLimit limits the number of requests accepted per time window.
+	// When set, the webhook gateway enforces this limit locally using an
+	// in-memory sliding window per route path.
+	// Note: local enforcement is per-gateway-replica. For cluster-wide enforcement,
+	// combine with admission-level FlowRun count checking (see docs/guides/webhook-security.md).
+	// +optional
+	RateLimit *WebhookRateLimit `json:"rateLimit,omitempty"`
+
 	// RedactHeaders is a list of HTTP header names (case-insensitive) whose values
 	// are replaced with "[REDACTED]" before storing in FlowRun.Spec.TriggerData.
 	// The built-in list (Authorization, X-Api-Key, X-Webhook-Secret, X-Hub-Signature,
@@ -139,6 +147,19 @@ type WebhookTrigger struct {
 	// credentials or sensitive payloads.
 	// +optional
 	RedactBody bool `json:"redactBody,omitempty"`
+}
+
+// WebhookRateLimit defines a per-window request budget for a webhook route.
+type WebhookRateLimit struct {
+	// MaxRequests is the maximum number of requests allowed within Window.
+	// Must be > 0 when RateLimit is set.
+	// +kubebuilder:validation:Minimum=1
+	MaxRequests int32 `json:"maxRequests"`
+
+	// Window is the duration of the sliding window (e.g. "60s", "1m", "5m").
+	// Defaults to "60s" if omitted.
+	// +kubebuilder:default="60s"
+	Window metav1.Duration `json:"window,omitempty"`
 }
 
 // CronTrigger configures a cron-based scheduled trigger.

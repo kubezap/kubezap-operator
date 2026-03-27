@@ -134,6 +134,11 @@ type FlowRunReconciler struct {
 	// throughput impact under normal load.
 	DisableCELCache bool
 
+	// CELCostLimit is the maximum CEL evaluation cost budget per expression.
+	// 0 means no limit. Set via --cel-cost-limit flag in cmd/main.go.
+	// Prevents DoS via combinatorially-expensive expressions (e.g. nested comprehensions).
+	CELCostLimit int
+
 	// celCache maps CEL expression string → compiled cel.Program for reuse across reconciles.
 	// sync.Map is used because the reconciler can run in multiple goroutines concurrently.
 	// Bypassed when DisableCELCache is true.
@@ -1533,8 +1538,12 @@ func (r *FlowRunReconciler) evaluateWhen(
 			if iss != nil && iss.Err() != nil {
 				return false, fmt.Errorf("CEL compile error: %w", iss.Err())
 			}
+			var progOpts []cel.ProgramOption
+			if r.CELCostLimit > 0 {
+				progOpts = append(progOpts, cel.CostLimit(uint64(r.CELCostLimit)))
+			}
 			var err error
-			prog, err = env.Program(ast)
+			prog, err = env.Program(ast, progOpts...)
 			if err != nil {
 				return false, fmt.Errorf("CEL program error: %w", err)
 			}

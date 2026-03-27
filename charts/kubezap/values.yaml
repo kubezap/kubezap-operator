@@ -91,6 +91,19 @@ affinity:
               values:
                 - linux
 
+# HTTP executor — one Deployment per managed namespace.
+# The controller reconciler creates and manages these from the image and port below.
+executor:
+  image: ghcr.io/kubezap/http-executor:latest
+  port: 8091
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi
+
 # Additional pod annotations
 podAnnotations: {}
 

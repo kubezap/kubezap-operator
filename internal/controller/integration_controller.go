@@ -96,88 +96,28 @@ func (r *IntegrationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		if err != nil {
 			return ctrl.Result{}, fmt.Errorf("reconciling kafka gateway: %w", err)
 		}
-		integration.Status.GatewayDeploymentName = deploymentName
-
 		if err := r.reconcileKafkaScaledObject(ctx, &integration); err != nil {
 			return ctrl.Result{}, fmt.Errorf("reconciling kafka scaledobject: %w", err)
 		}
-
-		// Set GatewayAvailable condition based on Deployment available replicas.
-		existingDep := &appsv1.Deployment{}
-		depKey := client.ObjectKey{Name: deploymentName, Namespace: integration.Namespace}
-		var gatewayAvailCond metav1.Condition
-		if err := r.Get(ctx, depKey, existingDep); err == nil && existingDep.Status.AvailableReplicas > 0 {
-			gatewayAvailCond = metav1.Condition{
-				Type:               "GatewayAvailable",
-				Status:             metav1.ConditionTrue,
-				Reason:             "DeploymentAvailable",
-				Message:            "Kafka gateway Deployment has available replicas",
-				ObservedGeneration: integration.Generation,
-			}
-		} else {
-			gatewayAvailCond = metav1.Condition{
-				Type:               "GatewayAvailable",
-				Status:             metav1.ConditionFalse,
-				Reason:             "DeploymentUnavailable",
-				Message:            "Kafka gateway Deployment has no available replicas yet",
-				ObservedGeneration: integration.Generation,
-			}
-		}
-		apimeta.SetStatusCondition(&integration.Status.Conditions, gatewayAvailCond)
+		integration.Status.GatewayDeploymentName = deploymentName
+		apimeta.SetStatusCondition(&integration.Status.Conditions,
+			r.gatewayAvailableCondition(ctx, integration.Namespace, deploymentName, "Kafka", integration.Generation))
 	case "amqp":
 		deploymentName, err := r.reconcileAmqpGateway(ctx, &integration)
 		if err != nil {
 			return ctrl.Result{}, fmt.Errorf("reconciling amqp gateway: %w", err)
 		}
 		integration.Status.GatewayDeploymentName = deploymentName
-		existingDep := &appsv1.Deployment{}
-		depKey := client.ObjectKey{Name: deploymentName, Namespace: integration.Namespace}
-		var gatewayAvailCond metav1.Condition
-		if err := r.Get(ctx, depKey, existingDep); err == nil && existingDep.Status.AvailableReplicas > 0 {
-			gatewayAvailCond = metav1.Condition{
-				Type:               "GatewayAvailable",
-				Status:             metav1.ConditionTrue,
-				Reason:             "DeploymentAvailable",
-				Message:            "AMQP gateway Deployment has available replicas",
-				ObservedGeneration: integration.Generation,
-			}
-		} else {
-			gatewayAvailCond = metav1.Condition{
-				Type:               "GatewayAvailable",
-				Status:             metav1.ConditionFalse,
-				Reason:             "DeploymentUnavailable",
-				Message:            "AMQP gateway Deployment has no available replicas yet",
-				ObservedGeneration: integration.Generation,
-			}
-		}
-		apimeta.SetStatusCondition(&integration.Status.Conditions, gatewayAvailCond)
+		apimeta.SetStatusCondition(&integration.Status.Conditions,
+			r.gatewayAvailableCondition(ctx, integration.Namespace, deploymentName, "AMQP", integration.Generation))
 	case "nats":
 		deploymentName, err := r.reconcileNatsGateway(ctx, &integration)
 		if err != nil {
 			return ctrl.Result{}, fmt.Errorf("reconciling nats gateway: %w", err)
 		}
 		integration.Status.GatewayDeploymentName = deploymentName
-		existingDep2 := &appsv1.Deployment{}
-		depKey2 := client.ObjectKey{Name: deploymentName, Namespace: integration.Namespace}
-		var natsAvailCond metav1.Condition
-		if err := r.Get(ctx, depKey2, existingDep2); err == nil && existingDep2.Status.AvailableReplicas > 0 {
-			natsAvailCond = metav1.Condition{
-				Type:               "GatewayAvailable",
-				Status:             metav1.ConditionTrue,
-				Reason:             "DeploymentAvailable",
-				Message:            "NATS gateway Deployment has available replicas",
-				ObservedGeneration: integration.Generation,
-			}
-		} else {
-			natsAvailCond = metav1.Condition{
-				Type:               "GatewayAvailable",
-				Status:             metav1.ConditionFalse,
-				Reason:             "DeploymentUnavailable",
-				Message:            "NATS gateway Deployment has no available replicas yet",
-				ObservedGeneration: integration.Generation,
-			}
-		}
-		apimeta.SetStatusCondition(&integration.Status.Conditions, natsAvailCond)
+		apimeta.SetStatusCondition(&integration.Status.Conditions,
+			r.gatewayAvailableCondition(ctx, integration.Namespace, deploymentName, "NATS", integration.Generation))
 	}
 
 	// Set Ready=True after successful reconcile.
@@ -197,6 +137,34 @@ func (r *IntegrationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	}
 
 	return ctrl.Result{}, nil
+}
+
+// gatewayAvailableCondition fetches the named Deployment and returns a
+// GatewayAvailable metav1.Condition reflecting whether it has available replicas.
+// gatewayType is a human-readable label used in the condition message (e.g. "Kafka").
+func (r *IntegrationReconciler) gatewayAvailableCondition(
+	ctx context.Context,
+	namespace, deploymentName, gatewayType string,
+	generation int64,
+) metav1.Condition {
+	existingDep := &appsv1.Deployment{}
+	depKey := client.ObjectKey{Name: deploymentName, Namespace: namespace}
+	if err := r.Get(ctx, depKey, existingDep); err == nil && existingDep.Status.AvailableReplicas > 0 {
+		return metav1.Condition{
+			Type:               "GatewayAvailable",
+			Status:             metav1.ConditionTrue,
+			Reason:             "DeploymentAvailable",
+			Message:            gatewayType + " gateway Deployment has available replicas",
+			ObservedGeneration: generation,
+		}
+	}
+	return metav1.Condition{
+		Type:               "GatewayAvailable",
+		Status:             metav1.ConditionFalse,
+		Reason:             "DeploymentUnavailable",
+		Message:            gatewayType + " gateway Deployment has no available replicas yet",
+		ObservedGeneration: generation,
+	}
 }
 
 // validateIntegrationSpec validates the Integration spec and returns the first error found.

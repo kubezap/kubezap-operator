@@ -23,6 +23,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	automationv1alpha1 "github.com/kubezap/kubezap-operator/api/v1alpha1"
+	"github.com/kubezap/kubezap-operator/internal/gateway/redact"
 	"github.com/kubezap/kubezap-operator/internal/metrics"
 )
 
@@ -95,50 +96,6 @@ func randomHex(length int) string {
 		hexString = hexString[:length]
 	}
 	return hexString
-}
-
-// builtInRedactedHeaders is always redacted regardless of Trigger config.
-// Header names are stored lower-cased for case-insensitive matching.
-var builtInRedactedHeaders = []string{
-	"authorization",
-	"x-api-key",
-	"x-webhook-secret",
-	"x-hub-signature",
-	"x-hub-signature-256",
-	"x-amz-security-token",
-	"cookie",
-	"set-cookie",
-	"x-auth-token",
-	"proxy-authorization",
-}
-
-// buildRedactedTriggerData copies headers with sensitive values replaced by
-// "[REDACTED]" and optionally replaces the body.
-// redactExtra is a list of additional header names (case-insensitive) to redact
-// beyond the built-in list. redactBody replaces the body with "[REDACTED]" when true.
-func buildRedactedTriggerData(headers http.Header, body string, redactExtra []string, redactBody bool) (map[string]string, string) {
-	toRedact := make(map[string]bool, len(builtInRedactedHeaders)+len(redactExtra))
-	for _, h := range builtInRedactedHeaders {
-		toRedact[h] = true
-	}
-	for _, h := range redactExtra {
-		toRedact[strings.ToLower(h)] = true
-	}
-
-	out := make(map[string]string, len(headers))
-	for k, vals := range headers {
-		if toRedact[strings.ToLower(k)] {
-			out[k] = "[REDACTED]"
-		} else {
-			out[k] = strings.Join(vals, ",")
-		}
-	}
-
-	outBody := body
-	if redactBody {
-		outBody = "[REDACTED]"
-	}
-	return out, outBody
 }
 
 func writeJSON(w http.ResponseWriter, status int, body interface{}) {
@@ -382,7 +339,8 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		bodyString = bodyString[:4096]
 	}
 
-	headers, bodyString := buildRedactedTriggerData(r.Header, bodyString, entry.RedactHeaders, entry.RedactBody)
+	redactedHeaders := redact.Headers(r.Header, entry.RedactHeaders)
+	bodyString = redact.Body(bodyString, entry.RedactBody)
 
 	flowRunName = fmt.Sprintf("%s-%d-%s", entry.TriggerName, time.Now().Unix(), randomHex(8))
 
@@ -424,7 +382,7 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				Source:        "webhook",
 				Method:        r.Method,
 				Path:          r.URL.Path,
-				Headers:       headers,
+				Headers:       redactedHeaders,
 				Body:          bodyString,
 				BodyTruncated: bodyTruncated,
 				ContentType:   r.Header.Get("Content-Type"),

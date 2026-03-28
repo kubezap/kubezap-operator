@@ -13,6 +13,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	automationv1alpha1 "github.com/kubezap/kubezap-operator/api/v1alpha1"
+	"github.com/kubezap/kubezap-operator/internal/gateway/redact"
 )
 
 // traceParentKey is an unexported context key for carrying W3C traceparent values.
@@ -63,7 +64,7 @@ func (h *MessageHandler) ConsumeClaim(session sarama.ConsumerGroupSession, claim
 				break
 			}
 		}
-		if err := h.HandleMessage(ctx, msg.Topic, msg.Partition, msg.Offset, msg.Value); err != nil {
+		if err := h.HandleMessage(ctx, msg.Topic, msg.Partition, msg.Offset, msg.Value, msg.Headers); err != nil {
 			// Log error but continue consuming — do not stop the claim loop on a single failure.
 			h.log.Error(err, "failed to handle kafka message",
 				"topic", msg.Topic,
@@ -78,10 +79,20 @@ func (h *MessageHandler) ConsumeClaim(session sarama.ConsumerGroupSession, claim
 
 // HandleMessage creates a FlowRun for the given raw message.
 // topic, partition, offset identify the message for dedup key generation.
-// payload is the raw message bytes.
-func (h *MessageHandler) HandleMessage(ctx context.Context, topic string, partition int32, offset int64, payload []byte) error {
+// payload is the raw message bytes. msgHeaders contains the Kafka message
+// headers; auth-like keys are redacted before being stored in TriggerData.
+func (h *MessageHandler) HandleMessage(ctx context.Context, topic string, partition int32, offset int64, payload []byte, msgHeaders []*sarama.RecordHeader) error {
 	rawName := fmt.Sprintf("%s-p%d-offset-%d", h.triggerName, partition, offset)
 	flowRunName := sanitizeFlowRunName(rawName)
+
+	// Convert Kafka record headers to map[string]string and redact sensitive keys.
+	hdrs := make(map[string]string, len(msgHeaders))
+	for _, rh := range msgHeaders {
+		if rh != nil {
+			hdrs[string(rh.Key)] = string(rh.Value)
+		}
+	}
+	redact.StringMap(hdrs, nil)
 
 	flowRun := &automationv1alpha1.FlowRun{
 		ObjectMeta: metav1.ObjectMeta{
@@ -102,6 +113,7 @@ func (h *MessageHandler) HandleMessage(ctx context.Context, topic string, partit
 			TriggerData: &automationv1alpha1.TriggerData{
 				Source:    "kafka",
 				Body:      string(payload),
+				Headers:   hdrs,
 				Topic:     topic,
 				Partition: partition,
 				Offset:    offset,

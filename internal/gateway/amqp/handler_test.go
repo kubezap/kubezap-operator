@@ -253,3 +253,114 @@ func buildAMQP10MessageNoID(t *testing.T, body string) *goamqp.Message {
 		Data: [][]byte{[]byte(body)},
 	}
 }
+
+// TestHandleDelivery091_AuthHeadersRedacted verifies that AMQP 0-9-1 delivery
+// headers containing auth-like keys are stored as "[REDACTED]" in TriggerData.
+func TestHandleDelivery091_AuthHeadersRedacted(t *testing.T) {
+	fakeClient := fake.NewClientBuilder().WithScheme(newTestScheme()).Build()
+	log := zap.New()
+
+	h := &MessageHandler091{
+		client:           fakeClient,
+		log:              log,
+		triggerName:      "hdr-trigger",
+		triggerNamespace: "default",
+		flowRefName:      "my-flow",
+	}
+
+	ack := &mockAcknowledger{}
+	d := amqp091.Delivery{
+		Acknowledger: ack,
+		DeliveryTag:  10,
+		RoutingKey:   "events.created",
+		Body:         []byte(`{"data":"test"}`),
+		Headers: amqp091.Table{
+			"authorization": "Bearer secret",
+			"x-api-key":     "api-key-value",
+			"content-type":  "application/json",
+			"x-request-id":  "req-99",
+		},
+	}
+
+	if err := h.handleDelivery(context.Background(), d); err != nil {
+		t.Fatalf("handleDelivery returned error: %v", err)
+	}
+
+	list := &automationv1alpha1.FlowRunList{}
+	if err := fakeClient.List(context.Background(), list); err != nil {
+		t.Fatalf("listing FlowRuns: %v", err)
+	}
+	if len(list.Items) != 1 {
+		t.Fatalf("expected 1 FlowRun, got %d", len(list.Items))
+	}
+
+	hdrs := list.Items[0].Spec.TriggerData.Headers
+
+	sensitiveKeys := []string{"authorization", "x-api-key"}
+	for _, k := range sensitiveKeys {
+		if got := hdrs[k]; got != "[REDACTED]" {
+			t.Errorf("AMQP 0-9-1 header %q: want [REDACTED], got %q", k, got)
+		}
+	}
+	if got := hdrs["content-type"]; got != "application/json" {
+		t.Errorf("content-type: want application/json, got %q", got)
+	}
+	if got := hdrs["x-request-id"]; got != "req-99" {
+		t.Errorf("x-request-id: want req-99, got %q", got)
+	}
+}
+
+// TestHandleMessage10_AuthHeadersRedacted verifies that AMQP 1.0 application
+// properties containing auth-like keys are stored as "[REDACTED]" in TriggerData.
+func TestHandleMessage10_AuthHeadersRedacted(t *testing.T) {
+	fakeClient := fake.NewClientBuilder().WithScheme(newTestScheme()).Build()
+	log := zap.New()
+
+	h := &MessageHandler10{
+		client:           fakeClient,
+		log:              log,
+		triggerName:      "amqp10-hdr",
+		triggerNamespace: "default",
+		flowRefName:      "my-flow",
+	}
+
+	msg := &goamqp.Message{
+		Properties: &goamqp.MessageProperties{
+			MessageID: "msg-id-redact-test",
+		},
+		Data: [][]byte{[]byte(`{"event":"test"}`)},
+		ApplicationProperties: map[string]interface{}{
+			"Authorization": "Bearer secret-token",
+			"x-api-key":     "my-api-key",
+			"content-type":  "application/json",
+			"x-trace-id":    "trace-42",
+		},
+	}
+
+	if err := h.handleMessage(context.Background(), msg); err != nil {
+		t.Fatalf("handleMessage returned error: %v", err)
+	}
+
+	list := &automationv1alpha1.FlowRunList{}
+	if err := fakeClient.List(context.Background(), list); err != nil {
+		t.Fatalf("listing FlowRuns: %v", err)
+	}
+	if len(list.Items) != 1 {
+		t.Fatalf("expected 1 FlowRun, got %d", len(list.Items))
+	}
+
+	hdrs := list.Items[0].Spec.TriggerData.Headers
+
+	if got := hdrs["Authorization"]; got != "[REDACTED]" {
+		t.Errorf("Authorization: want [REDACTED], got %q", got)
+	}
+	if got := hdrs["x-api-key"]; got != "[REDACTED]" {
+		t.Errorf("x-api-key: want [REDACTED], got %q", got)
+	}
+	if got := hdrs["content-type"]; got != "application/json" {
+		t.Errorf("content-type: want application/json, got %q", got)
+	}
+	if got := hdrs["x-trace-id"]; got != "trace-42" {
+		t.Errorf("x-trace-id: want trace-42, got %q", got)
+	}
+}

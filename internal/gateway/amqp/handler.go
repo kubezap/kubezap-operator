@@ -15,6 +15,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	automationv1alpha1 "github.com/kubezap/kubezap-operator/api/v1alpha1"
+	"github.com/kubezap/kubezap-operator/internal/gateway/redact"
 )
 
 // nonAlphaNumDash matches any character that is not a lowercase letter, digit, or dash.
@@ -76,6 +77,13 @@ func (h *MessageHandler091) handleDelivery(ctx context.Context, d amqp091.Delive
 
 	routingKey := d.RoutingKey
 
+	// Convert AMQP 0-9-1 table headers to map[string]string and redact sensitive keys.
+	hdrs := make(map[string]string, len(d.Headers))
+	for k, v := range d.Headers {
+		hdrs[k] = fmt.Sprintf("%v", v)
+	}
+	redact.StringMap(hdrs, nil)
+
 	flowRun := &automationv1alpha1.FlowRun{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      flowRunName,
@@ -93,9 +101,10 @@ func (h *MessageHandler091) handleDelivery(ctx context.Context, d amqp091.Delive
 				Type: "amqp",
 			},
 			TriggerData: &automationv1alpha1.TriggerData{
-				Source: "amqp",
-				Body:   string(d.Body),
-				Topic:  routingKey,
+				Source:  "amqp",
+				Body:    string(d.Body),
+				Headers: hdrs,
+				Topic:   routingKey,
 			},
 		},
 	}
@@ -177,6 +186,13 @@ func (h *MessageHandler10) handleMessage(ctx context.Context, msg *goamqp.Messag
 
 	body := string(msg.GetData())
 
+	// Convert AMQP 1.0 application properties to map[string]string and redact sensitive keys.
+	hdrs := make(map[string]string, len(msg.ApplicationProperties))
+	for k, v := range msg.ApplicationProperties {
+		hdrs[k] = fmt.Sprintf("%v", v)
+	}
+	redact.StringMap(hdrs, nil)
+
 	flowRun := &automationv1alpha1.FlowRun{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      flowRunName,
@@ -194,8 +210,9 @@ func (h *MessageHandler10) handleMessage(ctx context.Context, msg *goamqp.Messag
 				Type: "amqp",
 			},
 			TriggerData: &automationv1alpha1.TriggerData{
-				Source: "amqp",
-				Body:   body,
+				Source:  "amqp",
+				Body:    body,
+				Headers: hdrs,
 			},
 		},
 	}

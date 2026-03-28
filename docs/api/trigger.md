@@ -236,6 +236,16 @@ Prevents a trigger from firing more than a set number of times in a given window
 
 ### ResourceTrigger
 
+> **Alpha feature — not recommended for production.**
+>
+> `type: resource` is alpha-stability. The API may change in future releases without a deprecation period.
+>
+> Known limitations:
+> - **Naive pluralization fallback**: the controller derives the plural resource name by appending `s`. Irregular plurals (e.g. `policies`, `endpoints`, `statuses`) will fail to discover the resource. Work around this by confirming the plural form with `kubectl api-resources` and opening a bug if the fallback is wrong.
+> - **Cooldown interaction**: rapidly-updated resources (e.g. Pods during a rollout) can generate bursts of `MODIFIED` events that saturate the cooldown window and cause legitimate events to be suppressed. Tune `spec.cooldown` conservatively or avoid using `watchFields` on high-churn fields in production.
+>
+> See [docs/overview.md](../overview.md) for the authoritative stability notice and the full list of alpha-stage features.
+
 Watches a Kubernetes resource type for create, update, or delete events and fires the trigger when a matching event occurs. Resource triggers run inside the controller -- no separate gateway pod is needed.
 
 | Field           | Type          | Required | Default             | Description                                                                                  |
@@ -317,6 +327,8 @@ The Flow receives the message contents:
 - `$(trigger.payload.headers.<name>)` — a message header value
 
 ### Kubernetes Resource Events
+
+> **Alpha feature — not recommended for production.** `type: resource` is alpha-stability and may change without a deprecation period. See [docs/overview.md](../overview.md) and the [ResourceTrigger spec reference](#resourcetrigger) for known limitations (naive pluralization fallback, cooldown interaction with high-churn resources).
 
 Watch any Kubernetes resource type and fire the trigger when resources matching a label selector are created, updated, or deleted. Unlike webhook and Kafka triggers, resource event triggers run inside the controller -- no separate gateway pod is needed.
 

@@ -22,6 +22,7 @@ import (
 	"crypto/tls"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -62,6 +63,31 @@ const executingFinalizer = "kubezap.io/executing"
 // kafkaProducerIdleTTL is the maximum idle time before a cached Kafka producer
 // is closed and recreated on next use.
 const kafkaProducerIdleTTL = 10 * time.Minute
+
+// executorTransportBackoff is the requeue delay used when the http-executor pod
+// is unreachable (connection refused, DNS failure, TLS handshake error, context
+// deadline caused by pod unavailability). A short fixed backoff is used rather
+// than full exponential jitter because the executor pod is either up or not —
+// there is no per-request variance to smooth out.
+const executorTransportBackoff = 5 * time.Second
+
+// executorTransportBackoffCap is the maximum requeue delay for consecutive
+// transport failures within a single FlowRun execution. Not currently enforced
+// here (each reconcile uses a fresh backoff), but documented for future use.
+const executorTransportBackoffCap = 2 * time.Minute
+
+// executorTransportError wraps a transport-layer error returned by callExecutor.
+// Transport errors indicate that the http-executor pod itself was unreachable
+// (connection refused, DNS failure, TLS error, context deadline from pod
+// unavailability). They are distinct from application-level errors (4xx/5xx
+// responses from the executor process) and trigger a RequeueAfter rather than
+// an immediate step failure.
+type executorTransportError struct {
+	cause error
+}
+
+func (e *executorTransportError) Error() string { return e.cause.Error() }
+func (e *executorTransportError) Unwrap() error { return e.cause }
 
 // integrationCacheKeyType is a private key type for storing the per-reconcile
 // Integration object cache in a context value.
@@ -478,12 +504,13 @@ func (r *FlowRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 
 			// Execute all IO wave steps in parallel goroutines.
 			type stepResult struct {
-				name      string
-				stepType  string
-				status    automationv1alpha1.StepRunStatus
-				failFatal bool // true = non-Continue failure; stop FlowRun
-				failMsg   string
-				duration  time.Duration
+				name         string
+				stepType     string
+				status       automationv1alpha1.StepRunStatus
+				failFatal    bool // true = non-Continue failure; stop FlowRun
+				failMsg      string
+				duration     time.Duration
+				requeueAfter time.Duration // >0 when executor pod was unreachable (transport error)
 			}
 			results := make([]stepResult, len(waveSteps))
 			var wg sync.WaitGroup
@@ -495,6 +522,22 @@ func (r *FlowRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 					ss, err := r.executeStep(execCtx, log, &step, &flow, &flowRun, stepResults, flowRun.Spec.TriggerData)
 					dur := time.Since(stepStart)
 					if err != nil {
+						// executeStep only returns a non-nil error for executor
+						// transport failures. Signal the reconciler to requeue rather
+						// than marking the step as Failed.
+						var te *executorTransportError
+						if errors.As(err, &te) {
+							results[i] = stepResult{
+								name:         step.Name,
+								stepType:     step.Action.Type,
+								status:       automationv1alpha1.StepRunStatus{Name: step.Name, Phase: "Running"},
+								duration:     dur,
+								requeueAfter: executorTransportBackoff,
+							}
+							return
+						}
+						// Unexpected non-transport error from executeStep (should not
+						// occur under current implementation, but handled defensively).
 						results[i] = stepResult{
 							name: step.Name, stepType: step.Action.Type,
 							status:   automationv1alpha1.StepRunStatus{Name: step.Name, Phase: "Failed", Message: err.Error()},
@@ -519,6 +562,21 @@ func (r *FlowRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 			wg.Wait()
 
 			// Batch all result statuses into the FlowRun status in one update.
+			// Check for transport errors first: if the executor pod was unreachable
+			// for any step, requeue the entire FlowRun wave without marking any
+			// steps as Failed (they stay in Running phase for the retry).
+			var transportRequeue time.Duration
+			for _, res := range results {
+				if res.requeueAfter > transportRequeue {
+					transportRequeue = res.requeueAfter
+				}
+			}
+			if transportRequeue > 0 {
+				// Do not persist "Running" status noise for steps that haven't
+				// changed phase — skip the status update and requeue cleanly.
+				return ctrl.Result{RequeueAfter: transportRequeue}, nil
+			}
+
 			var fatalMsg string
 			for _, res := range results {
 				metrics.StepDuration.WithLabelValues(
@@ -629,6 +687,12 @@ func (r *FlowRunReconciler) executeStep(
 			status.Attempts = int32(attempts)
 		}
 		if err != nil {
+			var te *executorTransportError
+			if errors.As(err, &te) {
+				// Transport error — executor pod unreachable. Do not mark the step
+				// as Failed; return the error so the reconciler can requeue instead.
+				return status, err
+			}
 			status.Phase = "Failed"
 			status.Message = err.Error()
 		} else {
@@ -779,8 +843,17 @@ func (r *FlowRunReconciler) executeHTTPStep(
 
 		execResp, err := r.callExecutor(stepCtx, namespace, execReq)
 		if err != nil {
-			// RPC transport error (executor unreachable, timeout, etc.).
-			// Use displayURL in the error so secrets from the step URL are not persisted.
+			var te *executorTransportError
+			if errors.As(err, &te) {
+				// The executor pod itself was unreachable — retrying immediately
+				// within this reconcile is pointless. Return the transport error
+				// directly so the caller can requeue with backoff instead of
+				// marking the step as Failed.
+				log.Info("executor pod unreachable, requeueing FlowRun with backoff",
+					"step", step.Name, "attempt", attempt+1, "error", err.Error())
+				return nil, "", attemptsMade, err
+			}
+			// Non-transport error (e.g. request build failure) — record and retry.
 			lastErr = fmt.Errorf("executor RPC for step %q (target: %s): %w", step.Name, displayURL, err)
 			log.Error(err, "executor RPC failed", "step", step.Name, "attempt", attempt+1)
 			continue
@@ -881,11 +954,18 @@ func (r *FlowRunReconciler) callExecutor(ctx context.Context, namespace string, 
 
 	resp, err := httpClient.Do(httpReq)
 	if err != nil {
-		return nil, fmt.Errorf("sending request to executor: %w", err)
+		// Transport-layer failure: the executor pod was unreachable (connection
+		// refused, DNS failure, TLS error, context deadline from pod being down).
+		// Wrap in executorTransportError so the caller can distinguish this from
+		// an application-level error and requeue instead of failing the step.
+		return nil, &executorTransportError{cause: fmt.Errorf("sending request to executor: %w", err)}
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
+		// Application-level error: the executor process responded but indicated
+		// failure (e.g. bad request, internal error in the executor itself).
+		// This is NOT a transport error — fail immediately, no requeue.
 		errBody, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
 		return nil, fmt.Errorf("executor returned HTTP %d: %s", resp.StatusCode, string(errBody))
 	}

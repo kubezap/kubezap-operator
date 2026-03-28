@@ -41,12 +41,18 @@ import (
 	automationv1alpha1 "github.com/kubezap/kubezap-operator/api/v1alpha1"
 )
 
-// NOTE: ResourceWatcher requires RBAC permissions to watch arbitrary resource types.
-// Unlike other RBAC markers in this project, the exact permissions depend on the user's
-// Trigger configurations (e.g., watching Pods requires get/list/watch on pods).
-// Rather than granting wildcard RBAC (*/*), users must grant the controller's
-// ServiceAccount appropriate permissions for the resource types they wish to watch.
-// See docs/api/trigger.md for guidance.
+// ResourceWatcher uses a dynamic informer factory to watch arbitrary Kubernetes resource
+// types specified in ResourceTrigger specs. Because the watched group/version/resource
+// triples are determined entirely by user-authored Trigger CRs and cannot be enumerated
+// at compile time, the controller must hold wildcard get/list/watch RBAC across all
+// groups and resources. This follows the same pattern used by Argo Workflows and similar
+// operators that support user-defined resource watches.
+//
+// Operators running in OwnNamespace or SingleNamespace mode will have these permissions
+// bound to a Role (not ClusterRole), limiting the blast radius to the watched namespace.
+// For AllNamespaces/MultiNamespace installations the corresponding ClusterRole is used.
+//
+// +kubebuilder:rbac:groups=*,resources=*,verbs=get;list;watch
 
 // ResourceWatcher manages per-Trigger dynamic informers for type:resource triggers.
 // It mirrors the CronScheduler pattern: the TriggerReconciler calls Register/Deregister

@@ -361,12 +361,14 @@ For teams within the same organization (separate namespaces for dev/staging/prod
 
 KubeZap supports four watch modes controlled by the `WATCH_NAMESPACES` environment variable on the controller Deployment (standard Operator SDK / controller-runtime pattern):
 
-| Mode                | `WATCH_NAMESPACES` value        | Use case                                                  |
-| ------------------- | ------------------------------- | --------------------------------------------------------- |
-| **AllNamespaces**   | `""` (empty)                    | Single-org cluster, shared platform team manages operator |
-| **MultiNamespace**  | `"ns1,ns2,ns3"`                 | Operator serves a defined set of tenant namespaces        |
-| **SingleNamespace** | `"tenant-a"`                    | One operator installation per tenant group                |
-| **OwnNamespace**    | Same namespace operator runs in | Maximum isolation; operator and CRDs in same namespace    |
+| Mode                | `WATCH_NAMESPACES` value        | Default? | Use case                                                  |
+| ------------------- | ------------------------------- | -------- | --------------------------------------------------------- |
+| **OwnNamespace**    | `""` (empty) or operator's ns   | **Yes**  | Default; maximum isolation, least privilege (OLM default) |
+| **AllNamespaces**   | `"*"`                           | No       | Single-org cluster; secrets restricted to `kubezap.io/managed=true` namespaces |
+| **MultiNamespace**  | `"ns1,ns2,ns3"`                 | No       | Operator serves a defined set of tenant namespaces        |
+| **SingleNamespace** | `"tenant-a"`                    | No       | One operator installation per tenant group                |
+
+> **Security note:** The default is OwnNamespace (least privilege). `WATCH_NAMESPACES=*` enables AllNamespaces mode, where the operator's secrets RBAC is restricted to namespaces labeled `kubezap.io/managed=true`. This prevents the operator from reading secrets in unrelated namespaces.
 
 These map directly to [OLM install modes](https://olm.operatorframework.io/docs/advanced-tasks/operator-scoping-with-operatorgroups/), which is required for OperatorHub certification.
 
@@ -456,8 +458,9 @@ spec:
 ```yaml
 # values.yaml
 controller:
-  watchNamespaces: ""           # AllNamespaces (default)
-  # watchNamespaces: "tenant-a"           # OwnNamespace
+  watchNamespaces: ""           # OwnNamespace (default — least privilege)
+  # watchNamespaces: "*"                   # AllNamespaces (secrets restricted to kubezap.io/managed=true namespaces)
+  # watchNamespaces: "tenant-a"           # SingleNamespace
   # watchNamespaces: "tenant-a,tenant-b"  # MultiNamespace
 ```
 

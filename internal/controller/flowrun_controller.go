@@ -622,9 +622,12 @@ func (r *FlowRunReconciler) executeStep(
 
 	switch step.Action.Type {
 	case "http":
-		results, msg, err := r.executeHTTPStep(ctx, log, step, stepResults, triggerData, flowRun.Namespace)
+		results, msg, attempts, err := r.executeHTTPStep(ctx, log, step, stepResults, triggerData, flowRun.Namespace)
 		completionTime := metav1.Now()
 		status.CompletionTime = &completionTime
+		if attempts > 0 {
+			status.Attempts = int32(attempts)
+		}
 		if err != nil {
 			status.Phase = "Failed"
 			status.Message = err.Error()
@@ -648,9 +651,12 @@ func (r *FlowRunReconciler) executeStep(
 			status.Results = mapsToResults(substituted)
 		}
 	case "publish":
-		result, err := r.executePublishStep(ctx, flowRun, step, triggerData, stepResults)
+		result, attempts, err := r.executePublishStep(ctx, flowRun, step, triggerData, stepResults)
 		completionTime := metav1.Now()
 		status.CompletionTime = &completionTime
+		if attempts > 0 {
+			status.Attempts = int32(attempts)
+		}
 		if err != nil {
 			status.Phase = "Failed"
 			status.Message = err.Error()
@@ -675,9 +681,9 @@ func (r *FlowRunReconciler) executeHTTPStep(
 	stepResults map[string]map[string]string,
 	triggerData *automationv1alpha1.TriggerData,
 	namespace string,
-) (map[string]string, string, error) {
+) (map[string]string, string, int, error) {
 	if step.Action.HTTP == nil {
-		return nil, "", fmt.Errorf("step %q has type=http but no http spec", step.Name)
+		return nil, "", 0, fmt.Errorf("step %q has type=http but no http spec", step.Name)
 	}
 
 	// Apply per-step timeout from FlowStep.Timeout if set; otherwise fall back to HTTPAction.TimeoutSeconds.
@@ -692,17 +698,17 @@ func (r *FlowRunReconciler) executeHTTPStep(
 	// displayURL has secret placeholders intact for safe inclusion in log/error messages.
 	url, displayURL, err := r.substituteVarsWithSecrets(ctx, namespace, h.URL, stepResults, triggerData)
 	if err != nil {
-		return nil, "", fmt.Errorf("resolving secrets in URL for step %q: %w", step.Name, err)
+		return nil, "", 0, fmt.Errorf("resolving secrets in URL for step %q: %w", step.Name, err)
 	}
 	body, _, err := r.substituteVarsWithSecrets(ctx, namespace, h.Body, stepResults, triggerData)
 	if err != nil {
-		return nil, "", fmt.Errorf("resolving secrets in body for step %q: %w", step.Name, err)
+		return nil, "", 0, fmt.Errorf("resolving secrets in body for step %q: %w", step.Name, err)
 	}
 	headers := make(map[string]string, len(h.Headers))
 	for k, v := range h.Headers {
 		actual, _, herr := r.substituteVarsWithSecrets(ctx, namespace, v, stepResults, triggerData)
 		if herr != nil {
-			return nil, "", fmt.Errorf("resolving secrets in header %q for step %q: %w", k, step.Name, herr)
+			return nil, "", 0, fmt.Errorf("resolving secrets in header %q for step %q: %w", k, step.Name, herr)
 		}
 		headers[k] = actual
 	}
@@ -712,7 +718,7 @@ func (r *FlowRunReconciler) executeHTTPStep(
 		var err error
 		url, err = r.applyHTTPIntegration(ctx, h.IntegrationRef.Name, namespace, url, headers, stepResults, triggerData)
 		if err != nil {
-			return nil, "", err
+			return nil, "", 0, err
 		}
 	}
 
@@ -720,7 +726,7 @@ func (r *FlowRunReconciler) executeHTTPStep(
 	// to the executor. The executor re-validates independently to guard against
 	// DNS rebinding between this check and the outbound connection.
 	if err := checkSSRF(ctx, url, r.SSRFBlockedCIDRs); err != nil {
-		return nil, "", fmt.Errorf("step %q blocked by SSRF protection: %w", step.Name, err)
+		return nil, "", 0, fmt.Errorf("step %q blocked by SSRF protection: %w", step.Name, err)
 	}
 
 	method := h.Method
@@ -759,12 +765,14 @@ func (r *FlowRunReconciler) executeHTTPStep(
 	}
 
 	var lastErr error
+	attemptsMade := 0
 	for attempt := 0; attempt < maxAttempts; attempt++ {
+		attemptsMade = attempt + 1
 		if attempt > 0 {
 			delay := r.retryDelay(retryPolicy, attempt)
 			select {
 			case <-stepCtx.Done():
-				return nil, "", stepCtx.Err()
+				return nil, "", attemptsMade, stepCtx.Err()
 			case <-time.After(delay):
 			}
 		}
@@ -811,14 +819,14 @@ func (r *FlowRunReconciler) executeHTTPStep(
 					}
 				}
 			}
-			return results, fmt.Sprintf("HTTP %d", execResp.StatusCode), nil
+			return results, fmt.Sprintf("HTTP %d", execResp.StatusCode), attemptsMade, nil
 		}
 
 		lastErr = fmt.Errorf("HTTP %d: %s", execResp.StatusCode, truncate(execResp.Body, 256))
 		log.Info("HTTP step non-2xx response", "step", step.Name, "status", execResp.StatusCode, "attempt", attempt+1)
 	}
 
-	return nil, "", lastErr
+	return nil, "", attemptsMade, lastErr
 }
 
 // executorScheme returns "https" when mTLS is enabled and "http" otherwise.
@@ -896,9 +904,9 @@ func (r *FlowRunReconciler) executePublishStep(
 	step *automationv1alpha1.FlowStep,
 	triggerData *automationv1alpha1.TriggerData,
 	stepResults map[string]map[string]string,
-) (map[string]string, error) {
+) (map[string]string, int, error) {
 	if step.Action.Publish == nil || step.Action.Publish.IntegrationRef.Name == "" {
-		return nil, fmt.Errorf("step %q has type=publish but no integrationRef.name", step.Name)
+		return nil, 0, fmt.Errorf("step %q has type=publish but no integrationRef.name", step.Name)
 	}
 
 	// Fetch the Integration — use the per-reconcile cache when available.
@@ -913,7 +921,7 @@ func (r *FlowRunReconciler) executePublishStep(
 			Name:      step.Action.Publish.IntegrationRef.Name,
 			Namespace: flowRun.Namespace,
 		}, &fetched); err != nil {
-			return nil, fmt.Errorf("fetching integration %q: %w", step.Action.Publish.IntegrationRef.Name, err)
+			return nil, 0, fmt.Errorf("fetching integration %q: %w", step.Action.Publish.IntegrationRef.Name, err)
 		}
 		integration = &fetched
 		if cache, _ := ctx.Value(integrationCacheKey).(map[string]*automationv1alpha1.Integration); cache != nil {
@@ -925,21 +933,22 @@ func (r *FlowRunReconciler) executePublishStep(
 	if integration.Spec.Kafka != nil {
 		body, _, berr := r.substituteVarsWithSecrets(ctx, flowRun.Namespace, step.Action.Publish.Body, stepResults, triggerData)
 		if berr != nil {
-			return nil, fmt.Errorf("resolving secrets in publish body for step %q: %w", step.Name, berr)
+			return nil, 0, fmt.Errorf("resolving secrets in publish body for step %q: %w", step.Name, berr)
 		}
 		headers := make(map[string]string, len(step.Action.Publish.Headers))
 		for k, v := range step.Action.Publish.Headers {
 			actual, _, herr := r.substituteVarsWithSecrets(ctx, flowRun.Namespace, v, stepResults, triggerData)
 			if herr != nil {
-				return nil, fmt.Errorf("resolving secrets in publish header %q for step %q: %w", k, step.Name, herr)
+				return nil, 0, fmt.Errorf("resolving secrets in publish header %q for step %q: %w", k, step.Name, herr)
 			}
 			headers[k] = actual
 		}
-		return r.publishToKafka(integration, step.Action.Publish.Topic, body, headers)
+		result, err := r.publishToKafka(integration, step.Action.Publish.Topic, body, headers)
+		return result, 1, err
 	}
 
 	if integration.Spec.Plugin == nil {
-		return nil, fmt.Errorf("integration %q is not a plugin type", integration.Name)
+		return nil, 0, fmt.Errorf("integration %q is not a plugin type", integration.Name)
 	}
 
 	port := integration.Spec.Plugin.PublisherPort
@@ -952,13 +961,13 @@ func (r *FlowRunReconciler) executePublishStep(
 
 	body, _, berr := r.substituteVarsWithSecrets(ctx, flowRun.Namespace, step.Action.Publish.Body, stepResults, triggerData)
 	if berr != nil {
-		return nil, fmt.Errorf("resolving secrets in publish body for step %q: %w", step.Name, berr)
+		return nil, 0, fmt.Errorf("resolving secrets in publish body for step %q: %w", step.Name, berr)
 	}
 	headers := make(map[string]string, len(step.Action.Publish.Headers))
 	for k, v := range step.Action.Publish.Headers {
 		actual, _, herr := r.substituteVarsWithSecrets(ctx, flowRun.Namespace, v, stepResults, triggerData)
 		if herr != nil {
-			return nil, fmt.Errorf("resolving secrets in publish header %q for step %q: %w", k, step.Name, herr)
+			return nil, 0, fmt.Errorf("resolving secrets in publish header %q for step %q: %w", k, step.Name, herr)
 		}
 		headers[k] = actual
 	}
@@ -979,7 +988,7 @@ func (r *FlowRunReconciler) executePublishStep(
 
 	req, err := http.NewRequestWithContext(publishCtx, http.MethodPost, pluginURL, bodyReader)
 	if err != nil {
-		return nil, fmt.Errorf("building publish request: %w", err)
+		return nil, 0, fmt.Errorf("building publish request: %w", err)
 	}
 
 	// Set Content-Type default; allow step headers to override.
@@ -997,16 +1006,16 @@ func (r *FlowRunReconciler) executePublishStep(
 
 	resp, err := httpClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("publish request failed: %w", err)
+		return nil, 1, fmt.Errorf("publish request failed: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode >= 400 {
 		bodyBytes, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
-		return nil, fmt.Errorf("publish endpoint returned status %d: %s", resp.StatusCode, strings.TrimSpace(string(bodyBytes)))
+		return nil, 1, fmt.Errorf("publish endpoint returned status %d: %s", resp.StatusCode, strings.TrimSpace(string(bodyBytes)))
 	}
 
-	return map[string]string{}, nil
+	return map[string]string{}, 1, nil
 }
 
 func (r *FlowRunReconciler) fetchSecretValue(ctx context.Context, namespace string, ref corev1.SecretKeySelector) (string, error) {

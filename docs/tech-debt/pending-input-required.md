@@ -200,14 +200,16 @@ Schedule: §17 P0
 
 ### Decisions needed from owner
 
-<!-- BACKLOG-PROMPT -->
+<!-- ANSWERED -->
 **Q: Should `StepRunStatus.Attempts` be wired to the actual retry count, or remain hardcoded to 1?**
 Why it matters: Currently every step reports `attempts: 1` in FlowRun status regardless of how many retries occurred. This makes FlowRun status useless for debugging retry storms or transient failures. The fix requires threading the attempt count through `executeHTTPStep` and the publish step return path.
 Options: (A) Fix it — thread attempt count through; add to next backlog sprint / (B) Leave as-is and document the limitation in FlowRun API docs.
-<!-- BACKLOG-PROMPT -->
+**Answer (2026-03-27):** Option A — fix it. Thread actual attempt count through executeHTTPStep and publish step return path.
+<!-- ANSWERED -->
 
-<!-- BACKLOG-PROMPT -->
+<!-- ANSWERED -->
 **Q: Should executor RPC transport failures requeue with exponential backoff instead of failing the step immediately?**
 Why it matters: If the http-executor pod is temporarily unavailable (rolling update, OOM), the current behavior is to fail the step permanently in that reconcile cycle. Exponential backoff would allow recovery without user intervention, but adds complexity and may mask persistent failures.
 Options: (A) Add `ctrl.Result{RequeueAfter: backoff}` for transport errors (transient) vs. immediate failure for 4xx/5xx from executor (application errors) / (B) Keep current behavior — document that executor restarts cause transient step failures.
-<!-- BACKLOG-PROMPT -->
+**Answer (2026-03-27):** Option A — add exponential backoff requeue for transport errors (pod unavailable, connection refused), immediate failure for 4xx/5xx from executor (application-level errors).
+<!-- ANSWERED -->

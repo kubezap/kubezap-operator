@@ -199,6 +199,10 @@ KubeZap uses [CEL (Common Expression Language)](https://cel.dev) for all boolean
 
 CEL is sandboxed: it cannot make network calls, access the filesystem, or execute arbitrary code, making it safe to run user-provided expressions.
 
+### CEL cost limits
+
+KubeZap enforces a CEL computation budget per `when` expression to prevent runaway expressions (such as nested comprehensions on large arrays) from stalling the controller. The default budget is **10,000 cost units** (tunable via the `--cel-cost-limit` flag on the controller). Expressions that exceed the budget are treated as evaluation errors and cause the step to be skipped with an `EvalError` reason in the FlowRun status. The `kubezap_when_expression_errors_total{flow,reason="eval_error"}` Prometheus counter increments on budget overruns.
+
 ### Conditions (CEL)
 
 `when` block expressions use [CEL (Common Expression Language)](https://cel.dev). The expression must evaluate to a boolean. If it evaluates to `false`, the step is **skipped**.

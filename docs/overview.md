@@ -612,9 +612,14 @@ helm install kubezap oci://ghcr.io/kubezap/charts/kubezap \
   --version 0.3.0 \
   --namespace kubezap-system --create-namespace
 
-# AllNamespaces mode (default)
+# OwnNamespace mode (default — operator watches only its own namespace)
 helm install kubezap oci://ghcr.io/kubezap/charts/kubezap \
   --version 0.3.0 --namespace kubezap-system --create-namespace
+
+# AllNamespaces mode (secrets restricted to kubezap.io/managed=true namespaces)
+helm install kubezap oci://ghcr.io/kubezap/charts/kubezap \
+  --version 0.3.0 --namespace kubezap-system --create-namespace \
+  --set watchNamespaces="*"
 
 # SingleNamespace mode
 helm install kubezap oci://ghcr.io/kubezap/charts/kubezap \

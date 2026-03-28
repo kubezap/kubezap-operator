@@ -199,10 +199,11 @@ Configures authentication for a webhook trigger endpoint. If omitted, the endpoi
 
 ### FlowReference
 
-| Field       | Type   | Required | Default             | Description                    |
-| ----------- | ------ | -------- | ------------------- | ------------------------------ |
-| `name`      | string | **Yes**  | —                   | Name of the Flow CR to execute |
-| `namespace` | string | No       | Trigger's namespace | Namespace of the Flow CR       |
+| Field  | Type   | Required | Description                    |
+| ------ | ------ | -------- | ------------------------------ |
+| `name` | string | **Yes**  | Name of the Flow CR to execute |
+
+> **v1alpha1 restriction:** Cross-namespace FlowRefs are not supported. The Flow must be in the same namespace as the Trigger. A `flowRef.namespace` field was present in earlier pre-release builds but has been removed; an admission webhook rejects any FlowRun with a non-empty `flowRef.namespace`. Cross-namespace flows are deferred to v1beta1 via a `FlowGrant` CRD (analogous to Gateway API `ReferenceGrant`).
 
 See [Flow CRD](flow.md) for the full specification of what a Flow contains and how it processes the trigger payload.
 

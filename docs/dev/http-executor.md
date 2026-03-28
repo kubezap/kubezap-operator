@@ -1,6 +1,6 @@
 # HTTP Executor — Design Contract
 
-> **Status:** Draft — gate document for §17 P0 [1/6]. Implementation of chunks [2/6]–[6/6] must not begin until this document is approved.
+> **Status:** Implemented — all six §17 P0 chunks complete as of 2026-03-27. This document reflects the shipped design.
 
 ## Overview
 

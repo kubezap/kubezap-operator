@@ -1,0 +1,15 @@
+apiVersion: automation.kubezap.io/v1alpha1
+kind: Trigger
+metadata:
+  name: my-webhook-rate-limited
+  namespace: default
+spec:
+  type: webhook
+  webhook:
+    path: /hooks/my-service
+    method: POST
+    rateLimit:
+      maxRequests: 100
+      window: "60s"
+  flowRef:
+    name: my-flow

@@ -184,6 +184,18 @@ func (w *TriggerWatcher) buildRouteEntry(ctx context.Context, trigger *automatio
 		entry.RedactHeaders = append([]string(nil), trigger.Spec.Webhook.RedactHeaders...)
 	}
 
+	// RateLimit provides local per-replica enforcement. Global cluster-wide enforcement
+	// (counting FlowRuns in etcd across all replicas) is implemented separately via
+	// admission webhook and is not wired here.
+	if trigger.Spec.Webhook.RateLimit != nil {
+		entry.MaxInvocations = trigger.Spec.Webhook.RateLimit.MaxRequests
+		window := trigger.Spec.Webhook.RateLimit.Window.Duration
+		if window == 0 {
+			window = 60 * time.Second
+		}
+		entry.CooldownWindow = window
+	}
+
 	auth := trigger.Spec.Webhook.Auth
 	if auth == nil || auth.Type == "" {
 		entry.AuthType = ""

@@ -1,0 +1,77 @@
+# config/network-policy/http-executor-ingress.yaml
+#
+# Restricts access to the KubeZap http-executor pod.
+#
+# The http-executor receives fully-resolved HTTP step requests from the controller
+# via its internal RPC endpoint (POST /execute on port 8091). These requests include
+# resolved credentials — therefore this channel must be tightly restricted.
+#
+# This file is a refinement of the reference policy shipped in
+# config/samples/network-policy-executor.yaml. Key differences:
+#   - Egress is explicitly modelled: the executor must be able to reach arbitrary
+#     external HTTPS endpoints (it is the component that makes outbound HTTP calls).
+#   - DNS egress is included.
+#   - The ingress rule is identical to the samples reference.
+#
+# NOTE: NetworkPolicy alone is the mandatory baseline. For clusters without a
+# service mesh, enable mTLS on the controller-to-executor channel using the
+# --executor-mtls=true flag on the controller Deployment. See docs/guides/plugin-security.md.
+#
+# Customization notes:
+#   - If your flows only call a known set of external services, replace the
+#     0.0.0.0/0 egress CIDR with the specific CIDRs of those services.
+#   - If your cluster enforces strict egress policies, add per-service egress
+#     rules instead of the wide-open CIDR below.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: kubezap-executor-ingress
+  namespace: kubezap-system  # replace with your namespace
+  labels:
+    app.kubernetes.io/name: kubezap
+    app.kubernetes.io/component: http-executor
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: kubezap
+      app.kubernetes.io/component: http-executor
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Allow only the controller pod to call the executor's RPC endpoint.
+    # This is the security boundary that prevents other pods from injecting
+    # requests into the executor.
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: kubezap
+              app.kubernetes.io/component: controller
+      ports:
+        - protocol: TCP
+          port: 8091  # executor RPC port; update if --executor-port was changed
+
+  egress:
+    # The executor makes outbound HTTP/HTTPS calls on behalf of Flow steps.
+    # Replace 0.0.0.0/0 with the specific CIDRs of your target services if known.
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0  # TODO: narrow to known external service CIDRs
+            except:
+              - 10.0.0.0/8     # block RFC-1918 ranges to prevent SSRF against
+              - 172.16.0.0/12  # internal cluster services. The executor also
+              - 192.168.0.0/16 # enforces a software SSRF blocklist, but defence-
+                               # in-depth at the network layer is recommended.
+      ports:
+        - protocol: TCP
+          port: 80
+        - protocol: TCP
+          port: 443
+
+    # Allow DNS resolution.
+    - ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53

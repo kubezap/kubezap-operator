@@ -580,6 +580,30 @@ spec:
                   path:
                     description: HTTP path exposed by the operator
                     type: string
+                  rateLimit:
+                    description: |-
+                      RateLimit limits the number of requests accepted per time window.
+                      When set, the webhook gateway enforces this limit locally using an
+                      in-memory sliding window per route path.
+                      Note: local enforcement is per-gateway-replica. For cluster-wide enforcement,
+                      combine with admission-level FlowRun count checking (see docs/guides/webhook-security.md).
+                    properties:
+                      maxRequests:
+                        description: |-
+                          MaxRequests is the maximum number of requests allowed within Window.
+                          Must be > 0 when RateLimit is set.
+                        format: int32
+                        minimum: 1
+                        type: integer
+                      window:
+                        default: 60s
+                        description: |-
+                          Window is the duration of the sliding window (e.g. "60s", "1m", "5m").
+                          Defaults to "60s" if omitted.
+                        type: string
+                    required:
+                    - maxRequests
+                    type: object
                   redactBody:
                     description: |-
                       RedactBody when true replaces the webhook request body stored in

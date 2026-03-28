@@ -142,14 +142,14 @@ Items are ordered to minimize rework:
 - [x] **SECURITY** — Redact sensitive data from FlowRun TriggerData. Webhook body and non-standard auth headers persist in FlowRun objects readable by namespace users. Add configurable header redaction list and optional body truncation (`spec.webhook.redactBody`). See §H2.
 - [x] **SECURITY** — Secret access audit logging. Add structured log entry + Prometheus counter (`kubezap_secret_accesses_total`) for every `$(secrets.*)` fetch during FlowRun execution. Required for PCI-DSS/SOC2 compliance. See §H3.
 - [x] **SECURITY** — CEL expression cost limits. Add `cel.CostLimit()` budget to `evaluateWhen()`. Add `--cel-cost-limit` flag (default 10000). Prevents DoS via combinatorial comprehensions. See §H5.
-- [ ] **SECURITY** — FlowRun creation rate limiting. Add `spec.webhook.rateLimit` (requests per window) to Trigger CRD. Gateway enforces locally; controller enforces globally via FlowRun count. See §M1.
+- [x] **SECURITY** — FlowRun creation rate limiting. Add `spec.webhook.rateLimit` (requests per window) to Trigger CRD. Gateway enforces locally; controller enforces globally via FlowRun count. See §M1.
 
 ### P2 — Nice to have before public
 
 - [x] **SECURITY** — Plugin image digest pinning. Add optional `spec.plugin.imageDigest` field to Integration CRD. When set, operator validates resolved digest matches before creating/updating plugin Deployment. See §H4. **Decision (Q3): optional field.**
 - [ ] **SECURITY** — Consistent header redaction across all gateways. Extract webhook redaction logic to shared `internal/gateway/redact` package. Apply to Kafka and AMQP gateways. See §M3.
-- [ ] **SECURITY** — Ship example NetworkPolicies in `config/network-policy/`: controller egress, webhook gateway ingress/egress, plugin egress. Document in security guide. See §M4.
-- [ ] **DOCS** — Plugin-to-controller communication security. Document plain-HTTP limitation for `/publish` endpoint. Recommend service mesh (Istio/Linkerd) sidecar for sensitive deployments. See §M2.
+- [x] **SECURITY** — Ship example NetworkPolicies in `config/network-policy/`: controller egress, webhook gateway ingress/egress, plugin egress. Document in security guide. See §M4.
+- [x] **DOCS** — Plugin-to-controller communication security. Document plain-HTTP limitation for `/publish` endpoint. Recommend service mesh (Istio/Linkerd) sidecar for sensitive deployments. See §M2.
 - [ ] **TECH DEBT** — `internal/controller/integration_controller.go` lines 109–180: three near-identical conditional blocks for kafka/amqp/nats gateway condition updates. Extract into a shared helper function to reduce duplication and maintenance burden. Evidenced by `docs/review-latest.md` (2026-03-22 LOW finding).
 
 ---

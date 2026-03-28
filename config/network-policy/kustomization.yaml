@@ -1,2 +1,17 @@
+# Example NetworkPolicies for KubeZap deployments.
+# Apply selectively based on your CNI and threat model.
+# Requires a NetworkPolicy-capable CNI (Calico, Cilium, Weave Net, etc.).
+#
+# Usage:
+#   kubectl apply -k config/network-policy/   # apply all policies
+#   kubectl apply -f config/network-policy/controller-egress.yaml  # apply individually
+#
+# Each file is independently usable — you do not need to apply all of them.
+# Read the comments in each file before applying; several contain TODO items
+# that require site-specific CIDR customization.
 resources:
-- allow-metrics-traffic.yaml
+  - allow-metrics-traffic.yaml
+  - controller-egress.yaml
+  - webhook-gateway-ingress.yaml
+  - http-executor-ingress.yaml
+  - plugin-egress.yaml

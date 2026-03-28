@@ -147,10 +147,10 @@ Items are ordered to minimize rework:
 ### P2 — Nice to have before public
 
 - [x] **SECURITY** — Plugin image digest pinning. Add optional `spec.plugin.imageDigest` field to Integration CRD. When set, operator validates resolved digest matches before creating/updating plugin Deployment. See §H4. **Decision (Q3): optional field.**
-- [ ] **SECURITY** — Consistent header redaction across all gateways. Extract webhook redaction logic to shared `internal/gateway/redact` package. Apply to Kafka and AMQP gateways. See §M3.
+- [x] **SECURITY** — Consistent header redaction across all gateways. Extract webhook redaction logic to shared `internal/gateway/redact` package. Apply to Kafka and AMQP gateways. See §M3.
 - [x] **SECURITY** — Ship example NetworkPolicies in `config/network-policy/`: controller egress, webhook gateway ingress/egress, plugin egress. Document in security guide. See §M4.
 - [x] **DOCS** — Plugin-to-controller communication security. Document plain-HTTP limitation for `/publish` endpoint. Recommend service mesh (Istio/Linkerd) sidecar for sensitive deployments. See §M2.
-- [ ] **TECH DEBT** — `internal/controller/integration_controller.go` lines 109–180: three near-identical conditional blocks for kafka/amqp/nats gateway condition updates. Extract into a shared helper function to reduce duplication and maintenance burden. Evidenced by `docs/review-latest.md` (2026-03-22 LOW finding).
+- [x] **TECH DEBT** — `internal/controller/integration_controller.go` lines 109–180: three near-identical conditional blocks for kafka/amqp/nats gateway condition updates. Extract into a shared helper function to reduce duplication and maintenance burden. Evidenced by `docs/review-latest.md` (2026-03-22 LOW finding).
 
 ---
 

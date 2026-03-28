@@ -930,12 +930,9 @@ var _ = Describe("FlowRunReconciler", func() {
 			// The mock server should have received exactly 3 calls (2 x 503, 1 x 200).
 			Expect(calls.Load()).To(BeNumerically("==", 3))
 
-			// TODO(T7): The controller currently hardcodes Attempts=1 in step status
-			// because executeHTTPStep does not propagate the attempt count back to
-			// the caller. Once that is fixed, uncomment the assertion below:
-			//   Expect(retryStep.Attempts).To(BeNumerically("==", 3))
-			// For now, verify the field is set (even if it's 1).
-			Expect(retryStep.Attempts).To(BeNumerically(">=", 1))
+			// Verify the actual attempt count is reflected in step status.
+			// With MaxRetries=3 and the mock returning 503 twice then 200, we expect 3 total attempts.
+			Expect(retryStep.Attempts).To(BeNumerically("==", 3))
 		})
 	})
 

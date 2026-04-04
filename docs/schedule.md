@@ -27,16 +27,18 @@ Items are ordered to minimize rework:
 5. **P0 security fixes before architectural refactors in the same code area** — a security vulnerability should not be blocked waiting for a large refactor.
 6. **Public readiness (§16) gates OperatorHub submission (§1)** — all P0 items in §16 must be complete before the OperatorHub submission PR is opened. P1 items should be resolved first; P2 items are nice-to-have.
 7. **§18 P1 items before §16 P1 validation pass** — the VALIDATION item is a full E2E system exercise. Running it before §18 P1 items (status reporting bug, security checklist) gives incomplete results and may need to be re-run.
+8. **§22 (automated e2e) before §19 (manual e2e)** — automated tests must pass before manual validation is meaningful. Fix e2e suite health first.
+9. **§20/§21 research (code review, doc review) before §19 manual E2E** — code review may surface bugs that invalidate manual validation results; doc review may expose example incorrectness. Run both before the full manual pass.
 
 ---
 
 ## 1. Deployment & Distribution
 
-> **Unblocked 2026-03-21.** OperatorHub submission is now a target, but gated on §16 P1 VALIDATION and §18 P1 items. **Paused 2026-03-22 pending §16 completion.**
+> **Unblocked 2026-03-21.** OperatorHub submission is now a target, but gated on §16 P1 VALIDATION (expanded in §19) and §18 P1 items. **Paused 2026-03-22 pending §16 completion.**
 > GitHub org migration to `kubezap/kubezap-operator` complete (2026-03-22). Module path is `github.com/kubezap/kubezap-operator`.
 > OLM bundle passes `bundle validate` and `scorecard` as of 2026-03-21.
 
-- [ ] OperatorHub submission PR — gates on §16 P1 VALIDATION + §18 P1 items complete
+- [ ] OperatorHub submission PR — gates on: §18 P1 items complete (✓), §22 VERIFY (e2e tests green), §20 code review clean, §21 doc review clean, §16 P1 VALIDATION (all §19 tasks complete)
 
 ---
 
@@ -80,13 +82,92 @@ Items are ordered to minimize rework:
 
 ### P1 — Should fix before public
 
-- [ ] **VALIDATION** — Manual end-to-end pass: run through each example in `examples/`, exercise the `kubezap` CLI (watch, history, triggers, flows), and open the web dashboard (`--enable-ui`). Collect feedback and file follow-up tasks. **Run after all §18 P1 items are complete** — validation before the StepRunStatus fix and security checklist gives incomplete signal.
+- [ ] **VALIDATION** — Manual end-to-end pass: run through each example in `examples/`, exercise the `kubezap` CLI (watch, history, triggers, flows), and open the web dashboard (`--enable-ui`). Collect feedback and file follow-up tasks. **Broken down into per-example tasks in §19 below** — all §18 P1 items are complete; validation can now proceed after §22 VERIFY and §20/§21 research complete.
 
 ---
 
 ## 17. Security Hardening — 2026-03-24 Review
 
 > All items complete as of 2026-03-27.
+
+---
+
+## 22. E2E Test Fix — WATCH_NAMESPACES (2026-04-04)
+
+> Root cause analysis in `docs/tech-debt/e2e-test-status-2026-04-04.md`.
+
+- [x] **BUG** — `test/e2e/e2e_suite_test.go` BeforeSuite does not set `WATCH_NAMESPACES=*` before waiting for controller. Controller runs in OwnNamespace mode, never reconciles e2e test namespaces → all trigger tests time out. **Fixed (2026-04-04)**: added `kubectl set env deployment/kubezap-controller-manager WATCH_NAMESPACES=*` after `make deploy`.
+
+- [ ] **VERIFY** — Re-run `make test-e2e` to confirm all e2e tests pass with the WATCH_NAMESPACES fix. Executor tests may also need the http-executor image loaded in BeforeSuite — check if executor tests pass after the fix; if not, add `docker build` + `kind load docker-image` for `ghcr.io/kubezap/http-executor:latest` in BeforeSuite.
+
+---
+
+## 20. Code Review — Full Codebase Bug Hunt (2026-04-04)
+
+> Context doc: `docs/tech-debt/code-review-context-2026-04-04.md`.
+> Run this as a research-only task (no code changes) first, then file schedule items for findings.
+> Use **Opus model** for deeper reasoning on complex controller logic.
+> Output: `docs/tech-debt/code-review-results-YYYY-MM-DD.md` + new schedule items.
+> **Must precede §19 manual E2E** — findings may surface bugs that invalidate manual validation results (rule 9).
+
+- [ ] **RESEARCH** — Full codebase code review: logic bugs, design flaws, edge cases, security gaps beyond §17, performance issues, observability gaps. Focus on `internal/controller/` (flowrun_controller, resource_watcher, executor_reconciler, trigger_reconciler, executor_mtls). Cross-check behavior against API docs. Produce `docs/tech-debt/code-review-results-YYYY-MM-DD.md` and add findings as schedule items. See context doc for full methodology.
+
+---
+
+## 21. Documentation Review — Quality and Completeness (2026-04-04)
+
+> Context doc: `docs/tech-debt/doc-review-context-2026-04-04.md`.
+> Run this as a research-only task first, then file schedule items for findings and fix LOW/MEDIUM issues inline.
+> Use **Opus model** for thorough cross-referencing between code and docs.
+> Output: `docs/tech-debt/doc-review-results-YYYY-MM-DD.md` + new schedule items.
+> **Must precede §19 manual E2E** — doc review may expose example incorrectness (rule 9).
+
+- [ ] **RESEARCH** — Full documentation review: inaccuracies, missing coverage, broken links, example correctness, doc-reality mismatches. Cross-check all `docs/api/*.md` against `api/v1alpha1/*_types.go`. Verify CLI and dashboard docs exist. Produce `docs/tech-debt/doc-review-results-YYYY-MM-DD.md` and add findings as schedule items. See context doc for full methodology.
+
+---
+
+## 19. Manual E2E Validation — Per-Example Tasks (2026-04-04)
+
+> Expands §16 VALIDATION. Context doc: `docs/tech-debt/manual-e2e-context-2026-04-04.md`.
+> Target cluster: k3s (`kubectl --context default`). KubeZap controller is deployed and running.
+> Tasks marked **[AUTO]** can be executed by Claude when running locally. Tasks marked **[USER]** require credentials or external services that only the owner can provide.
+> **Run after §22 VERIFY, §20, and §21 complete** — see prioritization rationale rules 8–9.
+
+### Automation-ready examples (no external services required)
+
+- [ ] **[AUTO] E2E — order-router** — Apply `examples/order-router/`, verify Trigger accepted, Mockoon running, port-forward to 8080, fire two curl requests (express + standard paths), inspect FlowRun step phases, verify Mockoon captured both notifications. Covers: webhook trigger, transform step, CEL branching, step result passing, Mockoon admin API. See `examples/order-router/README.md`.
+
+- [ ] **[AUTO] E2E — incident-escalation** — Apply `examples/incident-escalation/`, fire alert webhook, observe `Waiting` phase (2-minute wait step), confirm `escalate` is Skipped, verify all step phases. Covers: parallel steps, wait/resume, conditional skip. **Requires internet access from k3s** (uses httpbin.org). See `examples/incident-escalation/README.md`.
+
+- [ ] **[AUTO] E2E — nightly-export** — Deploy MinIO, apply `examples/nightly-export/`, create manual FlowRun to trigger immediately (skip waiting for 02:00 cron), verify export-data step results, verify MinIO upload, simulate upload failure to test `failurePolicy: Continue`. Covers: cron trigger, failurePolicy, retry, step result chain. See `examples/nightly-export/README.md`.
+
+- [ ] **[AUTO] E2E — k8s-pod-failure-ticket** — Apply `examples/k8s-pod-failure-ticket/`, cause a pod failure, verify FlowRun created, verify Mockoon captured ticket creation POST. Covers: resource trigger (alpha), dedup via pod UID. Note alpha limitations. See `examples/k8s-pod-failure-ticket/README.md`.
+
+- [ ] **[AUTO] E2E — multi-tenant-fanout** — Apply `examples/multi-tenant-fanout/`, fire webhook, verify all 3 tenant steps ran in parallel, patch one tenant secret to simulate failure, verify `failurePolicy: Continue` keeps others running. Covers: parallel fan-out, per-tenant Integration, failurePolicy. See `examples/multi-tenant-fanout/README.md`.
+
+- [ ] **[AUTO] E2E — oidc-webhook** — Apply `examples/oidc-webhook/`, port-forward Dex (5556) and gateway (8080), obtain JWT from Dex, send authenticated request, verify FlowRun created and completed, test rejection (no token, invalid token → 401). Covers: OIDC/JWT auth, required claims enforcement. See `examples/oidc-webhook/README.md`.
+
+### External-credential examples
+
+- [ ] **[AUTO] E2E — slack-router (simulated)** — Apply `examples/slack-router/`, simulate Slack slash command with curl + local HMAC signing (see README), verify `handle-deploy`, `handle-status`, `handle-unknown` branches route correctly. Remove ipAllowlist from Trigger for local testing. Covers: HMAC auth, form-encoded payload, multi-branch CEL routing. Full validation with real Slack: see USER task below.
+
+- [ ] **[USER] E2E — slack-router (real Slack)** — Requires: Slack app with slash command, Signing Secret. See `examples/slack-router/README.md` for full setup. File follow-up tasks if issues found. **Pending input**: see `docs/tech-debt/pending-input-required.md` §2026-04-04.
+
+- [ ] **[USER] E2E — github-autolabel** — Requires: GitHub repo with admin access, PAT with `repo` scope, ngrok or public gateway URL. See `examples/github-autolabel/README.md`. User must create Secrets and configure GitHub webhook before applying. **Pending input**: see `docs/tech-debt/pending-input-required.md` §2026-04-04.
+
+### Kafka examples (Strimzi cluster available on k3s)
+
+> Kafka bootstrap: `my-cluster-kafka-bootstrap.kafka.svc.cluster.local:9092` (Strimzi `my-cluster` in `kafka` ns)
+
+- [ ] **[AUTO] E2E — kafka-enrichment** — Edit `examples/kafka-enrichment/integration.yaml` broker to `my-cluster-kafka-bootstrap.kafka.svc.cluster.local:9092`, apply `examples/kafka-enrichment/`, produce test message via kcat/kafka-console-producer, verify FlowRun created with `p<N>-offset-<N>` name, inspect step results (enrichment + conditional routing), verify enriched event on output topic. Covers: Kafka trigger, dedup, retry, fan-out to tiers, publish step. See `examples/kafka-enrichment/README.md`.
+
+- [ ] **[AUTO] E2E — dlq-handler** — Create `orders.dlq` and `orders` Kafka topics on `my-cluster`, apply `examples/dlq-handler/`, produce poison message with `retry_count:1` (escalate Skipped), then `retry_count:5` (escalate fires), verify Mockoon captured escalation POST, verify re-publish to `orders` topic. Covers: DLQ pattern, conditional escalation, publish step. See `examples/dlq-handler/README.md`.
+
+### CLI + Dashboard verification
+
+- [ ] **[AUTO] CLI verification** — After running at least one example, verify all kubezap CLI subcommands: `kubezap watch`, `kubezap history <name>`, `kubezap triggers`, `kubezap flows`. Build from source: `go build -o bin/kubezap ./cmd/kubezap/`. File follow-up tasks for any issues.
+
+- [ ] **[AUTO] Web dashboard verification** — Port-forward `svc/kubezap-ui 8082:8082 -n kubezap-system`, open `http://localhost:8082`, verify: namespace selector works, FlowRuns list updates live, Trigger and Flow listings populate, activity feed is present.
 
 ---
 

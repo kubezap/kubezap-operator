@@ -213,3 +213,33 @@ Why it matters: If the http-executor pod is temporarily unavailable (rolling upd
 Options: (A) Add `ctrl.Result{RequeueAfter: backoff}` for transport errors (transient) vs. immediate failure for 4xx/5xx from executor (application errors) / (B) Keep current behavior — document that executor restarts cause transient step failures.
 **Answer (2026-03-27):** Option A — add exponential backoff requeue for transport errors (pod unavailable, connection refused), immediate failure for 4xx/5xx from executor (application-level errors).
 <!-- ANSWERED -->
+
+---
+
+## Manual E2E Validation — 2026-04-04
+
+<!-- BACKLOG-PROMPT -->
+
+### Decisions / credentials needed from owner for §19 E2E tasks
+
+**Q: github-autolabel example — GitHub credentials needed**
+Why it matters: The `github-autolabel` example requires a GitHub repo with admin access, a Personal Access Token (PAT with `repo` scope), and the gateway exposed externally (ngrok/LoadBalancer) for GitHub to reach it. This cannot be automated without these credentials.
+Required inputs:
+- GitHub repo path (e.g. `myorg/myrepo`)
+- PAT value (or confirmation that owner will create the Secret manually)
+- Whether ngrok should be used or if a public endpoint is available
+Schedule item: §19 `[USER] E2E — github-autolabel`
+
+**Q: slack-router example — Slack app credentials needed (for real Slack test)**
+Why it matters: Full validation of the slack-router example requires a Slack app with a slash command and the app's Signing Secret. The curl-simulation path (`[AUTO]` task) covers HMAC correctness without real Slack, but end-to-end validation requires a real Slack workspace.
+Required inputs:
+- Slack app Signing Secret
+- Whether to skip the real Slack validation or set up a test workspace
+Schedule item: §19 `[USER] E2E — slack-router (real Slack)`
+
+**Q: nightly-export example — Slack notification credentials (optional)**
+Why it matters: The `notify-slack` step in the nightly-export example requires a Slack incoming webhook URL. If skipped, the step fails with `onFailure: Continue` and the FlowRun still succeeds. Owner may want to validate the Slack notification path or is OK leaving it as a known skip.
+Required inputs:
+- Whether to provide a Slack webhook URL or skip the notification validation
+- If providing: the webhook URL to put in `slack-webhook-secret`
+Schedule item: §19 `[AUTO] E2E — nightly-export`

@@ -92,6 +92,16 @@ var _ = BeforeSuite(func() {
 	err = utils.LoadImageToKindClusterWithName("ghcr.io/kubezap/webhook-gateway:latest")
 	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to load the webhook gateway image into Kind")
 
+	By("building the http-executor image")
+	cmd = exec.Command("docker", "build", "-t", "ghcr.io/kubezap/http-executor:latest",
+		"-f", "cmd/http-executor/Dockerfile", ".")
+	_, err = utils.Run(cmd)
+	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to build the http-executor image")
+
+	By("loading the http-executor image on Kind")
+	err = utils.LoadImageToKindClusterWithName("ghcr.io/kubezap/http-executor:latest")
+	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to load the http-executor image into Kind")
+
 	// The tests-e2e are intended to run on a temporary cluster that is created and destroyed for testing.
 	// To prevent errors when tests run in environments with CertManager already installed,
 	// we check for its presence before execution.

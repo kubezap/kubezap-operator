@@ -25,6 +25,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/IBM/sarama"
 	"github.com/google/cel-go/cel"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -37,6 +38,30 @@ import (
 	automationv1alpha1 "github.com/kubezap/kubezap-operator/api/v1alpha1"
 	executorhttp "github.com/kubezap/kubezap-operator/internal/executor/http"
 )
+
+// mockSyncProducer is a minimal sarama.SyncProducer stub used by the Kafka
+// producer cache unit tests. It records whether Close() was called so tests
+// can assert eviction behaviour without connecting to a real broker.
+type mockSyncProducer struct {
+	closeCalled bool
+}
+
+func (m *mockSyncProducer) SendMessage(*sarama.ProducerMessage) (int32, int64, error) {
+	return 0, 0, nil
+}
+func (m *mockSyncProducer) SendMessages([]*sarama.ProducerMessage) error { return nil }
+func (m *mockSyncProducer) Close() error                                 { m.closeCalled = true; return nil }
+func (m *mockSyncProducer) TxnStatus() sarama.ProducerTxnStatusFlag      { return 0 }
+func (m *mockSyncProducer) IsTransactional() bool                        { return false }
+func (m *mockSyncProducer) BeginTxn() error                              { return nil }
+func (m *mockSyncProducer) CommitTxn() error                             { return nil }
+func (m *mockSyncProducer) AbortTxn() error                              { return nil }
+func (m *mockSyncProducer) AddOffsetsToTxn(map[string][]*sarama.PartitionOffsetMetadata, string) error {
+	return nil
+}
+func (m *mockSyncProducer) AddMessageToTxn(*sarama.ConsumerMessage, string, *string) error {
+	return nil
+}
 
 var _ = Describe("FlowRunReconciler", func() {
 	const testNamespace = "default"
@@ -1118,6 +1143,77 @@ var _ = Describe("FlowRunReconciler", func() {
 				Expect(stepStatus.Phase).NotTo(Equal("Failed"),
 					"step must not be marked Failed on executor transport error")
 			}
+		})
+	})
+
+	Describe("Kafka producer cache", func() {
+		newMock := func() *mockSyncProducer { return &mockSyncProducer{} }
+
+		// buildMinimalReconciler creates a FlowRunReconciler with only the fields
+		// needed for getOrCreateKafkaProducer — no envtest k8s client required.
+		buildMinimalReconciler := func() *FlowRunReconciler {
+			return &FlowRunReconciler{
+				kafkaProducers:        make(map[string]sarama.SyncProducer),
+				kafkaProducerLastUsed: make(map[string]time.Time),
+			}
+		}
+
+		Context("cache hit — producer still within TTL", func() {
+			It("returns the cached producer without closing it or creating a new one", func() {
+				r := buildMinimalReconciler()
+				mock := newMock()
+
+				const brokerKey = "broker1:9092"
+				r.kafkaProducers[brokerKey] = mock
+				r.kafkaProducerLastUsed[brokerKey] = time.Now() // fresh timestamp
+
+				integration := &automationv1alpha1.Integration{
+					Spec: automationv1alpha1.IntegrationSpec{
+						Kafka: &automationv1alpha1.KafkaIntegrationSpec{
+							BootstrapServers: []string{brokerKey},
+						},
+					},
+				}
+
+				got, err := r.getOrCreateKafkaProducer(brokerKey, integration)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(got).To(BeIdenticalTo(mock), "cached producer should be returned as-is")
+				Expect(mock.closeCalled).To(BeFalse(), "Close must not be called on a fresh producer")
+				Expect(r.kafkaProducers).To(HaveKey(brokerKey), "cache entry must still be present after hit")
+			})
+		})
+
+		Context("TTL eviction — producer idle past 10 minutes", func() {
+			It("closes the old producer, evicts it from the cache, and returns an error (no broker available)", func() {
+				r := buildMinimalReconciler()
+				mock := newMock()
+
+				const brokerKey = "localhost:19999" // nothing listening here
+
+				r.kafkaProducers[brokerKey] = mock
+				// Set last-used 11 minutes in the past — just past the 10-minute TTL.
+				r.kafkaProducerLastUsed[brokerKey] = time.Now().Add(-11 * time.Minute)
+
+				integration := &automationv1alpha1.Integration{
+					Spec: automationv1alpha1.IntegrationSpec{
+						Kafka: &automationv1alpha1.KafkaIntegrationSpec{
+							BootstrapServers: []string{brokerKey},
+						},
+					},
+				}
+
+				_, err := r.getOrCreateKafkaProducer(brokerKey, integration)
+
+				// The function must fail because there is no real broker at brokerKey.
+				Expect(err).To(HaveOccurred(), "expected error creating producer against unreachable broker")
+
+				// Most importantly: the stale producer must have been closed and evicted.
+				Expect(mock.closeCalled).To(BeTrue(), "old producer must be closed on TTL eviction")
+				Expect(r.kafkaProducers).NotTo(HaveKey(brokerKey),
+					"evicted producer must be removed from the cache map")
+				Expect(r.kafkaProducerLastUsed).NotTo(HaveKey(brokerKey),
+					"evicted producer's last-used entry must be removed from the cache map")
+			})
 		})
 	})
 

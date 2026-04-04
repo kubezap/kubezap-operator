@@ -44,13 +44,15 @@ import (
 // ResourceWatcher uses a dynamic informer factory to watch arbitrary Kubernetes resource
 // types specified in ResourceTrigger specs. Because the watched group/version/resource
 // triples are determined entirely by user-authored Trigger CRs and cannot be enumerated
-// at compile time, the controller must hold wildcard get/list/watch RBAC across all
-// groups and resources. This follows the same pattern used by Argo Workflows and similar
+// at compile time, the controller holds wildcard get/list/watch RBAC across all groups
+// and resources. This follows the same pattern used by Argo Workflows and similar
 // operators that support user-defined resource watches.
 //
 // Operators running in OwnNamespace or SingleNamespace mode will have these permissions
 // bound to a Role (not ClusterRole), limiting the blast radius to the watched namespace.
 // For AllNamespaces/MultiNamespace installations the corresponding ClusterRole is used.
+//
+// See docs/api/trigger.md for RBAC guidance and examples of scoping permissions.
 //
 // +kubebuilder:rbac:groups=*,resources=*,verbs=get;list;watch
 

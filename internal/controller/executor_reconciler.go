@@ -23,15 +23,17 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	automationv1alpha1 "github.com/kubezap/kubezap-operator/api/v1alpha1"
 )
@@ -95,19 +97,11 @@ func (r *ExecutorReconciler) executorPort() int32 {
 }
 
 // Reconcile ensures a kubezap-http-executor Deployment, Service, and NetworkPolicy
-// exist in the namespace of the incoming FlowRun request.
+// exist in the namespace of the incoming request. It is triggered by both FlowRun
+// and Trigger events so the executor is pre-provisioned as soon as a Trigger is
+// created — before the first FlowRun runs.
 func (r *ExecutorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := logf.FromContext(ctx)
-
-	// Verify the FlowRun still exists — it may have been deleted between enqueue and reconcile.
-	flowRun := &automationv1alpha1.FlowRun{}
-	if err := r.Get(ctx, req.NamespacedName, flowRun); err != nil {
-		if apierrors.IsNotFound(err) {
-			return ctrl.Result{}, nil
-		}
-		return ctrl.Result{}, err
-	}
-
 	namespace := req.Namespace
 	log.Info("Reconciling http-executor resources", "namespace", namespace)
 
@@ -375,10 +369,22 @@ func (r *ExecutorReconciler) reconcileExecutorNetworkPolicy(ctx context.Context,
 }
 
 // SetupWithManager registers the ExecutorReconciler with the controller manager.
-// It watches FlowRun objects so the executor is guaranteed to be present in any
-// namespace before FlowRun execution begins.
+// It watches both FlowRun and Trigger objects so the executor is pre-provisioned
+// as soon as a Trigger is created in a namespace — before the first FlowRun runs.
 func (r *ExecutorReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
+		Named("executor").
 		For(&automationv1alpha1.FlowRun{}).
+		Watches(
+			&automationv1alpha1.Trigger{},
+			handler.EnqueueRequestsFromMapFunc(func(_ context.Context, obj client.Object) []reconcile.Request {
+				return []reconcile.Request{{
+					NamespacedName: types.NamespacedName{
+						Name:      "executor-preprovisioning",
+						Namespace: obj.GetNamespace(),
+					},
+				}}
+			}),
+		).
 		Complete(r)
 }

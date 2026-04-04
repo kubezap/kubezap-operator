@@ -138,10 +138,11 @@ var _ = BeforeSuite(func() {
 
 	By("waiting for controller manager to be running")
 	Eventually(func(g Gomega) {
-		podPhase, err := utils.Run(exec.Command("kubectl", "get", "pods", "-n", "kubezap-system",
-			"-l", "control-plane=controller-manager", "-o", "jsonpath={.items[0].status.phase}"))
+		readyCount, err := utils.Run(exec.Command("kubectl", "get", "pods", "-n", "kubezap-system",
+			"-l", "control-plane=controller-manager",
+			"-o", "jsonpath={.items[0].status.containerStatuses[0].ready}"))
 		g.Expect(err).NotTo(HaveOccurred())
-		g.Expect(podPhase).To(Equal("Running"))
+		g.Expect(readyCount).To(Equal("true"), "controller manager pod not yet Ready")
 	}, 3*time.Minute, 5*time.Second).Should(Succeed())
 })
 

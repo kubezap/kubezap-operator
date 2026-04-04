@@ -71,8 +71,8 @@ Items are ordered to minimize rework:
 - [x] **TECH DEBT** — `internal/controller/executor_reconciler.go`: executor Deployment missing `terminationGracePeriodSeconds`. Set to 30s or the configured step timeout, whichever is larger.
 - [x] **TECH DEBT** — `internal/controller/flowrun_controller.go`: executor RPC transport failures should requeue with exponential backoff rather than immediately failing the step. **Owner input needed** — see `docs/tech-debt/pending-input-required.md` §2026-03-27.
 - [x] **OBSERVABILITY** — `internal/controller/flowrun_controller.go` Kafka producer pool: add debug-level log events for cache hits, cache misses, evictions, and creation.
-- [ ] **TESTING** — `internal/controller/executor_mtls.go`: add test for concurrent bundle access during the 23h rotation window.
-- [ ] **TESTING** — `internal/controller/flowrun_controller.go` Kafka producer cache: add unit test for idle TTL eviction (10m).
+- [x] **TESTING** — `internal/controller/executor_mtls.go`: add test for concurrent bundle access during the 23h rotation window.
+- [x] **TESTING** — `internal/controller/flowrun_controller.go` Kafka producer cache: add unit test for idle TTL eviction (10m).
 
 ---
 
@@ -98,7 +98,7 @@ Items are ordered to minimize rework:
 
 - [x] **BUG** — `test/e2e/e2e_suite_test.go` BeforeSuite does not set `WATCH_NAMESPACES=*` before waiting for controller. Controller runs in OwnNamespace mode, never reconciles e2e test namespaces → all trigger tests time out. **Fixed (2026-04-04)**: added `kubectl set env deployment/kubezap-controller-manager WATCH_NAMESPACES=*` after `make deploy`.
 
-- [ ] **VERIFY** — Re-run `make test-e2e` to confirm all e2e tests pass with the WATCH_NAMESPACES fix. Executor tests may also need the http-executor image loaded in BeforeSuite — check if executor tests pass after the fix; if not, add `docker build` + `kind load docker-image` for `ghcr.io/kubezap/http-executor:latest` in BeforeSuite.
+- [x] **VERIFY** — Re-run `make test-e2e` to confirm all e2e tests pass with the WATCH_NAMESPACES fix. Fixed root cause: `ExecutorReconciler` was gated on FlowRun existence — executor Deployment never created before first FlowRun. Fix: removed FlowRun gate from `Reconcile`; added `Trigger` watch in `SetupWithManager` so executor is pre-provisioned as soon as a Trigger exists in a namespace (before any FlowRun). Also improved BeforeSuite readiness check from pod phase to container ready status.
 
 ---
 

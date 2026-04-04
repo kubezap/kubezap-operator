@@ -130,6 +130,12 @@ var _ = BeforeSuite(func() {
 	_, err = utils.Run(cmd)
 	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to deploy controller manager")
 
+	By("setting WATCH_NAMESPACES=* so controller reconciles e2e test namespaces")
+	cmd = exec.Command("kubectl", "set", "env", "deployment/kubezap-controller-manager",
+		"-n", "kubezap-system", "WATCH_NAMESPACES=*")
+	_, err = utils.Run(cmd)
+	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to set WATCH_NAMESPACES on controller")
+
 	By("waiting for controller manager to be running")
 	Eventually(func(g Gomega) {
 		podPhase, err := utils.Run(exec.Command("kubectl", "get", "pods", "-n", "kubezap-system",

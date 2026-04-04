@@ -257,7 +257,39 @@ Watches a Kubernetes resource type for create, update, or delete events and fire
 | `events`        | []string      | No       | `[create]`          | Event types to watch: `create`, `update`, `delete`                                           |
 | `watchFields`   | []string      | No       | --                  | Dot-notation paths (e.g. `.status.phase`). Only fire update events when these fields change. |
 
-**RBAC note:** The controller's ServiceAccount must have `get`, `list`, and `watch` permissions on the target resource type. KubeZap does not grant these automatically -- the cluster administrator must create the appropriate Role/ClusterRole.
+**RBAC note:** The controller's ServiceAccount must have `get`, `list`, and `watch` permissions on the target resource type. KubeZap does not grant these automatically — the cluster administrator must create the appropriate Role or ClusterRole and bind it to the controller ServiceAccount.
+
+The controller already has discovery API access (non-resource URLs `/api`, `/api/*`, `/apis`, `/apis/*`) needed to resolve plural resource names. What you must add is a `get;list;watch` rule for the specific resource type.
+
+Example Role for watching Pods:
+
+```yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: kubezap-watch-pods
+  namespace: <trigger-namespace>
+rules:
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: kubezap-watch-pods
+  namespace: <trigger-namespace>
+subjects:
+  - kind: ServiceAccount
+    name: kubezap-controller-manager
+    namespace: kubezap-system
+roleRef:
+  kind: Role
+  name: kubezap-watch-pods
+  apiGroup: rbac.authorization.k8s.io
+```
+
+For cross-namespace watches (when `spec.resource.namespace` differs from the Trigger's namespace), use a ClusterRole and ClusterRoleBinding scoped to the target namespace via a RoleBinding in that namespace, or create a ClusterRoleBinding if the resource is cluster-scoped.
 
 ---
 

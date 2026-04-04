@@ -219,6 +219,7 @@ Options: (A) Add `ctrl.Result{RequeueAfter: backoff}` for transport errors (tran
 ## Manual E2E Validation — 2026-04-04
 
 <!-- BACKLOG-PROMPT -->
+<!-- DEFERRED 2026-04-04: owner not sure yet; skip [USER] E2E tasks and proceed with other backlog items. -->
 
 ### Decisions / credentials needed from owner for §19 E2E tasks
 

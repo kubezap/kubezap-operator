@@ -966,8 +966,10 @@ var _ = Describe("FlowRunReconciler", func() {
 			Expect(k8sClient.Create(ctx, secret)).To(Succeed())
 
 			// Create a Flow whose HTTP step URL embeds a $(secrets.*) reference.
-			// The host part of the URL is an unroutable address, so the HTTP call
-			// will always fail — giving us a failed step whose Message we can inspect.
+			// The target URL uses port 1 on loopback, which returns an immediate
+			// connection-refused. The executor reaches the target address but gets
+			// an application-level error, giving us a failed step whose Message we
+			// can inspect for secret redaction — without a long network timeout.
 			flow = makeFlow(flowName, []automationv1alpha1.FlowStep{
 				{
 					Name: "http-with-secret",
@@ -976,7 +978,7 @@ var _ = Describe("FlowRunReconciler", func() {
 						HTTP: &automationv1alpha1.HTTPAction{
 							// Embed the secret in the URL path so it would appear in
 							// the error message if not redacted.
-							URL:    fmt.Sprintf("http://192.0.2.1/api/$(secrets.%s.token)", secretName),
+							URL:    fmt.Sprintf("http://127.0.0.1:1/api/$(secrets.%s.token)", secretName),
 							Method: "GET",
 						},
 					},
@@ -995,16 +997,15 @@ var _ = Describe("FlowRunReconciler", func() {
 		})
 
 		It("does NOT store the raw secret value in StepRunStatus.Message after failure", func() {
-			// Reconcile with a short HTTP timeout so the dial fails quickly.
+			// Use reconcileUntilTerminal; the executor will get an immediate
+			// connection-refused from the target (127.0.0.1:1) and return an
+			// application-level error — this is not a transport error so the
+			// FlowRun fails rather than requeuing.
 			r := newReconciler()
-			r.HTTPClient = &http.Client{Timeout: 2 * time.Second}
-			nn := types.NamespacedName{Name: flowRun.Name, Namespace: testNamespace}
-			_, _ = r.Reconcile(ctx, ctrl.Request{NamespacedName: nn})
+			updated, err := reconcileUntilTerminal(r, flowRun.Name, 10)
+			Expect(err).NotTo(HaveOccurred())
 
-			var updated automationv1alpha1.FlowRun
-			Expect(k8sClient.Get(ctx, nn, &updated)).To(Succeed())
-
-			// The FlowRun must have failed (unreachable host).
+			// The FlowRun must have failed (unreachable target host).
 			Expect(updated.Status.Phase).To(Equal("Failed"),
 				"expected FlowRun to fail because target host is unreachable")
 
@@ -1021,6 +1022,102 @@ var _ = Describe("FlowRunReconciler", func() {
 			// The message must contain [REDACTED] so it is clear a secret was present.
 			Expect(stepStatus.Message).To(ContainSubstring("[REDACTED]"),
 				"[REDACTED] marker must appear in the error message in place of the secret value")
+		})
+	})
+
+	// §18 P2 TECH DEBT — executor RPC transport failure → requeue with backoff
+	// Verifies that when the http-executor pod is unreachable (connection refused),
+	// the reconciler returns RequeueAfter instead of marking the step as Failed.
+	Context("executor pod unreachable (transport error) → requeue with backoff (§18)", func() {
+		var (
+			flow    *automationv1alpha1.Flow
+			flowRun *automationv1alpha1.FlowRun
+		)
+
+		BeforeEach(func() {
+			seed := GinkgoRandomSeed()
+			flowName := fmt.Sprintf("flow-transport-backoff-%d", seed)
+			flowRunName := fmt.Sprintf("fr-transport-backoff-%d", seed)
+
+			flow = makeFlow(flowName, []automationv1alpha1.FlowStep{
+				{
+					Name: "http-step",
+					Action: automationv1alpha1.StepAction{
+						Type: "http",
+						HTTP: &automationv1alpha1.HTTPAction{
+							URL:    "http://example.com/api",
+							Method: "POST",
+						},
+					},
+				},
+			})
+			Expect(k8sClient.Create(ctx, flow)).To(Succeed())
+
+			flowRun = makeFlowRun(flowRunName, flowName)
+			Expect(k8sClient.Create(ctx, flowRun)).To(Succeed())
+			DeferCleanup(func() {
+				_ = k8sClient.Delete(context.Background(), flowRun)
+				_ = k8sClient.Delete(context.Background(), flow)
+			})
+		})
+
+		It("returns RequeueAfter and does not mark the step as Failed", func() {
+			// Build a reconciler that points to a guaranteed-dead executor address
+			// (port 1 on loopback is conventionally unreachable).
+			env, err := cel.NewEnv(
+				cel.Variable("trigger", cel.MapType(cel.StringType, cel.DynType)),
+				cel.Variable("steps", cel.MapType(cel.StringType, cel.DynType)),
+			)
+			Expect(err).NotTo(HaveOccurred())
+
+			r := &FlowRunReconciler{
+				Client:           k8sClient,
+				Scheme:           k8sClient.Scheme(),
+				HTTPClient:       http.DefaultClient,
+				TTLSucceeded:     24 * time.Hour,
+				TTLFailed:        72 * time.Hour,
+				celEnv:           env,
+				SSRFBlockedCIDRs: []*net.IPNet{},
+				ExecutorBaseURL:  "http://127.0.0.1:1", // port 1 is unreachable
+			}
+
+			nn := types.NamespacedName{Name: flowRun.Name, Namespace: testNamespace}
+
+			// First reconcile: Pending → Running.
+			result, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: nn})
+			Expect(err).NotTo(HaveOccurred())
+
+			// Re-reconcile until we either hit a RequeueAfter or a terminal phase.
+			for i := 0; i < 5; i++ {
+				if result.RequeueAfter > 0 {
+					break
+				}
+				var current automationv1alpha1.FlowRun
+				Expect(k8sClient.Get(ctx, nn, &current)).To(Succeed())
+				if current.Status.Phase == "Succeeded" || current.Status.Phase == "Failed" {
+					break
+				}
+				result, err = r.Reconcile(ctx, ctrl.Request{NamespacedName: nn})
+				Expect(err).NotTo(HaveOccurred())
+			}
+
+			// The reconciler must have requested a backoff requeue.
+			Expect(result.RequeueAfter).To(Equal(executorTransportBackoff),
+				"expected RequeueAfter=%s for transport error, got %s", executorTransportBackoff, result.RequeueAfter)
+
+			// The FlowRun must NOT be marked Failed — it should still be Running.
+			var updated automationv1alpha1.FlowRun
+			Expect(k8sClient.Get(ctx, nn, &updated)).To(Succeed())
+			Expect(updated.Status.Phase).To(Equal("Running"),
+				"FlowRun must remain Running on executor transport failure, not Failed")
+
+			// The step must NOT appear as Failed in the status (it should be absent
+			// or still Running — not persisted as a failure).
+			stepStatus := findStepStatus(updated.Status.Steps, "http-step")
+			if stepStatus != nil {
+				Expect(stepStatus.Phase).NotTo(Equal("Failed"),
+					"step must not be marked Failed on executor transport error")
+			}
 		})
 	})
 

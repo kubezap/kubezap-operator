@@ -2023,6 +2023,7 @@ func (r *FlowRunReconciler) publishToKafka(
 			delete(r.kafkaProducerLastUsed, brokerKey)
 		}
 		r.kafkaProducersMu.Unlock()
+		logf.Log.V(1).Info("kafka producer evicted (send error), will recreate on next use", "brokerKey", brokerKey)
 		_ = producer.Close()
 		return nil, fmt.Errorf("sending kafka message to topic %q: %w", topic, sendErr)
 	}
@@ -2061,14 +2062,20 @@ func (r *FlowRunReconciler) getOrCreateKafkaProducer(
 	if p, ok := r.kafkaProducers[brokerKey]; ok {
 		// Evict and replace if the producer has been idle past the TTL.
 		if time.Since(r.kafkaProducerLastUsed[brokerKey]) > kafkaProducerIdleTTL {
+			logf.Log.V(1).Info("kafka producer evicted (idle TTL), recreating",
+				"brokerKey", brokerKey,
+				"idleDuration", time.Since(r.kafkaProducerLastUsed[brokerKey]).Truncate(time.Second),
+			)
 			_ = p.Close()
 			delete(r.kafkaProducers, brokerKey)
 			delete(r.kafkaProducerLastUsed, brokerKey)
 		} else {
+			logf.Log.V(1).Info("kafka producer cache hit", "brokerKey", brokerKey)
 			return p, nil
 		}
 	}
 
+	logf.Log.V(1).Info("kafka producer cache miss, creating new producer", "brokerKey", brokerKey)
 	config := sarama.NewConfig()
 	config.Producer.Return.Successes = true
 	config.Version = sarama.V2_6_0_0
@@ -2080,5 +2087,6 @@ func (r *FlowRunReconciler) getOrCreateKafkaProducer(
 	r.kafkaProducers[brokerKey] = p
 	// Record creation time as the initial last-used timestamp.
 	r.kafkaProducerLastUsed[brokerKey] = time.Now()
+	logf.Log.V(1).Info("kafka producer created and cached", "brokerKey", brokerKey)
 	return p, nil
 }

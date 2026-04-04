@@ -110,7 +110,7 @@ Items are ordered to minimize rework:
 > Output: `docs/tech-debt/code-review-results-YYYY-MM-DD.md` + new schedule items.
 > **Must precede §19 manual E2E** — findings may surface bugs that invalidate manual validation results (rule 9).
 
-- [ ] **RESEARCH** — Full codebase code review: logic bugs, design flaws, edge cases, security gaps beyond §17, performance issues, observability gaps. Focus on `internal/controller/` (flowrun_controller, resource_watcher, executor_reconciler, trigger_reconciler, executor_mtls). Cross-check behavior against API docs. Produce `docs/tech-debt/code-review-results-YYYY-MM-DD.md` and add findings as schedule items. See context doc for full methodology.
+- [x] **RESEARCH** — Full codebase code review: logic bugs, design flaws, edge cases, security gaps beyond §17, performance issues, observability gaps. Focus on `internal/controller/` (flowrun_controller, resource_watcher, executor_reconciler, trigger_reconciler, executor_mtls). Cross-check behavior against API docs. Produce `docs/tech-debt/code-review-results-YYYY-MM-DD.md` and add findings as schedule items. See context doc for full methodology. **Complete (2026-04-04)**: Results in `docs/tech-debt/code-review-results-2026-04-04.md`. Findings filed as §23 schedule items.
 
 ---
 
@@ -168,6 +168,39 @@ Items are ordered to minimize rework:
 - [ ] **[AUTO] CLI verification** — After running at least one example, verify all kubezap CLI subcommands: `kubezap watch`, `kubezap history <name>`, `kubezap triggers`, `kubezap flows`. Build from source: `go build -o bin/kubezap ./cmd/kubezap/`. File follow-up tasks for any issues.
 
 - [ ] **[AUTO] Web dashboard verification** — Port-forward `svc/kubezap-ui 8082:8082 -n kubezap-system`, open `http://localhost:8082`, verify: namespace selector works, FlowRuns list updates live, Trigger and Flow listings populate, activity feed is present.
+
+---
+
+## 23. Code Review Findings — 2026-04-04
+
+> Source: `docs/tech-debt/code-review-results-2026-04-04.md`
+> P0 items must be fixed before public release. P1 before GA. P2 are nice-to-have.
+
+### P0 — Fix before public release
+
+- [ ] **BUG** — `internal/controller/flowrun_controller.go:202`: Cancelled FlowRuns are exempt from GC (TTL and count-based). Add `"Cancelled"` to the GC phase check so they are garbage collected like Succeeded/Failed.
+- [ ] **SECURITY** — `internal/gateway/webhook/handler.go:181`: Basic auth credential comparison uses non-constant-time `!=`. Replace with `subtle.ConstantTimeCompare` to prevent timing side-channel attacks.
+
+### P1 — Fix before GA
+
+- [ ] **PERFORMANCE** — `internal/controller/flowrun_controller.go:943`: mTLS-enabled executor calls allocate a new `http.Client`/`http.Transport` per call, defeating connection reuse and causing TLS handshake overhead. Create the mTLS client once at startup and reuse.
+- [ ] **BUG** — `internal/controller/flowrun_controller.go:612`: Post-completion failure check ignores `flow.Spec.FailurePolicy`. FlowRuns with flow-level `failurePolicy: Continue` may incorrectly transition to Failed after all steps complete.
+- [ ] **BUG** — `internal/controller/flowrun_controller.go:2079`: Kafka publish producer ignores TLS/SASL config from Integration spec. Only plaintext, unauthenticated Kafka clusters work for publish steps. Port TLS/SASL config from kafka/watcher.go.
+- [ ] **BUG** — `internal/controller/flowrun_controller.go:464`: Wait step `StartTime` is overwritten on re-entry (requeue), masking the actual start time. Preserve existing StartTime from prior status.
+- [ ] **TECH DEBT** — `internal/controller/resource_watcher.go:293`: cooldownTracker map grows without bound. Clear entries on `Deregister()`; add periodic eviction of entries older than cooldown duration.
+- [ ] **TECH DEBT** — `internal/controller/trigger_controller.go:119`: Webhook gateway resources (Deployment, Service, SA, Role, RoleBinding, HPA) are not cleaned up when the last webhook Trigger in a namespace is disabled or deleted. Add reference counting or periodic sweep.
+
+### P2 — Nice to have
+
+- [ ] **BUG** — `internal/controller/flowrun_controller.go:1026`: Kafka publish step has no retry support. `RetryPolicy` from step spec is ignored; attempts always 1.
+- [ ] **BUG** — `internal/controller/flowrun_controller.go:1087`: Plugin publish step has no retry support. Same issue as Kafka publish.
+- [ ] **BUG** — `internal/gateway/webhook/handler.go:337`: Body truncated to 4096 bytes without setting `bodyTruncated` flag on TriggerData.
+- [ ] **BUG** — `internal/controller/executor_reconciler.go:151`: Executor container `--port` arg is hardcoded to 8091, not derived from `ExecutorPort` field. Custom port config is silently ignored.
+- [ ] **VALIDATION** — `api/v1alpha1/trigger_types.go:277`: ResourceTrigger.Events has conflicting `MinItems=1` and `+optional` markers. Remove `MinItems=1` since the code handles empty gracefully.
+- [ ] **VALIDATION** — `api/v1alpha1/flow_types.go:65`: FlowStep.Name lacks uniqueness validation. Duplicate step names cause undefined runtime behavior.
+- [ ] **VALIDATION** — `api/v1alpha1/flow_types.go:205`: RetryPolicy.MaxRetries lacks `+kubebuilder:validation:Minimum=0`. Negative values cause zero-execution steps.
+- [ ] **OBSERVABILITY** — `internal/gateway/webhook/handler.go:401`: Trace context lost on `context.Background()` fallback for FlowRun creation. Extract span context before checking Err().
+- [ ] **TECH DEBT** — `internal/gateway/kafka/watcher.go:119`: `Start` returns `ctx.Err()` instead of nil on graceful shutdown, causing spurious error logs.
 
 ---
 

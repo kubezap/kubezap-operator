@@ -20,8 +20,10 @@ import (
 	"context"
 	"fmt"
 
+	appsv1 "k8s.io/api/apps/v1"
 	autoscalingv2 "k8s.io/api/autoscaling/v2"
 	corev1 "k8s.io/api/core/v1"
+	rbacv1 "k8s.io/api/rbac/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
@@ -48,9 +50,9 @@ type TriggerReconciler struct {
 // +kubebuilder:rbac:groups=automation.kubezap.io,resources=triggers,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=automation.kubezap.io,resources=triggers/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=automation.kubezap.io,resources=triggers/finalizers,verbs=update
-// +kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch;create;update;patch
+// +kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups="",resources=serviceaccounts,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups="",resources=services,verbs=get;list;watch;create;update;patch
+// +kubebuilder:rbac:groups="",resources=services,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=roles,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=rolebindings,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=autoscaling,resources=horizontalpodautoscalers,verbs=get;list;watch;create;update;patch;delete
@@ -93,6 +95,16 @@ func (r *TriggerReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 				return ctrl.Result{}, err
 			}
 		}
+		// If this was an enabled webhook Trigger, clean up gateway resources if no
+		// other enabled webhook Triggers remain in the namespace. The current Trigger
+		// is still present in the API server (just marked for deletion), so
+		// cleanupWebhookGatewayIfUnused excludes objects with a non-zero
+		// DeletionTimestamp when counting active webhook Triggers.
+		if trg.Spec.Type == "webhook" {
+			if err := cleanupWebhookGatewayIfUnused(ctx, r.Client, trg.Namespace); err != nil {
+				return ctrl.Result{}, fmt.Errorf("cleaning up webhook gateway: %w", err)
+			}
+		}
 		return ctrl.Result{}, nil
 	}
 
@@ -115,10 +127,14 @@ func (r *TriggerReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		}
 	}
 
-	// Handle webhook triggers — ensure gateway Deployment exists
+	// Handle webhook triggers — ensure gateway Deployment exists, or clean up if disabled.
 	if trg.Spec.Type == "webhook" && trg.Spec.Enabled {
 		if err := r.reconcileWebhookGatewayDeployment(ctx, trg.Namespace); err != nil {
 			return ctrl.Result{}, fmt.Errorf("reconciling webhook gateway deployment: %w", err)
+		}
+	} else if trg.Spec.Type == "webhook" && !trg.Spec.Enabled {
+		if err := cleanupWebhookGatewayIfUnused(ctx, r.Client, trg.Namespace); err != nil {
+			return ctrl.Result{}, fmt.Errorf("cleaning up webhook gateway: %w", err)
 		}
 	}
 
@@ -289,6 +305,90 @@ func ensureWebhookGateway(ctx context.Context, c client.Client, namespace string
 	if err := c.Update(ctx, hpaExisting); err != nil {
 		return err
 	}
+	return nil
+}
+
+// cleanupWebhookGatewayIfUnused deletes the webhook gateway resources (Deployment,
+// Service, ServiceAccount, Role, RoleBinding, HPA) from the given namespace if no
+// enabled, non-terminating webhook Triggers remain. It is safe to call repeatedly —
+// NotFound errors on each delete are silently ignored.
+func cleanupWebhookGatewayIfUnused(ctx context.Context, c client.Client, namespace string) error {
+	log := logf.FromContext(ctx)
+
+	var triggerList automationv1alpha1.TriggerList
+	if err := c.List(ctx, &triggerList, client.InNamespace(namespace)); err != nil {
+		return fmt.Errorf("listing Triggers in namespace %s: %w", namespace, err)
+	}
+
+	for i := range triggerList.Items {
+		t := &triggerList.Items[i]
+		if t.Spec.Type == "webhook" && t.Spec.Enabled && t.DeletionTimestamp.IsZero() {
+			// At least one active webhook Trigger remains — gateway is still needed.
+			return nil
+		}
+	}
+
+	log.Info("no active webhook Triggers remain; cleaning up webhook gateway resources", "namespace", namespace)
+
+	// All six resource types share the same name: webhookGatewayDeploymentName
+	// ("kubezap-webhook-gateway"). ServiceAccount uses the same name.
+	key := client.ObjectKey{Name: webhookGatewayDeploymentName, Namespace: namespace}
+
+	deploy := &appsv1.Deployment{}
+	if err := c.Get(ctx, key, deploy); err == nil {
+		if err := c.Delete(ctx, deploy); err != nil && !apierrors.IsNotFound(err) {
+			return fmt.Errorf("deleting webhook gateway Deployment: %w", err)
+		}
+	} else if !apierrors.IsNotFound(err) {
+		return fmt.Errorf("getting webhook gateway Deployment: %w", err)
+	}
+
+	svc := &corev1.Service{}
+	if err := c.Get(ctx, key, svc); err == nil {
+		if err := c.Delete(ctx, svc); err != nil && !apierrors.IsNotFound(err) {
+			return fmt.Errorf("deleting webhook gateway Service: %w", err)
+		}
+	} else if !apierrors.IsNotFound(err) {
+		return fmt.Errorf("getting webhook gateway Service: %w", err)
+	}
+
+	sa := &corev1.ServiceAccount{}
+	if err := c.Get(ctx, key, sa); err == nil {
+		if err := c.Delete(ctx, sa); err != nil && !apierrors.IsNotFound(err) {
+			return fmt.Errorf("deleting webhook gateway ServiceAccount: %w", err)
+		}
+	} else if !apierrors.IsNotFound(err) {
+		return fmt.Errorf("getting webhook gateway ServiceAccount: %w", err)
+	}
+
+	role := &rbacv1.Role{}
+	if err := c.Get(ctx, key, role); err == nil {
+		if err := c.Delete(ctx, role); err != nil && !apierrors.IsNotFound(err) {
+			return fmt.Errorf("deleting webhook gateway Role: %w", err)
+		}
+	} else if !apierrors.IsNotFound(err) {
+		return fmt.Errorf("getting webhook gateway Role: %w", err)
+	}
+
+	rb := &rbacv1.RoleBinding{}
+	if err := c.Get(ctx, key, rb); err == nil {
+		if err := c.Delete(ctx, rb); err != nil && !apierrors.IsNotFound(err) {
+			return fmt.Errorf("deleting webhook gateway RoleBinding: %w", err)
+		}
+	} else if !apierrors.IsNotFound(err) {
+		return fmt.Errorf("getting webhook gateway RoleBinding: %w", err)
+	}
+
+	hpa := &autoscalingv2.HorizontalPodAutoscaler{}
+	if err := c.Get(ctx, key, hpa); err == nil {
+		if err := c.Delete(ctx, hpa); err != nil && !apierrors.IsNotFound(err) {
+			return fmt.Errorf("deleting webhook gateway HPA: %w", err)
+		}
+	} else if !apierrors.IsNotFound(err) {
+		return fmt.Errorf("getting webhook gateway HPA: %w", err)
+	}
+
+	log.Info("webhook gateway resources cleaned up", "namespace", namespace)
 	return nil
 }
 

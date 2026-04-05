@@ -277,7 +277,6 @@ spec:
                       Valid values: create, update, delete. Defaults to [create] if omitted.
                     items:
                       type: string
-                    minItems: 1
                     type: array
                   kind:
                     description: Kind of the resource to watch (e.g. "Pod", "ConfigMap",

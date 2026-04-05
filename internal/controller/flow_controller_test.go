@@ -85,10 +85,8 @@ var _ = Describe("Flow Controller", func() {
 		})
 
 		Context("when two steps have the same name", func() {
-			const flowName = "flow-duplicate-step-names"
-
-			BeforeEach(func() {
-				flow := newFlow(flowName, automationv1alpha1.FlowSpec{
+			It("is rejected by the API server at admission time", func() {
+				flow := newFlow("flow-duplicate-step-names-admission", automationv1alpha1.FlowSpec{
 					Steps: []automationv1alpha1.FlowStep{
 						{
 							Name: "step-a",
@@ -105,22 +103,9 @@ var _ = Describe("Flow Controller", func() {
 						},
 					},
 				})
-				Expect(k8sClient.Create(ctx, flow)).To(Succeed())
-			})
-
-			AfterEach(func() {
-				deleteFlow(flowName)
-			})
-
-			It("sets Ready=False with reason=InvalidSpec", func() {
-				_, err := reconcileFlow(flowName)
-				Expect(err).NotTo(HaveOccurred())
-
-				flow := fetchFlow(flowName)
-				cond := apimeta.FindStatusCondition(flow.Status.Conditions, "Ready")
-				Expect(cond).NotTo(BeNil())
-				Expect(cond.Status).To(Equal(metav1.ConditionFalse))
-				Expect(cond.Reason).To(Equal("InvalidSpec"))
+				err := k8sClient.Create(ctx, flow)
+				Expect(err).To(HaveOccurred())
+				Expect(err.Error()).To(ContainSubstring("Duplicate value"))
 			})
 		})
 

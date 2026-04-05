@@ -29,6 +29,7 @@ Items are ordered to minimize rework:
 7. **§18 P1 items before §16 P1 validation pass** — the VALIDATION item is a full E2E system exercise. Running it before §18 P1 items (status reporting bug, security checklist) gives incomplete results and may need to be re-run.
 8. **§22 (automated e2e) before §19 (manual e2e)** — automated tests must pass before manual validation is meaningful. Fix e2e suite health first.
 9. **§20/§21 research (code review, doc review) before §19 manual E2E** — code review may surface bugs that invalidate manual validation results; doc review may expose example incorrectness. Run both before the full manual pass.
+10. **§23/§24 P0 fixes before §19 manual E2E** — the P0 findings from §20/§21 (code bugs, doc-reality mismatches) must be resolved before manual validation. E2E over broken or incorrectly documented behavior produces misleading results and may need to be re-run.
 
 ---
 
@@ -126,12 +127,67 @@ Items are ordered to minimize rework:
 
 ---
 
+## 23. Code Review Findings — 2026-04-04
+
+> Source: `docs/tech-debt/code-review-results-2026-04-04.md`
+> P0 items must be fixed before public release. P1 before GA. P2 are nice-to-have.
+> **Must precede §19 manual E2E** — P0 bugs in this section invalidate E2E results if not fixed first (rule 10).
+
+### P0 — Fix before public release
+
+- [ ] **BUG** — `internal/controller/flowrun_controller.go:202`: Cancelled FlowRuns are exempt from GC (TTL and count-based). Add `"Cancelled"` to the GC phase check so they are garbage collected like Succeeded/Failed.
+- [ ] **SECURITY** — `internal/gateway/webhook/handler.go:181`: Basic auth credential comparison uses non-constant-time `!=`. Replace with `subtle.ConstantTimeCompare` to prevent timing side-channel attacks.
+
+### P1 — Fix before GA
+
+- [ ] **PERFORMANCE** — `internal/controller/flowrun_controller.go:943`: mTLS-enabled executor calls allocate a new `http.Client`/`http.Transport` per call, defeating connection reuse and causing TLS handshake overhead. Create the mTLS client once at startup and reuse.
+- [ ] **BUG** — `internal/controller/flowrun_controller.go:612`: Post-completion failure check ignores `flow.Spec.FailurePolicy`. FlowRuns with flow-level `failurePolicy: Continue` may incorrectly transition to Failed after all steps complete.
+- [ ] **BUG** — `internal/controller/flowrun_controller.go:2079`: Kafka publish producer ignores TLS/SASL config from Integration spec. Only plaintext, unauthenticated Kafka clusters work for publish steps. Port TLS/SASL config from kafka/watcher.go.
+- [ ] **BUG** — `internal/controller/flowrun_controller.go:464`: Wait step `StartTime` is overwritten on re-entry (requeue), masking the actual start time. Preserve existing StartTime from prior status.
+- [ ] **TECH DEBT** — `internal/controller/resource_watcher.go:293`: cooldownTracker map grows without bound. Clear entries on `Deregister()`; add periodic eviction of entries older than cooldown duration.
+- [ ] **TECH DEBT** — `internal/controller/trigger_controller.go:119`: Webhook gateway resources (Deployment, Service, SA, Role, RoleBinding, HPA) are not cleaned up when the last webhook Trigger in a namespace is disabled or deleted. Add reference counting or periodic sweep.
+
+### P2 — Nice to have
+
+- [ ] **BUG** — `internal/controller/flowrun_controller.go:1026`: Kafka publish step has no retry support. `RetryPolicy` from step spec is ignored; attempts always 1.
+- [ ] **BUG** — `internal/controller/flowrun_controller.go:1087`: Plugin publish step has no retry support. Same issue as Kafka publish.
+- [ ] **BUG** — `internal/gateway/webhook/handler.go:337`: Body truncated to 4096 bytes without setting `bodyTruncated` flag on TriggerData.
+- [ ] **BUG** — `internal/controller/executor_reconciler.go:151`: Executor container `--port` arg is hardcoded to 8091, not derived from `ExecutorPort` field. Custom port config is silently ignored.
+- [ ] **VALIDATION** — `api/v1alpha1/trigger_types.go:277`: ResourceTrigger.Events has conflicting `MinItems=1` and `+optional` markers. Remove `MinItems=1` since the code handles empty gracefully.
+- [ ] **VALIDATION** — `api/v1alpha1/flow_types.go:65`: FlowStep.Name lacks uniqueness validation. Duplicate step names cause undefined runtime behavior.
+- [ ] **VALIDATION** — `api/v1alpha1/flow_types.go:205`: RetryPolicy.MaxRetries lacks `+kubebuilder:validation:Minimum=0`. Negative values cause zero-execution steps.
+- [ ] **OBSERVABILITY** — `internal/gateway/webhook/handler.go:401`: Trace context lost on `context.Background()` fallback for FlowRun creation. Extract span context before checking Err().
+- [ ] **TECH DEBT** — `internal/gateway/kafka/watcher.go:119`: `Start` returns `ctx.Err()` instead of nil on graceful shutdown, causing spurious error logs.
+
+---
+
+## 24. Documentation Review Findings — 2026-04-04
+
+> Source: `docs/tech-debt/doc-review-results-2026-04-04.md`
+> LOW/MEDIUM issues were fixed inline during the review. Only HIGH and P1 items are listed below.
+> **Must precede §19 manual E2E** — P0 doc-reality mismatches in this section would invalidate manual validation of those features (rule 10).
+
+### P0 — Fix before public release
+
+- [ ] **DOC FIX** — `docs/guides/webhook-security.md`: HMAC/OIDC/Bearer/Basic auth field mismatch with Go types. Doc shows fields (`header`, `algorithm`, `prefix`, `encoding` on HMAC; `requiredClaims`, `jwksUri`, `jwksCacheTTL` on OIDC; `trustedProxies`; `secretRef` on Bearer vs `tokenSecretRef`) that don't exist in Go types. Either implement the fields or rewrite the security guide to match current API. Highest-impact doc-reality mismatch.
+- [ ] **DOC FIX** — `docs/api/integration.md`: IntegrationStatus fields diverge from Go types. Doc lists `gatewayDeployments` ([]GatewayDeploymentRef), `connectedTriggers`, `phase: Failed` — Go types have `GatewayDeploymentName` (string), no `connectedTriggers`, `phase: Pending`. Align doc with Go types.
+- [ ] **DOC FIX** — `docs/api/integration.md`: KafkaIntegrationSpec (`producerConfig`, `consumerConfig`) and PluginIntegrationSpec (`replicas`, `resources`, `config`, `imagePullSecrets`) documented but not in Go types. Remove phantom fields from docs or implement them.
+
+### P1 — Fix before GA
+
+- [ ] **DOC FIX** — `docs/api/integration.md`: Broken link to `docs/tech-debt/gateway-shutdown-correctness.md` (file does not exist). Create file or update reference.
+- [ ] **DOC FIX** — `docs/architecture.md`: Broken anchor `#trust-model` in link to `integration.md`. Fix to `#plugin-integration-type`.
+- [ ] **DOC FIX** — `docs/architecture.md`: Container images table missing `http-executor` row. Add it.
+- [ ] **DOC FIX** — `docs/guides/webhook-security.md`: "Combining Methods" section implies multiple auth types can be active simultaneously, but `WebhookAuth.Type` is a single enum. Clarify or note as planned.
+
+---
+
 ## 19. Manual E2E Validation — Per-Example Tasks (2026-04-04)
 
 > Expands §16 VALIDATION. Context doc: `docs/tech-debt/manual-e2e-context-2026-04-04.md`.
 > Target cluster: k3s (`kubectl --context default`). KubeZap controller is deployed and running.
 > Tasks marked **[AUTO]** can be executed by Claude when running locally. Tasks marked **[USER]** require credentials or external services that only the owner can provide.
-> **Run after §22 VERIFY, §20, and §21 complete** — see prioritization rationale rules 8–9.
+> **Run after §22 VERIFY, §20, §21, §23 P0, and §24 P0 complete** — see prioritization rationale rules 8–10.
 
 ### Automation-ready examples (no external services required)
 
@@ -168,59 +224,6 @@ Items are ordered to minimize rework:
 - [ ] **[AUTO] CLI verification** — After running at least one example, verify all kubezap CLI subcommands: `kubezap watch`, `kubezap history <name>`, `kubezap triggers`, `kubezap flows`. Build from source: `go build -o bin/kubezap ./cmd/kubezap/`. File follow-up tasks for any issues.
 
 - [ ] **[AUTO] Web dashboard verification** — Port-forward `svc/kubezap-ui 8082:8082 -n kubezap-system`, open `http://localhost:8082`, verify: namespace selector works, FlowRuns list updates live, Trigger and Flow listings populate, activity feed is present.
-
----
-
-## 23. Code Review Findings — 2026-04-04
-
-> Source: `docs/tech-debt/code-review-results-2026-04-04.md`
-> P0 items must be fixed before public release. P1 before GA. P2 are nice-to-have.
-
-### P0 — Fix before public release
-
-- [ ] **BUG** — `internal/controller/flowrun_controller.go:202`: Cancelled FlowRuns are exempt from GC (TTL and count-based). Add `"Cancelled"` to the GC phase check so they are garbage collected like Succeeded/Failed.
-- [ ] **SECURITY** — `internal/gateway/webhook/handler.go:181`: Basic auth credential comparison uses non-constant-time `!=`. Replace with `subtle.ConstantTimeCompare` to prevent timing side-channel attacks.
-
-### P1 — Fix before GA
-
-- [ ] **PERFORMANCE** — `internal/controller/flowrun_controller.go:943`: mTLS-enabled executor calls allocate a new `http.Client`/`http.Transport` per call, defeating connection reuse and causing TLS handshake overhead. Create the mTLS client once at startup and reuse.
-- [ ] **BUG** — `internal/controller/flowrun_controller.go:612`: Post-completion failure check ignores `flow.Spec.FailurePolicy`. FlowRuns with flow-level `failurePolicy: Continue` may incorrectly transition to Failed after all steps complete.
-- [ ] **BUG** — `internal/controller/flowrun_controller.go:2079`: Kafka publish producer ignores TLS/SASL config from Integration spec. Only plaintext, unauthenticated Kafka clusters work for publish steps. Port TLS/SASL config from kafka/watcher.go.
-- [ ] **BUG** — `internal/controller/flowrun_controller.go:464`: Wait step `StartTime` is overwritten on re-entry (requeue), masking the actual start time. Preserve existing StartTime from prior status.
-- [ ] **TECH DEBT** — `internal/controller/resource_watcher.go:293`: cooldownTracker map grows without bound. Clear entries on `Deregister()`; add periodic eviction of entries older than cooldown duration.
-- [ ] **TECH DEBT** — `internal/controller/trigger_controller.go:119`: Webhook gateway resources (Deployment, Service, SA, Role, RoleBinding, HPA) are not cleaned up when the last webhook Trigger in a namespace is disabled or deleted. Add reference counting or periodic sweep.
-
-### P2 — Nice to have
-
-- [ ] **BUG** — `internal/controller/flowrun_controller.go:1026`: Kafka publish step has no retry support. `RetryPolicy` from step spec is ignored; attempts always 1.
-- [ ] **BUG** — `internal/controller/flowrun_controller.go:1087`: Plugin publish step has no retry support. Same issue as Kafka publish.
-- [ ] **BUG** — `internal/gateway/webhook/handler.go:337`: Body truncated to 4096 bytes without setting `bodyTruncated` flag on TriggerData.
-- [ ] **BUG** — `internal/controller/executor_reconciler.go:151`: Executor container `--port` arg is hardcoded to 8091, not derived from `ExecutorPort` field. Custom port config is silently ignored.
-- [ ] **VALIDATION** — `api/v1alpha1/trigger_types.go:277`: ResourceTrigger.Events has conflicting `MinItems=1` and `+optional` markers. Remove `MinItems=1` since the code handles empty gracefully.
-- [ ] **VALIDATION** — `api/v1alpha1/flow_types.go:65`: FlowStep.Name lacks uniqueness validation. Duplicate step names cause undefined runtime behavior.
-- [ ] **VALIDATION** — `api/v1alpha1/flow_types.go:205`: RetryPolicy.MaxRetries lacks `+kubebuilder:validation:Minimum=0`. Negative values cause zero-execution steps.
-- [ ] **OBSERVABILITY** — `internal/gateway/webhook/handler.go:401`: Trace context lost on `context.Background()` fallback for FlowRun creation. Extract span context before checking Err().
-- [ ] **TECH DEBT** — `internal/gateway/kafka/watcher.go:119`: `Start` returns `ctx.Err()` instead of nil on graceful shutdown, causing spurious error logs.
-
----
-
-## 24. Documentation Review Findings — 2026-04-04
-
-> Source: `docs/tech-debt/doc-review-results-2026-04-04.md`
-> LOW/MEDIUM issues were fixed inline during the review. Only HIGH and P1 items are listed below.
-
-### P0 — Fix before public release
-
-- [ ] **DOC FIX** — `docs/guides/webhook-security.md`: HMAC/OIDC/Bearer/Basic auth field mismatch with Go types. Doc shows fields (`header`, `algorithm`, `prefix`, `encoding` on HMAC; `requiredClaims`, `jwksUri`, `jwksCacheTTL` on OIDC; `trustedProxies`; `secretRef` on Bearer vs `tokenSecretRef`) that don't exist in Go types. Either implement the fields or rewrite the security guide to match current API. Highest-impact doc-reality mismatch.
-- [ ] **DOC FIX** — `docs/api/integration.md`: IntegrationStatus fields diverge from Go types. Doc lists `gatewayDeployments` ([]GatewayDeploymentRef), `connectedTriggers`, `phase: Failed` — Go types have `GatewayDeploymentName` (string), no `connectedTriggers`, `phase: Pending`. Align doc with Go types.
-- [ ] **DOC FIX** — `docs/api/integration.md`: KafkaIntegrationSpec (`producerConfig`, `consumerConfig`) and PluginIntegrationSpec (`replicas`, `resources`, `config`, `imagePullSecrets`) documented but not in Go types. Remove phantom fields from docs or implement them.
-
-### P1 — Fix before GA
-
-- [ ] **DOC FIX** — `docs/api/integration.md`: Broken link to `docs/tech-debt/gateway-shutdown-correctness.md` (file does not exist). Create file or update reference.
-- [ ] **DOC FIX** — `docs/architecture.md`: Broken anchor `#trust-model` in link to `integration.md`. Fix to `#plugin-integration-type`.
-- [ ] **DOC FIX** — `docs/architecture.md`: Container images table missing `http-executor` row. Add it.
-- [ ] **DOC FIX** — `docs/guides/webhook-security.md`: "Combining Methods" section implies multiple auth types can be active simultaneously, but `WebhookAuth.Type` is a single enum. Clarify or note as planned.
 
 ---
 

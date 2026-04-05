@@ -474,9 +474,13 @@ func (r *FlowRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 				step := rs.step
 				if step.Action.Type == "wait" {
 					now := metav1.Now()
+					startTime := &now
+					if existing := findStepStatus(flowRun.Status.Steps, step.Name); existing != nil && existing.StartTime != nil {
+						startTime = existing.StartTime
+					}
 					ss := automationv1alpha1.StepRunStatus{
 						Name:      step.Name,
-						StartTime: &now,
+						StartTime: startTime,
 						Attempts:  1,
 					}
 					requeueAfter, err := r.executeWaitStep(ctx, log, &flowRun, step, &ss)

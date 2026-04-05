@@ -143,10 +143,16 @@ type FlowRunReconciler struct {
 	ExecutorBaseURL string
 
 	// ExecutorTLSConfig is the TLS config to use for executor RPC calls.
-	// Nil when mTLS is disabled (plain HTTP). When non-nil, callExecutor builds
-	// a dedicated *http.Client with this config and uses https:// instead of http://.
+	// Nil when mTLS is disabled (plain HTTP). When non-nil, callExecutor uses
+	// executorMTLSClient (initialized once on first use) instead of HTTPClient.
 	// Set by cmd/main.go when --executor-mtls=true using MTLSBundle.ClientTLSConfig().
 	ExecutorTLSConfig *tls.Config
+
+	// executorMTLSClient is the reusable *http.Client for mTLS executor calls.
+	// Initialized lazily on the first call when ExecutorTLSConfig is non-nil.
+	// Using sync.Once ensures thread-safe single initialization.
+	executorMTLSClient     *http.Client
+	executorMTLSClientOnce sync.Once
 
 	// DisableCELCache bypasses the compiled-program cache so every eval recompiles.
 	// The cache is unbounded: it grows to hold one entry per distinct `when` expression
@@ -199,7 +205,7 @@ func (r *FlowRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	}
 
 	// GC: handle terminal FlowRuns (TTL expiry + maxFlowRuns cap).
-	if flowRun.Status.Phase == "Succeeded" || flowRun.Status.Phase == "Failed" {
+	if flowRun.Status.Phase == "Succeeded" || flowRun.Status.Phase == "Failed" || flowRun.Status.Phase == "Cancelled" {
 		if requeue, err := r.reconcileGC(ctx, &flowRun); err != nil {
 			return ctrl.Result{}, err
 		} else if requeue > 0 {
@@ -609,7 +615,7 @@ func (r *FlowRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 			continue
 		}
 		for _, step := range flow.Spec.Steps {
-			if step.Name == ss.Name && step.OnFailure != "Continue" {
+			if step.Name == ss.Name && step.OnFailure != "Continue" && flow.Spec.FailurePolicy != "Continue" {
 				msg := fmt.Sprintf("step %q failed: %s", ss.Name, ss.Message)
 				return ctrl.Result{}, r.failFlowRun(ctx, &flowRun, msg)
 			}
@@ -936,15 +942,19 @@ func (r *FlowRunReconciler) callExecutor(ctx context.Context, namespace string, 
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
 
-	// When mTLS is enabled, use a dedicated client with the TLS transport.
-	// Do NOT modify r.HTTPClient — it is used for non-TLS calls elsewhere.
+	// When mTLS is enabled, use a reusable client with the TLS transport.
+	// The client is initialized exactly once via sync.Once to avoid allocating
+	// a new http.Client/http.Transport (and incurring a TLS handshake) per call.
 	var httpClient *http.Client
 	if r.ExecutorTLSConfig != nil {
-		httpClient = &http.Client{
-			Transport: &http.Transport{
-				TLSClientConfig: r.ExecutorTLSConfig,
-			},
-		}
+		r.executorMTLSClientOnce.Do(func() {
+			r.executorMTLSClient = &http.Client{
+				Transport: &http.Transport{
+					TLSClientConfig: r.ExecutorTLSConfig,
+				},
+			}
+		})
+		httpClient = r.executorMTLSClient
 	} else {
 		httpClient = r.HTTPClient
 		if httpClient == nil {

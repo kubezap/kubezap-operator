@@ -178,7 +178,8 @@ func authenticateRequest(r *http.Request, body []byte, entry RouteEntry, trigger
 		if !ok {
 			return http.StatusUnauthorized, "missing or malformed Basic auth credentials"
 		}
-		if username != entry.BasicUsername || password != entry.BasicPassword {
+		if subtle.ConstantTimeCompare([]byte(username), []byte(entry.BasicUsername)) != 1 ||
+			subtle.ConstantTimeCompare([]byte(password), []byte(entry.BasicPassword)) != 1 {
 			return http.StatusUnauthorized, "invalid Basic auth credentials"
 		}
 

@@ -80,15 +80,19 @@ A `Trigger` can also define an inline `action` instead of a `flowRef` for simple
 | `flowRef`  | FlowReference    | Conditional | —       | Reference to the Flow to execute. Required unless `action` is set.               |
 | `action`   | ActionDefinition | Conditional | —       | Inline action. Used instead of `flowRef` for simple single-step responses.       |
 | `cooldown` | CooldownPolicy   | No          | —       | Rate limiting policy to prevent trigger storms                                   |
+| `flowRunGC`| FlowRunGCPolicy  | No          | —       | Per-trigger GC policy for completed FlowRuns. See [FlowRun GC](flowrun.md#garbage-collection). |
 | `event`    | string           | No          | —       | Resource event type for resource-based triggers: `create`, `update`, or `delete` |
 
 ### WebhookTrigger
 
 | Field    | Type        | Required | Default | Description                                                                                              |
 | -------- | ----------- | -------- | ------- | -------------------------------------------------------------------------------------------------------- |
-| `path`   | string      | **Yes**  | —       | HTTP path exposed by the operator (e.g., `/hooks/my-trigger`)                                            |
-| `method` | enum        | No       | `POST`  | Accepted HTTP method: `POST` or `PUT`                                                                    |
-| `auth`   | WebhookAuth | No       | —       | Authentication policy for this endpoint. See [Securing Webhook Triggers](../guides/webhook-security.md). |
+| `path`           | string           | **Yes**  | —       | HTTP path exposed by the operator (e.g., `/hooks/my-trigger`)                                            |
+| `method`         | enum             | No       | `POST`  | Accepted HTTP method: `POST` or `PUT`                                                                    |
+| `auth`           | WebhookAuth      | No       | —       | Authentication policy for this endpoint. See [Securing Webhook Triggers](../guides/webhook-security.md). |
+| `rateLimit`      | WebhookRateLimit | No       | —       | Per-route request budget (in-memory sliding window per gateway replica).                                  |
+| `redactHeaders`  | []string         | No       | —       | Additional header names to redact in FlowRun TriggerData (extends built-in list).                        |
+| `redactBody`     | boolean          | No       | `false` | Replace stored request body with `[REDACTED]` in FlowRun TriggerData.                                   |
 
 The full URL of the webhook endpoint is: `http://<operator-service>:<port><path>`
 
@@ -256,6 +260,7 @@ Watches a Kubernetes resource type for create, update, or delete events and fire
 | `labelSelector` | LabelSelector | No       | --                  | Only fire for resources matching these labels                                                |
 | `events`        | []string      | No       | `[create]`          | Event types to watch: `create`, `update`, `delete`                                           |
 | `watchFields`   | []string      | No       | --                  | Dot-notation paths (e.g. `.status.phase`). Only fire update events when these fields change. |
+| `cooldown`      | duration       | No       | --                  | Minimum duration between FlowRun creations for the same resource and event type. Suppresses rapid-fire events on high-churn resources. |
 
 **RBAC note:** The controller's ServiceAccount must have `get`, `list`, and `watch` permissions on the target resource type. KubeZap does not grant these automatically — the cluster administrator must create the appropriate Role or ClusterRole and bind it to the controller ServiceAccount.
 

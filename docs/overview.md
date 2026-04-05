@@ -190,7 +190,7 @@ spec:
   amqp:
     integrationRef:
       name: rabbitmq-cluster
-    queue: orders.created
+    topic: orders.created
   flowRef:
     name: process-order
 ```
@@ -206,7 +206,6 @@ spec:
     integrationRef:
       name: nats-cluster
     subject: orders.created
-    durableName: kubezap-order-processor
   flowRef:
     name: process-order
 ```
@@ -221,15 +220,14 @@ spec:
   resource:
     apiVersion: v1
     kind: Pod
-    watchEvents: [Modified]
+    events: [update]
     watchFields:
-      - field: status.phase
-        value: Failed
+      - ".status.phase"
   flowRef:
     name: pod-failure-ticket
 ```
 
-> **Alpha stability.** See [known limitations](../docs/tech-debt/) for the resource trigger — naive pluralization for irregular kinds is handled via discovery API fallback.
+> **Alpha stability.** See the [ResourceTrigger spec reference](api/trigger.md#resourcetrigger) for known limitations — naive pluralization for irregular kinds is handled via discovery API fallback.
 
 ### Rate Limiting
 
@@ -497,7 +495,7 @@ namespace as the Flow. The controller resolves all credential references in-memo
 a fully-substituted request to the executor via an internal `POST /execute` RPC call.
 The executor enforces SSRF protection independently of the controller. This separation limits
 the blast radius of SSRF vulnerabilities: the executor pod has no Kubernetes API access and
-no secrets RBAC. See [HTTP Executor design](docs/dev/http-executor.md) for details.
+no secrets RBAC. See [HTTP Executor design](dev/http-executor.md) for details.
 
 See [Flow CRD → Payload Formats](api/flow.md#payload-formats) for the full reference.
 

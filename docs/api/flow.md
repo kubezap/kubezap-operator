@@ -123,7 +123,7 @@ resultMappings:
 
 When a `Trigger` fires, the KubeZap operator:
 
-1. Resolves the `flowRef` to a `Flow` in the same namespace (or the specified namespace)
+1. Resolves the `flowRef` to a `Flow` in the same namespace
 2. Evaluates declared `params` against the trigger payload
 3. Creates an in-memory execution context and runs steps in dependency order
 4. Records execution results to the `Trigger` status
@@ -476,7 +476,7 @@ restarts.
 | `conditions`        | []Condition | Standard Kubernetes conditions. See condition types below.                    |
 | `executionCount`    | integer     | Total number of times this flow has been executed                             |
 | `lastExecutionTime` | timestamp   | Timestamp of the most recent execution                                        |
-| `lastResult`        | string      | Outcome of the most recent execution: `Succeeded`, `Failed`, `PartialFailure` |
+| `lastResult`        | string      | Outcome of the most recent execution: `Succeeded`, `Failed`                   |
 | `lastError`         | string      | Error message from the most recent failed execution                           |
 
 ### Condition Types
@@ -1039,4 +1039,4 @@ has(trigger.payload.metadata)
 - **Step name characters**: Step names must match `^[a-z][a-z0-9-]*$`. When referenced in expressions, hyphens become underscores.
 - **Result values are strings**: All step results are stored as strings. Numeric and boolean values must be cast in CEL conditions using `int()`, `double()`, or `bool()`.
 - **Secret resolution**: `$(secrets.name.key)` values are resolved at step execution time and are never stored in the Flow spec or status.
-- **Execution history**: Full execution history is not available in this release. Only the most recent execution result is recorded on the Trigger status. A `FlowRun` CRD for persistent history is planned.
+- **Execution history**: Every execution creates a `FlowRun` CRD with full trigger metadata, step results, and timing. See [FlowRun CRD](flowrun.md). Summary statistics (`lastResult`, `executionCount`) are also recorded on the `Flow` status.

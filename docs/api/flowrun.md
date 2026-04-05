@@ -153,10 +153,15 @@ Snapshot of the event that caused this FlowRun. The full set of fields depends o
 | `partition`     | integer           | Kafka partition (kafka only)                               |
 | `offset`        | integer           | Kafka message offset (kafka only)                          |
 | `kafkaHeaders`  | map[string]string | Kafka message headers (kafka only)                         |
-| `scheduledTime` | timestamp         | Scheduled fire time (cron only)                            |
-| `body`          | string            | Request or message body (truncated at 4KB)                 |
-| `bodyTruncated` | boolean           | `true` if the body exceeded 4KB and was truncated          |
-| `contentType`   | string            | Content-Type of the body                                   |
+| `scheduledTime`        | timestamp         | Scheduled fire time (cron only)                                    |
+| `body`                 | string            | Request or message body (truncated at 4KB)                         |
+| `bodyTruncated`        | boolean           | `true` if the body exceeded 4KB and was truncated                  |
+| `contentType`          | string            | Content-Type of the body                                           |
+| `eventType`            | string            | Kubernetes watch event type: `ADDED`, `MODIFIED`, `DELETED` (resource triggers only) |
+| `resourceName`         | string            | Name of the watched resource (resource triggers only)              |
+| `resourceNamespace`    | string            | Namespace of the watched resource (resource triggers only)         |
+| `resourceAPIVersion`   | string            | API version of the watched resource (resource triggers only)       |
+| `resourceKind`         | string            | Kind of the watched resource (resource triggers only)              |
 
 ### FlowReference
 
@@ -198,7 +203,8 @@ cross-namespace FlowRef is not supported; FlowRef.Namespace must be empty
 
 | Field            | Type            | Description                                                                                  |
 | ---------------- | --------------- | -------------------------------------------------------------------------------------------- |
-| `phase`          | string          | Overall execution phase: `Pending`, `Running`, `Waiting`, `Succeeded`, `Failed`, `Cancelled` |
+| `observedGeneration` | integer     | Most recent generation observed by the controller                                            |
+| `phase`          | string          | Overall execution phase: `Pending`, `Running`, `Succeeded`, `Failed`, `Cancelled`            |
 | `conditions`     | []Condition     | Standard conditions (see below)                                                              |
 | `startTime`      | timestamp       | When the controller began executing the FlowRun                                              |
 | `completionTime` | timestamp       | When the FlowRun reached a terminal phase                                                    |

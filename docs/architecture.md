@@ -520,7 +520,7 @@ spec:
 
 ## Container Images
 
-Three images, all built from the same repository:
+All images are built from the same repository:
 
 | Image                     | Entry point                   | Base                        |
 | ------------------------- | ----------------------------- | --------------------------- |

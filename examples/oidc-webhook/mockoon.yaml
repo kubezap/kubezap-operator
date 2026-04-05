@@ -116,7 +116,6 @@ spec:
   selector:
     matchLabels:
       app: mockoon
-      app.kubernetes.io/part-of: oidc-webhook-example
   template:
     metadata:
       labels:
@@ -133,37 +132,30 @@ spec:
           type: RuntimeDefault
       containers:
         - name: mockoon
-          image: mockoon/mockoon:latest
+          image: mockoon/cli:latest
           imagePullPolicy: IfNotPresent
           args:
             - "--data"
             - "/config/environment.json"
             - "--port"
             - "3000"
-            - "--admin-api-port"
-            - "3001"
           ports:
             - name: mock
               containerPort: 3000
-              protocol: TCP
-            - name: admin
-              containerPort: 3001
               protocol: TCP
           volumeMounts:
             - name: mockoon-config
               mountPath: /config
               readOnly: true
           readinessProbe:
-            httpGet:
-              path: /health
-              port: admin
+            tcpSocket:
+              port: mock
             initialDelaySeconds: 2
             periodSeconds: 5
             failureThreshold: 3
           livenessProbe:
-            httpGet:
-              path: /health
-              port: admin
+            tcpSocket:
+              port: mock
             initialDelaySeconds: 5
             periodSeconds: 10
             failureThreshold: 3
@@ -201,14 +193,9 @@ metadata:
 spec:
   selector:
     app: mockoon
-    app.kubernetes.io/part-of: oidc-webhook-example
   ports:
     - name: mock
       port: 3000
       targetPort: mock
-      protocol: TCP
-    - name: admin
-      port: 3001
-      targetPort: admin
       protocol: TCP
   type: ClusterIP

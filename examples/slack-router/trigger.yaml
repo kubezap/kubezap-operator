@@ -12,25 +12,16 @@ spec:
     auth:
       type: hmac
       hmac:
-        # Slack signs requests using HMAC-SHA256 over "v0:<timestamp>:<raw-body>".
-        # The gateway matches the X-Slack-Signature header (format "v0=<hex>").
+        # NOTE: Per-trigger HMAC header/algorithm/prefix configuration is planned
+        # but not yet implemented. The gateway currently uses GitHub-style HMAC:
+        # header X-Hub-Signature-256, format "sha256=<hex>", body-only (no timestamp).
+        # For real Slack integration, the gateway needs to verify "v0=<hex>" over
+        # "v0:<timestamp>:<raw-body>" using X-Slack-Signature — tracked as a
+        # future enhancement. For now, HMAC auth is verified using GitHub format.
+        # In production with real Slack: add an ingress-level or load-balancer
+        # IP allowlist for Slack's published IP ranges as defence-in-depth.
         secretRef:
           name: slack-signing-secret
           key: signingSecret
-        header: "X-Slack-Signature"
-        algorithm: sha256
-        prefix: "v0="
-      ipAllowlist:
-        # Slack publishes its outbound IP ranges at:
-        # https://api.slack.com/apis/ip-ranges
-        # Update this list when Slack publishes new ranges.
-        cidrs:
-          - "34.195.115.34/32"
-          - "34.201.82.123/32"
-          - "54.80.233.203/32"
-          - "52.73.35.64/32"
-          - "3.213.196.90/32"
-          - "18.234.186.59/32"
-          # Add additional Slack IPs from the published list as needed.
   flowRef:
     name: slack-router

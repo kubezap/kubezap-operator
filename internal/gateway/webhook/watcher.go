@@ -2,7 +2,10 @@ package webhook
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
+	"net/http"
 	"strings"
 	"time"
 
@@ -271,11 +274,22 @@ func (w *TriggerWatcher) buildRouteEntry(ctx context.Context, trigger *automatio
 		if auth.OIDC == nil {
 			return RouteEntry{}, fmt.Errorf("oidc auth requires oidc config")
 		}
-		// OIDC.Audience is optional; OIDC.Issuer is optional but recommended.
-		// JWKS URL is derived from the issuer using the standard well-known path.
-		jwksURL := auth.OIDC.Issuer + "/.well-known/jwks.json"
+		// Discover the JWKS URL from the OIDC provider's discovery document.
+		// This is more reliable than guessing the path from the issuer URL.
+		jwksURL, err := discoverJWKSURL(ctx, auth.OIDC.Issuer)
+		if err != nil {
+			return RouteEntry{}, fmt.Errorf("discovering OIDC JWKS URL: %w", err)
+		}
 		if err := RegisterJWKSURL(ctx, w.jwksCache, jwksURL); err != nil {
-			return RouteEntry{}, fmt.Errorf("registering OIDC JWKS URL: %w", err)
+			var preWarmErr *jwksPrewarmError
+			if errors.As(err, &preWarmErr) {
+				// Pre-warm failed (IdP not yet reachable) — still register the route.
+				// The cache will populate on the first incoming request.
+				w.log.Info("JWKS pre-warm failed; route registered but cache cold — will retry on first request",
+					"trigger", trigger.Name, "jwksURL", jwksURL, "error", preWarmErr.cause)
+			} else {
+				return RouteEntry{}, fmt.Errorf("registering OIDC JWKS URL: %w", err)
+			}
 		}
 		entry.OIDCValidator = newOIDCValidator(jwksURL, auth.OIDC.Issuer, auth.OIDC.Audience, w.jwksCache)
 
@@ -305,4 +319,33 @@ func (w *TriggerWatcher) readSecretKey(ctx context.Context, namespace, name, key
 		return "", fmt.Errorf("secret %s/%s does not contain key %q", namespace, name, key)
 	}
 	return string(val), nil
+}
+
+// discoverJWKSURL fetches the OIDC provider discovery document and returns the jwks_uri.
+// This is the correct way to find the JWKS endpoint — guessing from the issuer URL is fragile
+// because providers like Dex use non-standard paths (e.g. /dex/keys, not /.well-known/jwks.json).
+func discoverJWKSURL(ctx context.Context, issuer string) (string, error) {
+	discoveryURL := strings.TrimRight(issuer, "/") + "/.well-known/openid-configuration"
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, discoveryURL, nil)
+	if err != nil {
+		return "", fmt.Errorf("building discovery request: %w", err)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("fetching OIDC discovery document from %s: %w", discoveryURL, err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("OIDC discovery at %s returned HTTP %d", discoveryURL, resp.StatusCode)
+	}
+	var doc struct {
+		JWKSURI string `json:"jwks_uri"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&doc); err != nil {
+		return "", fmt.Errorf("decoding OIDC discovery document: %w", err)
+	}
+	if doc.JWKSURI == "" {
+		return "", fmt.Errorf("OIDC discovery document at %s missing jwks_uri", discoveryURL)
+	}
+	return doc.JWKSURI, nil
 }

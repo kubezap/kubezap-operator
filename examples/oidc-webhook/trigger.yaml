@@ -12,16 +12,8 @@ spec:
       type: oidc
       oidc:
         issuer: "http://dex.default.svc.cluster.local:5556/dex"
-        audience:
-          - "kubezap-demo"
-        # requiredClaims enforces that the JWT contains these exact claim values.
-        # Tokens missing the claim or with a different value are rejected with 403.
-        # This field is optional — omit it to accept any valid token from the issuer.
-        requiredClaims:
-          role: "api-consumer"
-        # JWKS cache refresh interval. The webhook gateway fetches the provider's
-        # JWKS endpoint on first request and re-fetches at this interval.
-        # Default: 15m. Decrease for faster key rotation; increase for less traffic.
-        jwksRefreshInterval: 15m
+        # NOTE: audience is a single string in v1alpha1 (not a list).
+        # requiredClaims and jwksRefreshInterval are planned for a future release.
+        audience: "kubezap-demo"
   flowRef:
     name: handle-authenticated

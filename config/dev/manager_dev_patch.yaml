@@ -15,6 +15,7 @@ spec:
             - --health-probe-bind-address=:8081
             - --ssrf-allow-in-cluster=true
             - --webhook-cert-path=/tmp/k8s-webhook-server/serving-certs
+            - --enable-ui=true
           env:
             - name: WATCH_NAMESPACES
               value: "default"

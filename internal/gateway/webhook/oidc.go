@@ -52,6 +52,8 @@ func NewJWKSCache(ctx context.Context) *jwk.Cache {
 
 // RegisterJWKSURL registers a JWKS URL with the shared cache if not already registered.
 // Safe to call multiple times for the same URL — jwk.Cache is idempotent on re-registration.
+// The initial fetch is best-effort: if the IdP is temporarily unavailable at registration time
+// the route is still registered and the cache will populate on the first request.
 func RegisterJWKSURL(ctx context.Context, cache *jwk.Cache, jwksURL string) error {
 	if err := cache.Register(jwksURL,
 		jwk.WithRefreshInterval(jwksRefreshInterval),
@@ -59,12 +61,28 @@ func RegisterJWKSURL(ctx context.Context, cache *jwk.Cache, jwksURL string) erro
 	); err != nil {
 		return fmt.Errorf("registering JWKS URL %s: %w", jwksURL, err)
 	}
-	// Trigger an initial fetch so the cache is warm before the first request arrives.
+	// Attempt an initial fetch to warm the cache. Log but do not fail on error — the IdP
+	// may not be reachable yet (e.g. Dex starting up) and the cache will retry on first use.
 	if _, err := cache.Refresh(ctx, jwksURL); err != nil {
-		return fmt.Errorf("initial JWKS fetch from %s: %w", jwksURL, err)
+		// Caller should log this as a warning; we surface it via a wrapped sentinel
+		// so the caller can distinguish a hard error from a soft pre-warm failure.
+		return &jwksPrewarmError{url: jwksURL, cause: err}
 	}
 	return nil
 }
+
+// jwksPrewarmError is returned when JWKS registration succeeds but the initial cache warm
+// fails. Routes should still be registered — the cache will populate on the first request.
+type jwksPrewarmError struct {
+	url   string
+	cause error
+}
+
+func (e *jwksPrewarmError) Error() string {
+	return fmt.Sprintf("initial JWKS fetch from %s (route still registered): %v", e.url, e.cause)
+}
+
+func (e *jwksPrewarmError) Unwrap() error { return e.cause }
 
 // validate validates a JWT token string. It verifies the signature against the JWKS
 // retrieved from the shared cache, and checks iss/aud claims if configured.

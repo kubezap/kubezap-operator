@@ -47,6 +47,7 @@ func main() {
 	var blockedCIDRs string
 	var bodyLimitBytes int
 	var allowTLSSkipVerify bool
+	var allowClusterInternal bool
 	var mtls bool
 	var tlsCertFile, tlsKeyFile, tlsCAFile string
 	var logLevel string
@@ -55,6 +56,7 @@ func main() {
 	flag.StringVar(&blockedCIDRs, "blocked-cidrs", "", "Comma-separated extra CIDRs to block in addition to defaults (e.g. '203.0.113.0/24')")
 	flag.IntVar(&bodyLimitBytes, "body-limit-bytes", 4096, "Maximum upstream response body size in bytes; larger bodies are truncated")
 	flag.BoolVar(&allowTLSSkipVerify, "allow-tls-skip-verify", false, "Allow callers to request TLS verification skip via tlsSkipVerify:true in the request; off by default")
+	flag.BoolVar(&allowClusterInternal, "ssrf-allow-in-cluster", false, "Disable SSRF protection for in-cluster service endpoints (.svc.cluster.local) and RFC1918 CIDRs. For dev/test only — NOT safe in production without NetworkPolicy enforcement.")
 	flag.BoolVar(&mtls, "mtls", false, "Enable mTLS; requires --tls-cert-file, --tls-key-file, --tls-ca-file")
 	flag.StringVar(&tlsCertFile, "tls-cert-file", "", "Path to PEM-encoded server certificate (required when --mtls=true)")
 	flag.StringVar(&tlsKeyFile, "tls-key-file", "", "Path to PEM-encoded server private key (required when --mtls=true)")
@@ -92,9 +94,10 @@ func main() {
 
 	// Build handler.
 	h := &executorhttp.Handler{
-		BlockedCIDRs:       cidrs,
-		BodyLimitBytes:     int64(bodyLimitBytes),
-		AllowTLSSkipVerify: allowTLSSkipVerify,
+		BlockedCIDRs:         cidrs,
+		BodyLimitBytes:       int64(bodyLimitBytes),
+		AllowTLSSkipVerify:   allowTLSSkipVerify,
+		AllowClusterInternal: allowClusterInternal,
 	}
 
 	srv := &http.Server{

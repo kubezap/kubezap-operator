@@ -191,7 +191,7 @@ Items are ordered to minimize rework:
 
 ### Automation-ready examples (no external services required)
 
-- [ ] **[AUTO] E2E — order-router** — Apply `examples/order-router/`, verify Trigger accepted, Mockoon running, port-forward to 8080, fire two curl requests (express + standard paths), inspect FlowRun step phases, verify Mockoon captured both notifications. Covers: webhook trigger, transform step, CEL branching, step result passing, Mockoon admin API. See `examples/order-router/README.md`.
+- [x] **[AUTO] E2E — order-router** — Apply `examples/order-router/`, verify Trigger accepted, Mockoon running, port-forward to 8080, fire two curl requests (express + standard paths), inspect FlowRun step phases, verify Mockoon captured both notifications. Covers: webhook trigger, transform step, CEL branching, step result passing, Mockoon admin API. See `examples/order-router/README.md`.
 
 - [ ] **[AUTO] E2E — incident-escalation** — Apply `examples/incident-escalation/`, fire alert webhook, observe `Waiting` phase (2-minute wait step), confirm `escalate` is Skipped, verify all step phases. Covers: parallel steps, wait/resume, conditional skip. **Requires internet access from k3s** (uses httpbin.org). See `examples/incident-escalation/README.md`.
 

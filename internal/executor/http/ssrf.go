@@ -95,9 +95,18 @@ func ParseCIDRList(extraCIDRs string) ([]*net.IPNet, error) {
 // blockedCIDRs defaults to defaultSSRFBlockedCIDRs when nil. Pass a
 // non-nil slice (constructed via ParseCIDRList) to add operator-configured ranges.
 //
+// allowClusterInternal disables the .svc.cluster.local hostname check and the
+// CIDR blocklist entirely. Intended for dev/test environments. NOT recommended
+// in production.
+//
 // DNS resolution uses the provided context for timeout control. Callers should
 // ensure ctx has a reasonable deadline to prevent long DNS waits.
-func checkSSRF(ctx context.Context, rawURL string, blockedCIDRs []*net.IPNet) error {
+func checkSSRF(ctx context.Context, rawURL string, blockedCIDRs []*net.IPNet, allowClusterInternal bool) error {
+	// Dev/test bypass: skip all SSRF checks when explicitly enabled.
+	if allowClusterInternal {
+		return nil
+	}
+
 	if blockedCIDRs == nil {
 		blockedCIDRs = defaultSSRFBlockedCIDRs
 	}

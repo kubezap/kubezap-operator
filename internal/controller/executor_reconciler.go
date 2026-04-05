@@ -80,6 +80,11 @@ type ExecutorReconciler struct {
 	//   2. Setting ExecutorReconciler.MTLSBundle and FlowRunReconciler.ExecutorTLSConfig
 	//   3. Starting a goroutine that calls NeedsRotation() and regenerates when needed
 	MTLSBundle *MTLSBundle
+
+	// SSRFAllowClusterInternal passes --ssrf-allow-in-cluster=true to the executor
+	// Deployment args. For dev/test environments where HTTP steps must call in-cluster
+	// services. Mirrors FlowRunReconciler.SSRFAllowClusterInternal.
+	SSRFAllowClusterInternal bool
 }
 
 func (r *ExecutorReconciler) executorImage() string {
@@ -149,6 +154,9 @@ func (r *ExecutorReconciler) reconcileExecutorDeployment(ctx context.Context, na
 
 		// Build container args and optional volume/mounts for mTLS.
 		containerArgs := []string{fmt.Sprintf("--port=%d", port)}
+		if r.SSRFAllowClusterInternal {
+			containerArgs = append(containerArgs, "--ssrf-allow-in-cluster=true")
+		}
 		var volumeMounts []corev1.VolumeMount
 		var volumes []corev1.Volume
 		if r.MTLSEnabled {

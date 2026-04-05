@@ -56,6 +56,15 @@ import (
 //
 // +kubebuilder:rbac:groups=*,resources=*,verbs=get;list;watch
 
+// cooldownEvictionWindow is the maximum age of a cooldown entry before it is eligible
+// for periodic eviction. It is intentionally longer than any reasonable cooldown setting
+// so that active cooldowns are never prematurely removed, while leaked entries from
+// deregistered triggers that were missed by the Deregister path are still cleaned up.
+const cooldownEvictionWindow = 1 * time.Hour
+
+// cooldownEvictionInterval is how often the background sweep runs.
+const cooldownEvictionInterval = 10 * time.Minute
+
 // ResourceWatcher manages per-Trigger dynamic informers for type:resource triggers.
 // It mirrors the CronScheduler pattern: the TriggerReconciler calls Register/Deregister
 // and ResourceWatcher owns the informer lifecycle.
@@ -95,12 +104,42 @@ func NewResourceWatcher(c client.Client, dynClient dynamic.Interface, discoveryC
 // from the manager lifecycle rather than context.Background().
 // Start blocks until ctx is done (manager shutdown), which satisfies the
 // Runnable contract.
+//
+// Start also launches a background goroutine that periodically evicts stale
+// cooldown entries. This bounds the memory growth of cooldownTracker for
+// long-running operators.
 func (rw *ResourceWatcher) Start(ctx context.Context) error {
 	rw.mu.Lock()
 	rw.mgrCtx = ctx
 	rw.mu.Unlock()
+
+	go rw.runCooldownEviction(ctx)
+
 	<-ctx.Done()
 	return nil
+}
+
+// runCooldownEviction runs a periodic sweep that removes cooldown entries older
+// than cooldownEvictionWindow. This is a safety net for any entries that were
+// not cleaned up by Deregister (e.g. after a crash or missed deregistration).
+func (rw *ResourceWatcher) runCooldownEviction(ctx context.Context) {
+	ticker := time.NewTicker(cooldownEvictionInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			cutoff := time.Now().Add(-cooldownEvictionWindow)
+			rw.mu.Lock()
+			for k, t := range rw.cooldownTracker {
+				if t.Before(cutoff) {
+					delete(rw.cooldownTracker, k)
+				}
+			}
+			rw.mu.Unlock()
+		}
+	}
 }
 
 // Register starts watching resources for the given Trigger. If a watcher already
@@ -136,13 +175,23 @@ func (rw *ResourceWatcher) Register(trigger *automationv1alpha1.Trigger) {
 	go rw.runWatcher(ctx, trigger)
 }
 
-// Deregister stops the informer for the given trigger key.
+// Deregister stops the informer for the given trigger key and removes all
+// cooldown entries associated with that trigger. The cooldown key format is
+// "triggerNS/triggerName/resourceNS/resourceName/eventType", so the trigger
+// prefix is key + "/".
 func (rw *ResourceWatcher) Deregister(key string) {
 	rw.mu.Lock()
 	defer rw.mu.Unlock()
 	if cancel, ok := rw.watchers[key]; ok {
 		cancel()
 		delete(rw.watchers, key)
+	}
+	// Clear all cooldown entries whose key belongs to this trigger.
+	prefix := key + "/"
+	for k := range rw.cooldownTracker {
+		if strings.HasPrefix(k, prefix) {
+			delete(rw.cooldownTracker, k)
+		}
 	}
 }
 

@@ -1175,7 +1175,7 @@ var _ = Describe("FlowRunReconciler", func() {
 					},
 				}
 
-				got, err := r.getOrCreateKafkaProducer(brokerKey, integration)
+				got, err := r.getOrCreateKafkaProducer(context.Background(), brokerKey, integration)
 				Expect(err).NotTo(HaveOccurred())
 				Expect(got).To(BeIdenticalTo(mock), "cached producer should be returned as-is")
 				Expect(mock.closeCalled).To(BeFalse(), "Close must not be called on a fresh producer")
@@ -1202,7 +1202,7 @@ var _ = Describe("FlowRunReconciler", func() {
 					},
 				}
 
-				_, err := r.getOrCreateKafkaProducer(brokerKey, integration)
+				_, err := r.getOrCreateKafkaProducer(context.Background(), brokerKey, integration)
 
 				// The function must fail because there is no real broker at brokerKey.
 				Expect(err).To(HaveOccurred(), "expected error creating producer against unreachable broker")

@@ -19,11 +19,17 @@ package controller
 import (
 	"bytes"
 	"context"
+	"crypto/hmac"
+	"crypto/rand"
+	"crypto/sha256"
+	"crypto/sha512"
 	"crypto/tls"
+	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"hash"
 	"io"
 	"net"
 	"net/http"
@@ -1033,7 +1039,7 @@ func (r *FlowRunReconciler) executePublishStep(
 			}
 			headers[k] = actual
 		}
-		result, err := r.publishToKafka(integration, step.Action.Publish.Topic, body, headers)
+		result, err := r.publishToKafka(ctx, integration, step.Action.Publish.Topic, body, headers)
 		return result, 1, err
 	}
 
@@ -1999,6 +2005,7 @@ func (r *FlowRunReconciler) Start(ctx context.Context) error {
 // calls to avoid the per-call TCP handshake and metadata fetch that would
 // otherwise exhaust broker connections at any meaningful publish rate.
 func (r *FlowRunReconciler) publishToKafka(
+	ctx context.Context,
 	integration *automationv1alpha1.Integration,
 	topic string,
 	body string,
@@ -2006,7 +2013,7 @@ func (r *FlowRunReconciler) publishToKafka(
 ) (map[string]string, error) {
 	brokerKey := strings.Join(integration.Spec.Kafka.BootstrapServers, ",")
 
-	producer, err := r.getOrCreateKafkaProducer(brokerKey, integration)
+	producer, err := r.getOrCreateKafkaProducer(ctx, brokerKey, integration)
 	if err != nil {
 		return nil, err
 	}
@@ -2056,6 +2063,7 @@ func (r *FlowRunReconciler) publishToKafka(
 // Producers that have been idle for longer than kafkaProducerIdleTTL are closed
 // and replaced so that stale broker connections do not survive indefinitely.
 func (r *FlowRunReconciler) getOrCreateKafkaProducer(
+	ctx context.Context,
 	brokerKey string,
 	integration *automationv1alpha1.Integration,
 ) (sarama.SyncProducer, error) {
@@ -2090,7 +2098,65 @@ func (r *FlowRunReconciler) getOrCreateKafkaProducer(
 	config.Producer.Return.Successes = true
 	config.Version = sarama.V2_6_0_0
 
-	p, err := sarama.NewSyncProducer(integration.Spec.Kafka.BootstrapServers, config)
+	kafkaSpec := integration.Spec.Kafka
+
+	// Apply TLS if configured.
+	if kafkaSpec.TLS != nil && kafkaSpec.TLS.Enabled {
+		tlsCfg := &tls.Config{
+			InsecureSkipVerify: kafkaSpec.TLS.InsecureSkipVerify, //nolint:gosec // user-configured
+		}
+		if kafkaSpec.TLS.CASecretRef != nil {
+			caPEM, err := r.fetchSecretValue(ctx, integration.Namespace, *kafkaSpec.TLS.CASecretRef)
+			if err != nil {
+				return nil, fmt.Errorf("reading CA cert secret for integration %q: %w", integration.Name, err)
+			}
+			pool := x509.NewCertPool()
+			if !pool.AppendCertsFromPEM([]byte(caPEM)) {
+				return nil, fmt.Errorf("failed to parse CA certificate from secret %s key %s",
+					kafkaSpec.TLS.CASecretRef.Name, kafkaSpec.TLS.CASecretRef.Key)
+			}
+			tlsCfg.RootCAs = pool
+		}
+		config.Net.TLS.Enable = true
+		config.Net.TLS.Config = tlsCfg
+	}
+
+	// Apply SASL if configured.
+	if kafkaSpec.SASL != nil {
+		saslCfg := kafkaSpec.SASL
+
+		username, err := r.fetchSecretValue(ctx, integration.Namespace, saslCfg.UsernameSecretRef)
+		if err != nil {
+			return nil, fmt.Errorf("reading SASL username secret for integration %q: %w", integration.Name, err)
+		}
+		password, err := r.fetchSecretValue(ctx, integration.Namespace, saslCfg.PasswordSecretRef)
+		if err != nil {
+			return nil, fmt.Errorf("reading SASL password secret for integration %q: %w", integration.Name, err)
+		}
+
+		config.Net.SASL.Enable = true
+		config.Net.SASL.User = username
+		config.Net.SASL.Password = password
+
+		switch saslCfg.Mechanism {
+		case "PLAIN":
+			config.Net.SASL.Mechanism = sarama.SASLTypePlaintext
+		case "SCRAM-SHA-256":
+			config.Net.SASL.Mechanism = sarama.SASLTypeSCRAMSHA256
+			config.Net.SASL.SCRAMClientGeneratorFunc = func() sarama.SCRAMClient {
+				return &producerSCRAMClient{HashGeneratorFcn: sha256.New}
+			}
+		case "SCRAM-SHA-512":
+			config.Net.SASL.Mechanism = sarama.SASLTypeSCRAMSHA512
+			config.Net.SASL.SCRAMClientGeneratorFunc = func() sarama.SCRAMClient {
+				return &producerSCRAMClient{HashGeneratorFcn: sha512.New}
+			}
+		default:
+			return nil, fmt.Errorf("unsupported SASL mechanism %q for integration %q", saslCfg.Mechanism, integration.Name)
+		}
+	}
+
+	p, err := sarama.NewSyncProducer(kafkaSpec.BootstrapServers, config)
 	if err != nil {
 		return nil, fmt.Errorf("creating kafka producer for integration %q: %w", integration.Name, err)
 	}
@@ -2099,4 +2165,178 @@ func (r *FlowRunReconciler) getOrCreateKafkaProducer(
 	r.kafkaProducerLastUsed[brokerKey] = time.Now()
 	logf.Log.V(1).Info("kafka producer created and cached", "brokerKey", brokerKey)
 	return p, nil
+}
+
+// producerSCRAMClient implements sarama.SCRAMClient for SCRAM-SHA-256 and
+// SCRAM-SHA-512 authentication in the Kafka publish producer. It mirrors the
+// xdgSCRAMClient in internal/gateway/kafka/watcher.go — both are intentionally
+// kept as package-local copies so neither package imports the other.
+type producerSCRAMClient struct {
+	HashGeneratorFcn func() hash.Hash
+	user             string
+	pass             string
+	clientNonce      string
+	saltedPass       []byte
+	authMessage      string
+	step             int
+}
+
+func (x *producerSCRAMClient) Begin(userName, password, _ string) error {
+	x.user = userName
+	x.pass = password
+	x.step = 0
+
+	nonceBytes := make([]byte, 24)
+	if _, err := rand.Read(nonceBytes); err != nil {
+		return fmt.Errorf("generate client nonce: %w", err)
+	}
+	x.clientNonce = base64.StdEncoding.EncodeToString(nonceBytes)
+	return nil
+}
+
+// Step implements the RFC 5802 SCRAM exchange.
+// Step 1 (challenge ""): produces client-first message.
+// Step 2 (server-first): produces client-final message.
+// Step 3 (server-final): verifies server signature.
+func (x *producerSCRAMClient) Step(challenge string) (string, error) {
+	x.step++
+	switch x.step {
+	case 1:
+		return "n,,n=" + x.user + ",r=" + x.clientNonce, nil
+
+	case 2:
+		// Parse server-first: "r=<combinedNonce>,s=<salt-b64>,i=<iterations>"
+		attrs := producerSCRAMParseAttrs(challenge)
+
+		combinedNonce, ok := attrs["r"]
+		if !ok {
+			return "", fmt.Errorf("SCRAM: missing 'r' in server-first message")
+		}
+		if !strings.HasPrefix(combinedNonce, x.clientNonce) {
+			return "", fmt.Errorf("SCRAM: server nonce does not begin with client nonce")
+		}
+
+		saltB64, ok := attrs["s"]
+		if !ok {
+			return "", fmt.Errorf("SCRAM: missing 's' in server-first message")
+		}
+		salt, err := base64.StdEncoding.DecodeString(saltB64)
+		if err != nil {
+			return "", fmt.Errorf("SCRAM: decode salt: %w", err)
+		}
+
+		iterStr, ok := attrs["i"]
+		if !ok {
+			return "", fmt.Errorf("SCRAM: missing 'i' in server-first message")
+		}
+		iterations, err := producerSCRAMParseIter(iterStr)
+		if err != nil {
+			return "", fmt.Errorf("SCRAM: %w", err)
+		}
+
+		x.saltedPass = x.scramHi([]byte(x.pass), salt, iterations)
+
+		clientKey := x.scramHMAC(x.saltedPass, []byte("Client Key"))
+		storedKey := x.scramH(clientKey)
+
+		clientFirstBare := "n=" + x.user + ",r=" + x.clientNonce
+		cbind := base64.StdEncoding.EncodeToString([]byte("n,,"))
+		clientFinalNP := "c=" + cbind + ",r=" + combinedNonce
+
+		x.authMessage = clientFirstBare + "," + challenge + "," + clientFinalNP
+
+		clientSig := x.scramHMAC(storedKey, []byte(x.authMessage))
+		proof := producerSCRAMXorBytes(clientKey, clientSig)
+
+		return clientFinalNP + ",p=" + base64.StdEncoding.EncodeToString(proof), nil
+
+	case 3:
+		// Verify server-final: "v=<server-sig-b64>"
+		serverKey := x.scramHMAC(x.saltedPass, []byte("Server Key"))
+		expected := x.scramHMAC(serverKey, []byte(x.authMessage))
+
+		attrs := producerSCRAMParseAttrs(challenge)
+		sigB64, ok := attrs["v"]
+		if !ok {
+			return "", fmt.Errorf("SCRAM: missing 'v' in server-final message")
+		}
+		received, err := base64.StdEncoding.DecodeString(sigB64)
+		if err != nil {
+			return "", fmt.Errorf("SCRAM: decode server signature: %w", err)
+		}
+		if !bytes.Equal(expected, received) {
+			return "", fmt.Errorf("SCRAM: server signature verification failed")
+		}
+		return "", nil
+
+	default:
+		return "", fmt.Errorf("SCRAM: unexpected step %d", x.step)
+	}
+}
+
+func (x *producerSCRAMClient) Done() bool {
+	return x.step >= 3
+}
+
+func (x *producerSCRAMClient) scramHi(password, salt []byte, iterations int) []byte {
+	mac := hmac.New(x.HashGeneratorFcn, password)
+	mac.Write(salt)
+	mac.Write([]byte{0, 0, 0, 1})
+	u := mac.Sum(nil)
+	result := make([]byte, len(u))
+	copy(result, u)
+	for i := 2; i <= iterations; i++ {
+		mac.Reset()
+		mac.Write(u)
+		u = mac.Sum(nil)
+		for j := range result {
+			result[j] ^= u[j]
+		}
+	}
+	return result
+}
+
+func (x *producerSCRAMClient) scramHMAC(key, msg []byte) []byte {
+	mac := hmac.New(x.HashGeneratorFcn, key)
+	mac.Write(msg)
+	return mac.Sum(nil)
+}
+
+func (x *producerSCRAMClient) scramH(data []byte) []byte {
+	hh := x.HashGeneratorFcn()
+	hh.Write(data)
+	return hh.Sum(nil)
+}
+
+func producerSCRAMParseAttrs(msg string) map[string]string {
+	attrs := make(map[string]string)
+	for _, part := range strings.Split(msg, ",") {
+		if len(part) < 2 || part[1] != '=' {
+			continue
+		}
+		attrs[part[:1]] = part[2:]
+	}
+	return attrs
+}
+
+func producerSCRAMParseIter(s string) (int, error) {
+	n := 0
+	for _, c := range s {
+		if c < '0' || c > '9' {
+			return 0, fmt.Errorf("invalid iteration count: %q", s)
+		}
+		n = n*10 + int(c-'0')
+	}
+	if n <= 0 {
+		return 0, fmt.Errorf("iteration count must be positive, got %q", s)
+	}
+	return n, nil
+}
+
+func producerSCRAMXorBytes(a, b []byte) []byte {
+	result := make([]byte, len(a))
+	for i := range a {
+		result[i] = a[i] ^ b[i]
+	}
+	return result
 }

@@ -142,10 +142,10 @@ Items are ordered to minimize rework:
 
 - [x] **PERFORMANCE** — `internal/controller/flowrun_controller.go:943`: mTLS-enabled executor calls allocate a new `http.Client`/`http.Transport` per call, defeating connection reuse and causing TLS handshake overhead. Create the mTLS client once at startup and reuse.
 - [x] **BUG** — `internal/controller/flowrun_controller.go:612`: Post-completion failure check ignores `flow.Spec.FailurePolicy`. FlowRuns with flow-level `failurePolicy: Continue` may incorrectly transition to Failed after all steps complete.
-- [ ] **BUG** — `internal/controller/flowrun_controller.go:2079`: Kafka publish producer ignores TLS/SASL config from Integration spec. Only plaintext, unauthenticated Kafka clusters work for publish steps. Port TLS/SASL config from kafka/watcher.go.
+- [x] **BUG** — `internal/controller/flowrun_controller.go:2079`: Kafka publish producer ignores TLS/SASL config from Integration spec. Only plaintext, unauthenticated Kafka clusters work for publish steps. Port TLS/SASL config from kafka/watcher.go.
 - [ ] **BUG** — `internal/controller/flowrun_controller.go:464`: Wait step `StartTime` is overwritten on re-entry (requeue), masking the actual start time. Preserve existing StartTime from prior status.
-- [ ] **TECH DEBT** — `internal/controller/resource_watcher.go:293`: cooldownTracker map grows without bound. Clear entries on `Deregister()`; add periodic eviction of entries older than cooldown duration.
-- [ ] **TECH DEBT** — `internal/controller/trigger_controller.go:119`: Webhook gateway resources (Deployment, Service, SA, Role, RoleBinding, HPA) are not cleaned up when the last webhook Trigger in a namespace is disabled or deleted. Add reference counting or periodic sweep.
+- [x] **TECH DEBT** — `internal/controller/resource_watcher.go:293`: cooldownTracker map grows without bound. Clear entries on `Deregister()`; add periodic eviction of entries older than cooldown duration.
+- [x] **TECH DEBT** — `internal/controller/trigger_controller.go:119`: Webhook gateway resources (Deployment, Service, SA, Role, RoleBinding, HPA) are not cleaned up when the last webhook Trigger in a namespace is disabled or deleted. Add reference counting or periodic sweep.
 
 ### P2 — Nice to have
 

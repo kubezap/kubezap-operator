@@ -1,0 +1,13 @@
+# Dev overlay — applies dev/test-specific patches on top of config/default.
+# Usage: kubectl apply -k config/dev
+# Do NOT use in production.
+namespace: kubezap-system
+
+resources:
+- ../default
+
+patches:
+- path: manager_dev_patch.yaml
+  target:
+    kind: Deployment
+    name: kubezap-controller-manager

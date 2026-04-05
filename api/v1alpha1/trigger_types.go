@@ -273,7 +273,6 @@ type ResourceTrigger struct {
 
 	// Events specifies which event types fire the trigger.
 	// Valid values: create, update, delete. Defaults to [create] if omitted.
-	// +kubebuilder:validation:MinItems=1
 	// +optional
 	Events []string `json:"events,omitempty"`
 

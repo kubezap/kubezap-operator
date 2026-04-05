@@ -81,6 +81,7 @@ func main() {
 	var disableCELCache bool
 	var celCostLimit int
 	var httpStepBlockedCIDRs string
+	var ssrfAllowClusterInternal bool
 	var executorImage string
 	var executorMTLS bool
 	var enableUI bool
@@ -110,6 +111,7 @@ func main() {
 	flag.BoolVar(&disableCELCache, "disable-cel-cache", false, "Disable the CEL expression program cache. The cache is unbounded but converges once Flows stabilise; disable only when continuously deploying throwaway expressions or for debugging.")
 	flag.IntVar(&celCostLimit, "cel-cost-limit", 10000, "Maximum CEL evaluation cost budget per 'when' expression. 0 disables the limit. Prevents DoS via combinatorially-expensive expressions (e.g. nested comprehensions).")
 	flag.StringVar(&httpStepBlockedCIDRs, "http-step-blocked-cidrs", "", "Comma-separated list of additional CIDR ranges to block for HTTP step outbound requests (added to the default RFC1918/loopback/link-local blocklist).")
+	flag.BoolVar(&ssrfAllowClusterInternal, "ssrf-allow-in-cluster", false, "Disable SSRF protection for in-cluster service endpoints (.svc.cluster.local) and RFC1918 CIDRs. For dev/test only — NOT safe in production without NetworkPolicy enforcement.")
 	flag.StringVar(&executorImage, "executor-image", "ghcr.io/kubezap/http-executor:latest", "Container image for the http-executor Deployment managed in each namespace.")
 	var executorRPCBaseURL string
 	flag.StringVar(&executorRPCBaseURL, "executor-rpc-base-url", "http://kubezap-http-executor.%s.svc.cluster.local:8091", "Base URL format string for the http-executor Service RPC calls; %s is replaced with the target namespace.")
@@ -349,17 +351,18 @@ func main() {
 	}
 
 	flowRunReconciler := &controller.FlowRunReconciler{
-		Client:                  mgr.GetClient(),
-		Scheme:                  mgr.GetScheme(),
-		TTLSucceeded:            flowRunTTLSucceeded,
-		TTLFailed:               flowRunTTLFailed,
-		MaxConcurrentReconciles: maxConcurrentFlowRuns,
-		ExecutionTimeout:        flowRunExecutionTimeout,
-		DisableCELCache:         disableCELCache,
-		CELCostLimit:            celCostLimit,
-		SSRFBlockedCIDRs:        ssrfBlockedCIDRs,
-		ExecutorBaseURL:         rpcBaseURL,
-		ExecutorTLSConfig:       executorTLSConfig,
+		Client:                   mgr.GetClient(),
+		Scheme:                   mgr.GetScheme(),
+		TTLSucceeded:             flowRunTTLSucceeded,
+		TTLFailed:                flowRunTTLFailed,
+		MaxConcurrentReconciles:  maxConcurrentFlowRuns,
+		ExecutionTimeout:         flowRunExecutionTimeout,
+		DisableCELCache:          disableCELCache,
+		CELCostLimit:             celCostLimit,
+		SSRFBlockedCIDRs:         ssrfBlockedCIDRs,
+		SSRFAllowClusterInternal: ssrfAllowClusterInternal,
+		ExecutorBaseURL:          rpcBaseURL,
+		ExecutorTLSConfig:        executorTLSConfig,
 	}
 	if err = flowRunReconciler.SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "FlowRun")
@@ -380,11 +383,12 @@ func main() {
 		os.Exit(1)
 	}
 	executorReconciler := &controller.ExecutorReconciler{
-		Client:        mgr.GetClient(),
-		Scheme:        mgr.GetScheme(),
-		ExecutorImage: executorImage,
-		MTLSEnabled:   executorMTLS,
-		MTLSBundle:    initialMTLSBundle,
+		Client:                   mgr.GetClient(),
+		Scheme:                   mgr.GetScheme(),
+		ExecutorImage:            executorImage,
+		MTLSEnabled:              executorMTLS,
+		MTLSBundle:               initialMTLSBundle,
+		SSRFAllowClusterInternal: ssrfAllowClusterInternal,
 	}
 	if err = executorReconciler.SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Executor")

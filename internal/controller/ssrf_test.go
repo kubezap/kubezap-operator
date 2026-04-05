@@ -29,64 +29,64 @@ var _ = Describe("SSRF protection", func() {
 
 	Describe("checkSSRF with IP literal URLs", func() {
 		It("blocks RFC1918 10.x.x.x addresses", func() {
-			err := checkSSRF(ctx, "http://10.0.0.1/path", nil)
+			err := checkSSRF(ctx, "http://10.0.0.1/path", nil, false)
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("SSRF check"))
 			Expect(err.Error()).To(ContainSubstring("10.0.0.1"))
 		})
 
 		It("blocks RFC1918 172.16.x.x addresses", func() {
-			err := checkSSRF(ctx, "http://172.16.5.5/path", nil)
+			err := checkSSRF(ctx, "http://172.16.5.5/path", nil, false)
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("172.16.5.5"))
 		})
 
 		It("blocks RFC1918 192.168.x.x addresses", func() {
-			err := checkSSRF(ctx, "http://192.168.1.1/path", nil)
+			err := checkSSRF(ctx, "http://192.168.1.1/path", nil, false)
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("192.168.1.1"))
 		})
 
 		It("blocks loopback 127.x.x.x addresses", func() {
-			err := checkSSRF(ctx, "http://127.0.0.1/path", nil)
+			err := checkSSRF(ctx, "http://127.0.0.1/path", nil, false)
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("127.0.0.1"))
 		})
 
 		It("blocks cloud metadata address 169.254.169.254", func() {
-			err := checkSSRF(ctx, "http://169.254.169.254/latest/meta-data/", nil)
+			err := checkSSRF(ctx, "http://169.254.169.254/latest/meta-data/", nil, false)
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("169.254.169.254"))
 		})
 
 		It("blocks IPv6 loopback ::1", func() {
-			err := checkSSRF(ctx, "http://[::1]/path", nil)
+			err := checkSSRF(ctx, "http://[::1]/path", nil, false)
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("::1"))
 		})
 
 		It("allows public IP addresses", func() {
-			err := checkSSRF(ctx, "https://8.8.8.8/dns-query", nil)
+			err := checkSSRF(ctx, "https://8.8.8.8/dns-query", nil, false)
 			Expect(err).NotTo(HaveOccurred())
 		})
 	})
 
 	Describe("checkSSRF with hostname URLs", func() {
 		It("blocks .svc.cluster.local hostnames without DNS lookup", func() {
-			err := checkSSRF(ctx, "http://my-service.default.svc.cluster.local/api", nil)
+			err := checkSSRF(ctx, "http://my-service.default.svc.cluster.local/api", nil, false)
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring(".svc.cluster.local"))
 		})
 
 		It("blocks .svc.cluster.local with trailing dot", func() {
-			err := checkSSRF(ctx, "http://my-service.default.svc.cluster.local./api", nil)
+			err := checkSSRF(ctx, "http://my-service.default.svc.cluster.local./api", nil, false)
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring(".svc.cluster.local"))
 		})
 
 		It("allows valid public hostnames (resolves in test environment)", func() {
 			// localhost resolves to 127.0.0.1 — should be blocked
-			err := checkSSRF(ctx, "http://localhost/path", nil)
+			err := checkSSRF(ctx, "http://localhost/path", nil, false)
 			Expect(err).To(HaveOccurred()) // localhost → 127.0.0.1, blocked
 		})
 	})

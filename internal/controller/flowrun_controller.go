@@ -142,6 +142,11 @@ type FlowRunReconciler struct {
 	// Used as a defence-in-depth pre-flight check before forwarding to the executor.
 	SSRFBlockedCIDRs []*net.IPNet
 
+	// SSRFAllowClusterInternal disables the controller-side SSRF pre-check for
+	// .svc.cluster.local endpoints and RFC1918 CIDRs. For dev/test environments
+	// only. Controlled by --ssrf-allow-in-cluster on the controller binary.
+	SSRFAllowClusterInternal bool
+
 	// ExecutorBaseURL is the base URL format string for the http-executor Service,
 	// with a single %s placeholder for the target namespace.
 	// Default: "http://kubezap-http-executor.%s.svc.cluster.local:8091"
@@ -805,7 +810,7 @@ func (r *FlowRunReconciler) executeHTTPStep(
 	// Defence-in-depth SSRF pre-check: reject blocked targets before forwarding
 	// to the executor. The executor re-validates independently to guard against
 	// DNS rebinding between this check and the outbound connection.
-	if err := checkSSRF(ctx, url, r.SSRFBlockedCIDRs); err != nil {
+	if err := checkSSRF(ctx, url, r.SSRFBlockedCIDRs, r.SSRFAllowClusterInternal); err != nil {
 		return nil, "", 0, fmt.Errorf("step %q blocked by SSRF protection: %w", step.Name, err)
 	}
 

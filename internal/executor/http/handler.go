@@ -56,6 +56,13 @@ type Handler struct {
 	// always enforced regardless of the request field value.
 	AllowTLSSkipVerify bool
 
+	// AllowClusterInternal disables the .svc.cluster.local hostname block and
+	// removes RFC1918/loopback CIDRs from the default SSRF blocklist. Intended
+	// for development and testing environments where in-cluster service calls are
+	// required. NOT recommended in production — only enable when the executor has
+	// appropriate NetworkPolicy restrictions in place.
+	AllowClusterInternal bool
+
 	// HTTPClient is the client used for outbound requests. When nil a default
 	// client is used. Callers may inject a custom client for testing.
 	HTTPClient *http.Client
@@ -95,7 +102,9 @@ func (h *Handler) ServeExecute(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 
 	// SSRF check — defence-in-depth: the controller also checks before sending.
-	if err := checkSSRF(ctx, req.URL, h.BlockedCIDRs); err != nil {
+	// When AllowClusterInternal is true the in-cluster hostname check and
+	// RFC1918 CIDRs are bypassed (dev/test only).
+	if err := checkSSRF(ctx, req.URL, h.BlockedCIDRs, h.AllowClusterInternal); err != nil {
 		resp := ExecuteResponse{
 			Error: "ssrf_blocked: " + err.Error(),
 		}

@@ -15,4 +15,4 @@ spec:
     watchFields:
       - ".status.phase"
   flowRef:
-    name: pod-failure-flow
+    name: open-itsm-ticket

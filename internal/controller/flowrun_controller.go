@@ -357,9 +357,10 @@ func (r *FlowRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		// First, handle any immediate (non-IO) transitions: cascade-skip and
 		// when=false skips. These may unblock subsequent waves so we process
 		// them inline before deciding whether to requeue.
+		failurePolicyContinue := flow.Spec.FailurePolicy == "Continue"
 		skippedAny := false
 		for _, step := range flow.Spec.Steps {
-			if !r.dependenciesMet(step, flowRun.Status.Steps) {
+			if !r.dependenciesMet(step, flowRun.Status.Steps, failurePolicyContinue) {
 				continue
 			}
 			existing := findStepStatus(flowRun.Status.Steps, step.Name)
@@ -447,7 +448,7 @@ func (r *FlowRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		}
 		var waveSteps []readyStep
 		for i, step := range flow.Spec.Steps {
-			if !r.dependenciesMet(step, flowRun.Status.Steps) {
+			if !r.dependenciesMet(step, flowRun.Status.Steps, failurePolicyContinue) {
 				continue
 			}
 			existing := findStepStatus(flowRun.Status.Steps, step.Name)
@@ -1417,10 +1418,29 @@ func setFlowRunCondition(flowRun *automationv1alpha1.FlowRun, condition metav1.C
 	flowRun.Status.ObservedGeneration = flowRun.Generation
 }
 
-func (r *FlowRunReconciler) dependenciesMet(step automationv1alpha1.FlowStep, statuses []automationv1alpha1.StepRunStatus) bool {
+// dependenciesMet returns true when all runAfter deps for step have reached a
+// terminal state that allows the step to proceed.
+//
+// When failurePolicy is "Continue" at the flow level, a Failed dep is treated
+// as satisfied — downstream steps must still run so the flow can complete.
+// Without failurePolicy:Continue, a Failed dep blocks the step permanently
+// (the step will be cascade-skipped or left pending until the flow terminates).
+func (r *FlowRunReconciler) dependenciesMet(step automationv1alpha1.FlowStep, statuses []automationv1alpha1.StepRunStatus, failurePolicyContinue bool) bool {
 	for _, dep := range step.RunAfter {
 		s := findStepStatus(statuses, dep)
-		if s == nil || (s.Phase != "Succeeded" && s.Phase != "Skipped") {
+		if s == nil {
+			return false
+		}
+		switch s.Phase {
+		case "Succeeded", "Skipped":
+			// always satisfied
+		case "Failed":
+			// satisfied only when the flow is configured to continue past failures
+			if !failurePolicyContinue {
+				return false
+			}
+		default:
+			// Pending, Running, Waiting — not yet terminal
 			return false
 		}
 	}

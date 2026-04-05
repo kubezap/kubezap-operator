@@ -417,14 +417,14 @@ The operator uses this for the Deployment readiness probe.
 
 ### KafkaIntegrationSpec
 
-| Field                 | Type              | Required | Default   | Description                                                                                      |
-| --------------------- | ----------------- | -------- | --------- | ------------------------------------------------------------------------------------------------ |
-| `bootstrapServers`    | []string          | **Yes**  | —         | Kafka bootstrap broker addresses (e.g., `kafka.infra:9092`)                                      |
-| `tls`                 | KafkaTLSSpec      | No       | disabled  | TLS configuration                                                                                |
-| `sasl`                | KafkaSASLSpec     | No       | disabled  | SASL authentication configuration                                                                |
-| `consumerGroupPrefix` | string            | No       | `kubezap` | Prefix for consumer group names. Final group: `<prefix>-<triggerName>-<consumerGroup>`           |
-| `producerConfig`      | map[string]string | No       | —         | Additional Kafka producer configuration key/value pairs (passed directly to the producer client) |
-| `consumerConfig`      | map[string]string | No       | —         | Additional Kafka consumer configuration key/value pairs                                          |
+| Field                 | Type          | Required | Default   | Description                                                                            |
+| --------------------- | ------------- | -------- | --------- | -------------------------------------------------------------------------------------- |
+| `bootstrapServers`    | []string      | **Yes**  | —         | Kafka bootstrap broker addresses (e.g., `kafka.infra:9092`)                            |
+| `tls`                 | KafkaTLSSpec  | No       | disabled  | TLS configuration                                                                      |
+| `sasl`                | KafkaSASLSpec | No       | disabled  | SASL authentication configuration                                                      |
+| `consumerGroupPrefix` | string        | No       | `kubezap` | Prefix for consumer group names. Final group: `<prefix>-<triggerName>-<consumerGroup>` |
+
+> **Planned:** `producerConfig` and `consumerConfig` (map[string]string) are planned for a future release to allow passing arbitrary Kafka client configuration key/value pairs. They are not yet implemented.
 
 ### KafkaTLSSpec
 
@@ -453,15 +453,15 @@ The operator uses this for the Deployment readiness probe.
 
 ### PluginIntegrationSpec
 
-| Field              | Type                   | Required | Default | Description                                                                                                      |
-| ------------------ | ---------------------- | -------- | ------- | ---------------------------------------------------------------------------------------------------------------- |
-| `image`            | string                 | **Yes**  | —       | Container image implementing the plugin protocol                                                                 |
-| `publisherPort`    | integer                | No       | `8090`  | Port the plugin listens on for publisher calls from the controller                                               |
-| `replicas`         | integer                | No       | `1`     | Number of plugin pod replicas. For subscriber plugins, ensure your deduplication key handles multiple consumers. |
-| `resources`        | ResourceRequirements   | No       | —       | CPU/memory requests and limits for the plugin container                                                          |
-| `config`           | map[string]string      | No       | —       | Non-sensitive configuration passed to the plugin as environment variables                                        |
-| `secretRefs`       | []PluginSecretRef      | No       | —       | Secrets mounted as environment variables in the plugin container                                                 |
-| `imagePullSecrets` | []LocalObjectReference | No       | —       | Image pull secrets for private registries                                                                        |
+| Field           | Type              | Required | Default | Description                                                                                                                                     |
+| --------------- | ----------------- | -------- | ------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| `image`         | string            | **Yes**  | —       | Container image implementing the plugin protocol                                                                                                |
+| `imageDigest`   | string            | No       | —       | SHA256 digest (64-char hex, without `sha256:` prefix) that pins the image to a specific layer. When set, the image reference is `image@sha256:<digest>`. |
+| `publisherPort` | integer           | No       | `8090`  | Port the plugin listens on for publisher calls from the controller                                                                              |
+| `secretRefs`    | []PluginSecretRef | No       | —       | Secrets mounted as environment variables in the plugin container                                                                                |
+| `env`           | []EnvVar          | No       | —       | Additional environment variables injected into the plugin container                                                                             |
+
+> **Planned:** `replicas` (integer), `resources` (ResourceRequirements), `config` (map[string]string), and `imagePullSecrets` ([]LocalObjectReference) are planned for a future release. They are not yet implemented. Use `env` for non-sensitive configuration today.
 
 ### PluginSecretRef
 
@@ -520,12 +520,12 @@ The operator uses this for the Deployment readiness probe.
 
 ### IntegrationStatus
 
-| Field                | Type                   | Description                                                              |
-| -------------------- | ---------------------- | ------------------------------------------------------------------------ |
-| `conditions`         | []Condition            | Standard `Ready` condition                                               |
-| `phase`              | string                 | `Ready`, `Degraded`, `Failed`                                            |
-| `gatewayDeployments` | []GatewayDeploymentRef | Names of gateway Deployments managed for this Integration, per namespace |
-| `connectedTriggers`  | integer                | Number of Triggers currently referencing this Integration                |
+| Field                     | Type        | Description                                                                     |
+| ------------------------- | ----------- | ------------------------------------------------------------------------------- |
+| `conditions`              | []Condition | Standard `Ready` condition                                                      |
+| `phase`                   | string      | `Ready`, `Degraded`, or `Pending`                                               |
+| `gatewayDeploymentName`   | string      | Name of the gateway Deployment managed for this Integration in this namespace   |
+| `lastReconciledTime`      | Time        | Timestamp of the most recent reconciliation pass                                |
 
 ### Conditions
 
@@ -543,9 +543,9 @@ kubectl get integrations -n automation
 ```
 
 ```
-NAME            TYPE     PHASE   TRIGGERS   AGE
-kafka-cluster   kafka    Ready   3          2d
-rabbitmq        plugin   Ready   1          6h
+NAME            TYPE     PHASE   AGE
+kafka-cluster   kafka    Ready   2d
+rabbitmq        plugin   Ready   6h
 ```
 
 ---
@@ -734,24 +734,21 @@ spec:
   plugin:
     image: ghcr.io/kubezap-community/rabbitmq-plugin:v0.3.0
     publisherPort: 8090
-    replicas: 2
-    resources:
-      requests:
-        cpu: 50m
-        memory: 64Mi
-      limits:
-        cpu: 200m
-        memory: 128Mi
-    config:
-      RABBITMQ_HOST: rabbitmq.infra.svc.cluster.local
-      RABBITMQ_PORT: "5672"
-      RABBITMQ_VHOST: "/production"
+    env:
+      - name: RABBITMQ_HOST
+        value: rabbitmq.infra.svc.cluster.local
+      - name: RABBITMQ_PORT
+        value: "5672"
+      - name: RABBITMQ_VHOST
+        value: "/production"
     secretRefs:
       - secretName: rabbitmq-credentials
         envVarMappings:
           username: RABBITMQ_USERNAME
           password: RABBITMQ_PASSWORD
 ```
+
+> **Note:** `replicas`, `resources`, and `imagePullSecrets` are not yet implemented. Use `env` for non-sensitive configuration in the interim.
 
 ---
 

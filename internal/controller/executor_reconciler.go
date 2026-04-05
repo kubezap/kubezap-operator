@@ -148,7 +148,7 @@ func (r *ExecutorReconciler) reconcileExecutorDeployment(ctx context.Context, na
 		desired.Labels = labels
 
 		// Build container args and optional volume/mounts for mTLS.
-		containerArgs := []string{"--port=8091"}
+		containerArgs := []string{fmt.Sprintf("--port=%d", port)}
 		var volumeMounts []corev1.VolumeMount
 		var volumes []corev1.Volume
 		if r.MTLSEnabled {

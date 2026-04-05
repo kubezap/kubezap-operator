@@ -23,14 +23,15 @@ Authentication is configured per `Trigger`, so different triggers can use differ
     - [Ingress / Route passthrough](#ingress--route-passthrough)
   - [API Key Header](#api-key-header)
   - [IP Allowlist](#ip-allowlist)
-  - [Combining Methods](#combining-methods)
   - [Auth Spec Reference](#auth-spec-reference)
     - [WebhookAuth](#webhookauth)
-    - [HMACAuth](#hmacauth)
-    - [BearerAuth](#bearerauth)
-    - [OIDCAuth](#oidcauth)
-    - [BasicAuth](#basicauth)
-    - [HeaderEqualsAuth](#headerequalsauth)
+    - [HMACConfig](#hmacconfig)
+    - [BearerConfig](#bearerconfig)
+    - [OIDCConfig](#oidcconfig)
+    - [WebhookBasicAuth](#webhookbasicauth)
+    - [APIKeyConfig](#apikeyconfig)
+    - [HeaderEqualsConfig](#headerequalsconfig)
+    - [IPAllowlistConfig](#ipallowlistconfig)
   - [Limitations](#limitations)
 
 ---
@@ -41,15 +42,17 @@ Authentication is configured per `Trigger`, so different triggers can use differ
 | ----------------- | ---------------------------------------------------------- | ---------------------------- |
 | HMAC signature    | GitHub, GitLab, Stripe, and most SaaS webhook senders      | Opaque (shared secret)       |
 | Bearer token      | Internal services, simple API clients                      | Opaque                       |
-| OIDC / OAuth2 JWT | Enterprise SSO, services with identity providers           | OIDC config or JWKS URL      |
+| OIDC / OAuth2 JWT | Enterprise SSO, services with identity providers           | OIDC issuer (no secret ref)  |
 | Basic auth        | Legacy systems                                             | Opaque (username + password) |
 | mTLS              | Service-to-service in zero-trust environments              | TLS Secret (cert + key)      |
-| API key header    | Simple integrations, custom header names                   | Opaque                       |
+| API key header    | Named custom header with a fixed expected value            | Opaque                       |
 | IP allowlist      | Network-layer restriction (not auth, but defense in depth) | N/A                          |
 
 Authentication is declared in the `Trigger` spec under `spec.webhook.auth`. When authentication fails, the gateway returns `401 Unauthorized` with no body and does not create a FlowRun.
 
 All auth failures are recorded in `status.lastResult: AuthFailed` and emitted as Prometheus metrics.
+
+> **Note:** Only one authentication type is active at a time — `spec.webhook.auth.type` is a single enum value. To combine IP allowlisting with another auth method, use a NetworkPolicy or Ingress-level allowlist alongside your chosen `type`. Support for layering multiple auth methods is planned for a future release.
 
 ---
 
@@ -74,9 +77,6 @@ spec:
         secretRef:
           name: github-webhook-secret
           key: secret
-        header: "X-Hub-Signature-256"
-        algorithm: sha256               # sha1, sha256 (default), sha512
-        prefix: "sha256="               # prefix stripped before comparison
 ```
 
 Create the secret:
@@ -86,16 +86,17 @@ kubectl create secret generic github-webhook-secret \
   -n automation
 ```
 
-**How it works**: the gateway computes `HMAC-SHA256(body, secret)`, hex-encodes it, prepends the prefix, and compares it to the value in the specified header using a constant-time comparison (safe against timing attacks).
+**How it works**: the gateway reads the shared HMAC secret from the referenced Secret key, computes `HMAC-SHA256(body, secret)`, and compares the result to the value in the provider's signature header using a constant-time comparison (safe against timing attacks). The exact header name, algorithm, and prefix used for comparison are fixed per provider at the gateway implementation level.
 
-**Common HMAC configurations by provider:**
+> **Note:** Per-trigger configuration of the signature header name, hash algorithm, encoding, and prefix is planned for a future release. Today, the gateway uses provider-appropriate defaults derived from the trigger path and common SaaS conventions.
 
-| Provider | Header                  | Algorithm                  | Prefix                 |
-| -------- | ----------------------- | -------------------------- | ---------------------- |
-| GitHub   | `X-Hub-Signature-256`   | `sha256`                   | `sha256=`              |
-| GitLab   | `X-Gitlab-Token`        | (token equality, not HMAC) | —                      |
-| Stripe   | `Stripe-Signature`      | `sha256`                   | `v1=`                  |
-| Shopify  | `X-Shopify-Hmac-Sha256` | `sha256`                   | `""` (base64, not hex) |
+**Common HMAC providers:**
+
+| Provider | Signature header          | Notes                                  |
+| -------- | ------------------------- | -------------------------------------- |
+| GitHub   | `X-Hub-Signature-256`     | SHA-256, hex-encoded, `sha256=` prefix |
+| Stripe   | `Stripe-Signature`        | SHA-256, hex-encoded, `v1=` prefix     |
+| Shopify  | `X-Shopify-Hmac-Sha256`   | SHA-256, base64-encoded                |
 
 > For GitLab token verification (header equality rather than HMAC), use `type: header-equals` — see [API Key Header](#api-key-header).
 
@@ -111,7 +112,7 @@ spec:
     auth:
       type: bearer
       bearer:
-        secretRef:
+        tokenSecretRef:
           name: my-webhook-token
           key: token
 ```
@@ -144,10 +145,6 @@ spec:
       oidc:
         issuer: "https://keycloak.internal/realms/my-org"
         audience: "kubezap"
-        # Optional: require specific claims
-        requiredClaims:
-          - claim: "roles"
-            value: "kubezap-trigger"
 ```
 
 The caller sends:
@@ -155,20 +152,9 @@ The caller sends:
 Authorization: Bearer <jwt-token>
 ```
 
-**How it works**: the gateway performs OIDC discovery at `<issuer>/.well-known/openid-configuration` to retrieve the JWKS endpoint, then validates the token. JWKS keys are cached and refreshed on a configurable interval.
+**How it works**: the gateway performs OIDC discovery at `<issuer>/.well-known/openid-configuration` to retrieve the JWKS endpoint, then validates the token signature, `iss` claim, and (when `audience` is set) `aud` claim.
 
-**For providers that do not expose an OIDC discovery endpoint**, specify the JWKS URL directly:
-
-```yaml
-spec:
-  webhook:
-    auth:
-      type: oidc
-      oidc:
-        jwksUri: "https://auth.internal/.well-known/jwks.json"
-        issuer: "https://auth.internal"
-        audience: "kubezap"
-```
+> **Note:** Direct JWKS URI configuration (`jwksUri`), custom required claims (`requiredClaims`), and JWKS cache TTL configuration are planned for a future release. Currently, only `issuer` and `audience` are supported.
 
 **Azure AD example:**
 ```yaml
@@ -198,25 +184,24 @@ spec:
       basic:
         secretRef:
           name: webhook-basic-auth
-          key: credentials       # value must be "username:password"
+        usernameKey: username   # key name within the Secret (default: "username")
+        passwordKey: password   # key name within the Secret (default: "password")
 ```
 
-Or split into separate keys:
-```yaml
-      basic:
-        usernameSecretRef:
-          name: webhook-basic-auth
-          key: username
-        passwordSecretRef:
-          name: webhook-basic-auth
-          key: password
-```
-
-Create the secret:
+Create the secret with separate username and password keys:
 ```bash
 kubectl create secret generic webhook-basic-auth \
-  --from-literal=credentials='myuser:mysecretpassword' \
+  --from-literal=username='myuser' \
+  --from-literal=password='mysecretpassword' \
   -n automation
+```
+
+The `secretRef` field is a `LocalObjectReference` (Secret name only). The `usernameKey` and `passwordKey` fields specify which keys within that Secret contain the credentials. Both default to `"username"` and `"password"` respectively, so if your Secret uses those key names, you can omit them:
+
+```yaml
+      basic:
+        secretRef:
+          name: webhook-basic-auth
 ```
 
 ---
@@ -292,23 +277,24 @@ spec:
 
 ## API Key Header
 
-Validates that a specific header contains an expected value. Useful for custom API key schemes and providers like GitLab (which uses token equality rather than HMAC).
+KubeZap supports two auth types for header-based key verification:
+
+**`type: apiKey`** — checks a named header against a secret value. The header name defaults to `X-Api-Key` but is configurable.
 
 ```yaml
 spec:
   webhook:
     auth:
-      type: header-equals
-      headerEquals:
-        header: "X-API-Key"   # or "X-Gitlab-Token", "X-Custom-Auth", etc.
+      type: apiKey
+      apiKey:
         secretRef:
           name: my-api-key-secret
           key: apiKey
+        header: "X-Api-Key"   # optional, defaults to "X-Api-Key"
 ```
 
-The gateway compares the header value to the secret value using a constant-time comparison.
+**`type: header-equals`** — checks any arbitrary header for an exact match. Useful for providers like GitLab that use a non-standard header name.
 
-For GitLab webhooks:
 ```yaml
 spec:
   webhook:
@@ -319,6 +305,15 @@ spec:
         secretRef:
           name: gitlab-webhook-token
           key: token
+```
+
+Both types compare the header value to the secret value using a constant-time comparison.
+
+Create the secret:
+```bash
+kubectl create secret generic my-api-key-secret \
+  --from-literal=apiKey='your-secret-api-key-value' \
+  -n automation
 ```
 
 ---
@@ -339,60 +334,9 @@ spec:
           - "203.0.113.0/28"   # GitHub webhook IP range (example)
 ```
 
-IP allowlist can be combined with any other auth type.
+> **Note:** The source IP seen by the gateway is the pod-network IP, which may be the Ingress controller's cluster IP rather than the original client IP if you are using an Ingress. To handle this, configure your Ingress to forward `X-Forwarded-For` and add a NetworkPolicy or Ingress-level allowlist upstream of the gateway. Per-trigger trusted proxy configuration is planned for a future release.
 
-> Note: The source IP seen by the gateway is the pod-network IP, which may be the Ingress controller's cluster IP rather than the original client IP if you are using an Ingress. Configure your Ingress to forward `X-Forwarded-For` and set `spec.webhook.auth.trustedProxies` to tell the gateway which proxy IPs to trust.
-
-```yaml
-spec:
-  webhook:
-    auth:
-      type: ipAllowlist
-      ipAllowlist:
-        cidrs:
-          - "203.0.113.0/28"
-      trustedProxies:
-        - "10.0.0.0/8"   # cluster-internal proxy IPs
-```
-
----
-
-## Combining Methods
-
-Multiple auth requirements can be combined. All specified methods must pass.
-
-**HMAC + IP allowlist (belt and suspenders for GitHub webhooks):**
-```yaml
-spec:
-  webhook:
-    auth:
-      type: hmac
-      hmac:
-        secretRef:
-          name: github-secret
-          key: secret
-        header: "X-Hub-Signature-256"
-        algorithm: sha256
-        prefix: "sha256="
-      ipAllowlist:
-        - "192.30.252.0/22"    # GitHub webhook IP ranges
-        - "185.199.108.0/22"
-        - "140.82.112.0/20"
-        - "143.55.64.0/20"
-```
-
-**OIDC + IP allowlist (internal service with identity):**
-```yaml
-spec:
-  webhook:
-    auth:
-      type: oidc
-      oidc:
-        issuer: "https://keycloak.internal/realms/platform"
-        audience: "kubezap"
-      ipAllowlist:
-        - "10.0.0.0/8"     # internal network only
-```
+> **Note:** Only one `type` is active per Trigger. To combine IP allowlisting with another auth method (e.g., HMAC + IP restriction), use `type: ipAllowlist` for IP enforcement and apply HMAC verification separately, or enforce IP restrictions at the Ingress/NetworkPolicy layer while using an auth type like `hmac` on the Trigger. Support for layering multiple auth methods is planned for a future release.
 
 ---
 
@@ -402,56 +346,65 @@ spec:
 
 | Field          | Type               | Required    | Description                                                                                                                                                                                                                            |
 | -------------- | ------------------ | ----------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `type`         | enum               | No          | Auth method: `hmac`, `bearer`, `oidc`, `basic`, `apiKey`, `ipAllowlist`, `header-equals`. Omit for no authentication. mTLS is configured at the transport layer via Namespace annotations — see [mTLS (Client Certificate)](#mtls-client-certificate). |
-| `hmac`         | HMACAuth           | Conditional | Required when `type: hmac`                                                                                                                                                                                                             |
-| `bearer`       | BearerAuth         | Conditional | Required when `type: bearer`                                                                                                                                                                                                           |
-| `oidc`         | OIDCAuth           | Conditional | Required when `type: oidc`                                                                                                                                                                                                             |
-| `basic`        | BasicAuth          | Conditional | Required when `type: basic`                                                                                                                                                                                                            |
-| `apiKey`       | APIKeyConfig       | Conditional | API key config. Required when `type: apiKey`.                                                                                                                                                                                          |
-| `ipAllowlist`  | IPAllowlistConfig  | Conditional | IP allowlist config. Required when `type: ipAllowlist`.                                                                                                                                                                                |
-| `headerEquals` | HeaderEqualsConfig | Conditional | Exact header match config. Required when `type: header-equals`.                                                                                                                                                                        |
-| `trustedProxies` | []string         | No          | CIDR ranges of trusted proxy IPs for X-Forwarded-For header processing                                                                                                                                                                |
+| `type`         | enum               | **Yes**     | Auth method: `hmac`, `bearer`, `oidc`, `basic`, `apiKey`, `ipAllowlist`, `header-equals`. Omit `auth` entirely for no authentication. mTLS is configured at the transport layer via Namespace annotations — see [mTLS (Client Certificate)](#mtls-client-certificate). Only one type is active per Trigger. |
+| `hmac`         | HMACConfig         | Conditional | Required when `type: hmac`                                                                                                                                                                                                             |
+| `bearer`       | BearerConfig       | Conditional | Required when `type: bearer`                                                                                                                                                                                                           |
+| `oidc`         | OIDCConfig         | Conditional | Required when `type: oidc`                                                                                                                                                                                                             |
+| `basic`        | WebhookBasicAuth   | Conditional | Required when `type: basic`                                                                                                                                                                                                            |
+| `apiKey`       | APIKeyConfig       | Conditional | Required when `type: apiKey`                                                                                                                                                                                                           |
+| `ipAllowlist`  | IPAllowlistConfig  | Conditional | Required when `type: ipAllowlist`                                                                                                                                                                                                      |
+| `headerEquals` | HeaderEqualsConfig | Conditional | Required when `type: header-equals`                                                                                                                                                                                                    |
 
-### HMACAuth
+### HMACConfig
 
-| Field       | Type         | Required | Default  | Description                                                                 |
-| ----------- | ------------ | -------- | -------- | --------------------------------------------------------------------------- |
-| `secretRef` | SecretKeyRef | **Yes**  | —        | Secret containing the HMAC signing key                                      |
-| `header`    | string       | **Yes**  | —        | Request header containing the signature                                     |
-| `algorithm` | enum         | No       | `sha256` | Hash algorithm: `sha1`, `sha256`, `sha512`                                  |
-| `prefix`    | string       | No       | `""`     | Prefix stripped from the header value before comparison (e.g., `"sha256="`) |
-| `encoding`  | enum         | No       | `hex`    | Signature encoding: `hex` or `base64`                                       |
+| Field       | Type            | Required | Description                                                 |
+| ----------- | --------------- | -------- | ----------------------------------------------------------- |
+| `secretRef` | SecretKeySelector | **Yes**  | Secret key containing the shared HMAC signing secret        |
 
-### BearerAuth
+> **Note:** Per-trigger configuration of the signature header name, hash algorithm (`sha1`, `sha256`, `sha512`), encoding (`hex`, `base64`), and signature prefix is planned for a future release.
 
-| Field       | Type         | Required | Description                                       |
-| ----------- | ------------ | -------- | ------------------------------------------------- |
-| `secretRef` | SecretKeyRef | **Yes**  | Secret containing the expected bearer token value |
+### BearerConfig
 
-### OIDCAuth
+| Field            | Type              | Required | Description                                       |
+| ---------------- | ----------------- | -------- | ------------------------------------------------- |
+| `tokenSecretRef` | SecretKeySelector | **Yes**  | Secret key containing the expected bearer token value |
 
-| Field            | Type               | Required    | Description                                                                                       |
-| ---------------- | ------------------ | ----------- | ------------------------------------------------------------------------------------------------- |
-| `issuer`         | string             | Conditional | OIDC issuer URL. Used for discovery and `iss` claim validation. Required if `jwksUri` is not set. |
-| `jwksUri`        | string             | Conditional | Direct JWKS endpoint URL. Required if `issuer` does not support OIDC discovery.                   |
-| `audience`       | string             | No          | Expected `aud` claim value. Recommended.                                                          |
-| `requiredClaims` | []ClaimRequirement | No          | Additional claims that must be present and match the specified value                              |
-| `jwksCacheTTL`   | duration           | No          | How long to cache JWKS keys (default `1h`)                                                        |
+### OIDCConfig
 
-### BasicAuth
+| Field      | Type   | Required | Description                                                                               |
+| ---------- | ------ | -------- | ----------------------------------------------------------------------------------------- |
+| `issuer`   | string | **Yes**  | OIDC issuer URL. Used for OIDC discovery and `iss` claim validation.                      |
+| `audience` | string | No       | Expected `aud` claim value. Recommended — omit only if your provider does not set `aud`.  |
 
-| Field               | Type         | Required    | Description                                                                                   |
-| ------------------- | ------------ | ----------- | --------------------------------------------------------------------------------------------- |
-| `secretRef`         | SecretKeyRef | Conditional | Secret containing `username:password` string. Mutually exclusive with username/password refs. |
-| `usernameSecretRef` | SecretKeyRef | Conditional | Secret key containing the username                                                            |
-| `passwordSecretRef` | SecretKeyRef | Conditional | Secret key containing the password                                                            |
+> **Note:** Direct JWKS URI configuration (`jwksUri`), additional required claims (`requiredClaims`), and JWKS cache TTL (`jwksCacheTTL`) are planned for a future release.
 
-### HeaderEqualsAuth
+### WebhookBasicAuth
 
-| Field       | Type         | Required | Description                                 |
-| ----------- | ------------ | -------- | ------------------------------------------- |
-| `header`    | string       | **Yes**  | HTTP header name to check                   |
-| `secretRef` | SecretKeyRef | **Yes**  | Secret containing the expected header value |
+| Field         | Type                 | Required | Default      | Description                                                                               |
+| ------------- | -------------------- | -------- | ------------ | ----------------------------------------------------------------------------------------- |
+| `secretRef`   | LocalObjectReference | **Yes**  | —            | Name of the Secret containing the credentials                                             |
+| `usernameKey` | string               | No       | `"username"` | Key within the Secret that holds the username                                             |
+| `passwordKey` | string               | No       | `"password"` | Key within the Secret that holds the password                                             |
+
+### APIKeyConfig
+
+| Field       | Type              | Required | Default        | Description                                                |
+| ----------- | ----------------- | -------- | -------------- | ---------------------------------------------------------- |
+| `secretRef` | SecretKeySelector | **Yes**  | —              | Secret key containing the expected API key value           |
+| `header`    | string            | No       | `"X-Api-Key"`  | HTTP header name to check for the API key                  |
+
+### HeaderEqualsConfig
+
+| Field       | Type              | Required | Description                                 |
+| ----------- | ----------------- | -------- | ------------------------------------------- |
+| `header`    | string            | **Yes**  | HTTP header name to check                   |
+| `secretRef` | SecretKeySelector | **Yes**  | Secret key containing the expected header value |
+
+### IPAllowlistConfig
+
+| Field   | Type     | Required | Description                                                                     |
+| ------- | -------- | -------- | ------------------------------------------------------------------------------- |
+| `cidrs` | []string | **Yes**  | CIDR blocks allowed to call this endpoint (e.g., `["10.0.0.0/8", "1.2.3.4/32"]`) |
 
 ---
 
@@ -488,3 +441,4 @@ in etcd.
 - **JWT expiry clock skew**: OIDC validation allows a 30-second clock skew by default. This is not currently configurable.
 - **Token rotation**: Bearer tokens and API keys do not support rotation without briefly accepting both old and new values. Rotate secrets in Kubernetes and the gateway picks up the new value on the next request.
 - **mTLS and shared Ingress**: Inbound mTLS requires TLS passthrough at the Ingress layer. If you are using a shared Ingress that terminates TLS, mTLS to the gateway is not possible — use bearer or HMAC instead.
+- **Single auth type per Trigger**: Only one `spec.webhook.auth.type` is active at a time. Combining multiple auth methods (e.g., HMAC + IP allowlist) on a single Trigger is planned for a future release.

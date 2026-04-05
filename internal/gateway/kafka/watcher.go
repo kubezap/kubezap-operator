@@ -116,7 +116,7 @@ func (w *Watcher) Start(ctx context.Context) error {
 		w.subscriptions.Delete(key)
 		return true
 	})
-	return ctx.Err()
+	return nil
 }
 
 func (w *Watcher) onTriggerAdd(ctx context.Context, obj interface{}) {

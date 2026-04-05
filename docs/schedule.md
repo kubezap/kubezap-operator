@@ -156,8 +156,8 @@ Items are ordered to minimize rework:
 - [ ] **VALIDATION** — `api/v1alpha1/trigger_types.go:277`: ResourceTrigger.Events has conflicting `MinItems=1` and `+optional` markers. Remove `MinItems=1` since the code handles empty gracefully.
 - [ ] **VALIDATION** — `api/v1alpha1/flow_types.go:65`: FlowStep.Name lacks uniqueness validation. Duplicate step names cause undefined runtime behavior.
 - [ ] **VALIDATION** — `api/v1alpha1/flow_types.go:205`: RetryPolicy.MaxRetries lacks `+kubebuilder:validation:Minimum=0`. Negative values cause zero-execution steps.
-- [ ] **OBSERVABILITY** — `internal/gateway/webhook/handler.go:401`: Trace context lost on `context.Background()` fallback for FlowRun creation. Extract span context before checking Err().
-- [ ] **TECH DEBT** — `internal/gateway/kafka/watcher.go:119`: `Start` returns `ctx.Err()` instead of nil on graceful shutdown, causing spurious error logs.
+- [x] **OBSERVABILITY** — `internal/gateway/webhook/handler.go:401`: Trace context lost on `context.Background()` fallback for FlowRun creation. Extract span context before checking Err().
+- [x] **TECH DEBT** — `internal/gateway/kafka/watcher.go:119`: `Start` returns `ctx.Err()` instead of nil on graceful shutdown, causing spurious error logs.
 
 ---
 
@@ -169,7 +169,7 @@ Items are ordered to minimize rework:
 
 ### P0 — Fix before public release
 
-- [ ] **DOC FIX** — `docs/guides/webhook-security.md`: HMAC/OIDC/Bearer/Basic auth field mismatch with Go types. Doc shows fields (`header`, `algorithm`, `prefix`, `encoding` on HMAC; `requiredClaims`, `jwksUri`, `jwksCacheTTL` on OIDC; `trustedProxies`; `secretRef` on Bearer vs `tokenSecretRef`) that don't exist in Go types. Either implement the fields or rewrite the security guide to match current API. Highest-impact doc-reality mismatch.
+- [x] **DOC FIX** — `docs/guides/webhook-security.md`: HMAC/OIDC/Bearer/Basic auth field mismatch with Go types. Doc shows fields (`header`, `algorithm`, `prefix`, `encoding` on HMAC; `requiredClaims`, `jwksUri`, `jwksCacheTTL` on OIDC; `trustedProxies`; `secretRef` on Bearer vs `tokenSecretRef`) that don't exist in Go types. Either implement the fields or rewrite the security guide to match current API. Highest-impact doc-reality mismatch.
 - [ ] **DOC FIX** — `docs/api/integration.md`: IntegrationStatus fields diverge from Go types. Doc lists `gatewayDeployments` ([]GatewayDeploymentRef), `connectedTriggers`, `phase: Failed` — Go types have `GatewayDeploymentName` (string), no `connectedTriggers`, `phase: Pending`. Align doc with Go types.
 - [ ] **DOC FIX** — `docs/api/integration.md`: KafkaIntegrationSpec (`producerConfig`, `consumerConfig`) and PluginIntegrationSpec (`replicas`, `resources`, `config`, `imagePullSecrets`) documented but not in Go types. Remove phantom fields from docs or implement them.
 

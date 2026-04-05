@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
+	"go.opentelemetry.io/otel/trace"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -400,6 +401,12 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// blocking indefinitely if the API server is slow. The request context is used as the
 	// parent when it is still alive so OTel span context propagates when possible.
 	createParent := context.Background()
+	// Propagate OTel span context even when the request context is cancelled
+	// (client disconnect), so the FlowRun Create call remains linked to the
+	// incoming request's trace.
+	if span := trace.SpanFromContext(r.Context()); span.SpanContext().IsValid() {
+		createParent = trace.ContextWithSpan(createParent, span)
+	}
 	if r.Context().Err() == nil {
 		createParent = r.Context()
 	}

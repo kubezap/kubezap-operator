@@ -40,6 +40,8 @@ type FlowSpec struct {
 
 	// Ordered list of steps in the Flow.
 	// +kubebuilder:validation:MinItems=1
+	// +listType=map
+	// +listMapKey=name
 	Steps []FlowStep `json:"steps"`
 }
 
@@ -202,6 +204,7 @@ type ParamValue struct {
 // RetryPolicy configures retries for a step.
 type RetryPolicy struct {
 	// Maximum retries allowed.
+	// +kubebuilder:validation:Minimum=0
 	MaxRetries int32 `json:"maxRetries"`
 
 	// Backoff strategy.

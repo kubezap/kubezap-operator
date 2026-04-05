@@ -224,7 +224,7 @@ kubectl auth can-i create flowruns \
 
 Plugin Deployments (type=plugin Integrations) do **not** receive automatic RBAC from the
 operator. The plugin image is user-supplied and its permissions are the cluster admin's
-responsibility. See [Plugin Trust Model](../api/integration.md#trust-model).
+responsibility. See [Plugin Trust Model](../api/integration.md#plugin-integration-type).
 
 ---
 

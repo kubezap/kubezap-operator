@@ -1029,6 +1029,14 @@ func (r *FlowRunReconciler) executePublishStep(
 		}
 	}
 
+	// Retry policy — same pattern as executeHTTPStep.
+	maxAttempts := 1
+	var retryPolicy *automationv1alpha1.RetryPolicy
+	if step.RetryPolicy != nil {
+		retryPolicy = step.RetryPolicy
+		maxAttempts = int(retryPolicy.MaxRetries) + 1
+	}
+
 	// Route to appropriate publish backend based on integration type.
 	if integration.Spec.Kafka != nil {
 		body, _, berr := r.substituteVarsWithSecrets(ctx, flowRun.Namespace, step.Action.Publish.Body, stepResults, triggerData)
@@ -1043,8 +1051,22 @@ func (r *FlowRunReconciler) executePublishStep(
 			}
 			headers[k] = actual
 		}
-		result, err := r.publishToKafka(ctx, integration, step.Action.Publish.Topic, body, headers)
-		return result, 1, err
+		var result map[string]string
+		var lastErr error
+		for attempt := 0; attempt < maxAttempts; attempt++ {
+			if attempt > 0 {
+				select {
+				case <-ctx.Done():
+					return nil, attempt, ctx.Err()
+				case <-time.After(r.retryDelay(retryPolicy, attempt)):
+				}
+			}
+			result, lastErr = r.publishToKafka(ctx, integration, step.Action.Publish.Topic, body, headers)
+			if lastErr == nil {
+				return result, attempt + 1, nil
+			}
+		}
+		return nil, maxAttempts, lastErr
 	}
 
 	if integration.Spec.Plugin == nil {
@@ -1073,11 +1095,40 @@ func (r *FlowRunReconciler) executePublishStep(
 	}
 
 	// Wrap ctx with a 30s timeout unless ctx already has a shorter deadline.
-	publishCtx := ctx
 	const publishTimeout = 30 * time.Second
-	if deadline, ok := ctx.Deadline(); !ok || time.Until(deadline) > publishTimeout {
+
+	var lastErr error
+	for attempt := 0; attempt < maxAttempts; attempt++ {
+		if attempt > 0 {
+			select {
+			case <-ctx.Done():
+				return nil, attempt, ctx.Err()
+			case <-time.After(r.retryDelay(retryPolicy, attempt)):
+			}
+		}
+
+		result, attemptErr := r.doPluginPublish(ctx, pluginURL, body, headers, publishTimeout)
+		if attemptErr == nil {
+			return result, attempt + 1, nil
+		}
+		lastErr = attemptErr
+	}
+	return nil, maxAttempts, lastErr
+}
+
+// doPluginPublish performs a single HTTP POST to a plugin publisher endpoint.
+// It creates a per-call context with the given timeout so cancellation is scoped
+// to this attempt rather than leaking across retry iterations.
+func (r *FlowRunReconciler) doPluginPublish(
+	ctx context.Context,
+	url, body string,
+	headers map[string]string,
+	timeout time.Duration,
+) (map[string]string, error) {
+	publishCtx := ctx
+	if deadline, ok := ctx.Deadline(); !ok || time.Until(deadline) > timeout {
 		var cancel context.CancelFunc
-		publishCtx, cancel = context.WithTimeout(ctx, publishTimeout)
+		publishCtx, cancel = context.WithTimeout(ctx, timeout)
 		defer cancel()
 	}
 
@@ -1086,12 +1137,11 @@ func (r *FlowRunReconciler) executePublishStep(
 		bodyReader = bytes.NewBufferString(body)
 	}
 
-	req, err := http.NewRequestWithContext(publishCtx, http.MethodPost, pluginURL, bodyReader)
+	req, err := http.NewRequestWithContext(publishCtx, http.MethodPost, url, bodyReader)
 	if err != nil {
-		return nil, 0, fmt.Errorf("building publish request: %w", err)
+		return nil, fmt.Errorf("building publish request: %w", err)
 	}
 
-	// Set Content-Type default; allow step headers to override.
 	if _, ok := headers["Content-Type"]; !ok {
 		req.Header.Set("Content-Type", "application/json")
 	}
@@ -1106,16 +1156,16 @@ func (r *FlowRunReconciler) executePublishStep(
 
 	resp, err := httpClient.Do(req)
 	if err != nil {
-		return nil, 1, fmt.Errorf("publish request failed: %w", err)
+		return nil, fmt.Errorf("publish request failed: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode >= 400 {
 		bodyBytes, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
-		return nil, 1, fmt.Errorf("publish endpoint returned status %d: %s", resp.StatusCode, strings.TrimSpace(string(bodyBytes)))
+		return nil, fmt.Errorf("publish endpoint returned status %d: %s", resp.StatusCode, strings.TrimSpace(string(bodyBytes)))
 	}
 
-	return map[string]string{}, 1, nil
+	return map[string]string{}, nil
 }
 
 func (r *FlowRunReconciler) fetchSecretValue(ctx context.Context, namespace string, ref corev1.SecretKeySelector) (string, error) {

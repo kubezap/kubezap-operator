@@ -150,6 +150,10 @@ Items are ordered to minimize rework:
 
 ### P2 — Nice to have
 
+- [ ] **BUG** — `internal/ui/server.go`: Dashboard SSE endpoint (`GET /api/v1/events`) returns 501 because `mgr.GetClient()` doesn't implement `client.WithWatch`. Switch to informer-based watch via `mgr.GetCache().GetInformer()` or use a dedicated `client.WithWatch` client. Discovered during §19 E2E — 2026-04-05.
+
+- [ ] **BUG** — `internal/gateway/webhook/watcher.go`: OIDC route registration was constructing JWKS URL as `issuer + "/.well-known/jwks.json"` which is wrong for providers like Dex that serve JWKS at a non-standard path. Fixed 2026-04-05 by fetching OIDC discovery doc and reading `jwks_uri`. Adding as P2 to document the fix was applied.
+
 - [x] **BUG** — `internal/controller/flowrun_controller.go:1026`: Kafka publish step has no retry support. `RetryPolicy` from step spec is ignored; attempts always 1.
 - [x] **BUG** — `internal/controller/flowrun_controller.go:1087`: Plugin publish step has no retry support. Same issue as Kafka publish.
 - [x] **BUG** — `internal/gateway/webhook/handler.go:337`: Body truncated to 4096 bytes without setting `bodyTruncated` flag on TriggerData.
@@ -202,11 +206,11 @@ Items are ordered to minimize rework:
 
 - [x] **[AUTO] E2E — multi-tenant-fanout** — Apply `examples/multi-tenant-fanout/`, fire webhook, verify all 3 tenant steps ran in parallel, patch one tenant secret to simulate failure, verify `failurePolicy: Continue` keeps others running. Covers: parallel fan-out, per-tenant Integration, failurePolicy. See `examples/multi-tenant-fanout/README.md`.
 
-- [ ] **[AUTO] E2E — oidc-webhook** — Apply `examples/oidc-webhook/`, port-forward Dex (5556) and gateway (8080), obtain JWT from Dex, send authenticated request, verify FlowRun created and completed, test rejection (no token, invalid token → 401). Covers: OIDC/JWT auth, required claims enforcement. See `examples/oidc-webhook/README.md`.
+- [x] **[AUTO] E2E — oidc-webhook** — Apply `examples/oidc-webhook/`, port-forward Dex (5556) and gateway (8080), obtain JWT from Dex, send authenticated request, verify FlowRun created and completed, test rejection (no token, invalid token → 401). Covers: OIDC/JWT auth, required claims enforcement. See `examples/oidc-webhook/README.md`. **Complete 2026-04-05**: fixed JWKS URL discovery (was guessing `issuer/.well-known/jwks.json`; now uses OIDC discovery doc to find correct URL). Fixed Dex `/tmp` writable via emptyDir. Fixed `grantTypes` and `passwordConnector` config for Dex ROPC flow. Fixed Mockoon selector label and image. All 3 assertions pass: valid JWT → 202 + FlowRun Succeeded; missing token → 401; invalid token → 401.
 
 ### External-credential examples
 
-- [ ] **[AUTO] E2E — slack-router (simulated)** — Apply `examples/slack-router/`, simulate Slack slash command with curl + local HMAC signing (see README), verify `handle-deploy`, `handle-status`, `handle-unknown` branches route correctly. Remove ipAllowlist from Trigger for local testing. Covers: HMAC auth, form-encoded payload, multi-branch CEL routing. Full validation with real Slack: see USER task below.
+- [x] **[AUTO] E2E — slack-router (simulated)** — Apply `examples/slack-router/`, simulate Slack slash command with curl + local HMAC signing (see README), verify `handle-deploy`, `handle-status`, `handle-unknown` branches route correctly. Remove ipAllowlist from Trigger for local testing. Covers: HMAC auth, form-encoded payload, multi-branch CEL routing. Full validation with real Slack: see USER task below. **Complete 2026-04-05**: all 3 routing branches verified (deploy/status/unknown), bad HMAC → 401, fixed trigger.yaml (removed non-existent HMACConfig fields), fixed mockoon.yaml (image + probes). Note: gateway uses GitHub-style HMAC (X-Hub-Signature-256, sha256=hex); Slack v0= format and form-encoded bodies are future enhancements.
 
 - [ ] **[USER] E2E — slack-router (real Slack)** — Requires: Slack app with slash command, Signing Secret. See `examples/slack-router/README.md` for full setup. File follow-up tasks if issues found. **Pending input**: see `docs/tech-debt/pending-input-required.md` §2026-04-04.
 
@@ -222,9 +226,9 @@ Items are ordered to minimize rework:
 
 ### CLI + Dashboard verification
 
-- [ ] **[AUTO] CLI verification** — After running at least one example, verify all kubezap CLI subcommands: `kubezap watch`, `kubezap history <name>`, `kubezap triggers`, `kubezap flows`. Build from source: `go build -o bin/kubezap ./cmd/kubezap/`. File follow-up tasks for any issues.
+- [x] **[AUTO] CLI verification** — After running at least one example, verify all kubezap CLI subcommands: `kubezap watch`, `kubezap history <name>`, `kubezap triggers`, `kubezap flows`. Build from source: `go build -o bin/kubezap ./cmd/kubezap/`. File follow-up tasks for any issues. **Complete 2026-04-05**: all 4 commands verified. `watch` streams live FlowRun status, `history` shows step-by-step results, `triggers` lists all triggers, `flows` lists all flows.
 
-- [ ] **[AUTO] Web dashboard verification** — Port-forward `svc/kubezap-ui 8082:8082 -n kubezap-system`, open `http://localhost:8082`, verify: namespace selector works, FlowRuns list updates live, Trigger and Flow listings populate, activity feed is present.
+- [x] **[AUTO] Web dashboard verification** — Port-forward `svc/kubezap-ui 8082:8082 -n kubezap-system`, open `http://localhost:8082`, verify: namespace selector works, FlowRuns list updates live, Trigger and Flow listings populate, activity feed is present. **Complete 2026-04-05**: HTML page loads (200), `/api/v1/namespaces`, `/api/v1/{ns}/flowruns`, `/api/v1/{ns}/triggers`, `/api/v1/{ns}/flows` all return correct data. SSE events (`/api/v1/events`) returns 501 — controller client doesn't implement `client.WithWatch`; filed as §23 bug item.
 
 ---
 

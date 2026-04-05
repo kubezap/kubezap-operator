@@ -31,6 +31,12 @@ data:
 
     oauth2:
       skipApprovalScreen: true
+      grantTypes:
+        - authorization_code
+        - refresh_token
+        - password
+
+    passwordConnector: local
 
     staticClients:
       - id: kubezap-demo
@@ -38,6 +44,7 @@ data:
         name: KubeZap Demo
         redirectURIs:
           - http://localhost:8080/callback
+          - http://localhost:9876/callback
 
     enablePasswordDB: true
 
@@ -93,6 +100,8 @@ spec:
             - name: dex-config
               mountPath: /etc/dex
               readOnly: true
+            - name: tmp
+              mountPath: /tmp
           readinessProbe:
             httpGet:
               path: /dex/healthz
@@ -124,6 +133,8 @@ spec:
         - name: dex-config
           configMap:
             name: dex-config
+        - name: tmp
+          emptyDir: {}
       restartPolicy: Always
 ---
 # ─────────────────────────────────────────────────────────────────────────────

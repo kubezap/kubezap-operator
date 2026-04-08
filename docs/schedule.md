@@ -232,6 +232,29 @@ Items are ordered to minimize rework:
 
 ---
 
+## 25. Workflow Improvements (2026-04-08)
+
+> New process docs introduced to improve design rigor, review quality, and merge safety.
+> See `docs/guides/` and `docs/architecture/` for the reference documents.
+
+### Process Adoption
+
+- [ ] **PROCESS** — Adopt `docs/guides/design-process.md` for all new features: every non-trivial change must have a design record in `docs/design/` before implementation begins. Review the doc and confirm it is referenced from `CLAUDE.md` design philosophy section.
+- [ ] **PROCESS** — Migrate code reviews to targeted patterns from `docs/guides/code-review-strategy.md`. Stop issuing open-ended "review the codebase" prompts; always name an invariant or concern as the entry point.
+- [ ] **PROCESS** — Enforce `docs/guides/pre-merge-checklist.md` before marking any feature complete. All [GATE] items must be satisfied; all [FILE] items must have schedule entries.
+
+### FlowRun State Model Validation
+
+- [ ] **VALIDATION** — Validate `internal/controller/flowrun_controller.go` against `docs/architecture/flowrun-state-model.md`. Use the State Transition Correctness review template from `docs/guides/code-review-strategy.md#8`. File any violations as P0 bugs. Scope: all `.Phase =` assignment sites in `flowrun_controller.go`.
+- [ ] **TESTING** — Add unit tests for every FlowRun phase transition listed in `docs/architecture/flowrun-state-model.md`. Each valid transition needs a happy-path test; each invalid transition needs a guard test confirming it cannot occur. File as a separate task from the validation above.
+
+### Spec Drift Detection
+
+- [ ] **DRIFT CHECK** — Run the full spec drift process from `docs/guides/spec-drift.md` across all current CRD types (`Trigger`, `Flow`, `FlowRun`, `Integration`). Produce a findings list; file P0/P1 items as new schedule entries. This is a one-time baseline check.
+- [ ] **RECURRING** — Add spec drift check as a recurring gate: run Steps 1–4 from `docs/guides/spec-drift.md` before any OperatorHub submission or GA milestone. Add this as a checklist item in any future submission PR template.
+
+---
+
 ## 10. Future / Backlog
 
 - [ ] `Step` CRD for reusable step definitions

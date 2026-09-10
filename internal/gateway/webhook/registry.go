@@ -42,6 +42,25 @@ type RouteEntry struct {
 	RedactBody    bool     // when true, body is replaced with "[REDACTED]" in TriggerData
 }
 
+// redactedForLog returns a copy of the entry with secret-bearing fields replaced by
+// "[REDACTED]" (only when set). Structured logging passes values like RouteEntry through
+// reflection-based encoders that do not know which fields are sensitive, so callers must
+// redact explicitly before logging rather than relying on the logger to do it.
+func (e RouteEntry) redactedForLog() RouteEntry {
+	redact := func(s string) string {
+		if s == "" {
+			return ""
+		}
+		return "[REDACTED]"
+	}
+	e.HMACSecret = redact(e.HMACSecret)
+	e.BearerToken = redact(e.BearerToken)
+	e.BasicPassword = redact(e.BasicPassword)
+	e.APIKey = redact(e.APIKey)
+	e.HeaderEqualsValue = redact(e.HeaderEqualsValue)
+	return e
+}
+
 // RouteRegistry is a thread-safe in-memory registry for webhook routes.
 type RouteRegistry struct {
 	mu     sync.RWMutex
@@ -72,9 +91,9 @@ func (r *RouteRegistry) Register(path string, entry RouteEntry) {
 	defer r.mu.Unlock()
 
 	if _, ok := r.routes[path]; ok {
-		r.logger.Info("updating route", "path", path, "entry", entry)
+		r.logger.Info("updating route", "path", path, "entry", entry.redactedForLog())
 	} else {
-		r.logger.Info("registering route", "path", path, "entry", entry)
+		r.logger.Info("registering route", "path", path, "entry", entry.redactedForLog())
 	}
 	entry.AllowedMethod = strings.ToUpper(entry.AllowedMethod)
 	r.routes[path] = entry

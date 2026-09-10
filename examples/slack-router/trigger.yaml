@@ -12,16 +12,18 @@ spec:
     auth:
       type: hmac
       hmac:
-        # NOTE: Per-trigger HMAC header/algorithm/prefix configuration is planned
-        # but not yet implemented. The gateway currently uses GitHub-style HMAC:
-        # header X-Hub-Signature-256, format "sha256=<hex>", body-only (no timestamp).
-        # For real Slack integration, the gateway needs to verify "v0=<hex>" over
-        # "v0:<timestamp>:<raw-body>" using X-Slack-Signature — tracked as a
-        # future enhancement. For now, HMAC auth is verified using GitHub format.
-        # In production with real Slack: add an ingress-level or load-balancer
-        # IP allowlist for Slack's published IP ranges as defence-in-depth.
+        # provider: slack verifies X-Slack-Signature ("v0=<hex>") over
+        # "v0:<timestamp>:<raw-body>" using X-Slack-Request-Timestamp, and
+        # rejects requests whose timestamp has drifted beyond
+        # timestampToleranceSeconds (replay protection).
+        provider: slack
+        timestampToleranceSeconds: 300
         secretRef:
           name: slack-signing-secret
           key: signingSecret
+    # NOTE: spec.webhook.auth.type is a single enum value, so HMAC and IP
+    # allowlist can't be combined here. In production with real Slack, add an
+    # ingress-level or load-balancer IP allowlist for Slack's published IP
+    # ranges (api.slack.com/apis/ip-ranges) as defence-in-depth.
   flowRef:
     name: slack-router

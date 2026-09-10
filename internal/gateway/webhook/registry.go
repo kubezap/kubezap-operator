@@ -17,16 +17,18 @@ type RouteEntry struct {
 	AllowedMethod    string // "POST" or "PUT"
 
 	// Auth fields — pre-loaded at route registration time.
-	AuthType           string   // "hmac", "bearer", "apiKey", "ipAllowlist", "oidc", "basic", "header-equals", "" (none)
-	HMACSecret         string   // pre-loaded HMAC secret value
-	BearerToken        string   // pre-loaded bearer token value
-	BasicUsername      string   // pre-loaded Basic auth username
-	BasicPassword      string   // pre-loaded Basic auth password
-	APIKey             string   // pre-loaded API key value
-	APIKeyHeader       string   // header name for API key (default "X-Api-Key")
-	IPAllowlist        []string // CIDR blocks or IP addresses
-	HeaderEqualsHeader string   // header name to match for header-equals auth
-	HeaderEqualsValue  string   // expected header value (pre-loaded from secret)
+	AuthType                  string   // "hmac", "bearer", "apiKey", "ipAllowlist", "oidc", "basic", "header-equals", "" (none)
+	HMACSecret                string   // pre-loaded HMAC secret value
+	HMACProvider              string   // "github" (default) or "slack" — selects verification scheme
+	HMACTimestampToleranceSec int32    // replay-window tolerance for provider "slack"
+	BearerToken               string   // pre-loaded bearer token value
+	BasicUsername             string   // pre-loaded Basic auth username
+	BasicPassword             string   // pre-loaded Basic auth password
+	APIKey                    string   // pre-loaded API key value
+	APIKeyHeader              string   // header name for API key (default "X-Api-Key")
+	IPAllowlist               []string // CIDR blocks or IP addresses
+	HeaderEqualsHeader        string   // header name to match for header-equals auth
+	HeaderEqualsValue         string   // expected header value (pre-loaded from secret)
 
 	// OIDC/JWT auth fields
 	OIDCValidator *oidcValidator // non-nil when AuthType == "oidc"

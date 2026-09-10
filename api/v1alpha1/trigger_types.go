@@ -335,6 +335,25 @@ type HMACConfig struct {
 	// Secret reference — key contains the shared HMAC secret.
 	// +kubebuilder:validation:Required
 	SecretRef corev1.SecretKeySelector `json:"secretRef"`
+
+	// Provider selects the HMAC verification scheme. "github" verifies
+	// X-Hub-Signature-256: sha256=<hex> over the raw body (also used by GitLab,
+	// Stripe, Shopify, and most SaaS webhook senders). "slack" verifies
+	// X-Slack-Signature: v0=<hex> over "v0:<timestamp>:<body>" using
+	// X-Slack-Request-Timestamp, and rejects requests outside
+	// timestampToleranceSeconds to guard against replay.
+	// +kubebuilder:validation:Enum=github;slack
+	// +kubebuilder:default=github
+	// +optional
+	Provider string `json:"provider,omitempty"`
+
+	// TimestampToleranceSeconds bounds how far X-Slack-Request-Timestamp may
+	// drift from the current time before the request is rejected. Only used
+	// when provider is "slack". Defaults to 300 (5 minutes), matching Slack's
+	// own recommendation.
+	// +kubebuilder:default=300
+	// +optional
+	TimestampToleranceSeconds int32 `json:"timestampToleranceSeconds,omitempty"`
 }
 
 // BearerConfig configures bearer token verification.

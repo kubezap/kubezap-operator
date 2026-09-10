@@ -126,6 +126,55 @@ var _ = Describe("substituteVars", func() {
 		})
 	})
 
+	Context("form-urlencoded trigger body substitution", func() {
+		It("substitutes a top-level form-urlencoded field", func() {
+			td := &automationv1alpha1.TriggerData{
+				ContentType: "application/x-www-form-urlencoded",
+				Body:        "command=%2Fkubezap&text=deploy+staging&user_name=alice",
+			}
+			result := substituteVars("cmd=$(trigger.body.command) text=$(trigger.body.text)", nil, td)
+			Expect(result).To(Equal("cmd=/kubezap text=deploy staging"))
+		})
+
+		It("ignores charset and other parameters on the content type", func() {
+			td := &automationv1alpha1.TriggerData{
+				ContentType: "application/x-www-form-urlencoded; charset=UTF-8",
+				Body:        "text=status+production",
+			}
+			result := substituteVars("$(trigger.body.text)", nil, td)
+			Expect(result).To(Equal("status production"))
+		})
+
+		It("substitutes multiple form fields used for Slack-style routing", func() {
+			td := &automationv1alpha1.TriggerData{
+				ContentType: "application/x-www-form-urlencoded",
+				Body:        "channel_id=C123ABC&response_url=https%3A%2F%2Fhooks.slack.com%2Fx&user_name=bob",
+			}
+			result := substituteVars(
+				"channel=$(trigger.body.channel_id) url=$(trigger.body.response_url) user=$(trigger.body.user_name)",
+				nil, td)
+			Expect(result).To(Equal("channel=C123ABC url=https://hooks.slack.com/x user=bob"))
+		})
+
+		It("resolves a missing form field to an empty string", func() {
+			td := &automationv1alpha1.TriggerData{
+				ContentType: "application/x-www-form-urlencoded",
+				Body:        "text=deploy",
+			}
+			result := substituteVars("$(trigger.body.missing)", nil, td)
+			Expect(result).To(Equal(""))
+		})
+
+		It("still substitutes the raw body verbatim via $(trigger.body) for form-encoded payloads", func() {
+			td := &automationv1alpha1.TriggerData{
+				ContentType: "application/x-www-form-urlencoded",
+				Body:        "text=deploy+staging",
+			}
+			result := substituteVars("raw=$(trigger.body)", nil, td)
+			Expect(result).To(Equal("raw=text=deploy+staging"))
+		})
+	})
+
 	Context("trigger header substitution", func() {
 		It("substitutes a header value case-insensitively", func() {
 			td := &automationv1alpha1.TriggerData{

@@ -173,6 +173,16 @@ test/                 # Unit and E2E test infrastructure
   5. Add sample CR in `config/samples/`
   6. Write Ginkgo tests
 - Tests use Ginkgo BDD style: `Describe`/`Context`/`It` blocks with Gomega matchers
+- **`+kubebuilder:rbac` markers must be free-floating, not attached to a declaration.** They are package-scoped: put them in their own comment block separated by a blank line from the type/func/var below. If they end up inside a declaration's doc comment (e.g. directly above `type FooReconciler struct`), controller-gen **silently ignores them** — no error, `make manifests` just quietly omits those rules and the operator ships missing permissions. This bit us once already (see `docs/schedule.md` §30):
+
+  ```go
+  // +kubebuilder:rbac:groups=networking.k8s.io,resources=networkpolicies,verbs=get;list;watch
+
+  // FooReconciler reconciles ...   ← blank line above is what makes the markers work
+  type FooReconciler struct {
+  ```
+
+  After adding or changing RBAC markers, always confirm the rule actually landed in `config/rbac/role.yaml` — do not assume `make manifests` picked it up.
 
 ## Code Style / Go
 

@@ -440,9 +440,10 @@ The operator uses this for the Deployment readiness probe.
 | Field               | Type         | Required | Default | Description                                                              |
 | ------------------- | ------------ | -------- | ------- | ------------------------------------------------------------------------ |
 | `mechanism`         | string       | **Yes**  | —       | `PLAIN`, `SCRAM-SHA-256`, or `SCRAM-SHA-512`                             |
-| `username`          | string       | No       | —       | SASL username (plain text; use `usernameSecretRef` for sensitive values) |
-| `usernameSecretRef` | SecretKeyRef | No       | —       | Reference to a Secret key containing the SASL username                   |
+| `usernameSecretRef` | SecretKeyRef | **Yes**  | —       | Reference to a Secret key containing the SASL username                   |
 | `passwordSecretRef` | SecretKeyRef | **Yes**  | —       | Reference to a Secret key containing the SASL password                   |
+
+There is no plain-text `username` field — the username must always come from a Secret, same as the password.
 
 ### SecretKeyRef
 

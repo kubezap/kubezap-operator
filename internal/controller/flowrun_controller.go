@@ -66,6 +66,7 @@ import (
 )
 
 const retainAnnotation = "kubezap.io/retain"
+const cancelAnnotation = "kubezap.io/cancel"
 const executingFinalizer = "kubezap.io/executing"
 
 // kafkaProducerIdleTTL is the maximum idle time before a cached Kafka producer
@@ -212,6 +213,17 @@ func (r *FlowRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	// FlowRun was deleted while running — cancel it and remove executing finalizer.
 	if !flowRun.DeletionTimestamp.IsZero() && flowRun.Status.Phase == "Running" {
 		if err := r.cancelFlowRun(ctx, &flowRun, "FlowRun deleted while running"); err != nil {
+			return ctrl.Result{}, err
+		}
+		return ctrl.Result{}, nil
+	}
+
+	// User requested cancellation via `kubectl annotate flowrun ... kubezap.io/cancel=true`
+	// (docs/api/flowrun.md kubectl cheat sheet). Only meaningful while Running — a FlowRun
+	// that hasn't started yet or has already reached a terminal phase is handled by the
+	// existing paths above/below.
+	if flowRun.Status.Phase == "Running" && flowRun.Annotations[cancelAnnotation] == "true" {
+		if err := r.cancelFlowRun(ctx, &flowRun, "FlowRun cancelled via kubezap.io/cancel annotation"); err != nil {
 			return ctrl.Result{}, err
 		}
 		return ctrl.Result{}, nil

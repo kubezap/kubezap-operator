@@ -545,6 +545,80 @@ var _ = Describe("FlowRunReconciler", func() {
 		})
 	})
 
+	Context("kubezap.io/cancel annotation while running", func() {
+		var (
+			flow    *automationv1alpha1.Flow
+			flowRun *automationv1alpha1.FlowRun
+		)
+
+		BeforeEach(func() {
+			seed := GinkgoRandomSeed()
+			flowName := fmt.Sprintf("flow-cancel-annotation-%d", seed)
+			flowRunName := fmt.Sprintf("fr-cancel-annotation-%d", seed)
+
+			flow = makeFlow(flowName, []automationv1alpha1.FlowStep{
+				{Name: "placeholder", Action: automationv1alpha1.StepAction{
+					Type:      "transform",
+					Transform: &automationv1alpha1.TransformAction{Mappings: map[string]string{"key": "val"}},
+				}},
+			})
+			Expect(k8sClient.Create(ctx, flow)).To(Succeed())
+
+			flowRun = makeFlowRun(flowRunName, flowName)
+			flowRun.Annotations = map[string]string{"kubezap.io/cancel": "true"}
+			Expect(k8sClient.Create(ctx, flowRun)).To(Succeed())
+
+			// Set phase=Running via status subresource — the annotation only takes
+			// effect while Running (docs/api/flowrun.md: "Cancel a running FlowRun").
+			now := metav1.Now()
+			flowRun.Status.Phase = "Running"
+			flowRun.Status.StartTime = &now
+			Expect(k8sClient.Status().Update(ctx, flowRun)).To(Succeed())
+
+			DeferCleanup(func() {
+				_ = k8sClient.Delete(context.Background(), flowRun)
+				_ = k8sClient.Delete(context.Background(), flow)
+			})
+		})
+
+		It("cancels the FlowRun without touching the DeletionTimestamp path", func() {
+			r := newReconciler()
+			nn := types.NamespacedName{Name: flowRun.Name, Namespace: testNamespace}
+			_, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: nn})
+			Expect(err).NotTo(HaveOccurred())
+
+			var updated automationv1alpha1.FlowRun
+			Expect(k8sClient.Get(ctx, nn, &updated)).To(Succeed())
+			Expect(updated.Status.Phase).To(Equal("Cancelled"))
+			Expect(updated.DeletionTimestamp).To(BeNil())
+
+			cond := apimeta.FindStatusCondition(updated.Status.Conditions, "Cancelled")
+			Expect(cond).NotTo(BeNil())
+			Expect(cond.Status).To(Equal(metav1.ConditionTrue))
+			Expect(cond.Reason).To(Equal("FlowRunCancelled"))
+		})
+
+		It("does not cancel a FlowRun that hasn't reached Running yet", func() {
+			seed := GinkgoRandomSeed()
+			pendingName := fmt.Sprintf("fr-cancel-pending-%d", seed)
+			pending := makeFlowRun(pendingName, flow.Name)
+			pending.Annotations = map[string]string{"kubezap.io/cancel": "true"}
+			Expect(k8sClient.Create(ctx, pending)).To(Succeed())
+			DeferCleanup(func() {
+				_ = k8sClient.Delete(context.Background(), pending)
+			})
+
+			r := newReconciler()
+			nn := types.NamespacedName{Name: pendingName, Namespace: testNamespace}
+			_, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: nn})
+			Expect(err).NotTo(HaveOccurred())
+
+			var updated automationv1alpha1.FlowRun
+			Expect(k8sClient.Get(ctx, nn, &updated)).To(Succeed())
+			Expect(updated.Status.Phase).NotTo(Equal("Cancelled"))
+		})
+	})
+
 	Context("orphan recovery for stuck Running FlowRuns", func() {
 		var (
 			flow    *automationv1alpha1.Flow

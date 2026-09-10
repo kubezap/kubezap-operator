@@ -169,7 +169,7 @@ View all requests Mockoon received via the admin API:
 ```bash
 kubectl exec -n default \
   $(kubectl get pod -n default -l app=mockoon -o jsonpath='{.items[0].metadata.name}') \
-  -- wget -q -O - http://localhost:3001/api/logs | jq .
+  -- wget -q -O - http://localhost:3000/mockoon-admin/logs | jq .
 ```
 
 You should see three POST requests (one per tenant endpoint), each carrying the

@@ -600,10 +600,11 @@ func desiredKafkaGatewayDeployment(integration *automationv1alpha1.Integration) 
 					},
 					Containers: []corev1.Container{
 						{
-							Name:  "kafka-gateway",
-							Image: image,
-							Args:  []string{"--namespace=" + integration.Namespace},
-							Env:   envVars,
+							Name:            "kafka-gateway",
+							Image:           image,
+							ImagePullPolicy: corev1.PullIfNotPresent,
+							Args:            []string{"--namespace=" + integration.Namespace},
+							Env:             envVars,
 							SecurityContext: &corev1.SecurityContext{
 								RunAsNonRoot:             ptr.To(true),
 								ReadOnlyRootFilesystem:   ptr.To(true),
@@ -915,10 +916,11 @@ func desiredAmqpGatewayDeployment(integration *automationv1alpha1.Integration) *
 					},
 					Containers: []corev1.Container{
 						{
-							Name:  "amqp-gateway",
-							Image: image,
-							Args:  []string{"--namespace=" + integration.Namespace},
-							Env:   envVars,
+							Name:            "amqp-gateway",
+							Image:           image,
+							ImagePullPolicy: corev1.PullIfNotPresent,
+							Args:            []string{"--namespace=" + integration.Namespace},
+							Env:             envVars,
 							SecurityContext: &corev1.SecurityContext{
 								RunAsNonRoot:             ptr.To(true),
 								ReadOnlyRootFilesystem:   ptr.To(true),
@@ -1116,10 +1118,11 @@ func desiredNatsGatewayDeployment(integration *automationv1alpha1.Integration) *
 					},
 					Containers: []corev1.Container{
 						{
-							Name:  "nats-gateway",
-							Image: image,
-							Args:  []string{"--namespace=" + integration.Namespace},
-							Env:   envVars,
+							Name:            "nats-gateway",
+							Image:           image,
+							ImagePullPolicy: corev1.PullIfNotPresent,
+							Args:            []string{"--namespace=" + integration.Namespace},
+							Env:             envVars,
 							SecurityContext: &corev1.SecurityContext{
 								RunAsNonRoot:             ptr.To(true),
 								ReadOnlyRootFilesystem:   ptr.To(true),

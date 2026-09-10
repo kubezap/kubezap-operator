@@ -41,12 +41,14 @@ func main() {
 	var metricsPort int
 	var metricsTLSCertFile string
 	var metricsTLSKeyFile string
+	var healthPort int
 
 	flag.StringVar(&namespace, "namespace", "", "Namespace to watch; empty=all namespaces")
 	flag.StringVar(&logLevel, "log-level", "info", "Log level: debug|info|warn|error")
 	flag.IntVar(&metricsPort, "metrics-port", 9090, "Port for the dedicated Prometheus metrics server")
 	flag.StringVar(&metricsTLSCertFile, "metrics-tls-cert-file", "", "Path to TLS certificate PEM for the metrics server. When set with --metrics-tls-key-file the metrics server uses HTTPS.")
 	flag.StringVar(&metricsTLSKeyFile, "metrics-tls-key-file", "", "Path to TLS private key PEM for the metrics server. Required when --metrics-tls-cert-file is set.")
+	flag.IntVar(&healthPort, "health-port", 8090, "Port for the liveness/readiness /healthz endpoint. Must match the Deployment's probe port (internal/controller/integration_controller.go).")
 	flag.Parse()
 
 	opts := zap.NewDevelopmentConfig()
@@ -93,6 +95,19 @@ func main() {
 		}
 	}()
 
+	healthMux := http.NewServeMux()
+	healthMux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("ok"))
+	})
+	healthSrv := &http.Server{Addr: fmt.Sprintf(":%d", healthPort), Handler: healthMux}
+	go func() {
+		log.Info("starting health HTTP server", "port", healthPort)
+		if err := healthSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Error(err, "health HTTP server failed")
+		}
+	}()
+
 	watcher, err := kafka.NewWatcher(k8sClient, cfg, namespace, log.WithName("watcher"))
 	if err != nil {
 		log.Error(err, "unable to create kafka watcher")
@@ -116,6 +131,9 @@ func main() {
 	defer shutdownCancel()
 	if err := metricsSrv.Shutdown(shutdownCtx); err != nil {
 		log.Error(err, "failed to shutdown metrics server gracefully")
+	}
+	if err := healthSrv.Shutdown(shutdownCtx); err != nil {
+		log.Error(err, "failed to shutdown health server gracefully")
 	}
 
 	log.Info("kafka gateway stopped")

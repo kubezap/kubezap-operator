@@ -23,6 +23,7 @@ import (
 	. "github.com/onsi/gomega"
 
 	appsv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -459,5 +460,34 @@ var _ = Describe("IntegrationReconciler", func() {
 			Expect(cond.Message).To(ContainSubstring(plainPluginImage))
 			Expect(cond.Message).NotTo(ContainSubstring("@sha256:"))
 		})
+	})
+})
+
+// Broker gateway images default to the ":latest" tag, which Kubernetes defaults to
+// imagePullPolicy: Always unless set explicitly. Without PullIfNotPresent, a registry
+// blip (or, in local dev, an image that was only ever built+imported locally, never
+// pushed) makes the gateway Deployment ImagePullBackOff forever, even once a matching
+// image already exists on the node.
+var _ = Describe("broker gateway Deployment image pull policy", func() {
+	integration := &automationv1alpha1.Integration{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-integration", Namespace: "default"},
+	}
+
+	It("sets ImagePullPolicy: IfNotPresent on the kafka-gateway container", func() {
+		dep := desiredKafkaGatewayDeployment(integration)
+		Expect(dep.Spec.Template.Spec.Containers).To(HaveLen(1))
+		Expect(dep.Spec.Template.Spec.Containers[0].ImagePullPolicy).To(Equal(corev1.PullIfNotPresent))
+	})
+
+	It("sets ImagePullPolicy: IfNotPresent on the amqp-gateway container", func() {
+		dep := desiredAmqpGatewayDeployment(integration)
+		Expect(dep.Spec.Template.Spec.Containers).To(HaveLen(1))
+		Expect(dep.Spec.Template.Spec.Containers[0].ImagePullPolicy).To(Equal(corev1.PullIfNotPresent))
+	})
+
+	It("sets ImagePullPolicy: IfNotPresent on the nats-gateway container", func() {
+		dep := desiredNatsGatewayDeployment(integration)
+		Expect(dep.Spec.Template.Spec.Containers).To(HaveLen(1))
+		Expect(dep.Spec.Template.Spec.Containers[0].ImagePullPolicy).To(Equal(corev1.PullIfNotPresent))
 	})
 })

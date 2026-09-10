@@ -143,7 +143,7 @@ The Mockoon admin API records all requests it receives:
 ```bash
 kubectl exec -n default \
   $(kubectl get pod -n default -l app=mockoon -o jsonpath='{.items[0].metadata.name}') \
-  -- wget -q -O - http://localhost:3001/api/logs \
+  -- wget -q -O - http://localhost:3000/mockoon-admin/logs \
   | jq '[.[] | select(.url == "/notify-express")]'
 ```
 

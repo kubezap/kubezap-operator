@@ -60,7 +60,7 @@ failure reason, and a deduplication key derived from the pod UID.
    ```bash
    kubectl exec -n default \
      $(kubectl get pod -n default -l app=mockoon-kpft -o jsonpath='{.items[0].metadata.name}') \
-     -- wget -q -O - http://localhost:3001/api/logs | jq .
+     -- wget -q -O - http://localhost:3000/mockoon-admin/logs | jq .
    ```
 
    The log should show a POST to `/tickets` with the pod metadata in the body.

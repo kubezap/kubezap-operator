@@ -255,7 +255,7 @@ Mockoon records every request the flow made to the export API:
 ```bash
 kubectl exec -n default \
   $(kubectl get pod -n default -l app=mockoon -o jsonpath='{.items[0].metadata.name}') \
-  -- wget -q -O - http://localhost:3001/api/logs | jq .
+  -- wget -q -O - http://localhost:3000/mockoon-admin/logs | jq .
 # Expected: entry showing POST /export-api with exportDate=2026-03-20T07:00:00Z and the tables list
 ```
 

@@ -44,7 +44,7 @@ spec:
       runAfter:
         - republish-order
       when:
-        - expression: "steps.extract_error.results.retryCount|int > 3"
+        - expression: "int(steps.extract_error.results.retryCount) > 3"
       retryPolicy:
         maxRetries: 2
         backoffType: Exponential

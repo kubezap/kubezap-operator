@@ -197,7 +197,7 @@ Inspect the Mockoon logs to confirm the escalation request was received:
 ```bash
 kubectl exec -n default \
   $(kubectl get pod -n default -l app=mockoon -o jsonpath='{.items[0].metadata.name}') \
-  -- wget -q -O - http://localhost:3001/api/logs | jq .
+  -- wget -q -O - http://localhost:3000/mockoon-admin/logs | jq .
 ```
 
 You should see a `POST /escalate` request with the body:

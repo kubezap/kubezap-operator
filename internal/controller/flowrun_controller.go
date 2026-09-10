@@ -31,8 +31,10 @@ import (
 	"fmt"
 	"hash"
 	"io"
+	"mime"
 	"net"
 	"net/http"
+	"net/url"
 	"sort"
 	"strconv"
 	"strings"
@@ -1908,7 +1910,9 @@ func (r *FlowRunReconciler) substituteVarsWithSecrets(
 // Supported syntax:
 //   - $(steps.<name>.results.<key>) — step output value; hyphens in name are normalized to underscores
 //   - $(trigger.body) — raw trigger request body
-//   - $(trigger.body.<field>) — dot-path into trigger body JSON (nested objects and array indices supported; resolved before $(trigger.body))
+//   - $(trigger.body.<field>) — dot-path into the trigger body (nested objects and array indices
+//     supported for JSON bodies; flat top-level fields only for application/x-www-form-urlencoded
+//     bodies, keyed by trigger.contentType; resolved before $(trigger.body))
 //   - $(trigger.headers.<name>) — trigger request header value (case-insensitive)
 //   - $(trigger.topic), $(trigger.partition), $(trigger.offset), $(trigger.scheduledTime)
 func substituteVars(s string, stepResults map[string]map[string]string, triggerData *automationv1alpha1.TriggerData) string {
@@ -1927,10 +1931,19 @@ func substituteVars(s string, stepResults map[string]map[string]string, triggerD
 
 	// Handle $(trigger.body.<field>) BEFORE $(trigger.body) to avoid partial replacement.
 	// Supports dot-path traversal into nested objects and arrays, e.g. $(trigger.body.order.id)
-	// or $(trigger.body.items.0). Missing paths silently resolve to empty string.
+	// or $(trigger.body.items.0), for JSON bodies. application/x-www-form-urlencoded bodies
+	// (e.g. Slack slash commands) are parsed into a flat field map instead. Missing paths
+	// silently resolve to empty string.
 	if triggerData.Body != "" {
 		var bodyRoot interface{}
-		if jsonErr := json.Unmarshal([]byte(triggerData.Body), &bodyRoot); jsonErr == nil {
+		if isFormURLEncodedContentType(triggerData.ContentType) {
+			if formBody := parseFormURLEncodedBody(triggerData.Body); formBody != nil {
+				bodyRoot = formBody
+			}
+		} else if jsonErr := json.Unmarshal([]byte(triggerData.Body), &bodyRoot); jsonErr != nil {
+			bodyRoot = nil
+		}
+		if bodyRoot != nil {
 			const bodyFieldPrefix = "$(trigger.body."
 			for {
 				idx := strings.Index(s, bodyFieldPrefix)
@@ -1983,6 +1996,34 @@ func substituteVars(s string, stepResults map[string]map[string]string, triggerD
 	}
 
 	return s
+}
+
+// isFormURLEncodedContentType reports whether contentType identifies an
+// application/x-www-form-urlencoded body, ignoring parameters such as charset.
+func isFormURLEncodedContentType(contentType string) bool {
+	mediaType, _, err := mime.ParseMediaType(contentType)
+	if err != nil {
+		mediaType = strings.TrimSpace(strings.SplitN(contentType, ";", 2)[0])
+	}
+	return strings.EqualFold(mediaType, "application/x-www-form-urlencoded")
+}
+
+// parseFormURLEncodedBody parses an application/x-www-form-urlencoded body (e.g. a Slack
+// slash command payload) into a flat map for $(trigger.body.<field>) resolution via
+// resolveBodyPath. Repeated keys keep only the first value; form fields in supported
+// webhook payloads are not repeated. Returns nil if the body cannot be parsed as a query string.
+func parseFormURLEncodedBody(body string) map[string]interface{} {
+	values, err := url.ParseQuery(body)
+	if err != nil {
+		return nil
+	}
+	result := make(map[string]interface{}, len(values))
+	for key, vals := range values {
+		if len(vals) > 0 {
+			result[key] = vals[0]
+		}
+	}
+	return result
 }
 
 // resolveBodyPath recursively traverses v following the dot-path segments in parts.

@@ -13,6 +13,7 @@ import (
 	"net"
 	"net/http"
 	"runtime/debug"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -129,6 +130,9 @@ func sourceRange(ipStr string) string {
 func authenticateRequest(r *http.Request, body []byte, entry RouteEntry, triggerName string) (int, string) {
 	switch entry.AuthType {
 	case "hmac":
+		if entry.HMACProvider == "slack" {
+			return verifySlackHMAC(r, body, entry.HMACSecret, entry.HMACTimestampToleranceSec)
+		}
 		sigHeader := r.Header.Get("X-Hub-Signature-256")
 		if sigHeader == "" {
 			return http.StatusUnauthorized, "missing X-Hub-Signature-256 header"
@@ -229,6 +233,42 @@ func authenticateRequest(r *http.Request, body []byte, entry RouteEntry, trigger
 		return http.StatusUnauthorized, "authentication type not implemented"
 	}
 
+	return http.StatusOK, ""
+}
+
+// verifySlackHMAC verifies Slack's signature scheme: header X-Slack-Signature
+// in the form "v0=<hex>", computed as HMAC-SHA256 over "v0:<timestamp>:<body>"
+// where <timestamp> comes from X-Slack-Request-Timestamp. Requests whose
+// timestamp is more than toleranceSeconds away from now are rejected as
+// potential replays, per Slack's own recommendation (default 300s).
+func verifySlackHMAC(r *http.Request, body []byte, secret string, toleranceSeconds int32) (int, string) {
+	sigHeader := r.Header.Get("X-Slack-Signature")
+	if sigHeader == "" {
+		return http.StatusUnauthorized, "missing X-Slack-Signature header"
+	}
+	tsHeader := r.Header.Get("X-Slack-Request-Timestamp")
+	if tsHeader == "" {
+		return http.StatusUnauthorized, "missing X-Slack-Request-Timestamp header"
+	}
+	ts, err := strconv.ParseInt(tsHeader, 10, 64)
+	if err != nil {
+		return http.StatusUnauthorized, "invalid X-Slack-Request-Timestamp header"
+	}
+
+	tolerance := int64(toleranceSeconds)
+	if tolerance <= 0 {
+		tolerance = 300
+	}
+	if age := time.Now().Unix() - ts; age > tolerance || age < -tolerance {
+		return http.StatusUnauthorized, "X-Slack-Request-Timestamp outside tolerance window"
+	}
+
+	mac := hmac.New(sha256.New, []byte(secret))
+	mac.Write([]byte("v0:" + tsHeader + ":" + string(body)))
+	expected := "v0=" + hex.EncodeToString(mac.Sum(nil))
+	if !hmac.Equal([]byte(sigHeader), []byte(expected)) {
+		return http.StatusUnauthorized, "HMAC signature mismatch"
+	}
 	return http.StatusOK, ""
 }
 

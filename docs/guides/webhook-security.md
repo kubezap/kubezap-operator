@@ -86,19 +86,47 @@ kubectl create secret generic github-webhook-secret \
   -n automation
 ```
 
-**How it works**: the gateway reads the shared HMAC secret from the referenced Secret key, computes `HMAC-SHA256(body, secret)`, and compares the result to the value in the provider's signature header using a constant-time comparison (safe against timing attacks). The exact header name, algorithm, and prefix used for comparison are fixed per provider at the gateway implementation level.
+**How it works**: `hmac.provider` selects the verification scheme (default `github`). The gateway reads the shared HMAC secret from the referenced Secret key, computes the provider's signature over the appropriate signing base, and compares it to the value in the request's signature header using a constant-time comparison (safe against timing attacks).
 
-> **Note:** Per-trigger configuration of the signature header name, hash algorithm, encoding, and prefix is planned for a future release. Today, the gateway uses provider-appropriate defaults derived from the trigger path and common SaaS conventions.
+> **Note:** Only `github` and `slack` providers are implemented today. Per-trigger configuration of an arbitrary signature header name, hash algorithm, encoding, or prefix (for providers like Stripe or Shopify) is planned for a future release.
 
 **Common HMAC providers:**
 
-| Provider | Signature header          | Notes                                  |
-| -------- | ------------------------- | -------------------------------------- |
-| GitHub   | `X-Hub-Signature-256`     | SHA-256, hex-encoded, `sha256=` prefix |
-| Stripe   | `Stripe-Signature`        | SHA-256, hex-encoded, `v1=` prefix     |
-| Shopify  | `X-Shopify-Hmac-Sha256`   | SHA-256, base64-encoded                |
+| Provider | `hmac.provider` | Signature header             | Notes                                                          |
+| -------- | --------------- | ----------------------------- | --------------------------------------------------------------- |
+| GitHub   | `github` (default) | `X-Hub-Signature-256`       | SHA-256, hex-encoded, `sha256=` prefix, over the raw body       |
+| Slack    | `slack`         | `X-Slack-Signature`           | SHA-256, hex-encoded, `v0=` prefix, over `v0:<timestamp>:<body>`, with replay-window enforcement via `X-Slack-Request-Timestamp` |
+| Stripe   | *(not yet supported)* | `Stripe-Signature`      | SHA-256, hex-encoded, `v1=` prefix                              |
+| Shopify  | *(not yet supported)* | `X-Shopify-Hmac-Sha256` | SHA-256, base64-encoded                                         |
 
 > For GitLab token verification (header equality rather than HMAC), use `type: header-equals` — see [API Key Header](#api-key-header).
+
+### Slack slash commands
+
+Slack signs requests differently from GitHub-style webhooks — the signing base includes a timestamp, and the header/prefix differ. Set `hmac.provider: slack`:
+
+```yaml
+apiVersion: automation.kubezap.io/v1alpha1
+kind: Trigger
+metadata:
+  name: slack-slash-command
+  namespace: automation
+spec:
+  type: webhook
+  webhook:
+    path: /hooks/slack-slash
+    method: POST
+    auth:
+      type: hmac
+      hmac:
+        provider: slack
+        timestampToleranceSeconds: 300 # default; Slack's own recommendation
+        secretRef:
+          name: slack-signing-secret
+          key: signingSecret
+```
+
+The gateway rejects requests whose `X-Slack-Request-Timestamp` is more than `timestampToleranceSeconds` away from the current time, even with a valid signature — this guards against replay of a captured request. See `examples/slack-router/` for a full working example.
 
 ---
 
@@ -357,11 +385,13 @@ spec:
 
 ### HMACConfig
 
-| Field       | Type            | Required | Description                                                 |
-| ----------- | --------------- | -------- | ----------------------------------------------------------- |
-| `secretRef` | SecretKeySelector | **Yes**  | Secret key containing the shared HMAC signing secret        |
+| Field                       | Type              | Required | Default  | Description                                                              |
+| --------------------------- | ----------------- | -------- | -------- | ------------------------------------------------------------------------ |
+| `secretRef`                  | SecretKeySelector | **Yes**  | —        | Secret key containing the shared HMAC signing secret                     |
+| `provider`                   | enum              | No       | `github` | `github` or `slack` — selects the verification scheme (see table above)  |
+| `timestampToleranceSeconds`  | int32             | No       | `300`    | Replay-window tolerance for `provider: slack`; ignored otherwise         |
 
-> **Note:** Per-trigger configuration of the signature header name, hash algorithm (`sha1`, `sha256`, `sha512`), encoding (`hex`, `base64`), and signature prefix is planned for a future release.
+> **Note:** Per-trigger configuration of an arbitrary signature header name, hash algorithm (`sha1`, `sha256`, `sha512`), encoding (`hex`, `base64`), and signature prefix — for providers beyond `github`/`slack` — is planned for a future release.
 
 ### BearerConfig
 

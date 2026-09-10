@@ -237,6 +237,37 @@ func newTestHandlerWithHMAC(t *testing.T, secret string) (*WebhookHandler, clien
 	return h, fakeClient
 }
 
+// newTestHandlerWithSlackHMAC creates a WebhookHandler with a fake k8s client and a
+// registry containing a single route at /hooks/slack-test with Slack-flavored HMAC
+// auth and POST method.
+func newTestHandlerWithSlackHMAC(t *testing.T, secret string, toleranceSeconds int32) (*WebhookHandler, client.Client) {
+	t.Helper()
+	scheme := newWebhookTestScheme()
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).Build()
+	log := zap.New()
+	registry := NewRouteRegistry(log)
+	registry.Register("/hooks/slack-test", RouteEntry{
+		TriggerName:               "slack-trigger",
+		TriggerNamespace:          "default",
+		FlowRef:                   "slack-flow",
+		AllowedMethod:             "POST",
+		AuthType:                  "hmac",
+		HMACSecret:                secret,
+		HMACProvider:              "slack",
+		HMACTimestampToleranceSec: toleranceSeconds,
+	})
+	h := NewWebhookHandler(fakeClient, registry, log)
+	return h, fakeClient
+}
+
+// computeSlackSignature returns the "v0=<hex>" signature Slack sends, computed over
+// "v0:<timestamp>:<body>".
+func computeSlackSignature(body []byte, timestamp string, secret string) string {
+	mac := hmac.New(sha256.New, []byte(secret))
+	mac.Write([]byte("v0:" + timestamp + ":" + string(body)))
+	return "v0=" + hex.EncodeToString(mac.Sum(nil))
+}
+
 // flowRunCount returns the number of FlowRun objects in the fake client.
 func flowRunCount(t *testing.T, k8s client.Client) int {
 	t.Helper()
@@ -298,6 +329,92 @@ func TestHMACAuth(t *testing.T) {
 					sig = computeHMACSignature(body, secret)
 				}
 				req.Header.Set("X-Hub-Signature-256", sig)
+			}
+
+			rr := httptest.NewRecorder()
+			h.ServeHTTP(rr, req)
+
+			if rr.Code != tc.wantStatus {
+				t.Fatalf("expected status %d, got %d; body: %s", tc.wantStatus, rr.Code, rr.Body.String())
+			}
+
+			count := flowRunCount(t, k8s)
+			if tc.wantFlowRun && count == 0 {
+				t.Fatal("expected a FlowRun to be created, but none found")
+			}
+			if !tc.wantFlowRun && count != 0 {
+				t.Fatalf("expected no FlowRun to be created, but found %d", count)
+			}
+		})
+	}
+}
+
+func TestSlackHMACAuth(t *testing.T) {
+	const secret = "test-slack-signing-secret"
+
+	tests := []struct {
+		name        string
+		timestamp   func() string
+		signature   func(body []byte, ts string) string
+		omitSig     bool
+		omitTS      bool
+		wantStatus  int
+		wantFlowRun bool
+	}{
+		{
+			name:        "valid Slack signature",
+			timestamp:   func() string { return fmt.Sprintf("%d", time.Now().Unix()) },
+			signature:   func(body []byte, ts string) string { return computeSlackSignature(body, ts, secret) },
+			wantStatus:  http.StatusAccepted,
+			wantFlowRun: true,
+		},
+		{
+			name:      "wrong Slack signature",
+			timestamp: func() string { return fmt.Sprintf("%d", time.Now().Unix()) },
+			signature: func(body []byte, ts string) string {
+				return "v0=deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef"
+			},
+			wantStatus:  http.StatusUnauthorized,
+			wantFlowRun: false,
+		},
+		{
+			name:        "missing X-Slack-Signature header",
+			timestamp:   func() string { return fmt.Sprintf("%d", time.Now().Unix()) },
+			omitSig:     true,
+			wantStatus:  http.StatusUnauthorized,
+			wantFlowRun: false,
+		},
+		{
+			name:        "missing X-Slack-Request-Timestamp header",
+			timestamp:   func() string { return fmt.Sprintf("%d", time.Now().Unix()) },
+			signature:   func(body []byte, ts string) string { return computeSlackSignature(body, ts, secret) },
+			omitTS:      true,
+			wantStatus:  http.StatusUnauthorized,
+			wantFlowRun: false,
+		},
+		{
+			name:        "stale timestamp rejected as replay",
+			timestamp:   func() string { return fmt.Sprintf("%d", time.Now().Add(-10*time.Minute).Unix()) },
+			signature:   func(body []byte, ts string) string { return computeSlackSignature(body, ts, secret) },
+			wantStatus:  http.StatusUnauthorized,
+			wantFlowRun: false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			h, k8s := newTestHandlerWithSlackHMAC(t, secret, 300)
+
+			body := []byte("command=%2Fkubezap&text=deploy+staging")
+			req := httptest.NewRequest(http.MethodPost, "/hooks/slack-test", bytes.NewReader(body))
+			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+			ts := tc.timestamp()
+			if !tc.omitTS {
+				req.Header.Set("X-Slack-Request-Timestamp", ts)
+			}
+			if !tc.omitSig {
+				req.Header.Set("X-Slack-Signature", tc.signature(body, ts))
 			}
 
 			rr := httptest.NewRecorder()

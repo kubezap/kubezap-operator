@@ -117,9 +117,11 @@ Configures authentication for a webhook trigger endpoint. If omitted, the endpoi
 
 ### HMACConfig
 
-| Field       | Type              | Required | Description                              |
-| ----------- | ----------------- | -------- | ---------------------------------------- |
-| `secretRef` | SecretKeySelector | **Yes**  | Secret key containing the HMAC secret.   |
+| Field                      | Type              | Required | Default  | Description                                                             |
+| --------------------------- | ----------------- | -------- | -------- | ------------------------------------------------------------------------ |
+| `secretRef`                 | SecretKeySelector | **Yes**  | —        | Secret key containing the HMAC secret.                                   |
+| `provider`                  | enum              | No       | `github` | `github` (X-Hub-Signature-256, `sha256=<hex>` over the body) or `slack` (X-Slack-Signature, `v0=<hex>` over `v0:<timestamp>:<body>`). See [webhook-security.md](../guides/webhook-security.md#hmac-signature-verification). |
+| `timestampToleranceSeconds` | int32             | No       | `300`    | Replay-window tolerance for `provider: slack`; ignored otherwise.        |
 
 ### BearerConfig
 

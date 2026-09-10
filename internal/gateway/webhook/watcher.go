@@ -218,6 +218,18 @@ func (w *TriggerWatcher) buildRouteEntry(ctx context.Context, trigger *automatio
 		}
 		entry.HMACSecret = val
 
+		provider := auth.HMAC.Provider
+		if provider == "" {
+			provider = "github"
+		}
+		entry.HMACProvider = provider
+
+		tolerance := auth.HMAC.TimestampToleranceSeconds
+		if tolerance <= 0 {
+			tolerance = 300
+		}
+		entry.HMACTimestampToleranceSec = tolerance
+
 	case "bearer":
 		if auth.Bearer == nil {
 			return RouteEntry{}, fmt.Errorf("bearer auth requires bearer config")

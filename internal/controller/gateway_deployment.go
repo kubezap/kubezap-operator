@@ -81,6 +81,13 @@ func desiredWebhookGatewayRole(namespace string) *rbacv1.Role {
 				Resources: []string{"flowruns"},
 				Verbs:     []string{"create"},
 			},
+			{
+				// Required to resolve Trigger webhook auth secrets (HMAC, bearer,
+				// basic, apiKey, header-equals) at route-registration time.
+				APIGroups: []string{""},
+				Resources: []string{"secrets"},
+				Verbs:     []string{"get"},
+			},
 		},
 	}
 }

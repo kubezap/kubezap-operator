@@ -125,6 +125,7 @@ Planned: GCP Pub/Sub, Solace (non-AMQP), S3/Git events, additional brokers via p
 ## Development Philosophy
 
 - **Documentation-driven development**: Define interfaces in docs/specs first, implement against them. Iterate between prototypes and docs before finalizing.
+- **Design records for non-trivial changes**: Before implementing a new CRD field, controller, gateway, binary, or any change to reconciliation logic, state transitions, security posture, or external dependencies, produce a design record per `docs/guides/design-process.md` (six required sections, filed under `docs/design/`). Skip only for typo fixes, test-only additions, and doc-only changes.
 - **Declarative everything**: All configuration via CRDs — no imperative runtime APIs
 - **Idempotent and resilient**: All reconcilers must be safe to re-run at any time
 - **Observability from day one**: All meaningful operations emit Prometheus metrics + OTel traces
@@ -183,6 +184,14 @@ test/                 # Unit and E2E test infrastructure
 - Always run `go test ./...` after implementing features or fixing bugs. Do not commit until tests pass.
 - If tests fail, triage whether failures are pre-existing or new before attempting fixes. If pre-existing, note it and move on; do not spend capacity fixing unrelated failures.
 - Unit tests use Ginkgo BDD style; E2E tests use Kind/k3s cluster. See `make test` and `make test-e2e`.
+
+## Code Review Strategy
+
+- Follow `docs/guides/code-review-strategy.md` for all code reviews. Never issue an open-ended "review the codebase" or "review this file" prompt — name one target invariant, concern, or review type from the guide (e.g. idempotency audit, state transition correctness, security boundary audit) as the entry point. Targeted reviews catch real bugs; full-repo scans produce too much noise to act on.
+
+## Pre-Merge Checklist
+
+- Before marking any non-trivial feature complete, work through `docs/guides/pre-merge-checklist.md`. All **[GATE]** items (invariant verification, spec drift check, lint/test, documentation) must be satisfied before merge. All **[FILE]** items (test coverage gaps) require a corresponding `docs/schedule.md` entry, not just a mention in the PR description.
 
 ## OpenShift / OperatorHub
 

@@ -31,6 +31,7 @@ import (
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -515,7 +516,7 @@ var _ = Describe("FlowRunReconciler", func() {
 			})
 		})
 
-		It("fails the FlowRun and removes the executing finalizer", func() {
+		It("cancels the FlowRun and removes the executing finalizer", func() {
 			r := newReconciler()
 			nn := types.NamespacedName{Name: flowRun.Name, Namespace: testNamespace}
 			_, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: nn})
@@ -525,12 +526,22 @@ var _ = Describe("FlowRunReconciler", func() {
 			getErr := k8sClient.Get(ctx, nn, &updated)
 			if apierrors.IsNotFound(getErr) {
 				// Object was fully GC'd — finalizer removal triggered immediate deletion.
-				// Status().Update (Phase=Failed) succeeded before the object was purged.
+				// Status().Update (Phase=Cancelled) succeeded before the object was purged.
 				return
 			}
 			Expect(getErr).NotTo(HaveOccurred())
-			Expect(updated.Status.Phase).To(Equal("Failed"))
+			// Deletion-while-Running is a cancellation, not a failure — see
+			// docs/architecture/flowrun-state-model.md. Reporting it as "Failed" would
+			// misrepresent an intentional deletion as an error in status, conditions,
+			// and the kubezap_flowrun_duration_seconds metric.
+			Expect(updated.Status.Phase).To(Equal("Cancelled"))
 			Expect(updated.Finalizers).NotTo(ContainElement("kubezap.io/executing"))
+
+			cond := apimeta.FindStatusCondition(updated.Status.Conditions, "Cancelled")
+			Expect(cond).NotTo(BeNil())
+			Expect(cond.Status).To(Equal(metav1.ConditionTrue))
+			Expect(cond.Reason).To(Equal("FlowRunCancelled"))
+			Expect(apimeta.FindStatusCondition(updated.Status.Conditions, "Failed")).To(BeNil())
 		})
 	})
 

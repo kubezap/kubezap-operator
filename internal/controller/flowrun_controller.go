@@ -209,9 +209,9 @@ func (r *FlowRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		))
 	defer span.End()
 
-	// FlowRun was deleted while running — fail it and remove executing finalizer.
+	// FlowRun was deleted while running — cancel it and remove executing finalizer.
 	if !flowRun.DeletionTimestamp.IsZero() && flowRun.Status.Phase == "Running" {
-		if err := r.failFlowRun(ctx, &flowRun, "FlowRun deleted while running"); err != nil {
+		if err := r.cancelFlowRun(ctx, &flowRun, "FlowRun deleted while running"); err != nil {
 			return ctrl.Result{}, err
 		}
 		return ctrl.Result{}, nil
@@ -1376,31 +1376,37 @@ func (r *FlowRunReconciler) retryDelay(policy *automationv1alpha1.RetryPolicy, a
 	}
 }
 
-func (r *FlowRunReconciler) failFlowRun(ctx context.Context, flowRun *automationv1alpha1.FlowRun, msg string) error {
+// finishFlowRun transitions a FlowRun to a terminal phase (Failed or Cancelled per the
+// state model in docs/architecture/flowrun-state-model.md), setting the corresponding
+// condition, persisting status, removing the executing finalizer, and recording
+// FlowRunDuration under the correct phase label.
+func (r *FlowRunReconciler) finishFlowRun(ctx context.Context, flowRun *automationv1alpha1.FlowRun, phase, reason, msg string) error {
 	now := metav1.Now()
 	if flowRun.Labels == nil {
 		flowRun.Labels = make(map[string]string)
 	}
-	flowRun.Labels["kubezap.io/phase"] = "Failed"
-	flowRun.Status.Phase = "Failed"
+	flowRun.Labels["kubezap.io/phase"] = phase
+	flowRun.Status.Phase = phase
 	flowRun.Status.CompletionTime = &now
 	flowRun.Status.Message = msg
 	setFlowRunCondition(flowRun, metav1.Condition{
-		Type:               "Failed",
+		Type:               phase,
 		Status:             metav1.ConditionTrue,
-		Reason:             "FlowRunFailed",
+		Reason:             reason,
 		Message:            msg,
 		LastTransitionTime: now,
 	})
 	if flowRun.Status.StartTime != nil {
 		duration := time.Since(flowRun.Status.StartTime.Time)
 		metrics.FlowRunDuration.WithLabelValues(
-			flowRun.Namespace, flowRun.Spec.FlowRef.Name, "Failed",
+			flowRun.Namespace, flowRun.Spec.FlowRef.Name, phase,
 		).Observe(duration.Seconds())
 	}
-	trace.SpanFromContext(ctx).SetStatus(otelcodes.Error, "FlowRun failed")
+	if phase == "Failed" {
+		trace.SpanFromContext(ctx).SetStatus(otelcodes.Error, "FlowRun failed")
+	}
 	// Status update first — r.Update() would overwrite the local object with the
-	// server's still-Running status before Status().Update gets to persist "Failed".
+	// server's still-Running status before Status().Update gets to persist the phase.
 	if err := r.Status().Update(ctx, flowRun); err != nil {
 		return err
 	}
@@ -1410,6 +1416,17 @@ func (r *FlowRunReconciler) failFlowRun(ctx context.Context, flowRun *automation
 		flowRun.Finalizers = removeString(flowRun.Finalizers, executingFinalizer)
 	}
 	return r.Update(ctx, flowRun)
+}
+
+func (r *FlowRunReconciler) failFlowRun(ctx context.Context, flowRun *automationv1alpha1.FlowRun, msg string) error {
+	return r.finishFlowRun(ctx, flowRun, "Failed", "FlowRunFailed", msg)
+}
+
+// cancelFlowRun transitions a FlowRun to the Cancelled phase — used when the object is
+// deleted while Running (see docs/architecture/flowrun-state-model.md). Cancellation is
+// not a failure: it must not be reported as "Failed" in status, conditions, or metrics.
+func (r *FlowRunReconciler) cancelFlowRun(ctx context.Context, flowRun *automationv1alpha1.FlowRun, msg string) error {
+	return r.finishFlowRun(ctx, flowRun, "Cancelled", "FlowRunCancelled", msg)
 }
 
 func setFlowRunCondition(flowRun *automationv1alpha1.FlowRun, condition metav1.Condition) {

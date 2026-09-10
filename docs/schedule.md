@@ -212,7 +212,7 @@ Items are ordered to minimize rework:
 
 - [x] **[AUTO] E2E — slack-router (simulated)** — Apply `examples/slack-router/`, simulate Slack slash command with curl + local HMAC signing (see README), verify `handle-deploy`, `handle-status`, `handle-unknown` branches route correctly. Remove ipAllowlist from Trigger for local testing. Covers: HMAC auth, form-encoded payload, multi-branch CEL routing. Full validation with real Slack: see USER task below. **Complete 2026-04-05**: all 3 routing branches verified (deploy/status/unknown), bad HMAC → 401, fixed trigger.yaml (removed non-existent HMACConfig fields), fixed mockoon.yaml (image + probes). Note: gateway uses GitHub-style HMAC (X-Hub-Signature-256, sha256=hex); Slack v0= format and form-encoded bodies are future enhancements.
 
-- [ ] **[USER] E2E — slack-router (real Slack)** — Requires: Slack app with slash command, Signing Secret. See `examples/slack-router/README.md` for full setup. File follow-up tasks if issues found. **Pending input**: see `docs/tech-debt/pending-input-required.md` §2026-04-04. **Unblocked 2026-09-10**: gateway previously only verified GitHub-style HMAC (`X-Hub-Signature-256`), which would have rejected real Slack signatures. Added `hmac.provider: slack` support (`X-Slack-Signature`, timestamp replay-window) — see `internal/gateway/webhook/handler.go` and `docs/guides/webhook-security.md#hmac-signature-verification`. Real Slack validation can now proceed once credentials are available.
+- [ ] **[USER] E2E — slack-router (real Slack)** — Requires: Slack app with slash command, Signing Secret. See `examples/slack-router/README.md` for full setup. File follow-up tasks if issues found. **Pending input**: see `docs/tech-debt/pending-input-required.md` §2026-04-04. **Partially validated 2026-09-10**: real Slack request from live workspace correctly authenticated (`hmac.provider: slack` — see §26) and produced a `Succeeded` FlowRun. However, it routed to `handle-unknown` instead of `handle-deploy` for `/kubezap deploy staging` — root cause is a separate bug (§26 P0: form-urlencoded body fields never resolve in templating), not an auth or routing-config issue. Task stays open until §26 P0 is fixed and re-validated.
 
 - [ ] **[USER] E2E — github-autolabel** — Requires: GitHub repo with admin access, PAT with `repo` scope, ngrok or public gateway URL. See `examples/github-autolabel/README.md`. User must create Secrets and configure GitHub webhook before applying. **Pending input**: see `docs/tech-debt/pending-input-required.md` §2026-04-04.
 
@@ -252,6 +252,22 @@ Items are ordered to minimize rework:
 
 - [ ] **DRIFT CHECK** — Run the full spec drift process from `docs/guides/spec-drift.md` across all current CRD types (`Trigger`, `Flow`, `FlowRun`, `Integration`). Produce a findings list; file P0/P1 items as new schedule entries. This is a one-time baseline check.
 - [ ] **RECURRING** — Add spec drift check as a recurring gate: run Steps 1–4 from `docs/guides/spec-drift.md` before any OperatorHub submission or GA milestone. Add this as a checklist item in any future submission PR template.
+
+---
+
+## 26. Live Slack E2E Findings — 2026-09-10
+
+> Discovered while validating real-Slack HMAC support (`hmac.provider: slack`) against a live workspace.
+
+### P0 — Fix before public release
+
+- [ ] **BUG** — `internal/controller/flowrun_controller.go:1931-1951` (`substituteVars`): `$(trigger.body.<field>)` resolution only works when `triggerData.Body` is valid JSON (`json.Unmarshal`). Form-urlencoded bodies (`Content-Type: application/x-www-form-urlencoded`, e.g. Slack slash commands: `command=%2Fkubezap&text=deploy+staging&...`) fail to unmarshal, so the substitution block is silently skipped and `$(trigger.body.text)` is left as a literal unresolved string in step results. Downstream CEL conditions then evaluate against the literal placeholder instead of the real value, so branching on form-encoded fields never works. Confirmed live: real Slack request to `examples/slack-router/` authenticated correctly but routed to `handle-unknown` instead of `handle-deploy` for `/kubezap deploy staging`. This contradicts `examples/slack-router/README.md` and the Flow docs, which document form-decoding into `trigger.body.*` as a supported feature — it has never actually worked. Affects every form-urlencoded webhook example, not just Slack. Fix: parse `application/x-www-form-urlencoded` bodies into a flat key/value map (alongside the existing JSON path) before `resolveBodyPath` traversal.
+- [x] **BUG (fixed 2026-09-10)** — `internal/controller/gateway_deployment.go` (`desiredWebhookGatewayRole`): the webhook gateway's Role never granted `secrets` access. Any Trigger auth type backed by a `secretRef` (hmac, bearer, basic, apiKey, header-equals) could never resolve its secret against a live cluster — `buildRouteEntry` failed with RBAC `forbidden` and the route was never registered (manifests as a 404 on the webhook path, not a 401). Fixed by adding a `secrets`/`get` rule. Unit test added: `internal/controller/gateway_deployment_test.go`.
+
+### P2 — Nice to have
+
+- [ ] **SECURITY** — `internal/gateway/webhook/registry.go` (`Register`/`Deregister` logging) logs the full `RouteEntry` struct at INFO level, including the raw `HMACSecret` value in plaintext. Any webhook auth secret ends up in gateway pod logs on every route (re)registration. Redact secret-bearing fields before logging.
+- [ ] **TECH DEBT** — Live cluster's controller-manager RBAC (`ClusterRole`/`Role` bound to `kubezap-controller-manager`) was found out of sync with current code during this session — missing `networkpolicies` create permission needed by `ExecutorReconciler`, causing repeated `Failed to reconcile executor NetworkPolicy` errors. Likely stale because RBAC manifests haven't been re-applied (`make deploy` / `kustomize build config/rbac`) since that permission was added. Re-apply RBAC and confirm no other drift between `config/rbac/role.yaml` and the live cluster.
 
 ---
 

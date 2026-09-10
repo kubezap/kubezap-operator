@@ -466,7 +466,7 @@ func main() {
 	}
 
 	if enableUI {
-		uiServer := ui.NewServer(mgr.GetClient(), uiBearerToken)
+		uiServer := ui.NewServer(mgr.GetClient(), uiBearerToken, ui.WithCache(mgr.GetCache()))
 		if err := mgr.Add(&ui.Runnable{
 			Server:    uiServer,
 			Port:      uiPort,

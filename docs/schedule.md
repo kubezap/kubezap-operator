@@ -150,7 +150,7 @@ Items are ordered to minimize rework:
 
 ### P2 — Nice to have
 
-- [ ] **BUG** — `internal/ui/server.go`: Dashboard SSE endpoint (`GET /api/v1/events`) returns 501 because `mgr.GetClient()` doesn't implement `client.WithWatch`. Switch to informer-based watch via `mgr.GetCache().GetInformer()` or use a dedicated `client.WithWatch` client. Discovered during §19 E2E — 2026-04-05.
+- [x] **BUG (fixed 2026-09-10)** — `internal/ui/server.go`: Dashboard SSE endpoint (`GET /api/v1/events`) returns 501 because `mgr.GetClient()` doesn't implement `client.WithWatch`. Switch to informer-based watch via `mgr.GetCache().GetInformer()` or use a dedicated `client.WithWatch` client. Discovered during §19 E2E — 2026-04-05. **Fix**: added `ui.WithCache(mgr.GetCache())` option; `handleSSE` streams via the shared informer (`GetInformer` + `AddEventHandler`) when a cache is configured, falling back to the original `client.WithWatch` path otherwise (used by existing tests with a fake client). Wired in `cmd/main.go`.
 
 - [ ] **BUG** — `internal/gateway/webhook/watcher.go`: OIDC route registration was constructing JWKS URL as `issuer + "/.well-known/jwks.json"` which is wrong for providers like Dex that serve JWKS at a non-standard path. Fixed 2026-04-05 by fetching OIDC discovery doc and reading `jwks_uri`. Adding as P2 to document the fix was applied.
 
@@ -266,7 +266,7 @@ Items are ordered to minimize rework:
 
 ### P2 — Nice to have
 
-- [ ] **SECURITY** — `internal/gateway/webhook/registry.go` (`Register`/`Deregister` logging) logs the full `RouteEntry` struct at INFO level, including the raw `HMACSecret` value in plaintext. Any webhook auth secret ends up in gateway pod logs on every route (re)registration. Redact secret-bearing fields before logging.
+- [x] **SECURITY (fixed 2026-09-10)** — `internal/gateway/webhook/registry.go` (`Register`/`Deregister` logging) logs the full `RouteEntry` struct at INFO level, including the raw `HMACSecret` value in plaintext. Any webhook auth secret ends up in gateway pod logs on every route (re)registration. Redact secret-bearing fields before logging. **Fix**: added `RouteEntry.redactedForLog()`, called at both `Register` log sites; replaces `HMACSecret`/`BearerToken`/`BasicPassword`/`APIKey`/`HeaderEqualsValue` with `"[REDACTED]"` when set, without mutating the entry actually stored in the registry.
 - [ ] **TECH DEBT** — Live cluster's controller-manager RBAC (`ClusterRole`/`Role` bound to `kubezap-controller-manager`) was found out of sync with current code during this session — missing `networkpolicies` create permission needed by `ExecutorReconciler`, causing repeated `Failed to reconcile executor NetworkPolicy` errors. Likely stale because RBAC manifests haven't been re-applied (`make deploy` / `kustomize build config/rbac`) since that permission was added. Re-apply RBAC and confirm no other drift between `config/rbac/role.yaml` and the live cluster.
 
 ---

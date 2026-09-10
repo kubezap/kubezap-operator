@@ -24,6 +24,7 @@ import (
 	"net/http"
 	"strings"
 
+	ctrlcache "sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -33,12 +34,26 @@ var distFS embed.FS
 // Server holds the mux and Kubernetes client for the dashboard HTTP server.
 type Server struct {
 	client client.Client
+	cache  ctrlcache.Cache // optional; enables informer-based SSE watch, see WithCache
 	mux    *http.ServeMux
 }
 
+// Option configures optional Server behavior.
+type Option func(*Server)
+
+// WithCache enables SSE streaming via the manager's shared informer cache instead of
+// a direct client.WithWatch call. mgr.GetClient() does not implement client.WithWatch,
+// so without this option the SSE endpoint returns 501 in production; pass mgr.GetCache().
+func WithCache(c ctrlcache.Cache) Option {
+	return func(s *Server) { s.cache = c }
+}
+
 // NewServer creates a dashboard HTTP server. bearerToken may be empty (no auth).
-func NewServer(c client.Client, bearerToken string) *Server {
+func NewServer(c client.Client, bearerToken string, opts ...Option) *Server {
 	s := &Server{client: c, mux: http.NewServeMux()}
+	for _, opt := range opts {
+		opt(s)
+	}
 	s.registerRoutes(bearerToken)
 	return s
 }

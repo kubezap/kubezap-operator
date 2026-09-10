@@ -304,6 +304,24 @@ Items are ordered to minimize rework:
 
 ---
 
+## 29. Secret Rotation Detection Gap — 2026-09-10
+
+> Raised by owner: does the operator detect a Secret rotated externally (e.g. by External Secrets Operator) without the referencing Trigger/Integration being touched?
+
+- [ ] **BUG** — Webhook Trigger auth secrets (HMAC/bearer/basic/apiKey/header-equals — `internal/gateway/webhook/watcher.go`) and Kafka/AMQP/NATS broker credentials (SASL/TLS — `internal/gateway/{kafka,amqp,nats}/watcher.go`) are read once when the gateway processes a Trigger/Integration add-or-update event, then cached in memory in the route/subscription entry for its lifetime. No reconciler in the codebase sets up a `Watches(&corev1.Secret{}, ...)` — confirmed by grep across `internal/controller/` and `internal/gateway/`. If ESO (or any external rotation) updates the Secret's data without touching the referencing Trigger/Integration, the gateway keeps using the stale credential indefinitely, until the Trigger/Integration is reconciled again for an unrelated reason or the gateway pod restarts. **Fix**: add a `Watches(&corev1.Secret{}, handler.EnqueueRequestsFromMapFunc(...))` that maps a changed Secret back to every Trigger/Integration referencing it via `secretRef`/`usernameSecretRef`/etc. (same reverse-index pattern would need indexing Secret name/namespace → referencing object, likely via a controller-runtime field indexer). Scope: webhook gateway's `TriggerWatcher`, and the kafka/amqp/nats gateway watchers.
+- [ ] **TECH DEBT** — Related and lower-severity: the `type: publish` Kafka producer cache (`kafkaProducerIdleTTL`, 10 minutes) means even a secret change that *is* detected by a fresh Integration reconcile won't affect an already-open cached producer until it idles out. Worth deciding whether producer recreation should be forced on Integration secret-related field changes, separately from idle eviction.
+- [x] **CONFIRMED WORKING (no gap)** — Outbound HTTP step auth (Bearer/Basic/APIKey/SecretURL — `internal/controller/flowrun_controller.go` `fetchSecretValue`) is fetched fresh on every step execution, not cached across FlowRuns. Executor mTLS certs have their own independent rotation cycle. Neither needs a fix.
+
+---
+
+## 30. controller-gen Silently Ignoring Source Changes — 2026-09-10
+
+> Discovered while investigating §26's RBAC drift item. Environment/tooling issue, not a KubeZap code bug — but it undermines `CLAUDE.md`'s "always run `make generate && make manifests`" instruction, since output silently stops reflecting reality.
+
+- [ ] **TOOLING BUG** — In this session's dev environment, `controller-gen`'s `rbac` generator (`make manifests`) does not reflect *any* change to `internal/controller/*.go` source — confirmed via multiple independent tests: (1) a `+kubebuilder:rbac` marker that has existed in `executor_reconciler.go` for a while (`networking.k8s.io`/`networkpolicies`, and `secrets` write verbs) was missing from the checked-in `config/rbac/role.yaml` and re-running `make manifests` did not add it; (2) adding a brand-new file with a uniquely-named canary marker (`canarygroup2026`/`canaryresources2026`) produced no change in output; (3) introducing a blatant Go syntax error into a new file produced **no error at all** from `controller-gen` — it silently kept emitting the same stale output, which proves the tool isn't actually parsing current file contents for this package, not just missing one marker. (4) Upgrading from the pinned `v0.18.0` to the latest `v0.22.0` (via `go install sigs.k8s.io/controller-tools/cmd/controller-gen@v0.22.0`) reproduced the identical stale-output behavior — rules out a version-specific bug. Ruled out: `GOCACHE` (tested with a fresh throwaway cache dir), path style (`./...` vs full module path), `go.mod` `replace` directives (none present), a `vendor/` directory (none present), `GOFLAGS`/`GOWORK` (both empty). Root cause not found — needs investigation outside this sandboxed session (e.g. does this reproduce on a real workstation or in CI?). **Workaround applied**: manually patched the two missing rules into `config/rbac/role.yaml` directly (see comment at the top of that file) and applied them to the live cluster. Manual patch will silently go stale again if source RBAC markers change further and no one notices `make manifests` isn't picking them up — re-run the diagnostic in this item's description periodically until root-caused.
+
+---
+
 ## 10. Future / Backlog
 
 - [ ] `Step` CRD for reusable step definitions

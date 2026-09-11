@@ -266,13 +266,6 @@ spec:
                           default: "2.0"
                           description: Backoff multiplier.
                           type: string
-                        retryOn:
-                          description: HTTP status codes or error codes that trigger
-                            retry.
-                          items:
-                            format: int32
-                            type: integer
-                          type: array
                       required:
                       - maxRetries
                       type: object

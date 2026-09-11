@@ -305,7 +305,7 @@ Inspect the FlowRun to see the message payload passed as trigger data:
 kubectl describe flowrun order-events-1711036800-a1b2c -n default
 ```
 
-The message body is available to the Flow as `$(trigger.payload.value)`. If the message was valid JSON, the fields are also accessible individually -- for example, `$(trigger.payload.value.orderId)`.
+The message body is available to the Flow as `$(trigger.body)`. If the message was valid JSON, the fields are also accessible individually -- for example, `$(trigger.body.orderId)`.
 
 ---
 

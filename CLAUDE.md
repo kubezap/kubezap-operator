@@ -70,7 +70,7 @@ Key decisions:
 - Gateways configure themselves by watching Trigger CRDs directly (no intermediate ConfigMap)
 - Gateway → Flow communication via `FlowRun` CRD (controller watches and executes)
 - FlowRun naming: webhook `<trigger>-<timestamp>-<random>`, kafka `<trigger>-p<partition>-offset-<offset>` (dedup key), cron `<trigger>-<scheduled-time>`
-- FlowRun GC: `spec.ttlAfterFinished` per FlowRun, operator-level `--flowrun-ttl-succeeded` / `--flowrun-ttl-failed` flags (defaults 24h/72h), or `spec.maxFlowRuns` on Trigger; annotate with `kubezap.io/retain=true` to exempt
+- FlowRun GC: `spec.ttlAfterFinished` per FlowRun, operator-level `--flowrun-ttl-succeeded` / `--flowrun-ttl-failed` flags (defaults 24h/72h), or `spec.flowRunGC.{maxSucceeded,maxFailed}` on Trigger; annotate with `kubezap.io/retain=true` to exempt
 - Publish step action: `type: publish` with `integrationRef` + `topic` + `body` — controller calls plugin's `/publish` endpoint
 - HPA on webhook gateway; KEDA recommended for Kafka gateway (partition-bounded scaling)
 - `WATCH_NAMESPACES` env var controls scope: empty = OwnNamespace (default, least privilege), `*` = AllNamespaces (secrets restricted to `kubezap.io/managed=true` namespaces), comma-list = MultiNamespace, single value = SingleNamespace

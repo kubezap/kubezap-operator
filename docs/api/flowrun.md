@@ -281,13 +281,22 @@ spec:
     ttlAfterFailed: 48h   # per-trigger TTL override for failed
 ```
 
+### FlowRunGCPolicy
+
+| Field               | Type     | Required | Default | Description                                                  |
+| ------------------- | -------- | -------- | ------- | -------------------------------------------------------------- |
+| `maxSucceeded`       | integer  | No       | `0` (no limit) | Maximum number of `Succeeded` FlowRuns to retain per Trigger. Oldest excess FlowRuns are deleted first. |
+| `maxFailed`          | integer  | No       | `0` (no limit) | Maximum number of `Failed` FlowRuns to retain per Trigger, tracked separately from `maxSucceeded`. |
+| `ttlAfterSucceeded`  | duration | No       | —       | Per-trigger override of the operator-level `--flowrun-ttl-succeeded` default for this Trigger's `Succeeded` FlowRuns. |
+| `ttlAfterFailed`     | duration | No       | —       | Per-trigger override of the operator-level `--flowrun-ttl-failed` default for this Trigger's `Failed` FlowRuns. |
+
 Count-based and TTL-based GC are **independent** — a FlowRun is eligible for deletion when either condition is met first.
 
 Set `maxSucceeded: 0` or `maxFailed: 0` to disable count-based GC for that phase (TTL still applies).
 
 ### Active FlowRuns are exempt
 
-FlowRuns in `Pending`, `Running`, or `Waiting` phase are never garbage collected automatically.
+FlowRuns in `Pending` or `Running` phase are never garbage collected automatically. (`Waiting` is a *step*-level phase, not a FlowRun-level one — a FlowRun with a step currently `Waiting` on a timer is itself still in `Running` phase. See [StepRunStatus](#steprunstatus) vs. the FlowRun-level phase enum above.)
 
 ### Retain annotation
 

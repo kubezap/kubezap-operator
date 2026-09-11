@@ -13,7 +13,7 @@ Versions follow [Semantic Versioning](https://semver.org/).
 - GitHub Actions CI workflow: unified lint, test, build, docker-build on every push and PR
 - GitHub Actions release workflow: GoReleaser CLI binaries + container image push to GHCR on tag
 - GitHub Actions publish-latest workflow: `:latest` image push on merge to `main`
-- Helm chart published to OCI registry (`ghcr.io/kubezap/charts/kubezap`)
+- Helm chart published to OCI registry (`ghcr.io/kubezap/charts/kubezap-operator`)
 - `docs/releasing.md` — internal release runbook
 
 ### Fixed

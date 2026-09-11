@@ -145,7 +145,7 @@ spec:
 For the Helm chart:
 
 ```bash
-helm upgrade kubezap ./charts/kubezap \
+helm upgrade kubezap ./charts/kubezap-operator \
   --set ui.port=8082 \
   --set ui.servicePort=8082
 ```

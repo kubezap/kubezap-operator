@@ -32,6 +32,7 @@ func newTestReconciler() *FlowRunReconciler {
 	env, err := cel.NewEnv(
 		cel.Variable("trigger", cel.MapType(cel.StringType, cel.DynType)),
 		cel.Variable("steps", cel.MapType(cel.StringType, cel.DynType)),
+		cel.Variable("params", cel.MapType(cel.StringType, cel.DynType)),
 	)
 	if err != nil {
 		panic("newTestReconciler: failed to initialize CEL env: " + err.Error())
@@ -56,19 +57,19 @@ var _ = Describe("evaluateWhen", func() {
 
 	Context("constant expressions", func() {
 		It("returns true for expression 'true'", func() {
-			result, err := r.evaluateWhen(when("true"), nil, nil, nil)
+			result, err := r.evaluateWhen(when("true"), nil, nil, nil, nil)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(result).To(BeTrue())
 		})
 
 		It("returns false for expression 'false'", func() {
-			result, err := r.evaluateWhen(when("false"), nil, nil, nil)
+			result, err := r.evaluateWhen(when("false"), nil, nil, nil, nil)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(result).To(BeFalse())
 		})
 
 		It("returns true for an empty when list (vacuously true)", func() {
-			result, err := r.evaluateWhen(nil, nil, nil, nil)
+			result, err := r.evaluateWhen(nil, nil, nil, nil, nil)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(result).To(BeTrue())
 		})
@@ -82,21 +83,21 @@ var _ = Describe("evaluateWhen", func() {
 				// so string operations such as contains() are appropriate.
 				Body: "premium",
 			}
-			result, err := r.evaluateWhen(when(`trigger.body == "premium"`), nil, nil, td)
+			result, err := r.evaluateWhen(when(`trigger.body == "premium"`), nil, nil, td, nil)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(result).To(BeTrue())
 		})
 
 		It("evaluates trigger.topic equality", func() {
 			td := &automationv1alpha1.TriggerData{Topic: "orders"}
-			result, err := r.evaluateWhen(when(`trigger.topic == "orders"`), nil, nil, td)
+			result, err := r.evaluateWhen(when(`trigger.topic == "orders"`), nil, nil, td, nil)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(result).To(BeTrue())
 		})
 
 		It("evaluates trigger.topic inequality to false", func() {
 			td := &automationv1alpha1.TriggerData{Topic: "returns"}
-			result, err := r.evaluateWhen(when(`trigger.topic == "orders"`), nil, nil, td)
+			result, err := r.evaluateWhen(when(`trigger.topic == "orders"`), nil, nil, td, nil)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(result).To(BeFalse())
 		})
@@ -105,7 +106,7 @@ var _ = Describe("evaluateWhen", func() {
 			td := &automationv1alpha1.TriggerData{
 				Headers: map[string]string{"X-Env": "prod"},
 			}
-			result, err := r.evaluateWhen(when(`trigger.headers["X-Env"] == "prod"`), nil, nil, td)
+			result, err := r.evaluateWhen(when(`trigger.headers["X-Env"] == "prod"`), nil, nil, td, nil)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(result).To(BeTrue())
 		})
@@ -114,14 +115,14 @@ var _ = Describe("evaluateWhen", func() {
 			td := &automationv1alpha1.TriggerData{
 				Headers: map[string]string{"X-Env": "staging"},
 			}
-			result, err := r.evaluateWhen(when(`trigger.headers["X-Env"] == "prod"`), nil, nil, td)
+			result, err := r.evaluateWhen(when(`trigger.headers["X-Env"] == "prod"`), nil, nil, td, nil)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(result).To(BeFalse())
 		})
 
 		It("handles nil trigger data by defaulting fields to empty strings", func() {
 			// With nil triggerData the activations map defaults body/topic/etc. to "".
-			result, err := r.evaluateWhen(when(`trigger.topic == ""`), nil, nil, nil)
+			result, err := r.evaluateWhen(when(`trigger.topic == ""`), nil, nil, nil, nil)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(result).To(BeTrue())
 		})
@@ -132,7 +133,7 @@ var _ = Describe("evaluateWhen", func() {
 			statuses := []automationv1alpha1.StepRunStatus{
 				{Name: "step1", Phase: "Succeeded"},
 			}
-			result, err := r.evaluateWhen(when(`steps.step1.status == "Succeeded"`), nil, statuses, nil)
+			result, err := r.evaluateWhen(when(`steps.step1.status == "Succeeded"`), nil, statuses, nil, nil)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(result).To(BeTrue())
 		})
@@ -141,7 +142,7 @@ var _ = Describe("evaluateWhen", func() {
 			statuses := []automationv1alpha1.StepRunStatus{
 				{Name: "step1", Phase: "Failed"},
 			}
-			result, err := r.evaluateWhen(when(`steps.step1.status == "Succeeded"`), nil, statuses, nil)
+			result, err := r.evaluateWhen(when(`steps.step1.status == "Succeeded"`), nil, statuses, nil, nil)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(result).To(BeFalse())
 		})
@@ -150,7 +151,7 @@ var _ = Describe("evaluateWhen", func() {
 			stepResults := map[string]map[string]string{
 				"fetch": {"status_code": "200"},
 			}
-			result, err := r.evaluateWhen(when(`steps.fetch.results["status_code"] == "200"`), stepResults, nil, nil)
+			result, err := r.evaluateWhen(when(`steps.fetch.results["status_code"] == "200"`), stepResults, nil, nil, nil)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(result).To(BeTrue())
 		})
@@ -160,9 +161,31 @@ var _ = Describe("evaluateWhen", func() {
 				"my-step": {"key": "val"},
 			}
 			// The step name "my-step" is accessible in CEL as "my_step".
-			result, err := r.evaluateWhen(when(`steps.my_step.results["key"] == "val"`), stepResults, nil, nil)
+			result, err := r.evaluateWhen(when(`steps.my_step.results["key"] == "val"`), stepResults, nil, nil, nil)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(result).To(BeTrue())
+		})
+	})
+
+	Context("param expressions", func() {
+		It("evaluates a resolved param value", func() {
+			params := map[string]string{"env": "production"}
+			result, err := r.evaluateWhen(when(`params.env == "production"`), nil, nil, nil, params)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result).To(BeTrue())
+		})
+
+		It("evaluates false for a non-matching resolved param value", func() {
+			params := map[string]string{"env": "staging"}
+			result, err := r.evaluateWhen(when(`params.env == "production"`), nil, nil, nil, params)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result).To(BeFalse())
+		})
+
+		It("treats an unset params map as an empty map, not an error", func() {
+			result, err := r.evaluateWhen(when(`has(params.env)`), nil, nil, nil, nil)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result).To(BeFalse())
 		})
 	})
 
@@ -174,14 +197,14 @@ var _ = Describe("evaluateWhen", func() {
 			}
 			result, err := r.evaluateWhen(
 				when(`trigger.topic == "orders"`, `steps.validate.status == "Succeeded"`),
-				nil, statuses, td,
+				nil, statuses, td, nil,
 			)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(result).To(BeTrue())
 		})
 
 		It("returns false when the first expression is false regardless of the second", func() {
-			result, err := r.evaluateWhen(when("false", "true"), nil, nil, nil)
+			result, err := r.evaluateWhen(when("false", "true"), nil, nil, nil, nil)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(result).To(BeFalse())
 		})
@@ -189,21 +212,21 @@ var _ = Describe("evaluateWhen", func() {
 
 	Context("error handling", func() {
 		It("returns an error for an invalid CEL expression (syntax error)", func() {
-			_, err := r.evaluateWhen(when("this is !!! not valid CEL"), nil, nil, nil)
+			_, err := r.evaluateWhen(when("this is !!! not valid CEL"), nil, nil, nil, nil)
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("CEL"))
 		})
 
 		It("returns an error when the CEL expression returns a non-bool value", func() {
 			// String literal is a valid CEL expression but returns a string, not bool.
-			_, err := r.evaluateWhen(when(`"not a bool"`), nil, nil, nil)
+			_, err := r.evaluateWhen(when(`"not a bool"`), nil, nil, nil, nil)
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("bool"))
 		})
 
 		It("does not panic on an invalid expression — returns a wrapped error", func() {
 			Expect(func() {
-				_, _ = r.evaluateWhen(when("!!!"), nil, nil, nil)
+				_, _ = r.evaluateWhen(when("!!!"), nil, nil, nil, nil)
 			}).NotTo(Panic())
 		})
 	})
@@ -213,8 +236,8 @@ var _ = Describe("evaluateWhen", func() {
 			expr := `trigger.topic == "payments"`
 			td := &automationv1alpha1.TriggerData{Topic: "payments"}
 
-			result1, err1 := r.evaluateWhen(when(expr), nil, nil, td)
-			result2, err2 := r.evaluateWhen(when(expr), nil, nil, td)
+			result1, err1 := r.evaluateWhen(when(expr), nil, nil, td, nil)
+			result2, err2 := r.evaluateWhen(when(expr), nil, nil, td, nil)
 
 			Expect(err1).NotTo(HaveOccurred())
 			Expect(err2).NotTo(HaveOccurred())
@@ -232,14 +255,14 @@ var _ = Describe("evaluateWhen", func() {
 			// element, giving O(n²) cost. Even with a tiny list, this blows the
 			// budget of 1 almost immediately.
 			complexExpr := `[1, 2, 3, 4, 5].filter(x, [1, 2, 3, 4, 5].exists(y, y == x)).size() > 0`
-			_, err := r.evaluateWhen(when(complexExpr), nil, nil, nil)
+			_, err := r.evaluateWhen(when(complexExpr), nil, nil, nil, nil)
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("cost limit"))
 		})
 
 		It("does not error for a simple expression when CELCostLimit is set to 10000 (default)", func() {
 			r.CELCostLimit = 10000
-			result, err := r.evaluateWhen(when("true"), nil, nil, nil)
+			result, err := r.evaluateWhen(when("true"), nil, nil, nil, nil)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(result).To(BeTrue())
 		})
@@ -247,7 +270,7 @@ var _ = Describe("evaluateWhen", func() {
 		It("does not apply a cost limit when CELCostLimit is 0 (unlimited)", func() {
 			r.CELCostLimit = 0
 			// This expression would fail under a budget of 1 but must succeed with no limit.
-			result, err := r.evaluateWhen(when(`trigger.topic == ""`), nil, nil, nil)
+			result, err := r.evaluateWhen(when(`trigger.topic == ""`), nil, nil, nil, nil)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(result).To(BeTrue())
 		})

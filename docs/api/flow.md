@@ -1,7 +1,5 @@
 # Flow CRD
 
-> **Flow parameters are not implemented.** `spec.params` (`ParamDeclaration`), `FlowStep.params`/`FlowRunSpec.params` (`ParamValue`), and `$(params.<name>)` interpolation are all defined in the Go API and documented throughout this page — including in most of the worked examples below — but nothing in the controller reads or resolves them (confirmed by spec-drift audit, 2026-09-10; tracked in `docs/schedule.md`). Any `$(params.x)` in a Flow today resolves to nothing — the literal placeholder is left in the string. **Every example below that uses `$(params.*)` will not work as written.** Use `$(trigger.body.<field>)` to pull a value directly from the trigger payload instead, or extract it via an upstream `transform` step and reference `$(steps.<name>.results.<field>)`. See the [`$(...)` Interpolation Quick Reference](#-interpolation-quick-reference) for what's actually implemented.
-
 A `Flow` defines the sequence of steps to execute when a `Trigger` fires. It is a reusable template — the same `Flow` can be referenced by multiple `Trigger` resources and executed concurrently.
 
 Flows support HTTP actions, data transformations, timed waits, conditional step execution, retry policies, and chaining data between steps.
@@ -161,14 +159,16 @@ Use `$(syntax)` to reference dynamic values in string fields (URLs, headers, bod
 | `$(trigger.scheduledTime)`                 | RFC3339 scheduled fire time (cron triggers only)                                                |
 | `$(steps.<stepName>.results.<resultName>)` | A result produced by a previous step (hyphens in the step name become underscores)              |
 | `$(secrets.<secretName>.<key>)`            | A value from a Kubernetes Secret in the same namespace                                         |
+| `$(params.<name>)`                         | A resolved Flow parameter — see [ParamDeclaration](#paramdeclaration) for the resolution order  |
 
-There is no `$(params.<name>)`, `$(trigger.name)`, `$(trigger.namespace)`, or `$(trigger.type)` — none of these are implemented. If you need a step to see the triggering Trigger's name, thread it through explicitly (e.g. a header or a step result), not via interpolation.
+There is no `$(trigger.name)`, `$(trigger.namespace)`, or `$(trigger.type)` — none of these are implemented. If you need a step to see the triggering Trigger's name, thread it through explicitly (e.g. a header or a step result), not via interpolation.
 
 **Example:**
 ```yaml
+# Flow.spec
 params:
   - name: userId
-    value: "$(trigger.body.userId)"
+    required: true
 
 steps:
   - name: fetch-user
@@ -179,6 +179,8 @@ steps:
         headers:
           Authorization: "Bearer $(secrets.api-credentials.token)"
 ```
+
+Here `userId` resolves automatically from a same-named top-level `trigger.body.userId` field. To override it explicitly instead, the invoking `FlowRun.spec.params` would set `{name: userId, value: "..."}` (a literal or a `$(...)`-interpolated value).
 
 The trigger payload structure depends on the trigger type and content type. See [Trigger CRD → Trigger Types](trigger.md#trigger-types) for the exact payload fields available from each trigger source.
 
@@ -222,8 +224,9 @@ Available CEL variables:
 | `trigger.headers`       | `map<string, dyn>`    | Trigger request headers                                                  |
 | `steps.<name>.status`   | `string`              | Step phase: `Succeeded`, `Failed`, `Skipped`, etc.                       |
 | `steps.<name>.results`  | `map<string, string>` | Step results map                                                          |
+| `params.<name>`         | `dyn`                 | A resolved Flow parameter (see [ParamDeclaration](#paramdeclaration)); use `has(params.name)` to test presence |
 
-There is no `params` or `trigger.name`/`trigger.type`/`trigger.namespace` variable, and `trigger.body` is **not** parsed into a structured object — unlike `$(trigger.body.<field>)` interpolation (used in step params/URLs/bodies), which does support JSON dot-path traversal. To branch on a structured field from the trigger body, extract it in an upstream `transform` step via interpolation, then reference the result:
+There is no `trigger.name`/`trigger.type`/`trigger.namespace` variable, and `trigger.body` is **not** parsed into a structured object — unlike `$(trigger.body.<field>)` interpolation (used in step params/URLs/bodies), which does support JSON dot-path traversal. To branch on a structured field from the trigger body, extract it in an upstream `transform` step via interpolation, then reference the result:
 
 ```yaml
 steps:
@@ -308,9 +311,15 @@ when:
 
 ### ParamDeclaration
 
-> **Not implemented** — see the warning at the top of this page. The field exists in the CRD schema and can be set, but the controller never reads it, validates `required`/`default`, or resolves `$(params.name)`.
+Declares an input parameter the flow accepts. For each declared param, the controller resolves a value in this order (see [`docs/design/2026-09-10-flow-parameters.md`](../design/2026-09-10-flow-parameters.md) for the full design):
 
-Declares an input parameter the flow accepts. Parameters are populated from the trigger payload or provided with a default value.
+1. An explicit entry in the invoking `FlowRun.spec.params` with a matching name — its `value` is itself resolved through `$(...)` interpolation, so it may reference `$(trigger.body.x)`, `$(steps.*.results.x)`, `$(secrets.x.y)`, etc.
+2. Otherwise, a same-named **top-level** field in the trigger body is used automatically (JSON objects or form-urlencoded bodies; this only matches a flat field — `name: orderId` matches a top-level `orderId` in the body, not a nested one).
+3. Otherwise, the declared `default` is used as a literal value (not interpolated).
+4. Otherwise, if `required: true`, the FlowRun fails **before any step is dispatched**, with a message naming the missing parameter.
+5. Otherwise, the parameter resolves to an empty string.
+
+Resolution happens once per FlowRun and is available to every step via `$(params.<name>)` and to `when:` CEL conditions via the `params` variable.
 
 | Field         | Type    | Required | Default | Description                                                        |
 | ------------- | ------- | -------- | ------- | ------------------------------------------------------------------ |
@@ -344,7 +353,10 @@ Declares an input parameter the flow accepts. Parameters are populated from the 
 
 ### ParamValue
 
-> **Not implemented** — see the warning at the top of this page. `FlowStep.params` can be set but is never read by the controller.
+The same `ParamValue` type is used in two places with different implementation status:
+
+- **`FlowRun.spec.params`** (see [`docs/api/flowrun.md`](flowrun.md)) — **implemented**. Provides the explicit-override entries consumed by `Flow.spec.params`'s resolution order described above.
+- **`FlowStep.params`** (the `params` row on the `FlowStep` table above) — **not implemented**. The field can be set on a step but the controller never reads it. It is intentionally out of scope for the Flow-parameters feature — see [`docs/design/2026-09-10-flow-parameters.md`](../design/2026-09-10-flow-parameters.md) for why.
 
 | Field   | Type   | Required | Description                                        |
 | ------- | ------ | -------- | -------------------------------------------------- |
@@ -1019,11 +1031,12 @@ $(trigger.topic) / .partition / .offset  → Kafka coordinates (empty for non-Ka
 $(trigger.scheduledTime)                 → scheduled fire time, RFC3339 (cron triggers only)
 $(steps.<step-name>.results.<result>)    → result from a completed step
 $(secrets.<secret-name>.<key>)           → value from a Kubernetes Secret
+$(params.<name>)                         → resolved Flow parameter (see ParamDeclaration)
 ```
 
 > In expressions, step names use underscores: `fetch-user` → `steps.fetch_user`.
 >
-> **Not implemented**: `$(params.<name>)`, `$(trigger.name)`, `$(trigger.namespace)`, `$(trigger.type)`, `$(configmaps.<name>.<key>)`, and `$(env.<VAR_NAME>)` do not exist despite appearing in older drafts of this doc — see `docs/schedule.md` for tracking. `$(secrets.<name>.<key>)` is the only supported way to pull config into a step today; for non-secret config, inline the value directly in the Flow.
+> **Not implemented**: `$(trigger.name)`, `$(trigger.namespace)`, `$(trigger.type)`, `$(configmaps.<name>.<key>)`, and `$(env.<VAR_NAME>)` do not exist despite appearing in older drafts of this doc — see `docs/schedule.md` for tracking. `$(secrets.<name>.<key>)` is the only supported way to pull config into a step today; for non-secret config, inline the value directly in the Flow.
 
 ### CEL Quick Reference
 

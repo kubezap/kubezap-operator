@@ -30,7 +30,7 @@ var _ = Describe("substituteVars", func() {
 			stepResults := map[string]map[string]string{
 				"step1": {"url": "https://example.com/webhook"},
 			}
-			result := substituteVars("POST to $(steps.step1.results.url)", stepResults, nil)
+			result := substituteVars("POST to $(steps.step1.results.url)", stepResults, nil, nil)
 			Expect(result).To(Equal("POST to https://example.com/webhook"))
 		})
 
@@ -38,7 +38,7 @@ var _ = Describe("substituteVars", func() {
 			stepResults := map[string]map[string]string{
 				"step1": {"id": "order-123", "status": "confirmed"},
 			}
-			result := substituteVars("id=$(steps.step1.results.id) status=$(steps.step1.results.status)", stepResults, nil)
+			result := substituteVars("id=$(steps.step1.results.id) status=$(steps.step1.results.status)", stepResults, nil, nil)
 			Expect(result).To(Equal("id=order-123 status=confirmed"))
 		})
 
@@ -49,17 +49,17 @@ var _ = Describe("substituteVars", func() {
 				"my-step": {"output": "42"},
 			}
 			// Placeholder uses underscore form (as the CEL env also requires)
-			result := substituteVars("value=$(steps.my_step.results.output)", stepResults, nil)
+			result := substituteVars("value=$(steps.my_step.results.output)", stepResults, nil, nil)
 			Expect(result).To(Equal("value=42"))
 		})
 
 		It("leaves an unresolvable step result placeholder verbatim", func() {
-			result := substituteVars("$(steps.missing.results.key)", nil, nil)
+			result := substituteVars("$(steps.missing.results.key)", nil, nil, nil)
 			Expect(result).To(Equal("$(steps.missing.results.key)"))
 		})
 
 		It("returns the original string unchanged when stepResults is nil and triggerData is nil", func() {
-			result := substituteVars("no placeholders here", nil, nil)
+			result := substituteVars("no placeholders here", nil, nil, nil)
 			Expect(result).To(Equal("no placeholders here"))
 		})
 	})
@@ -69,7 +69,7 @@ var _ = Describe("substituteVars", func() {
 			td := &automationv1alpha1.TriggerData{
 				Body: `{"orderId":"ord-999","amount":200}`,
 			}
-			result := substituteVars("order=$(trigger.body.orderId)", nil, td)
+			result := substituteVars("order=$(trigger.body.orderId)", nil, td, nil)
 			Expect(result).To(Equal("order=ord-999"))
 		})
 
@@ -77,7 +77,7 @@ var _ = Describe("substituteVars", func() {
 			td := &automationv1alpha1.TriggerData{
 				Body: `{"raw":"payload"}`,
 			}
-			result := substituteVars("body=$(trigger.body)", nil, td)
+			result := substituteVars("body=$(trigger.body)", nil, td, nil)
 			Expect(result).To(Equal(`body={"raw":"payload"}`))
 		})
 
@@ -86,7 +86,7 @@ var _ = Describe("substituteVars", func() {
 				Body: `{"orderId":"ord-777"}`,
 			}
 			// Both placeholders in the same string; field substitution must not corrupt raw body.
-			result := substituteVars("id=$(trigger.body.orderId) raw=$(trigger.body)", nil, td)
+			result := substituteVars("id=$(trigger.body.orderId) raw=$(trigger.body)", nil, td, nil)
 			Expect(result).To(Equal(`id=ord-777 raw={"orderId":"ord-777"}`))
 		})
 
@@ -96,13 +96,13 @@ var _ = Describe("substituteVars", func() {
 			td := &automationv1alpha1.TriggerData{
 				Body: `{"order":{"id":"nested-id"}}`,
 			}
-			result := substituteVars("nested=$(trigger.body.order.id)", nil, td)
+			result := substituteVars("nested=$(trigger.body.order.id)", nil, td, nil)
 			Expect(result).To(Equal("nested=nested-id"))
 		})
 
 		It("leaves body field placeholder verbatim when body is empty", func() {
 			td := &automationv1alpha1.TriggerData{Body: ""}
-			result := substituteVars("$(trigger.body.orderId)", nil, td)
+			result := substituteVars("$(trigger.body.orderId)", nil, td, nil)
 			// Body is empty so no JSON parsing occurs; placeholder is left untouched
 			// and the raw body substitution maps "$(trigger.body)" → "" — but the
 			// field-specific placeholder "$(trigger.body.orderId)" does NOT match
@@ -112,7 +112,7 @@ var _ = Describe("substituteVars", func() {
 
 		It("leaves body field placeholder verbatim when body is not valid JSON", func() {
 			td := &automationv1alpha1.TriggerData{Body: "not-json"}
-			result := substituteVars("$(trigger.body.field)", nil, td)
+			result := substituteVars("$(trigger.body.field)", nil, td, nil)
 			Expect(result).To(Equal("$(trigger.body.field)"))
 		})
 
@@ -120,7 +120,7 @@ var _ = Describe("substituteVars", func() {
 			td := &automationv1alpha1.TriggerData{
 				Body: `{"amount":42}`,
 			}
-			result := substituteVars("amount=$(trigger.body.amount)", nil, td)
+			result := substituteVars("amount=$(trigger.body.amount)", nil, td, nil)
 			// json.Unmarshal decodes numbers as float64; fmt.Sprintf("%v", 42.0) → "42"
 			Expect(result).To(Equal("amount=42"))
 		})
@@ -132,7 +132,7 @@ var _ = Describe("substituteVars", func() {
 				ContentType: "application/x-www-form-urlencoded",
 				Body:        "command=%2Fkubezap&text=deploy+staging&user_name=alice",
 			}
-			result := substituteVars("cmd=$(trigger.body.command) text=$(trigger.body.text)", nil, td)
+			result := substituteVars("cmd=$(trigger.body.command) text=$(trigger.body.text)", nil, td, nil)
 			Expect(result).To(Equal("cmd=/kubezap text=deploy staging"))
 		})
 
@@ -141,7 +141,7 @@ var _ = Describe("substituteVars", func() {
 				ContentType: "application/x-www-form-urlencoded; charset=UTF-8",
 				Body:        "text=status+production",
 			}
-			result := substituteVars("$(trigger.body.text)", nil, td)
+			result := substituteVars("$(trigger.body.text)", nil, td, nil)
 			Expect(result).To(Equal("status production"))
 		})
 
@@ -152,7 +152,7 @@ var _ = Describe("substituteVars", func() {
 			}
 			result := substituteVars(
 				"channel=$(trigger.body.channel_id) url=$(trigger.body.response_url) user=$(trigger.body.user_name)",
-				nil, td)
+				nil, td, nil)
 			Expect(result).To(Equal("channel=C123ABC url=https://hooks.slack.com/x user=bob"))
 		})
 
@@ -161,7 +161,7 @@ var _ = Describe("substituteVars", func() {
 				ContentType: "application/x-www-form-urlencoded",
 				Body:        "text=deploy",
 			}
-			result := substituteVars("$(trigger.body.missing)", nil, td)
+			result := substituteVars("$(trigger.body.missing)", nil, td, nil)
 			Expect(result).To(Equal(""))
 		})
 
@@ -170,8 +170,38 @@ var _ = Describe("substituteVars", func() {
 				ContentType: "application/x-www-form-urlencoded",
 				Body:        "text=deploy+staging",
 			}
-			result := substituteVars("raw=$(trigger.body)", nil, td)
+			result := substituteVars("raw=$(trigger.body)", nil, td, nil)
 			Expect(result).To(Equal("raw=text=deploy+staging"))
+		})
+	})
+
+	Context("param substitution", func() {
+		It("substitutes a resolved param value", func() {
+			params := map[string]string{"orderId": "ord-123"}
+			result := substituteVars("id=$(params.orderId)", nil, nil, params)
+			Expect(result).To(Equal("id=ord-123"))
+		})
+
+		It("substitutes multiple param placeholders in one string", func() {
+			params := map[string]string{"env": "production", "orderId": "ord-1"}
+			result := substituteVars("env=$(params.env) order=$(params.orderId)", nil, nil, params)
+			Expect(result).To(Equal("env=production order=ord-1"))
+		})
+
+		It("leaves an unresolvable param placeholder verbatim", func() {
+			result := substituteVars("$(params.missing)", nil, nil, nil)
+			Expect(result).To(Equal("$(params.missing)"))
+		})
+
+		It("applies param, step result, and trigger body substitutions together", func() {
+			stepResults := map[string]map[string]string{"fetch": {"id": "item-7"}}
+			td := &automationv1alpha1.TriggerData{Body: `{"tenant":"acme"}`}
+			params := map[string]string{"env": "production"}
+
+			result := substituteVars(
+				"tenant=$(trigger.body.tenant) item=$(steps.fetch.results.id) env=$(params.env)",
+				stepResults, td, params)
+			Expect(result).To(Equal("tenant=acme item=item-7 env=production"))
 		})
 	})
 
@@ -181,7 +211,7 @@ var _ = Describe("substituteVars", func() {
 				Headers: map[string]string{"X-Request-Id": "req-abc"},
 			}
 			// Lookup is case-insensitive on both sides.
-			result := substituteVars("id=$(trigger.headers.x-request-id)", nil, td)
+			result := substituteVars("id=$(trigger.headers.x-request-id)", nil, td, nil)
 			Expect(result).To(Equal("id=req-abc"))
 		})
 
@@ -189,7 +219,7 @@ var _ = Describe("substituteVars", func() {
 			td := &automationv1alpha1.TriggerData{
 				Headers: map[string]string{"Authorization": "Bearer tok123"},
 			}
-			result := substituteVars("auth=$(trigger.headers.Authorization)", nil, td)
+			result := substituteVars("auth=$(trigger.headers.Authorization)", nil, td, nil)
 			Expect(result).To(Equal("auth=Bearer tok123"))
 		})
 
@@ -197,7 +227,7 @@ var _ = Describe("substituteVars", func() {
 			td := &automationv1alpha1.TriggerData{
 				Headers: map[string]string{},
 			}
-			result := substituteVars("$(trigger.headers.X-Missing)", nil, td)
+			result := substituteVars("$(trigger.headers.X-Missing)", nil, td, nil)
 			Expect(result).To(Equal(""))
 		})
 	})
@@ -205,13 +235,13 @@ var _ = Describe("substituteVars", func() {
 	Context("other trigger fields", func() {
 		It("substitutes $(trigger.topic)", func() {
 			td := &automationv1alpha1.TriggerData{Topic: "orders"}
-			result := substituteVars("topic=$(trigger.topic)", nil, td)
+			result := substituteVars("topic=$(trigger.topic)", nil, td, nil)
 			Expect(result).To(Equal("topic=orders"))
 		})
 
 		It("substitutes $(trigger.partition) and $(trigger.offset)", func() {
 			td := &automationv1alpha1.TriggerData{Partition: 3, Offset: 42}
-			result := substituteVars("$(trigger.partition)/$(trigger.offset)", nil, td)
+			result := substituteVars("$(trigger.partition)/$(trigger.offset)", nil, td, nil)
 			Expect(result).To(Equal("3/42"))
 		})
 
@@ -219,13 +249,13 @@ var _ = Describe("substituteVars", func() {
 			// Use a fixed Unix epoch instant for deterministic output.
 			epoch := metav1.Unix(0, 0)
 			td := &automationv1alpha1.TriggerData{ScheduledTime: &epoch}
-			result := substituteVars("$(trigger.scheduledTime)", nil, td)
+			result := substituteVars("$(trigger.scheduledTime)", nil, td, nil)
 			Expect(result).To(Equal("1970-01-01T00:00:00Z"))
 		})
 
 		It("replaces $(trigger.scheduledTime) with empty string when unset", func() {
 			td := &automationv1alpha1.TriggerData{}
-			result := substituteVars("$(trigger.scheduledTime)", nil, td)
+			result := substituteVars("$(trigger.scheduledTime)", nil, td, nil)
 			Expect(result).To(Equal(""))
 		})
 	})
@@ -239,14 +269,14 @@ var _ = Describe("substituteVars", func() {
 				Body: `{"tenant":"acme"}`,
 			}
 			template := "tenant=$(trigger.body.tenant) item=$(steps.fetch.results.id)"
-			result := substituteVars(template, stepResults, td)
+			result := substituteVars(template, stepResults, td, nil)
 			Expect(result).To(Equal("tenant=acme item=item-7"))
 		})
 	})
 
 	Context("nil / empty trigger data", func() {
 		It("returns the original string unchanged when triggerData is nil", func() {
-			result := substituteVars("$(trigger.body)", nil, nil)
+			result := substituteVars("$(trigger.body)", nil, nil, nil)
 			Expect(result).To(Equal("$(trigger.body)"))
 		})
 	})

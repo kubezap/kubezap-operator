@@ -71,6 +71,7 @@ var _ = Describe("FlowRunReconciler", func() {
 		env, err := cel.NewEnv(
 			cel.Variable("trigger", cel.MapType(cel.StringType, cel.DynType)),
 			cel.Variable("steps", cel.MapType(cel.StringType, cel.DynType)),
+			cel.Variable("params", cel.MapType(cel.StringType, cel.DynType)),
 		)
 		Expect(err).NotTo(HaveOccurred(), "failed to initialize CEL env in test reconciler")
 
@@ -616,6 +617,73 @@ var _ = Describe("FlowRunReconciler", func() {
 			var updated automationv1alpha1.FlowRun
 			Expect(k8sClient.Get(ctx, nn, &updated)).To(Succeed())
 			Expect(updated.Status.Phase).NotTo(Equal("Cancelled"))
+		})
+	})
+
+	Context("Flow parameters", func() {
+		It("fails the FlowRun before dispatching any step when a required param is missing", func() {
+			seed := GinkgoRandomSeed()
+			flowName := fmt.Sprintf("flow-required-param-%d", seed)
+			flowRunName := fmt.Sprintf("fr-required-param-%d", seed)
+
+			flow := makeFlow(flowName, []automationv1alpha1.FlowStep{
+				{Name: "placeholder", Action: automationv1alpha1.StepAction{
+					Type:      "transform",
+					Transform: &automationv1alpha1.TransformAction{Mappings: map[string]string{"key": "val"}},
+				}},
+			})
+			flow.Spec.Params = []automationv1alpha1.ParamDeclaration{
+				{Name: "orderId", Required: true},
+			}
+			Expect(k8sClient.Create(ctx, flow)).To(Succeed())
+			DeferCleanup(func() { _ = k8sClient.Delete(context.Background(), flow) })
+
+			flowRun := makeFlowRun(flowRunName, flowName)
+			Expect(k8sClient.Create(ctx, flowRun)).To(Succeed())
+			DeferCleanup(func() { _ = k8sClient.Delete(context.Background(), flowRun) })
+
+			updated, err := reconcileAndFetch(flowRunName)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(updated.Status.Phase).To(Equal("Failed"))
+			Expect(updated.Status.Message).To(ContainSubstring("orderId"))
+			Expect(updated.Status.Steps).To(BeEmpty(), "no step should have been dispatched")
+		})
+
+		It("resolves $(params.<name>) from a same-named trigger body field into a step result", func() {
+			seed := GinkgoRandomSeed()
+			flowName := fmt.Sprintf("flow-param-resolution-%d", seed)
+			flowRunName := fmt.Sprintf("fr-param-resolution-%d", seed)
+
+			flow := makeFlow(flowName, []automationv1alpha1.FlowStep{
+				{
+					Name: "extract",
+					Action: automationv1alpha1.StepAction{
+						Type: "transform",
+						Transform: &automationv1alpha1.TransformAction{
+							Mappings: map[string]string{"resolvedOrderId": "$(params.orderId)"},
+						},
+					},
+				},
+			})
+			flow.Spec.Params = []automationv1alpha1.ParamDeclaration{{Name: "orderId"}}
+			Expect(k8sClient.Create(ctx, flow)).To(Succeed())
+			DeferCleanup(func() { _ = k8sClient.Delete(context.Background(), flow) })
+
+			flowRun := makeFlowRun(flowRunName, flowName)
+			flowRun.Spec.TriggerData = &automationv1alpha1.TriggerData{
+				Body: `{"orderId":"ord-live-test"}`,
+			}
+			Expect(k8sClient.Create(ctx, flowRun)).To(Succeed())
+			DeferCleanup(func() { _ = k8sClient.Delete(context.Background(), flowRun) })
+
+			r := newReconciler()
+			updated, err := reconcileUntilTerminal(r, flowRunName, 5)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(updated.Status.Phase).To(Equal("Succeeded"))
+			Expect(updated.Status.Steps).To(HaveLen(1))
+			Expect(updated.Status.Steps[0].Results).To(ContainElement(
+				automationv1alpha1.ResultValue{Name: "resolvedOrderId", Value: "ord-live-test"},
+			))
 		})
 	})
 
@@ -1177,6 +1245,7 @@ var _ = Describe("FlowRunReconciler", func() {
 			env, err := cel.NewEnv(
 				cel.Variable("trigger", cel.MapType(cel.StringType, cel.DynType)),
 				cel.Variable("steps", cel.MapType(cel.StringType, cel.DynType)),
+				cel.Variable("params", cel.MapType(cel.StringType, cel.DynType)),
 			)
 			Expect(err).NotTo(HaveOccurred())
 
@@ -1305,32 +1374,32 @@ var _ = Describe("FlowRunReconciler", func() {
 	Describe("substituteVars dot-path body access", func() {
 		It("resolves a top-level field", func() {
 			td := &automationv1alpha1.TriggerData{Body: `{"name":"alice"}`}
-			Expect(substituteVars("hello $(trigger.body.name)", nil, td)).To(Equal("hello alice"))
+			Expect(substituteVars("hello $(trigger.body.name)", nil, td, nil)).To(Equal("hello alice"))
 		})
 		It("resolves a nested field", func() {
 			td := &automationv1alpha1.TriggerData{Body: `{"order":{"id":"42","customer":"bob"}}`}
-			Expect(substituteVars("order=$(trigger.body.order.id) by=$(trigger.body.order.customer)", nil, td)).
+			Expect(substituteVars("order=$(trigger.body.order.id) by=$(trigger.body.order.customer)", nil, td, nil)).
 				To(Equal("order=42 by=bob"))
 		})
 		It("resolves deep nesting", func() {
 			td := &automationv1alpha1.TriggerData{Body: `{"a":{"b":{"c":"deep"}}}`}
-			Expect(substituteVars("$(trigger.body.a.b.c)", nil, td)).To(Equal("deep"))
+			Expect(substituteVars("$(trigger.body.a.b.c)", nil, td, nil)).To(Equal("deep"))
 		})
 		It("resolves array index", func() {
 			td := &automationv1alpha1.TriggerData{Body: `{"arr":["x","y","z"]}`}
-			Expect(substituteVars("$(trigger.body.arr.1)", nil, td)).To(Equal("y"))
+			Expect(substituteVars("$(trigger.body.arr.1)", nil, td, nil)).To(Equal("y"))
 		})
 		It("returns empty string for missing path", func() {
 			td := &automationv1alpha1.TriggerData{Body: `{"a":{"b":"val"}}`}
-			Expect(substituteVars("$(trigger.body.a.c)", nil, td)).To(Equal(""))
+			Expect(substituteVars("$(trigger.body.a.c)", nil, td, nil)).To(Equal(""))
 		})
 		It("returns empty string for non-object traversal", func() {
 			td := &automationv1alpha1.TriggerData{Body: `{"name":"alice"}`}
-			Expect(substituteVars("$(trigger.body.name.foo)", nil, td)).To(Equal(""))
+			Expect(substituteVars("$(trigger.body.name.foo)", nil, td, nil)).To(Equal(""))
 		})
 		It("handles out-of-bounds array index gracefully", func() {
 			td := &automationv1alpha1.TriggerData{Body: `{"arr":["x"]}`}
-			Expect(substituteVars("$(trigger.body.arr.5)", nil, td)).To(Equal(""))
+			Expect(substituteVars("$(trigger.body.arr.5)", nil, td, nil)).To(Equal(""))
 		})
 	})
 })

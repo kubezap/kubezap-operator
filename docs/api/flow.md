@@ -336,7 +336,6 @@ Resolution happens once per FlowRun and is available to every step via `$(params
 | `description` | string              | No       | —       | Human-readable description                                            |
 | `runAfter`    | []string            | No       | —       | Step names that must complete before this step starts                 |
 | `when`        | []WhenExpression    | No       | —       | CEL conditions that must all be true for the step to run              |
-| `params`      | []ParamValue        | No       | —       | Input values for this step's action                                   |
 | `action`      | StepAction          | **Yes**  | —       | The action this step performs                                         |
 | `results`     | []ResultDeclaration | No       | —       | Outputs this step produces                                            |
 | `retryPolicy` | RetryPolicy         | No       | —       | Retry behavior on failure                                             |
@@ -353,10 +352,7 @@ Resolution happens once per FlowRun and is available to every step via `$(params
 
 ### ParamValue
 
-The same `ParamValue` type is used in two places with different implementation status:
-
-- **`FlowRun.spec.params`** (see [`docs/api/flowrun.md`](flowrun.md)) — **implemented**. Provides the explicit-override entries consumed by `Flow.spec.params`'s resolution order described above.
-- **`FlowStep.params`** (the `params` row on the `FlowStep` table above) — **not implemented**. The field can be set on a step but the controller never reads it. It is intentionally out of scope for the Flow-parameters feature — see [`docs/design/2026-09-10-flow-parameters.md`](../design/2026-09-10-flow-parameters.md) for why.
+Used by `FlowRun.spec.params` (see [`docs/api/flowrun.md`](flowrun.md)) to provide an explicit override for a Flow parameter declared via [ParamDeclaration](#paramdeclaration). Each entry's `value` is itself resolved through `$(...)` interpolation before being bound to the named parameter.
 
 | Field   | Type   | Required | Description                                        |
 | ------- | ------ | -------- | -------------------------------------------------- |

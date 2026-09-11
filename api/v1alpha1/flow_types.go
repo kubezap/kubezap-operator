@@ -75,9 +75,6 @@ type FlowStep struct {
 	// Conditions to evaluate before running this step.
 	When []WhenExpression `json:"when,omitempty"`
 
-	// Parameters bound for this step.
-	Params []ParamValue `json:"params,omitempty"`
-
 	// Action to execute.
 	Action StepAction `json:"action"`
 
@@ -189,7 +186,8 @@ type ResultDeclaration struct {
 	Description string `json:"description,omitempty"`
 }
 
-// ParamValue assigns a value to a step parameter.
+// ParamValue assigns an explicit value to a Flow parameter declared via
+// FlowSpec.Params (see ParamDeclaration). Used by FlowRunSpec.Params.
 type ParamValue struct {
 	// Name of the parameter.
 	Name string `json:"name"`

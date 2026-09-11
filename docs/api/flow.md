@@ -152,20 +152,23 @@ Use `$(syntax)` to reference dynamic values in string fields (URLs, headers, bod
 
 | Expression                                 | Resolves to                                                                                    |
 | ------------------------------------------ | ---------------------------------------------------------------------------------------------- |
-| `$(params.<name>)`                         | A declared flow parameter                                                                      |
-| `$(trigger.name)`                          | Name of the Trigger that fired                                                                 |
-| `$(trigger.namespace)`                     | Namespace of the Trigger                                                                       |
-| `$(trigger.type)`                          | Type of the Trigger (webhook, cron, kafka, amqp, nats, resource)                               |
 | `$(trigger.body)`                          | Raw trigger event body (webhook request body or Kafka message value)                           |
-| `$(trigger.body.<field>)`                  | A JSON field from the trigger body; full dot-path supported (e.g., `$(trigger.body.order.id)`) |
-| `$(steps.<stepName>.results.<resultName>)` | A result produced by a previous step                                                           |
+| `$(trigger.body.<field>)`                  | A field from the trigger body; JSON bodies support full dot-path traversal (e.g., `$(trigger.body.order.id)`), `application/x-www-form-urlencoded` bodies support flat top-level fields only (e.g., `$(trigger.body.text)`) |
+| `$(trigger.headers.<name>)`                | An HTTP header from the triggering request (case-insensitive lookup)                            |
+| `$(trigger.topic)` / `$(trigger.partition)` / `$(trigger.offset)` | Kafka topic/partition/offset (empty for non-Kafka triggers)                       |
+| `$(trigger.scheduledTime)`                 | RFC3339 scheduled fire time (cron triggers only)                                                |
+| `$(steps.<stepName>.results.<resultName>)` | A result produced by a previous step (hyphens in the step name become underscores)              |
 | `$(secrets.<secretName>.<key>)`            | A value from a Kubernetes Secret in the same namespace                                         |
+| `$(params.<name>)`                         | A resolved Flow parameter — see [ParamDeclaration](#paramdeclaration) for the resolution order  |
+
+There is no `$(trigger.name)`, `$(trigger.namespace)`, or `$(trigger.type)` — none of these are implemented. If you need a step to see the triggering Trigger's name, thread it through explicitly (e.g. a header or a step result), not via interpolation.
 
 **Example:**
 ```yaml
+# Flow.spec
 params:
   - name: userId
-    value: "$(trigger.body.userId)"
+    required: true
 
 steps:
   - name: fetch-user
@@ -176,6 +179,8 @@ steps:
         headers:
           Authorization: "Bearer $(secrets.api-credentials.token)"
 ```
+
+Here `userId` resolves automatically from a same-named top-level `trigger.body.userId` field. To override it explicitly instead, the invoking `FlowRun.spec.params` would set `{name: userId, value: "..."}` (a literal or a `$(...)`-interpolated value).
 
 The trigger payload structure depends on the trigger type and content type. See [Trigger CRD → Trigger Types](trigger.md#trigger-types) for the exact payload fields available from each trigger source.
 
@@ -209,29 +214,48 @@ KubeZap enforces a CEL computation budget per `when` expression to prevent runaw
 
 Available CEL variables:
 
-| Variable               | Type                  | Description                                   |
-| ---------------------- | --------------------- | --------------------------------------------- |
-| `params`               | `map<string, string>` | Declared flow parameters                      |
-| `trigger.name`         | `string`              | Trigger name                                  |
-| `trigger.type`         | `string`              | Trigger type                                  |
-| `trigger.payload`      | `map<string, dyn>`    | Parsed trigger event payload                  |
-| `steps.<name>.status`  | `string`              | Step status: `Succeeded`, `Failed`, `Skipped` |
-| `steps.<name>.results` | `map<string, string>` | Step results map                              |
+| Variable                | Type                  | Description                                                              |
+| ----------------------- | --------------------- | ------------------------------------------------------------------------- |
+| `trigger.body`          | `string`              | Raw trigger event body — **not parsed into a map**; string ops only (`==`, `contains()`, etc.) |
+| `trigger.topic`         | `string`              | Kafka topic (empty for non-Kafka triggers)                              |
+| `trigger.partition`     | `string`              | Kafka partition, formatted as a string (empty for non-Kafka triggers)    |
+| `trigger.offset`        | `string`              | Kafka offset, formatted as a string (empty for non-Kafka triggers)      |
+| `trigger.scheduledTime` | `string`              | RFC3339 scheduled fire time (cron only; empty otherwise)                 |
+| `trigger.headers`       | `map<string, dyn>`    | Trigger request headers                                                  |
+| `steps.<name>.status`   | `string`              | Step phase: `Succeeded`, `Failed`, `Skipped`, etc.                       |
+| `steps.<name>.results`  | `map<string, string>` | Step results map                                                          |
+| `params.<name>`         | `dyn`                 | A resolved Flow parameter (see [ParamDeclaration](#paramdeclaration)); use `has(params.name)` to test presence |
+
+There is no `trigger.name`/`trigger.type`/`trigger.namespace` variable, and `trigger.body` is **not** parsed into a structured object — unlike `$(trigger.body.<field>)` interpolation (used in step params/URLs/bodies), which does support JSON dot-path traversal. To branch on a structured field from the trigger body, extract it in an upstream `transform` step via interpolation, then reference the result:
+
+```yaml
+steps:
+  - name: extract-fields
+    action:
+      type: transform
+      transform:
+        mappings:
+          environment: "$(trigger.body.environment)"
+  - name: deploy-prod
+    runAfter: [extract-fields]
+    when:
+      - expression: 'steps.extract_fields.results.environment == "production"'
+```
 
 **Examples:**
 
 ```yaml
-# Only run if the trigger payload indicates a production deployment
-when:
-  - expression: 'trigger.payload.environment == "production"'
-
-# Run only if the previous step succeeded and returned a non-empty userId
+# Only run if the previous step succeeded and returned a non-empty userId
 when:
   - expression: 'steps.auth.status == "Succeeded" && steps.auth.results.userId != ""'
 
-# Run only if the HTTP response was successful
+# Run only if the HTTP response was successful (result stored as a string; cast to int)
 when:
   - expression: 'int(steps.fetch_data.results.statusCode) < 400'
+
+# Simple substring match directly against the raw trigger body
+when:
+  - expression: 'trigger.body.contains("production")'
 ```
 
 > CEL is sandboxed and cannot access external systems, make network calls, or execute arbitrary code. It is safe to use with user-provided expressions.
@@ -287,7 +311,15 @@ when:
 
 ### ParamDeclaration
 
-Declares an input parameter the flow accepts. Parameters are populated from the trigger payload or provided with a default value.
+Declares an input parameter the flow accepts. For each declared param, the controller resolves a value in this order (see [`docs/design/2026-09-10-flow-parameters.md`](../design/2026-09-10-flow-parameters.md) for the full design):
+
+1. An explicit entry in the invoking `FlowRun.spec.params` with a matching name — its `value` is itself resolved through `$(...)` interpolation, so it may reference `$(trigger.body.x)`, `$(steps.*.results.x)`, `$(secrets.x.y)`, etc.
+2. Otherwise, a same-named **top-level** field in the trigger body is used automatically (JSON objects or form-urlencoded bodies; this only matches a flat field — `name: orderId` matches a top-level `orderId` in the body, not a nested one).
+3. Otherwise, the declared `default` is used as a literal value (not interpolated).
+4. Otherwise, if `required: true`, the FlowRun fails **before any step is dispatched**, with a message naming the missing parameter.
+5. Otherwise, the parameter resolves to an empty string.
+
+Resolution happens once per FlowRun and is available to every step via `$(params.<name>)` and to `when:` CEL conditions via the `params` variable.
 
 | Field         | Type    | Required | Default | Description                                                        |
 | ------------- | ------- | -------- | ------- | ------------------------------------------------------------------ |
@@ -320,6 +352,11 @@ Declares an input parameter the flow accepts. Parameters are populated from the 
 | `expression` | string | **Yes**  | CEL expression that must evaluate to `true` for the step to run |
 
 ### ParamValue
+
+The same `ParamValue` type is used in two places with different implementation status:
+
+- **`FlowRun.spec.params`** (see [`docs/api/flowrun.md`](flowrun.md)) — **implemented**. Provides the explicit-override entries consumed by `Flow.spec.params`'s resolution order described above.
+- **`FlowStep.params`** (the `params` row on the `FlowStep` table above) — **not implemented**. The field can be set on a step but the controller never reads it. It is intentionally out of scope for the Flow-parameters feature — see [`docs/design/2026-09-10-flow-parameters.md`](../design/2026-09-10-flow-parameters.md) for why.
 
 | Field   | Type   | Required | Description                                        |
 | ------- | ------ | -------- | -------------------------------------------------- |
@@ -354,7 +391,7 @@ Produces results from existing params and step results without making any networ
 
 | Field      | Type              | Required | Description                                                                     |
 | ---------- | ----------------- | -------- | ------------------------------------------------------------------------------- |
-| `mappings` | map[string]string | **Yes**  | Keys are result names; values are CEL expressions that compute the result value |
+| `mappings` | map[string]string | **Yes**  | Keys are result names; values are strings using `$(...)` interpolation (e.g. `$(trigger.body.orderId)`, `$(steps.fetch_user.results.email)`) — not CEL expressions. See [`$(...)` Interpolation Quick Reference](#-interpolation-quick-reference). |
 
 ### PublishAction
 
@@ -974,7 +1011,8 @@ spec:
 | Type             | Description                                              | Status    |
 | ---------------- | -------------------------------------------------------- | --------- |
 | `http`           | Make an HTTP/HTTPS request to any URL                    | Available |
-| `transform`      | Reshape data between steps using CEL expressions         | Available |
+| `transform`      | Reshape data between steps using `$(...)` interpolation  | Available |
+| `publish`        | Publish a message through an Integration (Kafka topic, AMQP queue, NATS subject) | Available |
 | `wait`           | Pause the FlowRun for a fixed duration before continuing | Available |
 | `kubernetes-job` | Run a Kubernetes Job and wait for completion             | Planned   |
 | `plugin`         | Call an external KubeZap plugin service via webhook      | Planned   |
@@ -986,48 +1024,40 @@ spec:
 ### `$(...)` Interpolation Quick Reference
 
 ```
-$(params.<name>)                         → declared flow parameter
-$(trigger.name)                          → name of the Trigger CR
-$(trigger.namespace)                     → namespace of the Trigger CR
-$(trigger.type)                          → trigger type: webhook, cron, kafka, amqp, nats, resource
-$(trigger.payload.<dotpath>)             → field from the trigger event payload
-$(trigger.header.<name>)                 → HTTP header from the triggering request
+$(trigger.body)                          → raw trigger event body
+$(trigger.body.<field>)                  → field from the trigger body (JSON: full dot-path; form-urlencoded: flat top-level only)
+$(trigger.headers.<name>)                → HTTP header from the triggering request (case-insensitive)
+$(trigger.topic) / .partition / .offset  → Kafka coordinates (empty for non-Kafka triggers)
+$(trigger.scheduledTime)                 → scheduled fire time, RFC3339 (cron triggers only)
 $(steps.<step-name>.results.<result>)    → result from a completed step
 $(secrets.<secret-name>.<key>)           → value from a Kubernetes Secret
-$(configmaps.<configmap-name>.<key>)     → value from a Kubernetes ConfigMap
-$(env.<VAR_NAME>)                        → operator environment variable
+$(params.<name>)                         → resolved Flow parameter (see ParamDeclaration)
 ```
 
 > In expressions, step names use underscores: `fetch-user` → `steps.fetch_user`.
-
-**When to use each credential source:**
-
-| Source                   | Use for                                        |
-| ------------------------ | ---------------------------------------------- |
-| `$(secrets.name.key)`    | Passwords, tokens, API keys, certificates      |
-| `$(configmaps.name.key)` | Base URLs, feature flags, non-sensitive config |
-| `$(env.VAR_NAME)`        | Operator-wide config set at deployment time    |
+>
+> **Not implemented**: `$(trigger.name)`, `$(trigger.namespace)`, `$(trigger.type)`, `$(configmaps.<name>.<key>)`, and `$(env.<VAR_NAME>)` do not exist despite appearing in older drafts of this doc — see `docs/schedule.md` for tracking. `$(secrets.<name>.<key>)` is the only supported way to pull config into a step today; for non-secret config, inline the value directly in the Flow.
 
 ### CEL Quick Reference
 
 ```
 # String comparison
-params.action == "deploy"
+steps.extract_fields.results.action == "deploy"
 
 # Numeric comparison (cast strings to numbers)
-double(params.price) > 100.0
+double(steps.extract_fields.results.price) > 100.0
 int(steps.fetch.results.statusCode) < 400
 
 # Logical operators
-steps.auth.status == "Succeeded" && params.env == "production"
-steps.check.status == "Failed" || params.force == "true"
+steps.auth.status == "Succeeded" && steps.extract_fields.results.env == "production"
+steps.check.status == "Failed" || steps.extract_fields.results.force == "true"
 
 # String contains
-params.eventType.contains("created")
+trigger.body.contains("created")
 
 # Null/empty checks
 steps.fetch.results.userId != ""
-has(trigger.payload.metadata)
+has(steps.fetch.results.userId)
 ```
 
 ---

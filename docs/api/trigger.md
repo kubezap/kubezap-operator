@@ -98,6 +98,25 @@ The full URL of the webhook endpoint is: `http://<operator-service>:<port><path>
 
 For authentication configuration examples and security guidance see [Securing Webhook Triggers](../guides/webhook-security.md).
 
+### WebhookRateLimit
+
+Per-route request budget enforced in-memory by the webhook gateway, using a sliding window. This is per gateway replica, not cluster-wide — with multiple replicas the effective limit is `maxRequests × replica count`. Excess requests are rejected and recorded as `RateLimited` in the Trigger's `status.lastResult`.
+
+| Field         | Type     | Required | Default | Description                                            |
+| ------------- | -------- | -------- | ------- | ------------------------------------------------------- |
+| `maxRequests` | integer  | **Yes**  | —       | Maximum number of requests allowed within `window`. Must be greater than 0. |
+| `window`      | duration | No       | `60s`   | Duration of the sliding window (e.g. `60s`, `1m`, `5m`) |
+
+```yaml
+spec:
+  type: webhook
+  webhook:
+    path: /hooks/my-service
+    rateLimit:
+      maxRequests: 100
+      window: "60s"
+```
+
 ### WebhookAuth
 
 Configures authentication for a webhook trigger endpoint. If omitted, the endpoint accepts requests from any caller — always set `auth` in production.

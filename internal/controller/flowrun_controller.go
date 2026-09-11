@@ -66,6 +66,7 @@ import (
 )
 
 const retainAnnotation = "kubezap.io/retain"
+const cancelAnnotation = "kubezap.io/cancel"
 const executingFinalizer = "kubezap.io/executing"
 
 // kafkaProducerIdleTTL is the maximum idle time before a cached Kafka producer
@@ -217,6 +218,17 @@ func (r *FlowRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return ctrl.Result{}, nil
 	}
 
+	// User requested cancellation via `kubectl annotate flowrun ... kubezap.io/cancel=true`
+	// (docs/api/flowrun.md kubectl cheat sheet). Only meaningful while Running — a FlowRun
+	// that hasn't started yet or has already reached a terminal phase is handled by the
+	// existing paths above/below.
+	if flowRun.Status.Phase == "Running" && flowRun.Annotations[cancelAnnotation] == "true" {
+		if err := r.cancelFlowRun(ctx, &flowRun, "FlowRun cancelled via kubezap.io/cancel annotation"); err != nil {
+			return ctrl.Result{}, err
+		}
+		return ctrl.Result{}, nil
+	}
+
 	// GC: handle terminal FlowRuns (TTL expiry + maxFlowRuns cap).
 	if flowRun.Status.Phase == "Succeeded" || flowRun.Status.Phase == "Failed" || flowRun.Status.Phase == "Cancelled" {
 		if requeue, err := r.reconcileGC(ctx, &flowRun); err != nil {
@@ -326,6 +338,17 @@ func (r *FlowRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		}
 	}
 
+	// Resolve Flow parameters before dispatching any step — see
+	// docs/design/2026-09-10-flow-parameters.md. A required parameter that cannot be
+	// resolved fails the FlowRun immediately, before any step executes. Resolution is
+	// deterministic given FlowRunSpec (immutable after creation) and Flow.spec.params, so
+	// recomputing it on every reconcile (rather than caching it in status) is safe and
+	// matches how stepResults is already rebuilt fresh above.
+	flowParams, paramErr := resolveFlowParams(flow.Spec.Params, flowRun.Spec.Params, stepResults, flowRun.Spec.TriggerData)
+	if paramErr != nil {
+		return ctrl.Result{}, r.failFlowRun(ctx, &flowRun, paramErr.Error())
+	}
+
 	// Check whether all steps have reached a terminal state. If yes, we fall
 	// through to the "All steps done — succeed" block below.
 	allTerminal := true
@@ -386,7 +409,7 @@ func (r *FlowRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 
 			// Evaluate when conditions (pure CEL — no IO).
 			if len(step.When) > 0 {
-				run, err := r.evaluateWhen(step.When, stepResults, flowRun.Status.Steps, flowRun.Spec.TriggerData)
+				run, err := r.evaluateWhen(step.When, stepResults, flowRun.Status.Steps, flowRun.Spec.TriggerData, flowParams)
 				if err != nil {
 					whenErrReason := "eval_error"
 					if strings.Contains(err.Error(), "compile error") {
@@ -543,7 +566,7 @@ func (r *FlowRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 				go func(i int, step automationv1alpha1.FlowStep) {
 					defer wg.Done()
 					stepStart := time.Now()
-					ss, err := r.executeStep(execCtx, log, &step, &flow, &flowRun, stepResults, flowRun.Spec.TriggerData)
+					ss, err := r.executeStep(execCtx, log, &step, &flowRun, stepResults, flowRun.Spec.TriggerData, flowParams)
 					dur := time.Since(stepStart)
 					if err != nil {
 						// executeStep only returns a non-nil error for executor
@@ -679,13 +702,11 @@ func (r *FlowRunReconciler) executeStep(
 	ctx context.Context,
 	log logr.Logger,
 	step *automationv1alpha1.FlowStep,
-	flow *automationv1alpha1.Flow,
 	flowRun *automationv1alpha1.FlowRun,
 	stepResults map[string]map[string]string,
 	triggerData *automationv1alpha1.TriggerData,
+	params map[string]string,
 ) (*automationv1alpha1.StepRunStatus, error) {
-	_ = flow // reserved for future param resolution
-
 	// Start a child span for this step execution.
 	ctx, stepSpan := otel.Tracer("kubezap.io/flowrun").Start(ctx, "flowrun.step",
 		trace.WithAttributes(
@@ -704,7 +725,7 @@ func (r *FlowRunReconciler) executeStep(
 
 	switch step.Action.Type {
 	case "http":
-		results, msg, attempts, err := r.executeHTTPStep(ctx, log, step, stepResults, triggerData, flowRun.Namespace)
+		results, msg, attempts, err := r.executeHTTPStep(ctx, log, step, stepResults, triggerData, params, flowRun.Namespace)
 		completionTime := metav1.Now()
 		status.CompletionTime = &completionTime
 		if attempts > 0 {
@@ -733,13 +754,13 @@ func (r *FlowRunReconciler) executeStep(
 		} else {
 			substituted := make(map[string]string, len(step.Action.Transform.Mappings))
 			for k, v := range step.Action.Transform.Mappings {
-				substituted[k] = substituteVars(v, stepResults, triggerData)
+				substituted[k] = substituteVars(v, stepResults, triggerData, params)
 			}
 			status.Phase = "Succeeded"
 			status.Results = mapsToResults(substituted)
 		}
 	case "publish":
-		result, attempts, err := r.executePublishStep(ctx, flowRun, step, triggerData, stepResults)
+		result, attempts, err := r.executePublishStep(ctx, flowRun, step, triggerData, stepResults, params)
 		completionTime := metav1.Now()
 		status.CompletionTime = &completionTime
 		if attempts > 0 {
@@ -768,6 +789,7 @@ func (r *FlowRunReconciler) executeHTTPStep(
 	step *automationv1alpha1.FlowStep,
 	stepResults map[string]map[string]string,
 	triggerData *automationv1alpha1.TriggerData,
+	params map[string]string,
 	namespace string,
 ) (map[string]string, string, int, error) {
 	if step.Action.HTTP == nil {
@@ -784,17 +806,17 @@ func (r *FlowRunReconciler) executeHTTPStep(
 	h := step.Action.HTTP
 	// url is the fully-resolved URL (with secret values substituted).
 	// displayURL has secret placeholders intact for safe inclusion in log/error messages.
-	url, displayURL, err := r.substituteVarsWithSecrets(ctx, namespace, h.URL, stepResults, triggerData)
+	url, displayURL, err := r.substituteVarsWithSecrets(ctx, namespace, h.URL, stepResults, triggerData, params)
 	if err != nil {
 		return nil, "", 0, fmt.Errorf("resolving secrets in URL for step %q: %w", step.Name, err)
 	}
-	body, _, err := r.substituteVarsWithSecrets(ctx, namespace, h.Body, stepResults, triggerData)
+	body, _, err := r.substituteVarsWithSecrets(ctx, namespace, h.Body, stepResults, triggerData, params)
 	if err != nil {
 		return nil, "", 0, fmt.Errorf("resolving secrets in body for step %q: %w", step.Name, err)
 	}
 	headers := make(map[string]string, len(h.Headers))
 	for k, v := range h.Headers {
-		actual, _, herr := r.substituteVarsWithSecrets(ctx, namespace, v, stepResults, triggerData)
+		actual, _, herr := r.substituteVarsWithSecrets(ctx, namespace, v, stepResults, triggerData, params)
 		if herr != nil {
 			return nil, "", 0, fmt.Errorf("resolving secrets in header %q for step %q: %w", k, step.Name, herr)
 		}
@@ -804,7 +826,7 @@ func (r *FlowRunReconciler) executeHTTPStep(
 	// If an HTTP Integration is referenced, merge its base URL, auth headers, and default headers.
 	if h.IntegrationRef != nil && h.IntegrationRef.Name != "" {
 		var err error
-		url, err = r.applyHTTPIntegration(ctx, h.IntegrationRef.Name, namespace, url, headers, stepResults, triggerData)
+		url, err = r.applyHTTPIntegration(ctx, h.IntegrationRef.Name, namespace, url, headers, stepResults, triggerData, params)
 		if err != nil {
 			return nil, "", 0, err
 		}
@@ -1012,6 +1034,7 @@ func (r *FlowRunReconciler) executePublishStep(
 	step *automationv1alpha1.FlowStep,
 	triggerData *automationv1alpha1.TriggerData,
 	stepResults map[string]map[string]string,
+	params map[string]string,
 ) (map[string]string, int, error) {
 	if step.Action.Publish == nil || step.Action.Publish.IntegrationRef.Name == "" {
 		return nil, 0, fmt.Errorf("step %q has type=publish but no integrationRef.name", step.Name)
@@ -1047,13 +1070,13 @@ func (r *FlowRunReconciler) executePublishStep(
 
 	// Route to appropriate publish backend based on integration type.
 	if integration.Spec.Kafka != nil {
-		body, _, berr := r.substituteVarsWithSecrets(ctx, flowRun.Namespace, step.Action.Publish.Body, stepResults, triggerData)
+		body, _, berr := r.substituteVarsWithSecrets(ctx, flowRun.Namespace, step.Action.Publish.Body, stepResults, triggerData, params)
 		if berr != nil {
 			return nil, 0, fmt.Errorf("resolving secrets in publish body for step %q: %w", step.Name, berr)
 		}
 		headers := make(map[string]string, len(step.Action.Publish.Headers))
 		for k, v := range step.Action.Publish.Headers {
-			actual, _, herr := r.substituteVarsWithSecrets(ctx, flowRun.Namespace, v, stepResults, triggerData)
+			actual, _, herr := r.substituteVarsWithSecrets(ctx, flowRun.Namespace, v, stepResults, triggerData, params)
 			if herr != nil {
 				return nil, 0, fmt.Errorf("resolving secrets in publish header %q for step %q: %w", k, step.Name, herr)
 			}
@@ -1089,13 +1112,13 @@ func (r *FlowRunReconciler) executePublishStep(
 	pluginURL := fmt.Sprintf("http://kubezap-plugin-%s.%s.svc.cluster.local:%d/publish",
 		integration.Name, flowRun.Namespace, port)
 
-	body, _, berr := r.substituteVarsWithSecrets(ctx, flowRun.Namespace, step.Action.Publish.Body, stepResults, triggerData)
+	body, _, berr := r.substituteVarsWithSecrets(ctx, flowRun.Namespace, step.Action.Publish.Body, stepResults, triggerData, params)
 	if berr != nil {
 		return nil, 0, fmt.Errorf("resolving secrets in publish body for step %q: %w", step.Name, berr)
 	}
 	headers := make(map[string]string, len(step.Action.Publish.Headers))
 	for k, v := range step.Action.Publish.Headers {
-		actual, _, herr := r.substituteVarsWithSecrets(ctx, flowRun.Namespace, v, stepResults, triggerData)
+		actual, _, herr := r.substituteVarsWithSecrets(ctx, flowRun.Namespace, v, stepResults, triggerData, params)
 		if herr != nil {
 			return nil, 0, fmt.Errorf("resolving secrets in publish header %q for step %q: %w", k, step.Name, herr)
 		}
@@ -1207,6 +1230,7 @@ func (r *FlowRunReconciler) applyHTTPIntegration(
 	headers map[string]string,
 	stepResults map[string]map[string]string,
 	triggerData *automationv1alpha1.TriggerData,
+	params map[string]string,
 ) (string, error) {
 	// Use the per-reconcile Integration cache when available to avoid repeated
 	// API server calls when multiple HTTP steps reference the same Integration.
@@ -1236,7 +1260,7 @@ func (r *FlowRunReconciler) applyHTTPIntegration(
 	// Apply defaultHeaders first (step headers override).
 	for k, v := range httpInteg.DefaultHeaders {
 		if _, exists := headers[k]; !exists {
-			headers[k] = substituteVars(v, stepResults, triggerData)
+			headers[k] = substituteVars(v, stepResults, triggerData, params)
 		}
 	}
 
@@ -1640,6 +1664,7 @@ func (r *FlowRunReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	r.celEnv, celErr = cel.NewEnv(
 		cel.Variable("trigger", cel.MapType(cel.StringType, cel.DynType)),
 		cel.Variable("steps", cel.MapType(cel.StringType, cel.DynType)),
+		cel.Variable("params", cel.MapType(cel.StringType, cel.DynType)),
 	)
 	if celErr != nil {
 		return fmt.Errorf("initializing CEL environment: %w", celErr)
@@ -1663,6 +1688,7 @@ func (r *FlowRunReconciler) evaluateWhen(
 	stepResults map[string]map[string]string,
 	stepStatuses []automationv1alpha1.StepRunStatus,
 	triggerData *automationv1alpha1.TriggerData,
+	params map[string]string,
 ) (bool, error) {
 	if len(when) == 0 {
 		return true, nil
@@ -1724,9 +1750,15 @@ func (r *FlowRunReconciler) evaluateWhen(
 		}
 	}
 
+	paramsMap := make(map[string]interface{}, len(params))
+	for k, v := range params {
+		paramsMap[k] = v
+	}
+
 	activation := map[string]interface{}{
 		"trigger": triggerMap,
 		"steps":   stepsMap,
+		"params":  paramsMap,
 	}
 
 	for _, expr := range when {
@@ -1859,19 +1891,20 @@ func (r *FlowRunReconciler) substituteVarsWithSecrets(
 	s string,
 	stepResults map[string]map[string]string,
 	triggerData *automationv1alpha1.TriggerData,
+	params map[string]string,
 ) (actual, display string, err error) {
 	const secretPrefix = "$(secrets."
 
 	// Fast path: no secret placeholders — skip API calls entirely.
 	if !strings.Contains(s, secretPrefix) {
-		resolved := substituteVars(s, stepResults, triggerData)
+		resolved := substituteVars(s, stepResults, triggerData, params)
 		return resolved, resolved, nil
 	}
 
 	// First, resolve non-secret placeholders in a copy of the template so that
 	// subsequent secret lookups operate on the partially-substituted string.
 	// We keep the secret placeholders intact at this stage.
-	partial := substituteVars(s, stepResults, triggerData)
+	partial := substituteVars(s, stepResults, triggerData, params)
 
 	// Now resolve all $(secrets.<name>.<key>) placeholders, building both
 	// the actual string and the display (redacted) string in parallel.
@@ -1923,16 +1956,17 @@ func (r *FlowRunReconciler) substituteVarsWithSecrets(
 	return actualStr, displayStr, nil
 }
 
-// substituteVars replaces template placeholders in s with values from stepResults and triggerData.
-// Supported syntax:
+// substituteVars replaces template placeholders in s with values from stepResults,
+// triggerData, and params. Supported syntax:
 //   - $(steps.<name>.results.<key>) — step output value; hyphens in name are normalized to underscores
+//   - $(params.<name>) — a resolved Flow parameter; see docs/design/2026-09-10-flow-parameters.md
 //   - $(trigger.body) — raw trigger request body
 //   - $(trigger.body.<field>) — dot-path into the trigger body (nested objects and array indices
 //     supported for JSON bodies; flat top-level fields only for application/x-www-form-urlencoded
 //     bodies, keyed by trigger.contentType; resolved before $(trigger.body))
 //   - $(trigger.headers.<name>) — trigger request header value (case-insensitive)
 //   - $(trigger.topic), $(trigger.partition), $(trigger.offset), $(trigger.scheduledTime)
-func substituteVars(s string, stepResults map[string]map[string]string, triggerData *automationv1alpha1.TriggerData) string {
+func substituteVars(s string, stepResults map[string]map[string]string, triggerData *automationv1alpha1.TriggerData, params map[string]string) string {
 	// Substitute step results using underscore-normalized names (hyphens → underscores).
 	for stepName, results := range stepResults {
 		underscoreName := strings.ReplaceAll(stepName, "-", "_")
@@ -1940,6 +1974,12 @@ func substituteVars(s string, stepResults map[string]map[string]string, triggerD
 			placeholder := fmt.Sprintf("$(steps.%s.results.%s)", underscoreName, key)
 			s = strings.ReplaceAll(s, placeholder, value)
 		}
+	}
+
+	// Substitute resolved Flow parameters.
+	for name, value := range params {
+		placeholder := fmt.Sprintf("$(params.%s)", name)
+		s = strings.ReplaceAll(s, placeholder, value)
 	}
 
 	if triggerData == nil {
@@ -1952,14 +1992,7 @@ func substituteVars(s string, stepResults map[string]map[string]string, triggerD
 	// (e.g. Slack slash commands) are parsed into a flat field map instead. Missing paths
 	// silently resolve to empty string.
 	if triggerData.Body != "" {
-		var bodyRoot interface{}
-		if isFormURLEncodedContentType(triggerData.ContentType) {
-			if formBody := parseFormURLEncodedBody(triggerData.Body); formBody != nil {
-				bodyRoot = formBody
-			}
-		} else if jsonErr := json.Unmarshal([]byte(triggerData.Body), &bodyRoot); jsonErr != nil {
-			bodyRoot = nil
-		}
+		bodyRoot := parseTriggerBody(triggerData)
 		if bodyRoot != nil {
 			const bodyFieldPrefix = "$(trigger.body."
 			for {
@@ -2015,6 +2048,28 @@ func substituteVars(s string, stepResults map[string]map[string]string, triggerD
 	return s
 }
 
+// parseTriggerBody parses triggerData.Body into a structured value suitable for
+// resolveBodyPath traversal, choosing JSON or form-urlencoded parsing based on
+// ContentType. Returns nil if the body is empty or cannot be parsed as either.
+// Shared by substituteVars ($(trigger.body.<field>)) and resolveFlowParams
+// (auto-deriving a param from a same-named top-level body field).
+func parseTriggerBody(triggerData *automationv1alpha1.TriggerData) interface{} {
+	if triggerData == nil || triggerData.Body == "" {
+		return nil
+	}
+	if isFormURLEncodedContentType(triggerData.ContentType) {
+		if formBody := parseFormURLEncodedBody(triggerData.Body); formBody != nil {
+			return formBody
+		}
+		return nil
+	}
+	var bodyRoot interface{}
+	if err := json.Unmarshal([]byte(triggerData.Body), &bodyRoot); err != nil {
+		return nil
+	}
+	return bodyRoot
+}
+
 // isFormURLEncodedContentType reports whether contentType identifies an
 // application/x-www-form-urlencoded body, ignoring parameters such as charset.
 func isFormURLEncodedContentType(contentType string) bool {
@@ -2041,6 +2096,64 @@ func parseFormURLEncodedBody(body string) map[string]interface{} {
 		}
 	}
 	return result
+}
+
+// resolveFlowParams resolves $(params.<name>) values for a FlowRun, per the resolution
+// order in docs/design/2026-09-10-flow-parameters.md, for each param declared by the
+// Flow:
+//  1. An explicit entry in flowRunParams with a matching name wins — its value is itself
+//     resolved through substituteVars, so it may reference $(trigger.body.x)/$(steps.*)/etc.
+//  2. Else, a same-named top-level field is auto-derived from the trigger body (JSON
+//     objects or form-urlencoded bodies; nested dot-paths are not supported here, since
+//     ParamDeclaration.Name is a flat identifier, not a path).
+//  3. Else, the declared Default is used as a literal (not interpolated).
+//  4. Else, if Required, returns an error naming the unresolved parameter — the caller
+//     must fail the FlowRun without dispatching any step when err != nil.
+//  5. Else, resolves to "" (matches existing precedent: a missing trigger.body field
+//     already silently resolves to "").
+func resolveFlowParams(
+	paramDecls []automationv1alpha1.ParamDeclaration,
+	flowRunParams []automationv1alpha1.ParamValue,
+	stepResults map[string]map[string]string,
+	triggerData *automationv1alpha1.TriggerData,
+) (map[string]string, error) {
+	if len(paramDecls) == 0 {
+		return nil, nil
+	}
+
+	supplied := make(map[string]string, len(flowRunParams))
+	for _, pv := range flowRunParams {
+		supplied[pv.Name] = pv.Value
+	}
+
+	bodyRoot := parseTriggerBody(triggerData)
+	var bodyFields map[string]interface{}
+	if m, ok := bodyRoot.(map[string]interface{}); ok {
+		bodyFields = m
+	}
+
+	resolved := make(map[string]string, len(paramDecls))
+	for _, decl := range paramDecls {
+		if raw, ok := supplied[decl.Name]; ok {
+			resolved[decl.Name] = substituteVars(raw, stepResults, triggerData, nil)
+			continue
+		}
+		if bodyFields != nil {
+			if v, ok := bodyFields[decl.Name]; ok {
+				resolved[decl.Name] = resolveBodyPath(nil, v)
+				continue
+			}
+		}
+		if decl.Default != "" {
+			resolved[decl.Name] = decl.Default
+			continue
+		}
+		if decl.Required {
+			return nil, fmt.Errorf("required parameter %q not supplied and has no default", decl.Name)
+		}
+		resolved[decl.Name] = ""
+	}
+	return resolved, nil
 }
 
 // resolveBodyPath recursively traverses v following the dot-path segments in parts.

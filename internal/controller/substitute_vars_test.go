@@ -17,6 +17,8 @@ limitations under the License.
 package controller
 
 import (
+	"fmt"
+
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -121,8 +123,32 @@ var _ = Describe("substituteVars", func() {
 				Body: `{"amount":42}`,
 			}
 			result := substituteVars("amount=$(trigger.body.amount)", nil, td, nil)
-			// json.Unmarshal decodes numbers as float64; fmt.Sprintf("%v", 42.0) → "42"
 			Expect(result).To(Equal("amount=42"))
+		})
+
+		It("renders a large integer as plain decimal, not scientific notation", func() {
+			td := &automationv1alpha1.TriggerData{
+				Body: `{"bigId": 1234567, "ts": 1757600000000}`,
+			}
+			Expect(substituteVars("$(trigger.body.bigId)", nil, td, nil)).To(Equal("1234567"))
+			Expect(substituteVars("$(trigger.body.ts)", nil, td, nil)).To(Equal("1757600000000"))
+		})
+
+		It("renders a nested object/array leaf as valid JSON, not Go syntax", func() {
+			td := &automationv1alpha1.TriggerData{
+				Body: `{"obj":{"id":1},"arr":[1,2]}`,
+			}
+			Expect(substituteVars("$(trigger.body.obj)", nil, td, nil)).To(Equal(`{"id":1}`))
+			Expect(substituteVars("$(trigger.body.arr)", nil, td, nil)).To(Equal(`[1,2]`))
+		})
+
+		It("does not hang and resolves exactly once when a body field's value echoes its own placeholder", func() {
+			td := &automationv1alpha1.TriggerData{
+				Body: `{"a": "$(trigger.body.a)"}`,
+			}
+			done := make(chan string, 1)
+			go func() { done <- substituteVars("x=$(trigger.body.a)", nil, td, nil) }()
+			Eventually(done, "2s").Should(Receive(Equal("x=$(trigger.body.a)")))
 		})
 	})
 
@@ -229,6 +255,56 @@ var _ = Describe("substituteVars", func() {
 			}
 			result := substituteVars("$(trigger.headers.X-Missing)", nil, td, nil)
 			Expect(result).To(Equal(""))
+		})
+
+		It("does not hang and resolves exactly once when a header's value echoes its own placeholder", func() {
+			td := &automationv1alpha1.TriggerData{
+				Headers: map[string]string{"X-Echo": "$(trigger.headers.X-Echo)"},
+			}
+			done := make(chan string, 1)
+			go func() { done <- substituteVars("x=$(trigger.headers.X-Echo)", nil, td, nil) }()
+			Eventually(done, "2s").Should(Receive(Equal("x=$(trigger.headers.X-Echo)")))
+		})
+	})
+
+	Context("secret placeholder isolation (interpolateTemplate)", func() {
+		It("does not resolve a $(secrets.*) placeholder injected via attacker-controlled trigger body text", func() {
+			td := &automationv1alpha1.TriggerData{
+				Body: `{"text":"$(secrets.evil.password)"}`,
+			}
+			tmpl := "token=$(secrets.auth.token) msg=$(trigger.body.text)"
+			calledWith := []string{}
+			resolveSecret := func(name, key string) (string, error) {
+				calledWith = append(calledWith, name)
+				return "REALTOKEN", nil
+			}
+			actual, display, err := interpolateTemplate(tmpl, nil, td, nil, resolveSecret)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(actual).To(Equal("token=REALTOKEN msg=$(secrets.evil.password)"))
+			Expect(display).To(Equal("token=[REDACTED] msg=$(secrets.evil.password)"))
+			Expect(calledWith).To(Equal([]string{"auth"}), "only the legitimate secret reference should trigger a lookup")
+		})
+
+		It("leaves $(secrets.*) as literal text when no secret resolver is supplied (substituteVars)", func() {
+			result := substituteVars("$(secrets.foo.bar)", nil, nil, nil)
+			Expect(result).To(Equal("$(secrets.foo.bar)"))
+		})
+
+		It("leaves a malformed $(secrets.name) placeholder (no key) verbatim and continues resolving the rest", func() {
+			resolveSecret := func(name, key string) (string, error) { return "VAL", nil }
+			actual, _, err := interpolateTemplate("a=$(secrets.name) b=$(secrets.real.key)", nil, nil, nil, resolveSecret)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(actual).To(Equal("a=$(secrets.name) b=VAL"))
+		})
+
+		It("aborts the entire substitution on a secret fetch error, with no partial result", func() {
+			resolveSecret := func(name, key string) (string, error) {
+				return "", fmt.Errorf("secret %q not found", name)
+			}
+			actual, display, err := interpolateTemplate("a=$(secrets.missing.key) b=literal", nil, nil, nil, resolveSecret)
+			Expect(err).To(HaveOccurred())
+			Expect(actual).To(Equal(""))
+			Expect(display).To(Equal(""))
 		})
 	})
 

@@ -1929,8 +1929,8 @@ func extractTraceContext(ctx context.Context, annotations map[string]string) con
 //     replaced with the literal text "[REDACTED]" — safe to write to status
 //     fields, log messages, and error messages that persist to etcd.
 //
-// The function is idempotent: if the template contains no $(secrets.*) placeholders
-// it returns (substituteVars(s,...), substituteVars(s,...), nil) with no API calls.
+// A secret-fetch error aborts the entire substitution — no partial result is
+// ever returned. See interpolateTemplate for the shared single-pass resolver.
 func (r *FlowRunReconciler) substituteVarsWithSecrets(
 	ctx context.Context,
 	namespace string,
@@ -1939,67 +1939,13 @@ func (r *FlowRunReconciler) substituteVarsWithSecrets(
 	triggerData *automationv1alpha1.TriggerData,
 	params map[string]string,
 ) (actual, display string, err error) {
-	const secretPrefix = "$(secrets."
-
-	// Fast path: no secret placeholders — skip API calls entirely.
-	if !strings.Contains(s, secretPrefix) {
-		resolved := substituteVars(s, stepResults, triggerData, params)
-		return resolved, resolved, nil
-	}
-
-	// First, resolve non-secret placeholders in a copy of the template so that
-	// subsequent secret lookups operate on the partially-substituted string.
-	// We keep the secret placeholders intact at this stage.
-	partial := substituteVars(s, stepResults, triggerData, params)
-
-	// Now resolve all $(secrets.<name>.<key>) placeholders, building both
-	// the actual string and the display (redacted) string in parallel.
-	actualStr := partial
-	displayStr := partial
-
-	for {
-		idx := strings.Index(actualStr, secretPrefix)
-		if idx < 0 {
-			break
-		}
-		end := strings.Index(actualStr[idx:], ")")
-		if end < 0 {
-			break
-		}
-		end += idx
-
-		placeholder := actualStr[idx : end+1]
-		// Extract "name.key" from "$(secrets.name.key)".
-		inner := actualStr[idx+len(secretPrefix) : end]
-		dotIdx := strings.Index(inner, ".")
-		if dotIdx < 0 {
-			// Malformed placeholder — leave verbatim by advancing past it.
-			// Prevent infinite loop: trim the placeholder from further scanning.
-			actualStr = strings.Replace(actualStr, placeholder, placeholder, 1)
-			// Mark the display string the same way.
-			displayStr = strings.Replace(displayStr, placeholder, placeholder, 1)
-			// Remove from further scanning by replacing with a temporary sentinel
-			// that does not start with secretPrefix. We use the placeholder itself
-			// without the "$" prefix so it won't match again.
-			break
-		}
-		secretName := inner[:dotIdx]
-		secretKey := inner[dotIdx+1:]
-
-		value, fetchErr := r.fetchSecretValue(ctx, namespace, corev1.SecretKeySelector{
-			LocalObjectReference: corev1.LocalObjectReference{Name: secretName},
-			Key:                  secretKey,
+	resolveSecret := func(name, key string) (string, error) {
+		return r.fetchSecretValue(ctx, namespace, corev1.SecretKeySelector{
+			LocalObjectReference: corev1.LocalObjectReference{Name: name},
+			Key:                  key,
 		})
-		if fetchErr != nil {
-			return "", "", fmt.Errorf("resolving %s: %w", placeholder, fetchErr)
-		}
-
-		// Replace all occurrences of this placeholder in both strings.
-		actualStr = strings.ReplaceAll(actualStr, placeholder, value)
-		displayStr = strings.ReplaceAll(displayStr, placeholder, "[REDACTED]")
 	}
-
-	return actualStr, displayStr, nil
+	return interpolateTemplate(s, stepResults, triggerData, params, resolveSecret)
 }
 
 // substituteVars replaces template placeholders in s with values from stepResults,
@@ -2009,89 +1955,216 @@ func (r *FlowRunReconciler) substituteVarsWithSecrets(
 //   - $(trigger.body) — raw trigger request body
 //   - $(trigger.body.<field>) — dot-path into the trigger body (nested objects and array indices
 //     supported for JSON bodies; flat top-level fields only for application/x-www-form-urlencoded
-//     bodies, keyed by trigger.contentType; resolved before $(trigger.body))
+//     bodies, keyed by trigger.contentType)
 //   - $(trigger.headers.<name>) — trigger request header value (case-insensitive)
 //   - $(trigger.topic), $(trigger.partition), $(trigger.offset), $(trigger.scheduledTime)
+//
+// $(secrets.*) is left as literal text — only substituteVarsWithSecrets resolves it.
 func substituteVars(s string, stepResults map[string]map[string]string, triggerData *automationv1alpha1.TriggerData, params map[string]string) string {
-	// Substitute step results using underscore-normalized names (hyphens → underscores).
-	for stepName, results := range stepResults {
-		underscoreName := strings.ReplaceAll(stepName, "-", "_")
-		for key, value := range results {
-			placeholder := fmt.Sprintf("$(steps.%s.results.%s)", underscoreName, key)
-			s = strings.ReplaceAll(s, placeholder, value)
+	actual, _, _ := interpolateTemplate(s, stepResults, triggerData, params, nil)
+	return actual
+}
+
+// interpolateTemplate performs a single left-to-right pass over s, resolving each
+// $(...) placeholder exactly once from the ORIGINAL template text. A resolved
+// value is written straight to the output and the scan position advances past
+// the original closing ")" — substituted content is never re-scanned.
+//
+// This matters for more than correctness: previously, sequential
+// scan-and-ReplaceAll passes re-scanned already-substituted output, which meant
+// (a) a trigger body field or header whose value echoed its own placeholder
+// hung the reconciler forever (a scan loop kept "resolving" the same text on
+// every iteration), and (b) attacker-controlled data (a body field, header, or
+// upstream step/API result) landing next to one legitimate $(secrets.*)
+// reference could inject its own $(secrets.<any-name>.<any-key>) text and have
+// it resolved — reading any secret in the namespace. See
+// docs/design/2026-09-11-single-pass-interpolation.md.
+//
+// resolveSecret is nil for callers that must never resolve secrets (e.g. Flow
+// parameter defaults via resolveFlowParams) — $(secrets.*) is then left as
+// literal text. When non-nil, it is called once per $(secrets.<name>.<key>)
+// token; an error aborts the entire call with no partial result. display
+// mirrors actual except every secret-resolved value becomes "[REDACTED]".
+func interpolateTemplate(
+	s string,
+	stepResults map[string]map[string]string,
+	triggerData *automationv1alpha1.TriggerData,
+	params map[string]string,
+	resolveSecret func(name, key string) (string, error),
+) (actual, display string, err error) {
+	var lowerHeaders map[string]string
+	if triggerData != nil {
+		lowerHeaders = make(map[string]string, len(triggerData.Headers))
+		for k, v := range triggerData.Headers {
+			lowerHeaders[strings.ToLower(k)] = v
 		}
 	}
 
-	// Substitute resolved Flow parameters.
-	for name, value := range params {
-		placeholder := fmt.Sprintf("$(params.%s)", name)
-		s = strings.ReplaceAll(s, placeholder, value)
-	}
+	// bodyRoot is parsed at most once, lazily, only if a $(trigger.body.<field>)
+	// token is actually encountered.
+	var bodyRoot interface{}
+	bodyParsed := false
 
-	if triggerData == nil {
-		return s
-	}
-
-	// Handle $(trigger.body.<field>) BEFORE $(trigger.body) to avoid partial replacement.
-	// Supports dot-path traversal into nested objects and arrays, e.g. $(trigger.body.order.id)
-	// or $(trigger.body.items.0), for JSON bodies. application/x-www-form-urlencoded bodies
-	// (e.g. Slack slash commands) are parsed into a flat field map instead. Missing paths
-	// silently resolve to empty string.
-	if triggerData.Body != "" {
-		bodyRoot := parseTriggerBody(triggerData)
-		if bodyRoot != nil {
-			const bodyFieldPrefix = "$(trigger.body."
-			for {
-				idx := strings.Index(s, bodyFieldPrefix)
-				if idx < 0 {
-					break
-				}
-				end := strings.Index(s[idx:], ")")
-				if end < 0 {
-					break
-				}
-				end += idx
-				placeholder := s[idx : end+1]
-				fieldName := s[idx+len(bodyFieldPrefix) : end]
-				parts := strings.Split(fieldName, ".")
-				value := resolveBodyPath(parts, bodyRoot)
-				s = strings.ReplaceAll(s, placeholder, value)
-			}
-		}
-	}
-
-	s = strings.ReplaceAll(s, "$(trigger.body)", triggerData.Body)
-	s = strings.ReplaceAll(s, "$(trigger.topic)", triggerData.Topic)
-	s = strings.ReplaceAll(s, "$(trigger.partition)", fmt.Sprintf("%d", triggerData.Partition))
-	s = strings.ReplaceAll(s, "$(trigger.offset)", fmt.Sprintf("%d", triggerData.Offset))
-	if triggerData.ScheduledTime != nil {
-		s = strings.ReplaceAll(s, "$(trigger.scheduledTime)", triggerData.ScheduledTime.UTC().Format(time.RFC3339))
-	} else {
-		s = strings.ReplaceAll(s, "$(trigger.scheduledTime)", "")
-	}
-	// Substitute trigger headers: $(trigger.headers.<name>) — case-insensitive lookup.
-	lowerHeaders := make(map[string]string, len(triggerData.Headers))
-	for k, v := range triggerData.Headers {
-		lowerHeaders[strings.ToLower(k)] = v
-	}
-	const headerPrefix = "$(trigger.headers."
+	var actualBuf, displayBuf strings.Builder
+	i := 0
 	for {
-		idx := strings.Index(s, headerPrefix)
-		if idx < 0 {
+		start := strings.Index(s[i:], "$(")
+		if start < 0 {
+			actualBuf.WriteString(s[i:])
+			displayBuf.WriteString(s[i:])
 			break
 		}
-		end := strings.Index(s[idx:], ")")
-		if end < 0 {
-			break
-		}
-		end += idx
-		placeholder := s[idx : end+1]
-		headerName := s[idx+len(headerPrefix) : end]
-		value := lowerHeaders[strings.ToLower(headerName)]
-		s = strings.ReplaceAll(s, placeholder, value)
-	}
+		start += i
+		actualBuf.WriteString(s[i:start])
+		displayBuf.WriteString(s[i:start])
 
-	return s
+		closeIdx := strings.Index(s[start:], ")")
+		if closeIdx < 0 {
+			// No closing paren for the rest of the string — copy verbatim and stop.
+			actualBuf.WriteString(s[start:])
+			displayBuf.WriteString(s[start:])
+			break
+		}
+		closeIdx += start
+		token := s[start+2 : closeIdx]
+		full := s[start : closeIdx+1]
+
+		if !bodyParsed && strings.HasPrefix(token, "trigger.body.") {
+			bodyRoot = parseTriggerBody(triggerData)
+			bodyParsed = true
+		}
+
+		value, matched, isSecret, rerr := resolveInterpolationToken(
+			token, stepResults, triggerData, params, bodyRoot, lowerHeaders, resolveSecret)
+		if rerr != nil {
+			return "", "", rerr
+		}
+		if matched {
+			actualBuf.WriteString(value)
+			if isSecret {
+				displayBuf.WriteString("[REDACTED]")
+			} else {
+				displayBuf.WriteString(value)
+			}
+		} else {
+			actualBuf.WriteString(full)
+			displayBuf.WriteString(full)
+		}
+		i = closeIdx + 1
+	}
+	return actualBuf.String(), displayBuf.String(), nil
+}
+
+// resolveInterpolationToken resolves the text found between "$(" and ")" — e.g.
+// "steps.foo.results.bar" or "trigger.body.order.id". Returns matched=false to
+// leave the original "$(...)" text untouched (unknown syntax, or a source that
+// intentionally isn't available in this context, e.g. secrets when
+// resolveSecret is nil). bodyRoot must already be parsed (or nil) by the caller
+// when token starts with "trigger.body.".
+func resolveInterpolationToken(
+	token string,
+	stepResults map[string]map[string]string,
+	triggerData *automationv1alpha1.TriggerData,
+	params map[string]string,
+	bodyRoot interface{},
+	lowerHeaders map[string]string,
+	resolveSecret func(name, key string) (string, error),
+) (value string, matched, isSecret bool, err error) {
+	switch {
+	case strings.HasPrefix(token, "steps."):
+		// $(steps.<name>.results.<key>) — hyphens in name normalized to underscores.
+		rest := strings.TrimPrefix(token, "steps.")
+		const marker = ".results."
+		idx := strings.Index(rest, marker)
+		if idx < 0 {
+			return "", false, false, nil
+		}
+		stepName, key := rest[:idx], rest[idx+len(marker):]
+		for name, results := range stepResults {
+			if strings.ReplaceAll(name, "-", "_") != stepName {
+				continue
+			}
+			if v, ok := results[key]; ok {
+				return v, true, false, nil
+			}
+			break
+		}
+		return "", false, false, nil
+
+	case strings.HasPrefix(token, "params."):
+		name := strings.TrimPrefix(token, "params.")
+		if v, ok := params[name]; ok {
+			return v, true, false, nil
+		}
+		return "", false, false, nil
+
+	case token == "trigger.body":
+		if triggerData == nil {
+			return "", false, false, nil
+		}
+		return triggerData.Body, true, false, nil
+
+	case strings.HasPrefix(token, "trigger.body."):
+		if triggerData == nil || triggerData.Body == "" || bodyRoot == nil {
+			return "", false, false, nil
+		}
+		fieldPath := strings.TrimPrefix(token, "trigger.body.")
+		return resolveBodyPath(strings.Split(fieldPath, "."), bodyRoot), true, false, nil
+
+	case strings.HasPrefix(token, "trigger.headers."):
+		if triggerData == nil {
+			return "", false, false, nil
+		}
+		name := strings.TrimPrefix(token, "trigger.headers.")
+		return lowerHeaders[strings.ToLower(name)], true, false, nil
+
+	case token == "trigger.topic":
+		if triggerData == nil {
+			return "", false, false, nil
+		}
+		return triggerData.Topic, true, false, nil
+
+	case token == "trigger.partition":
+		if triggerData == nil {
+			return "", false, false, nil
+		}
+		return fmt.Sprintf("%d", triggerData.Partition), true, false, nil
+
+	case token == "trigger.offset":
+		if triggerData == nil {
+			return "", false, false, nil
+		}
+		return fmt.Sprintf("%d", triggerData.Offset), true, false, nil
+
+	case token == "trigger.scheduledTime":
+		if triggerData == nil {
+			return "", false, false, nil
+		}
+		if triggerData.ScheduledTime != nil {
+			return triggerData.ScheduledTime.UTC().Format(time.RFC3339), true, false, nil
+		}
+		return "", true, false, nil
+
+	case strings.HasPrefix(token, "secrets."):
+		if resolveSecret == nil {
+			return "", false, false, nil
+		}
+		inner := strings.TrimPrefix(token, "secrets.")
+		dotIdx := strings.Index(inner, ".")
+		if dotIdx < 0 {
+			// Malformed — no key segment. Leave verbatim.
+			return "", false, false, nil
+		}
+		secretName, secretKey := inner[:dotIdx], inner[dotIdx+1:]
+		v, ferr := resolveSecret(secretName, secretKey)
+		if ferr != nil {
+			return "", false, false, fmt.Errorf("resolving $(%s): %w", token, ferr)
+		}
+		return v, true, true, nil
+
+	default:
+		return "", false, false, nil
+	}
 }
 
 // parseTriggerBody parses triggerData.Body into a structured value suitable for
@@ -2208,13 +2281,7 @@ func resolveFlowParams(
 // does not exist or a segment cannot be traversed.
 func resolveBodyPath(parts []string, v interface{}) string {
 	if len(parts) == 0 {
-		if v == nil {
-			return ""
-		}
-		if s, ok := v.(string); ok {
-			return s
-		}
-		return fmt.Sprintf("%v", v)
+		return renderBodyLeaf(v)
 	}
 	key := parts[0]
 	rest := parts[1:]
@@ -2233,6 +2300,31 @@ func resolveBodyPath(parts []string, v interface{}) string {
 		return resolveBodyPath(rest, node[idx])
 	default:
 		return ""
+	}
+}
+
+// renderBodyLeaf renders a value reached via $(trigger.body.<path>) as it should
+// appear when embedded directly in a string template. json.Unmarshal decodes every
+// JSON number as float64 and every object/array as a Go map/slice; fmt.Sprintf("%v", ...)
+// on those produces scientific notation for large numbers (1234567 -> "1.234567e+06")
+// and Go syntax for structures (map[id:1], [1 2]) rather than valid JSON. This renders
+// numbers as plain decimal (exact for any integer within float64's ±2^53 range, which
+// covers epoch-millis timestamps and ordinary record/order IDs) and structures as JSON.
+func renderBodyLeaf(v interface{}) string {
+	switch val := v.(type) {
+	case nil:
+		return ""
+	case string:
+		return val
+	case float64:
+		return strconv.FormatFloat(val, 'f', -1, 64)
+	case map[string]interface{}, []interface{}:
+		if b, err := json.Marshal(val); err == nil {
+			return string(b)
+		}
+		return fmt.Sprintf("%v", val)
+	default:
+		return fmt.Sprintf("%v", val)
 	}
 }
 

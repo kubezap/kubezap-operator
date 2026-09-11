@@ -97,6 +97,23 @@ spec:
                                 type: string
                               description: Request headers.
                               type: object
+                            integrationRef:
+                              description: |-
+                                Reference to an http-type Integration providing base URL, auth, and default headers.
+                                When set, the Integration's auth and defaultHeaders are merged into the request.
+                                For type=secretUrl Integrations, the step URL is replaced by the Integration's URL secret.
+                              properties:
+                                name:
+                                  default: ""
+                                  description: |-
+                                    Name of the referent.
+                                    This field is effectively required, but due to backwards compatibility is
+                                    allowed to be empty. Instances of this type with an empty value here are
+                                    almost certainly wrong.
+                                    More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                                  type: string
+                              type: object
+                              x-kubernetes-map-type: atomic
                             method:
                               default: POST
                               description: HTTP method for the call.
@@ -243,6 +260,7 @@ spec:
                         maxRetries:
                           description: Maximum retries allowed.
                           format: int32
+                          minimum: 0
                           type: integer
                         multiplier:
                           default: "2.0"
@@ -285,6 +303,9 @@ spec:
                   type: object
                 minItems: 1
                 type: array
+                x-kubernetes-list-map-keys:
+                - name
+                x-kubernetes-list-type: map
               timeout:
                 default: 10m
                 description: Timeout for the entire Flow execution.

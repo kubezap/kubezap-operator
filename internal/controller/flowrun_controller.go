@@ -1113,6 +1113,8 @@ func (r *FlowRunReconciler) executePublishStep(
 	pluginURL := fmt.Sprintf("http://kubezap-plugin-%s.%s.svc.cluster.local:%d/publish",
 		integration.Name, flowRun.Namespace, port)
 
+	destination := substituteVars(step.Action.Publish.Topic, stepResults, triggerData, params)
+
 	body, _, berr := r.substituteVarsWithSecrets(ctx, flowRun.Namespace, step.Action.Publish.Body, stepResults, triggerData, params)
 	if berr != nil {
 		return nil, 0, fmt.Errorf("resolving secrets in publish body for step %q: %w", step.Name, berr)
@@ -1139,7 +1141,7 @@ func (r *FlowRunReconciler) executePublishStep(
 			}
 		}
 
-		result, attemptErr := r.doPluginPublish(ctx, pluginURL, body, headers, publishTimeout)
+		result, attemptErr := r.doPluginPublish(ctx, pluginURL, integration.Name, flowRun.Namespace, destination, body, headers, publishTimeout)
 		if attemptErr == nil {
 			return result, attempt + 1, nil
 		}
@@ -1148,12 +1150,35 @@ func (r *FlowRunReconciler) executePublishStep(
 	return nil, maxAttempts, lastErr
 }
 
-// doPluginPublish performs a single HTTP POST to a plugin publisher endpoint.
-// It creates a per-call context with the given timeout so cancellation is scoped
-// to this attempt rather than leaking across retry iterations.
+// pluginPublishEnvelope is the JSON envelope POSTed to a plugin's /publish
+// endpoint, per the Publisher contract in docs/api/integration.md.
+type pluginPublishEnvelope struct {
+	Integration string            `json:"integration"`
+	Namespace   string            `json:"namespace"`
+	Destination string            `json:"destination"`
+	Headers     map[string]string `json:"headers,omitempty"`
+	Body        string            `json:"body"`
+}
+
+// pluginPublishSuccess is the documented success response body. messageId is
+// optional and advisory only — its absence is not an error.
+type pluginPublishSuccess struct {
+	MessageID string `json:"messageId"`
+}
+
+// pluginPublishFailure is the documented failure response body.
+type pluginPublishFailure struct {
+	Error string `json:"error"`
+}
+
+// doPluginPublish performs a single HTTP POST to a plugin publisher endpoint,
+// sending the JSON envelope documented in docs/api/integration.md's Publisher
+// contract. It creates a per-call context with the given timeout so
+// cancellation is scoped to this attempt rather than leaking across retry
+// iterations.
 func (r *FlowRunReconciler) doPluginPublish(
 	ctx context.Context,
-	url, body string,
+	url, integrationName, namespace, destination, body string,
 	headers map[string]string,
 	timeout time.Duration,
 ) (map[string]string, error) {
@@ -1164,22 +1189,23 @@ func (r *FlowRunReconciler) doPluginPublish(
 		defer cancel()
 	}
 
-	var bodyReader io.Reader
-	if body != "" {
-		bodyReader = bytes.NewBufferString(body)
+	envelope := pluginPublishEnvelope{
+		Integration: integrationName,
+		Namespace:   namespace,
+		Destination: destination,
+		Headers:     headers,
+		Body:        body,
+	}
+	envelopeBytes, err := json.Marshal(envelope)
+	if err != nil {
+		return nil, fmt.Errorf("marshalling publish envelope: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(publishCtx, http.MethodPost, url, bodyReader)
+	req, err := http.NewRequestWithContext(publishCtx, http.MethodPost, url, bytes.NewReader(envelopeBytes))
 	if err != nil {
 		return nil, fmt.Errorf("building publish request: %w", err)
 	}
-
-	if _, ok := headers["Content-Type"]; !ok {
-		req.Header.Set("Content-Type", "application/json")
-	}
-	for k, v := range headers {
-		req.Header.Set(k, v)
-	}
+	req.Header.Set("Content-Type", "application/json")
 
 	httpClient := r.HTTPClient
 	if httpClient == nil {
@@ -1192,9 +1218,19 @@ func (r *FlowRunReconciler) doPluginPublish(
 	}
 	defer resp.Body.Close()
 
+	respBytes, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
+
 	if resp.StatusCode >= 400 {
-		bodyBytes, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
-		return nil, fmt.Errorf("publish endpoint returned status %d: %s", resp.StatusCode, strings.TrimSpace(string(bodyBytes)))
+		var failure pluginPublishFailure
+		if jsonErr := json.Unmarshal(respBytes, &failure); jsonErr == nil && failure.Error != "" {
+			return nil, fmt.Errorf("publish endpoint returned status %d: %s", resp.StatusCode, failure.Error)
+		}
+		return nil, fmt.Errorf("publish endpoint returned status %d: %s", resp.StatusCode, strings.TrimSpace(string(respBytes)))
+	}
+
+	var success pluginPublishSuccess
+	if jsonErr := json.Unmarshal(respBytes, &success); jsonErr == nil && success.MessageID != "" {
+		return map[string]string{"messageId": success.MessageID}, nil
 	}
 
 	return map[string]string{}, nil

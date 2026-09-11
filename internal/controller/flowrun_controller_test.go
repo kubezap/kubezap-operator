@@ -18,7 +18,9 @@ package controller
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -1420,6 +1422,119 @@ var _ = Describe("FlowRunReconciler", func() {
 			Expect(mock.lastMessage).NotTo(BeNil())
 			Expect(mock.lastMessage.Topic).To(Equal("orders.us-east"),
 				"topic must be resolved through substituteVars, not published as the raw $(...) template")
+		})
+	})
+
+	Describe("doPluginPublish — plugin publisher envelope", func() {
+		// See docs/design/2026-09-10-plugin-publish-envelope.md: the controller must
+		// send the documented {integration, namespace, destination, headers, body}
+		// JSON envelope, not raw body/headers, and must parse the documented
+		// {messageId}/{error} response shapes.
+		var receivedBody []byte
+		var receivedContentType string
+		var server *httptest.Server
+		var r *FlowRunReconciler
+
+		BeforeEach(func() {
+			receivedBody = nil
+			receivedContentType = ""
+			r = &FlowRunReconciler{HTTPClient: http.DefaultClient}
+		})
+
+		AfterEach(func() {
+			if server != nil {
+				server.Close()
+			}
+		})
+
+		It("sends the full documented envelope, not the raw body/headers", func() {
+			server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+				receivedContentType = req.Header.Get("Content-Type")
+				receivedBody, _ = io.ReadAll(req.Body)
+				w.WriteHeader(http.StatusOK)
+				_, _ = w.Write([]byte(`{}`))
+			}))
+
+			_, err := r.doPluginPublish(context.Background(), server.URL,
+				"my-integ", "my-ns", "orders.processed", "the message body",
+				map[string]string{"X-Correlation-Id": "corr-1"}, 5*time.Second)
+			Expect(err).NotTo(HaveOccurred())
+
+			Expect(receivedContentType).To(Equal("application/json"))
+
+			var envelope map[string]interface{}
+			Expect(json.Unmarshal(receivedBody, &envelope)).To(Succeed())
+			Expect(envelope["integration"]).To(Equal("my-integ"))
+			Expect(envelope["namespace"]).To(Equal("my-ns"))
+			Expect(envelope["destination"]).To(Equal("orders.processed"))
+			Expect(envelope["body"]).To(Equal("the message body"))
+			Expect(envelope["headers"]).To(Equal(map[string]interface{}{"X-Correlation-Id": "corr-1"}))
+		})
+
+		It("does not set message headers as literal HTTP request headers", func() {
+			var sawCustomHeader bool
+			server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+				sawCustomHeader = req.Header.Get("X-Correlation-Id") != ""
+				w.WriteHeader(http.StatusOK)
+				_, _ = w.Write([]byte(`{}`))
+			}))
+
+			_, err := r.doPluginPublish(context.Background(), server.URL,
+				"my-integ", "my-ns", "orders.processed", "body",
+				map[string]string{"X-Correlation-Id": "corr-1"}, 5*time.Second)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(sawCustomHeader).To(BeFalse(),
+				"message headers belong in the envelope's \"headers\" field, not as literal HTTP headers on the /publish call")
+		})
+
+		It("surfaces messageId from a successful response as a step result", func() {
+			server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+				w.WriteHeader(http.StatusOK)
+				_, _ = w.Write([]byte(`{"messageId":"broker-msg-42"}`))
+			}))
+
+			result, err := r.doPluginPublish(context.Background(), server.URL,
+				"my-integ", "my-ns", "orders.processed", "body", nil, 5*time.Second)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result).To(Equal(map[string]string{"messageId": "broker-msg-42"}))
+		})
+
+		It("treats a success response with no messageId as success with empty results", func() {
+			server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+				w.WriteHeader(http.StatusOK)
+				_, _ = w.Write([]byte(`{}`))
+			}))
+
+			result, err := r.doPluginPublish(context.Background(), server.URL,
+				"my-integ", "my-ns", "orders.processed", "body", nil, 5*time.Second)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result).To(Equal(map[string]string{}))
+		})
+
+		It("parses the documented {error} field out of a failure response", func() {
+			server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+				w.WriteHeader(http.StatusServiceUnavailable)
+				_, _ = w.Write([]byte(`{"error":"broker unavailable"}`))
+			}))
+
+			_, err := r.doPluginPublish(context.Background(), server.URL,
+				"my-integ", "my-ns", "orders.processed", "body", nil, 5*time.Second)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("broker unavailable"))
+			Expect(err.Error()).NotTo(ContainSubstring(`{"error"`),
+				"the parsed message should be used, not the raw JSON envelope")
+		})
+
+		It("falls back to the raw response body when a failure response isn't the documented JSON shape", func() {
+			server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+				w.WriteHeader(http.StatusInternalServerError)
+				_, _ = w.Write([]byte("plain text failure, not JSON"))
+			}))
+
+			_, err := r.doPluginPublish(context.Background(), server.URL,
+				"my-integ", "my-ns", "orders.processed", "body", nil, 5*time.Second)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("plain text failure, not JSON"))
 		})
 	})
 

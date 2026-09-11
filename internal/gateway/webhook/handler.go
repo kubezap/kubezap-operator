@@ -129,7 +129,7 @@ func sourceRange(ipStr string) string {
 // Returns (http.StatusOK, "") on success, or (statusCode, errorMessage) on failure.
 func authenticateRequest(r *http.Request, body []byte, entry RouteEntry, triggerName string) (int, string) {
 	switch entry.AuthType {
-	case "hmac":
+	case authTypeHMAC:
 		if entry.HMACProvider == "slack" {
 			return verifySlackHMAC(r, body, entry.HMACSecret, entry.HMACTimestampToleranceSec)
 		}
@@ -146,7 +146,7 @@ func authenticateRequest(r *http.Request, body []byte, entry RouteEntry, trigger
 			return http.StatusUnauthorized, "HMAC signature mismatch"
 		}
 
-	case "bearer":
+	case authTypeBearer:
 		authHeader := r.Header.Get("Authorization")
 		if authHeader == "" {
 			return http.StatusUnauthorized, "missing Authorization header"
@@ -155,7 +155,7 @@ func authenticateRequest(r *http.Request, body []byte, entry RouteEntry, trigger
 			return http.StatusUnauthorized, "invalid bearer token"
 		}
 
-	case "apiKey":
+	case authTypeAPIKey:
 		headerName := entry.APIKeyHeader
 		if headerName == "" {
 			headerName = "X-Api-Key"
@@ -168,7 +168,7 @@ func authenticateRequest(r *http.Request, body []byte, entry RouteEntry, trigger
 			return http.StatusUnauthorized, "invalid API key"
 		}
 
-	case "oidc":
+	case authTypeOIDC:
 		authHeader := r.Header.Get("Authorization")
 		if authHeader == "" || !strings.HasPrefix(authHeader, "Bearer ") {
 			return http.StatusUnauthorized, `{"error":"unauthorized","reason":"missing Bearer token"}`
@@ -178,7 +178,7 @@ func authenticateRequest(r *http.Request, body []byte, entry RouteEntry, trigger
 			return http.StatusUnauthorized, fmt.Sprintf(`{"error":"unauthorized","reason":"%s"}`, err.Error())
 		}
 
-	case "basic":
+	case authTypeBasic:
 		username, password, ok := r.BasicAuth()
 		if !ok {
 			return http.StatusUnauthorized, "missing or malformed Basic auth credentials"
@@ -188,7 +188,7 @@ func authenticateRequest(r *http.Request, body []byte, entry RouteEntry, trigger
 			return http.StatusUnauthorized, "invalid Basic auth credentials"
 		}
 
-	case "ipAllowlist":
+	case authTypeIPAllowlist:
 		clientIP := realClientIP(r)
 		ip := net.ParseIP(clientIP)
 		allowed := false
@@ -212,7 +212,7 @@ func authenticateRequest(r *http.Request, body []byte, entry RouteEntry, trigger
 			return http.StatusForbidden, "source IP not in allowlist"
 		}
 
-	case "header-equals":
+	case authTypeHeaderEquals:
 		headerName := entry.HeaderEqualsHeader
 		if headerName == "" {
 			return http.StatusUnauthorized, "header-equals auth misconfigured: no header name"
@@ -369,7 +369,7 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Cooldown window enforcement: suppress requests that exceed maxInvocations within the window.
 	if entry.MaxInvocations > 0 && !h.cooldown.allow(r.URL.Path, entry.MaxInvocations, entry.CooldownWindow) {
 		status = http.StatusTooManyRequests
-		metricResult = "rate_limited"
+		metricResult = metricResultRateLimited
 		metrics.WebhookRateLimited.WithLabelValues(triggerName, triggerNamespace).Inc()
 		writeJSON(w, status, map[string]string{"error": "cooldown window exceeded"})
 		return

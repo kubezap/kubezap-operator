@@ -33,6 +33,14 @@ const (
 	webhookGatewayPort           = int32(8080)
 )
 
+// portNameHTTP/portNameHTTPS name the single container/service port exposed by
+// the webhook gateway and http-executor Deployments/Services, and the URL
+// scheme returned by executorScheme — all mean "plain HTTP" vs "TLS-terminated".
+const (
+	portNameHTTP  = "http"
+	portNameHTTPS = "https"
+)
+
 // WebhookGatewayTLSConfig carries TLS/mTLS configuration for the webhook gateway Deployment.
 // An empty struct means plain HTTP with no TLS termination.
 type WebhookGatewayTLSConfig struct {
@@ -164,9 +172,9 @@ func desiredWebhookGatewayService(namespace string, tlsCfg WebhookGatewayTLSConf
 		"kubezap.io/namespace": namespace,
 	}
 
-	portName := "http"
+	portName := portNameHTTP
 	if tlsCfg.TLSSecretName != "" {
-		portName = "https"
+		portName = portNameHTTPS
 	}
 
 	return &corev1.Service{
@@ -207,11 +215,11 @@ func desiredWebhookGatewayDeployment(namespace string, tlsCfg WebhookGatewayTLSC
 	var volumeMounts []corev1.VolumeMount
 	var volumes []corev1.Volume
 
-	portName := "http"
+	portName := portNameHTTP
 	probeScheme := corev1.URISchemeHTTP
 
 	if tlsCfg.TLSSecretName != "" {
-		portName = "https"
+		portName = portNameHTTPS
 		probeScheme = corev1.URISchemeHTTPS
 
 		args = append(args,

@@ -19,7 +19,6 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/rest"
 	toolscache "k8s.io/client-go/tools/cache"
-	"sigs.k8s.io/controller-runtime/pkg/cache"
 	crcache "sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
@@ -75,7 +74,7 @@ func NewWatcher(c client.Client, cfg *rest.Config, namespace string, log logr.Lo
 		return nil, fmt.Errorf("unable to create REST mapper: %w", err)
 	}
 
-	cacheOpts := cache.Options{Scheme: controllerScheme, Mapper: mapper}
+	cacheOpts := crcache.Options{Scheme: controllerScheme, Mapper: mapper}
 	if namespace != "" {
 		cacheOpts.DefaultNamespaces = map[string]crcache.Config{namespace: {}}
 	}

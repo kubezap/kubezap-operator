@@ -55,6 +55,9 @@ var (
 	setupLog = ctrl.Log.WithName("setup")
 )
 
+// defaultNamespace is the fallback used when POD_NAMESPACE is unset.
+const defaultNamespace = "default"
+
 func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 
@@ -102,16 +105,31 @@ func main() {
 		"If set, HTTP/2 will be enabled for the metrics and webhook servers")
 	flag.DurationVar(&flowRunTTLSucceeded, "flowrun-ttl-succeeded", 24*time.Hour, "TTL for succeeded FlowRuns before GC")
 	flag.DurationVar(&flowRunTTLFailed, "flowrun-ttl-failed", 72*time.Hour, "TTL for failed FlowRuns before GC")
-	flag.IntVar(&maxConcurrentFlowRuns, "max-concurrent-flowruns", 25, "Maximum number of FlowRun reconciliations to run concurrently. With one-step-per-reconcile, the goroutine is held only for the duration of a single step (one HTTP call), not the entire flow.")
-	flag.DurationVar(&flowRunExecutionTimeout, "flowrun-execution-timeout", time.Hour, "Maximum time a FlowRun may remain in Running phase before being failed as orphaned (0 = disabled).")
-	flag.BoolVar(&disableCELCache, "disable-cel-cache", false, "Disable the CEL expression program cache. The cache is unbounded but converges once Flows stabilise; disable only when continuously deploying throwaway expressions or for debugging.")
-	flag.IntVar(&celCostLimit, "cel-cost-limit", 10000, "Maximum CEL evaluation cost budget per 'when' expression. 0 disables the limit. Prevents DoS via combinatorially-expensive expressions (e.g. nested comprehensions).")
-	flag.StringVar(&httpStepBlockedCIDRs, "http-step-blocked-cidrs", "", "Comma-separated list of additional CIDR ranges to block for HTTP step outbound requests (added to the default RFC1918/loopback/link-local blocklist).")
-	flag.BoolVar(&ssrfAllowClusterInternal, "ssrf-allow-in-cluster", false, "Disable SSRF protection for in-cluster service endpoints (.svc.cluster.local) and RFC1918 CIDRs. For dev/test only — NOT safe in production without NetworkPolicy enforcement.")
-	flag.StringVar(&executorImage, "executor-image", "ghcr.io/kubezap/http-executor:latest", "Container image for the http-executor Deployment managed in each namespace.")
+	flag.IntVar(&maxConcurrentFlowRuns, "max-concurrent-flowruns", 25,
+		"Maximum number of FlowRun reconciliations to run concurrently. With one-step-per-reconcile, "+
+			"the goroutine is held only for the duration of a single step (one HTTP call), not the entire flow.")
+	flag.DurationVar(&flowRunExecutionTimeout, "flowrun-execution-timeout", time.Hour,
+		"Maximum time a FlowRun may remain in Running phase before being failed as orphaned (0 = disabled).")
+	flag.BoolVar(&disableCELCache, "disable-cel-cache", false,
+		"Disable the CEL expression program cache. The cache is unbounded but converges once Flows "+
+			"stabilise; disable only when continuously deploying throwaway expressions or for debugging.")
+	flag.IntVar(&celCostLimit, "cel-cost-limit", 10000,
+		"Maximum CEL evaluation cost budget per 'when' expression. 0 disables the limit. Prevents DoS "+
+			"via combinatorially-expensive expressions (e.g. nested comprehensions).")
+	flag.StringVar(&httpStepBlockedCIDRs, "http-step-blocked-cidrs", "",
+		"Comma-separated list of additional CIDR ranges to block for HTTP step outbound requests "+
+			"(added to the default RFC1918/loopback/link-local blocklist).")
+	flag.BoolVar(&ssrfAllowClusterInternal, "ssrf-allow-in-cluster", false,
+		"Disable SSRF protection for in-cluster service endpoints (.svc.cluster.local) and RFC1918 "+
+			"CIDRs. For dev/test only — NOT safe in production without NetworkPolicy enforcement.")
+	flag.StringVar(&executorImage, "executor-image", "ghcr.io/kubezap/http-executor:latest",
+		"Container image for the http-executor Deployment managed in each namespace.")
 	var executorRPCBaseURL string
-	flag.StringVar(&executorRPCBaseURL, "executor-rpc-base-url", "http://kubezap-http-executor.%s.svc.cluster.local:8091", "Base URL format string for the http-executor Service RPC calls; %s is replaced with the target namespace.")
-	flag.BoolVar(&executorMTLS, "executor-mtls", false, "Enable mTLS between controller and http-executor. When true, the controller generates a self-signed CA at startup, injects certs into the executor Deployment, and rotates them every 23h.")
+	flag.StringVar(&executorRPCBaseURL, "executor-rpc-base-url", "http://kubezap-http-executor.%s.svc.cluster.local:8091",
+		"Base URL format string for the http-executor Service RPC calls; %s is replaced with the target namespace.")
+	flag.BoolVar(&executorMTLS, "executor-mtls", false,
+		"Enable mTLS between controller and http-executor. When true, the controller generates a "+
+			"self-signed CA at startup, injects certs into the executor Deployment, and rotates them every 23h.")
 	flag.BoolVar(&developmentLogging, "development", false,
 		"Enable development logging mode (human-readable, with caller info). Defaults to false for production JSON logging.")
 	var opts zap.Options
@@ -134,7 +152,7 @@ func main() {
 	if executorMTLS {
 		ownNS := os.Getenv("POD_NAMESPACE")
 		if ownNS == "" {
-			ownNS = "default"
+			ownNS = defaultNamespace
 		}
 		dnsSANs := []string{
 			fmt.Sprintf("kubezap-http-executor.%s.svc.cluster.local", ownNS),
@@ -251,14 +269,14 @@ func main() {
 	//   comma-list   → MultiNamespace
 	cacheOpts := cache.Options{}
 	watchNS := os.Getenv("WATCH_NAMESPACES")
-	switch {
-	case watchNS == "*":
+	switch watchNS {
+	case "*":
 		setupLog.Info("AllNamespaces mode: watching all namespaces")
-	case watchNS == "":
+	case "":
 		// Default: OwnNamespace — watch only the operator's own namespace.
 		ownNS := os.Getenv("POD_NAMESPACE")
 		if ownNS == "" {
-			ownNS = "default"
+			ownNS = defaultNamespace
 			setupLog.Info("POD_NAMESPACE not set; defaulting watch to namespace 'default'")
 		}
 		cacheOpts.DefaultNamespaces = map[string]cache.Config{ownNS: {}}
@@ -312,7 +330,8 @@ func main() {
 		setupLog.Error(err, "unable to create discovery client")
 		os.Exit(1)
 	}
-	resourceWatcher := controller.NewResourceWatcher(mgr.GetClient(), dynClient, discoveryClient, ctrl.Log.WithName("resource-watcher"))
+	resourceWatcher := controller.NewResourceWatcher(
+		mgr.GetClient(), dynClient, discoveryClient, ctrl.Log.WithName("resource-watcher"))
 	if err := mgr.Add(resourceWatcher); err != nil {
 		setupLog.Error(err, "unable to add ResourceWatcher to manager")
 		os.Exit(1)
@@ -392,7 +411,7 @@ func main() {
 			defer ticker.Stop()
 			ownNS := os.Getenv("POD_NAMESPACE")
 			if ownNS == "" {
-				ownNS = "default"
+				ownNS = defaultNamespace
 			}
 			dnsSANs := []string{
 				fmt.Sprintf("kubezap-http-executor.%s.svc.cluster.local", ownNS),

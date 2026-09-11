@@ -113,7 +113,7 @@ func FmtStepDuration(start, end *metav1.Time) string {
 	if start == nil || end == nil {
 		return "-"
 	}
-	d := end.Time.Sub(start.Time)
+	d := end.Sub(start.Time)
 	if d < time.Millisecond {
 		return fmt.Sprintf("%dµs", d.Microseconds())
 	}

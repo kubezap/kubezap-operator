@@ -253,7 +253,7 @@ spec:
 
 var _ = Describe("HTTP executor", Label("executor"), Ordered, func() {
 	BeforeAll(func() {
-		if os.Getenv("SKIP_EXECUTOR_E2E") == "true" {
+		if os.Getenv("SKIP_EXECUTOR_E2E") == envTrue {
 			Skip("SKIP_EXECUTOR_E2E=true; skipping executor E2E scenario")
 		}
 

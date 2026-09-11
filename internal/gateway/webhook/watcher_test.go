@@ -190,14 +190,14 @@ func TestBuildRouteEntry_RateLimit_NonStandardWindow(t *testing.T) {
 	}
 }
 
-// newHMACTrigger builds a webhook Trigger secured with HMAC auth backed by secretName.
-func newHMACTrigger(name, secretName string) *automationv1alpha1.Trigger {
-	t := newWebhookTrigger(name, nil)
+// newHMACTrigger builds a webhook Trigger secured with HMAC auth backed by the "hmac-secret" Secret.
+func newHMACTrigger() *automationv1alpha1.Trigger {
+	t := newWebhookTrigger("hmac-trigger", nil)
 	t.Spec.Webhook.Auth = &automationv1alpha1.WebhookAuth{
 		Type: "hmac",
 		HMAC: &automationv1alpha1.HMACConfig{
 			SecretRef: corev1.SecretKeySelector{
-				LocalObjectReference: corev1.LocalObjectReference{Name: secretName},
+				LocalObjectReference: corev1.LocalObjectReference{Name: "hmac-secret"},
 				Key:                  "secret",
 			},
 		},
@@ -208,7 +208,7 @@ func newHMACTrigger(name, secretName string) *automationv1alpha1.Trigger {
 // TestSecretRefsForTrigger_HMAC verifies the referenced secret is correctly
 // identified without needing to read it.
 func TestSecretRefsForTrigger_HMAC(t *testing.T) {
-	trigger := newHMACTrigger("hmac-trigger", "hmac-secret")
+	trigger := newHMACTrigger()
 	refs := secretRefsForTrigger(trigger)
 	if len(refs) != 1 || refs[0].Name != "hmac-secret" || refs[0].Namespace != "default" {
 		t.Fatalf("secretRefsForTrigger: want [{default hmac-secret}], got %v", refs)
@@ -235,7 +235,7 @@ func TestHandleTrigger_IndexesReferencedSecret(t *testing.T) {
 	if err := w.k8sClient.Create(context.Background(), secret); err != nil {
 		t.Fatalf("creating secret: %v", err)
 	}
-	trigger := newHMACTrigger("hmac-trigger", "hmac-secret")
+	trigger := newHMACTrigger()
 
 	w.handleTrigger(trigger)
 
@@ -268,7 +268,7 @@ func TestHandleSecretChange_ReprocessesDependentTrigger(t *testing.T) {
 	if err := w.k8sClient.Create(ctx, secret); err != nil {
 		t.Fatalf("creating secret: %v", err)
 	}
-	trigger := newHMACTrigger("hmac-trigger", "hmac-secret")
+	trigger := newHMACTrigger()
 	w.handleTrigger(trigger) // initial processing, as the real informer would do on Add
 
 	// Rotate the secret's value, as ESO or a manual kubectl edit would.
@@ -292,7 +292,7 @@ func TestHandleSecretChange_ReprocessesDependentTrigger(t *testing.T) {
 // Secret nothing references does not touch the registry.
 func TestHandleSecretChange_UnrelatedSecretIgnored(t *testing.T) {
 	w := newMinimalWatcher(t)
-	trigger := newHMACTrigger("hmac-trigger", "hmac-secret")
+	trigger := newHMACTrigger()
 	w.triggers[types.NamespacedName{Namespace: "default", Name: "hmac-trigger"}] = trigger
 	w.secretIndex.Update(
 		types.NamespacedName{Namespace: "default", Name: "hmac-trigger"},
@@ -312,7 +312,7 @@ func TestHandleSecretChange_UnrelatedSecretIgnored(t *testing.T) {
 // to reference does not try to reprocess a Trigger that no longer exists.
 func TestHandleDelete_RemovesFromSecretIndex(t *testing.T) {
 	w := newMinimalWatcher(t)
-	trigger := newHMACTrigger("hmac-trigger", "hmac-secret")
+	trigger := newHMACTrigger()
 	w.handleTrigger(trigger)
 
 	w.handleDelete(trigger)

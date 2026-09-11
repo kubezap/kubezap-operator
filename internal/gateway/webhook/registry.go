@@ -8,6 +8,22 @@ import (
 	"github.com/go-logr/logr"
 )
 
+// WebhookAuth.Type values (mirrors the +kubebuilder:validation:Enum on
+// api/v1alpha1.WebhookAuth.Type).
+const (
+	authTypeHMAC         = "hmac"
+	authTypeBearer       = "bearer"
+	authTypeAPIKey       = "apiKey"
+	authTypeIPAllowlist  = "ipAllowlist"
+	authTypeOIDC         = "oidc"
+	authTypeBasic        = "basic"
+	authTypeHeaderEquals = "header-equals"
+)
+
+// metricResultRateLimited is the access-log/metric "result" value used when a
+// request is rejected by the per-Trigger cooldown window.
+const metricResultRateLimited = "rate_limited"
+
 // RouteEntry represents an HTTP route backed by a Trigger and Flow.
 type RouteEntry struct {
 	TriggerName      string

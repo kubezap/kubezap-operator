@@ -1,6 +1,6 @@
 // Package redact provides header and body redaction utilities shared across
 // all KubeZap gateways (webhook, Kafka, AMQP, NATS). Redacted values are
-// replaced with the literal string "[REDACTED]" so that TriggerData stored
+// replaced with the literal string Placeholder so that TriggerData stored
 // in FlowRun CRDs never contains credentials.
 package redact
 
@@ -8,6 +8,9 @@ import (
 	"net/http"
 	"strings"
 )
+
+// Placeholder replaces any redacted header or body value.
+const Placeholder = "[REDACTED]"
 
 // BuiltInHeaders is the list of HTTP header names always redacted when building
 // TriggerData, regardless of per-Trigger configuration.
@@ -28,8 +31,8 @@ var BuiltInHeaders = []string{
 
 // Headers returns a map[string]string built from the given http.Header with
 // all built-in sensitive headers and any extra names in redactExtra replaced
-// with "[REDACTED]". Matching is case-insensitive. Multi-value headers are
-// joined with commas. Non-sensitive headers pass through unchanged.
+// with "[REDACTED]" (Placeholder). Matching is case-insensitive. Multi-value
+// headers are joined with commas. Non-sensitive headers pass through unchanged.
 func Headers(headers http.Header, redactExtra []string) map[string]string {
 	toRedact := make(map[string]bool, len(BuiltInHeaders)+len(redactExtra))
 	for _, h := range BuiltInHeaders {
@@ -42,7 +45,7 @@ func Headers(headers http.Header, redactExtra []string) map[string]string {
 	out := make(map[string]string, len(headers))
 	for k, vals := range headers {
 		if toRedact[strings.ToLower(k)] {
-			out[k] = "[REDACTED]"
+			out[k] = Placeholder
 		} else {
 			out[k] = strings.Join(vals, ",")
 		}
@@ -50,11 +53,12 @@ func Headers(headers http.Header, redactExtra []string) map[string]string {
 	return out
 }
 
-// Body returns "[REDACTED]" when redactBody is true; otherwise it returns body
-// unchanged. This is a thin helper that makes call sites self-documenting.
+// Body returns "[REDACTED]" (Placeholder) when redactBody is true; otherwise
+// it returns body unchanged. This is a thin helper that makes call sites
+// self-documenting.
 func Body(body string, redactBody bool) string {
 	if redactBody {
-		return "[REDACTED]"
+		return Placeholder
 	}
 	return body
 }
@@ -74,7 +78,7 @@ func StringMap(hdrs map[string]string, redactExtra []string) {
 
 	for k := range hdrs {
 		if toRedact[strings.ToLower(k)] {
-			hdrs[k] = "[REDACTED]"
+			hdrs[k] = Placeholder
 		}
 	}
 }

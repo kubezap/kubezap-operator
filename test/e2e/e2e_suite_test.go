@@ -29,6 +29,10 @@ import (
 	"github.com/kubezap/kubezap-operator/test/utils"
 )
 
+// envTrue is the value an opt-in/opt-out environment variable is compared
+// against (e.g. CERT_MANAGER_INSTALL_SKIP, SKIP_EXECUTOR_E2E, SKIP_WEBHOOK_E2E).
+const envTrue = "true"
+
 // kindKubeconfigFile holds the path to the temp file written with the kind cluster kubeconfig.
 // It is set in BeforeSuite and cleaned up in AfterSuite.
 var kindKubeconfigFile string
@@ -38,7 +42,7 @@ var (
 	// - CERT_MANAGER_INSTALL_SKIP=true: Skips CertManager installation during test setup.
 	// These variables are useful if CertManager is already installed, avoiding
 	// re-installation and conflicts.
-	skipCertManagerInstall = os.Getenv("CERT_MANAGER_INSTALL_SKIP") == "true"
+	skipCertManagerInstall = os.Getenv("CERT_MANAGER_INSTALL_SKIP") == envTrue
 	// isCertManagerAlreadyInstalled will be set true when CertManager CRDs be found on the cluster
 	isCertManagerAlreadyInstalled = false
 
@@ -64,7 +68,8 @@ var _ = BeforeSuite(func() {
 	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to build the manager(Operator) image")
 
 	By("building the webhook gateway image")
-	cmd = exec.Command("docker", "build", "-t", "ghcr.io/kubezap/webhook-gateway:latest", "-f", "cmd/webhook-gateway/Dockerfile", ".")
+	cmd = exec.Command("docker", "build", "-t", "ghcr.io/kubezap/webhook-gateway:latest",
+		"-f", "cmd/webhook-gateway/Dockerfile", ".")
 	_, err = utils.Run(cmd)
 	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to build the webhook gateway image")
 

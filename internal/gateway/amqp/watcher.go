@@ -19,7 +19,6 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/rest"
 	toolscache "k8s.io/client-go/tools/cache"
-	"sigs.k8s.io/controller-runtime/pkg/cache"
 	crcache "sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
@@ -75,7 +74,7 @@ func NewWatcher(c client.Client, cfg *rest.Config, namespace string, log logr.Lo
 		return nil, fmt.Errorf("unable to create REST mapper: %w", err)
 	}
 
-	cacheOpts := cache.Options{Scheme: controllerScheme, Mapper: mapper}
+	cacheOpts := crcache.Options{Scheme: controllerScheme, Mapper: mapper}
 	if namespace != "" {
 		cacheOpts.DefaultNamespaces = map[string]crcache.Config{namespace: {}}
 	}
@@ -437,13 +436,13 @@ func (w *Watcher) connect091(
 	if err != nil {
 		return fmt.Errorf("dialing amqp broker: %w", err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	ch, err := conn.Channel()
 	if err != nil {
 		return fmt.Errorf("opening amqp channel: %w", err)
 	}
-	defer ch.Close()
+	defer func() { _ = ch.Close() }()
 
 	// Declare the queue (idempotent).
 	_, err = ch.QueueDeclare(
@@ -563,7 +562,7 @@ func (w *Watcher) connect10(
 	if err != nil {
 		return fmt.Errorf("dialing amqp 1.0 broker: %w", err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	session, err := conn.NewSession(ctx, nil)
 	if err != nil {
@@ -574,7 +573,7 @@ func (w *Watcher) connect10(
 	if err != nil {
 		return fmt.Errorf("creating amqp 1.0 receiver for %q: %w", topic, err)
 	}
-	defer receiver.Close(ctx)
+	defer func() { _ = receiver.Close(ctx) }()
 
 	handler := &MessageHandler10{
 		client:           w.client,
@@ -657,8 +656,8 @@ func buildTLSConfig10(ctx context.Context, w *Watcher, namespace string, amqpSpe
 func embedCredsInURL(rawURL, username, password string) string {
 	for _, scheme := range []string{"amqps://", "amqp://"} {
 		if strings.HasPrefix(rawURL, scheme) {
-			rest := strings.TrimPrefix(rawURL, scheme)
-			return scheme + username + ":" + password + "@" + rest
+			hostAndPath := strings.TrimPrefix(rawURL, scheme)
+			return scheme + username + ":" + password + "@" + hostAndPath
 		}
 	}
 	return rawURL

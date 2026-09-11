@@ -12,6 +12,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
 	automationv1alpha1 "github.com/kubezap/kubezap-operator/api/v1alpha1"
+	"github.com/kubezap/kubezap-operator/internal/gateway/redact"
 )
 
 func newTestScheme() *runtime.Scheme {
@@ -47,7 +48,7 @@ func TestSanitizeFlowRunName(t *testing.T) {
 			t.Errorf("sanitizeFlowRunName(%q): result len %d > 253", tc.input, len(got))
 		}
 		for _, ch := range got {
-			if !((ch >= 'a' && ch <= 'z') || (ch >= '0' && ch <= '9') || ch == '-') {
+			if (ch < 'a' || ch > 'z') && (ch < '0' || ch > '9') && ch != '-' {
 				t.Errorf("sanitizeFlowRunName(%q): invalid char %q in result %q", tc.input, ch, got)
 			}
 		}
@@ -226,7 +227,7 @@ func TestHandleMessage10_NoMessageID(t *testing.T) {
 	}
 	// Name must be a valid k8s resource name (all lowercase alphanumeric/dash).
 	for _, ch := range fr.Name {
-		if !((ch >= 'a' && ch <= 'z') || (ch >= '0' && ch <= '9') || ch == '-') {
+		if (ch < 'a' || ch > 'z') && (ch < '0' || ch > '9') && ch != '-' {
 			t.Errorf("invalid char %q in FlowRun name %q", ch, fr.Name)
 		}
 	}
@@ -298,7 +299,7 @@ func TestHandleDelivery091_AuthHeadersRedacted(t *testing.T) {
 
 	sensitiveKeys := []string{"authorization", "x-api-key"}
 	for _, k := range sensitiveKeys {
-		if got := hdrs[k]; got != "[REDACTED]" {
+		if got := hdrs[k]; got != redact.Placeholder {
 			t.Errorf("AMQP 0-9-1 header %q: want [REDACTED], got %q", k, got)
 		}
 	}
@@ -351,10 +352,10 @@ func TestHandleMessage10_AuthHeadersRedacted(t *testing.T) {
 
 	hdrs := list.Items[0].Spec.TriggerData.Headers
 
-	if got := hdrs["Authorization"]; got != "[REDACTED]" {
+	if got := hdrs["Authorization"]; got != redact.Placeholder {
 		t.Errorf("Authorization: want [REDACTED], got %q", got)
 	}
-	if got := hdrs["x-api-key"]; got != "[REDACTED]" {
+	if got := hdrs["x-api-key"]; got != redact.Placeholder {
 		t.Errorf("x-api-key: want [REDACTED], got %q", got)
 	}
 	if got := hdrs["content-type"]; got != "application/json" {

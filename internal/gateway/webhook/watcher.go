@@ -174,23 +174,23 @@ func secretRefsForTrigger(trigger *automationv1alpha1.Trigger) []types.Namespace
 	auth := trigger.Spec.Webhook.Auth
 	ns := trigger.Namespace
 	switch auth.Type {
-	case "hmac":
+	case authTypeHMAC:
 		if auth.HMAC != nil {
 			return []types.NamespacedName{{Namespace: ns, Name: auth.HMAC.SecretRef.Name}}
 		}
-	case "bearer":
+	case authTypeBearer:
 		if auth.Bearer != nil {
 			return []types.NamespacedName{{Namespace: ns, Name: auth.Bearer.TokenSecretRef.Name}}
 		}
-	case "apiKey":
+	case authTypeAPIKey:
 		if auth.APIKey != nil {
 			return []types.NamespacedName{{Namespace: ns, Name: auth.APIKey.SecretRef.Name}}
 		}
-	case "basic":
+	case authTypeBasic:
 		if auth.Basic != nil {
 			return []types.NamespacedName{{Namespace: ns, Name: auth.Basic.SecretRef.Name}}
 		}
-	case "header-equals":
+	case authTypeHeaderEquals:
 		if auth.HeaderEquals != nil {
 			return []types.NamespacedName{{Namespace: ns, Name: auth.HeaderEquals.SecretRef.Name}}
 		}
@@ -314,7 +314,7 @@ func (w *TriggerWatcher) buildRouteEntry(ctx context.Context, trigger *automatio
 	entry.AuthType = auth.Type
 
 	switch auth.Type {
-	case "hmac":
+	case authTypeHMAC:
 		if auth.HMAC == nil {
 			return RouteEntry{}, fmt.Errorf("hmac auth requires hmac config")
 		}
@@ -336,7 +336,7 @@ func (w *TriggerWatcher) buildRouteEntry(ctx context.Context, trigger *automatio
 		}
 		entry.HMACTimestampToleranceSec = tolerance
 
-	case "bearer":
+	case authTypeBearer:
 		if auth.Bearer == nil {
 			return RouteEntry{}, fmt.Errorf("bearer auth requires bearer config")
 		}
@@ -346,7 +346,7 @@ func (w *TriggerWatcher) buildRouteEntry(ctx context.Context, trigger *automatio
 		}
 		entry.BearerToken = val
 
-	case "apiKey":
+	case authTypeAPIKey:
 		if auth.APIKey == nil {
 			return RouteEntry{}, fmt.Errorf("apiKey auth requires apiKey config")
 		}
@@ -360,7 +360,7 @@ func (w *TriggerWatcher) buildRouteEntry(ctx context.Context, trigger *automatio
 			entry.APIKeyHeader = "X-Api-Key"
 		}
 
-	case "basic":
+	case authTypeBasic:
 		if auth.Basic == nil {
 			return RouteEntry{}, fmt.Errorf("basic auth requires basic.secretRef")
 		}
@@ -383,12 +383,12 @@ func (w *TriggerWatcher) buildRouteEntry(ctx context.Context, trigger *automatio
 		entry.BasicUsername = username
 		entry.BasicPassword = password
 
-	case "ipAllowlist":
+	case authTypeIPAllowlist:
 		if auth.IPAllowlist != nil {
 			entry.IPAllowlist = append([]string(nil), auth.IPAllowlist.CIDRs...)
 		}
 
-	case "oidc":
+	case authTypeOIDC:
 		if auth.OIDC == nil {
 			return RouteEntry{}, fmt.Errorf("oidc auth requires oidc config")
 		}
@@ -411,7 +411,7 @@ func (w *TriggerWatcher) buildRouteEntry(ctx context.Context, trigger *automatio
 		}
 		entry.OIDCValidator = newOIDCValidator(jwksURL, auth.OIDC.Issuer, auth.OIDC.Audience, w.jwksCache)
 
-	case "header-equals":
+	case authTypeHeaderEquals:
 		if auth.HeaderEquals == nil {
 			return RouteEntry{}, fmt.Errorf("header-equals auth requires headerEquals config")
 		}

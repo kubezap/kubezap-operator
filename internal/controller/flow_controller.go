@@ -31,6 +31,15 @@ import (
 	automationv1alpha1 "github.com/kubezap/kubezap-operator/api/v1alpha1"
 )
 
+// StepAction.Type values (mirrors the +kubebuilder:validation:Enum on
+// api/v1alpha1.StepAction.Type).
+const (
+	stepActionHTTP      = "http"
+	stepActionTransform = "transform"
+	stepActionPublish   = "publish"
+	stepActionWait      = "wait"
+)
+
 // +kubebuilder:rbac:groups=automation.kubezap.io,resources=flows,verbs=get;list;watch;update;patch
 // +kubebuilder:rbac:groups=automation.kubezap.io,resources=flows/status,verbs=get;update;patch
 
@@ -106,16 +115,16 @@ func validateFlowSpec(spec automationv1alpha1.FlowSpec) error {
 
 		// Validate action type and required fields.
 		switch step.Action.Type {
-		case "http":
+		case stepActionHTTP:
 			if step.Action.HTTP == nil {
 				return fmt.Errorf("step %q has type=http but action.http is not set", step.Name)
 			}
 			if step.Action.HTTP.URL == "" && step.Action.HTTP.IntegrationRef == nil {
 				return fmt.Errorf("step %q has type=http but action.http.url is empty", step.Name)
 			}
-		case "transform":
+		case stepActionTransform:
 			// No additional required fields.
-		case "publish":
+		case stepActionPublish:
 			if step.Action.Publish == nil {
 				return fmt.Errorf("step %q has type=publish but action.publish is not set", step.Name)
 			}
@@ -125,7 +134,7 @@ func validateFlowSpec(spec automationv1alpha1.FlowSpec) error {
 			if step.Action.Publish.Topic == "" {
 				return fmt.Errorf("step %q has type=publish but action.publish.topic is empty", step.Name)
 			}
-		case "wait":
+		case stepActionWait:
 			if step.Action.Wait == nil {
 				return fmt.Errorf("step %q has type=wait but action.wait is not set", step.Name)
 			}

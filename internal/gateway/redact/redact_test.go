@@ -7,6 +7,8 @@ import (
 	"github.com/kubezap/kubezap-operator/internal/gateway/redact"
 )
 
+const contentTypeJSON = "application/json"
+
 // TestHeaders_BuiltInAlwaysRedacted verifies that every header in BuiltInHeaders
 // is replaced with "[REDACTED]" regardless of what redactExtra contains.
 func TestHeaders_BuiltInAlwaysRedacted(t *testing.T) {
@@ -14,7 +16,7 @@ func TestHeaders_BuiltInAlwaysRedacted(t *testing.T) {
 	for _, h := range redact.BuiltInHeaders {
 		headers.Set(h, "sensitive-value")
 	}
-	headers.Set("Content-Type", "application/json")
+	headers.Set("Content-Type", contentTypeJSON)
 	headers.Set("X-Request-Id", "req-123")
 
 	out := redact.Headers(headers, nil)
@@ -23,14 +25,14 @@ func TestHeaders_BuiltInAlwaysRedacted(t *testing.T) {
 		// http.Header.Set canonicalises the key; use CanonicalHeaderKey so the
 		// map lookup matches what Set wrote.
 		key := http.CanonicalHeaderKey(h)
-		if got := out[key]; got != "[REDACTED]" {
+		if got := out[key]; got != redact.Placeholder {
 			t.Errorf("built-in header %q: want [REDACTED], got %q", key, got)
 		}
 	}
 
 	// Non-sensitive headers must pass through.
-	if out["Content-Type"] != "application/json" {
-		t.Errorf("Content-Type: want %q, got %q", "application/json", out["Content-Type"])
+	if out["Content-Type"] != contentTypeJSON {
+		t.Errorf("Content-Type: want %q, got %q", contentTypeJSON, out["Content-Type"])
 	}
 	if out["X-Request-Id"] != "req-123" {
 		t.Errorf("X-Request-Id: want %q, got %q", "req-123", out["X-Request-Id"])
@@ -42,17 +44,17 @@ func TestHeaders_CustomHeaders(t *testing.T) {
 	headers := http.Header{}
 	headers.Set("X-Custom-Token", "custom-secret")
 	headers.Set("X-My-Api-Key", "my-key")
-	headers.Set("Content-Type", "application/json")
+	headers.Set("Content-Type", contentTypeJSON)
 
 	out := redact.Headers(headers, []string{"X-Custom-Token", "X-My-Api-Key"})
 
-	if out["X-Custom-Token"] != "[REDACTED]" {
+	if out["X-Custom-Token"] != redact.Placeholder {
 		t.Errorf("X-Custom-Token: want [REDACTED], got %q", out["X-Custom-Token"])
 	}
-	if out["X-My-Api-Key"] != "[REDACTED]" {
+	if out["X-My-Api-Key"] != redact.Placeholder {
 		t.Errorf("X-My-Api-Key: want [REDACTED], got %q", out["X-My-Api-Key"])
 	}
-	if out["Content-Type"] != "application/json" {
+	if out["Content-Type"] != contentTypeJSON {
 		t.Errorf("Content-Type: want application/json, got %q", out["Content-Type"])
 	}
 }
@@ -67,10 +69,10 @@ func TestHeaders_CaseInsensitive(t *testing.T) {
 	// Supply extra header in all-lowercase.
 	out := redact.Headers(headers, []string{"x-custom-token"})
 
-	if out["Authorization"] != "[REDACTED]" {
+	if out["Authorization"] != redact.Placeholder {
 		t.Errorf("Authorization: want [REDACTED], got %q", out["Authorization"])
 	}
-	if out["X-Custom-Token"] != "[REDACTED]" {
+	if out["X-Custom-Token"] != redact.Placeholder {
 		t.Errorf("X-Custom-Token: want [REDACTED] (case-insensitive match), got %q", out["X-Custom-Token"])
 	}
 }
@@ -79,7 +81,7 @@ func TestHeaders_CaseInsensitive(t *testing.T) {
 // when they are not in the redact list.
 func TestHeaders_MultiValue(t *testing.T) {
 	headers := http.Header{
-		"Accept": {"text/html", "application/json"},
+		"Accept": {"text/html", contentTypeJSON},
 	}
 	out := redact.Headers(headers, nil)
 	if out["Accept"] != "text/html,application/json" {
@@ -107,7 +109,7 @@ func TestBody_Passthrough(t *testing.T) {
 // TestBody_Redacted verifies that body is replaced with "[REDACTED]" when redactBody is true.
 func TestBody_Redacted(t *testing.T) {
 	got := redact.Body(`{"password":"super-secret"}`, true)
-	if got != "[REDACTED]" {
+	if got != redact.Placeholder {
 		t.Errorf("Body(redact): want [REDACTED], got %q", got)
 	}
 }
@@ -124,7 +126,7 @@ func TestBody_EmptyPassthrough(t *testing.T) {
 // returns "[REDACTED]".
 func TestBody_EmptyRedacted(t *testing.T) {
 	got := redact.Body("", true)
-	if got != "[REDACTED]" {
+	if got != redact.Placeholder {
 		t.Errorf("Body(empty, redact): want [REDACTED], got %q", got)
 	}
 }
@@ -147,7 +149,7 @@ func TestStringMap_BuiltInRedacted(t *testing.T) {
 	for _, tc := range cases {
 		hdrs := map[string]string{tc.key: "should-be-redacted"}
 		redact.StringMap(hdrs, nil)
-		if hdrs[tc.key] != "[REDACTED]" {
+		if hdrs[tc.key] != redact.Placeholder {
 			t.Errorf("StringMap key %q: want [REDACTED], got %q", tc.key, hdrs[tc.key])
 		}
 	}
@@ -157,11 +159,11 @@ func TestStringMap_BuiltInRedacted(t *testing.T) {
 // left unchanged by StringMap.
 func TestStringMap_NonSensitivePassthrough(t *testing.T) {
 	hdrs := map[string]string{
-		"content-type": "application/json",
+		"content-type": contentTypeJSON,
 		"x-request-id": "req-42",
 	}
 	redact.StringMap(hdrs, nil)
-	if hdrs["content-type"] != "application/json" {
+	if hdrs["content-type"] != contentTypeJSON {
 		t.Errorf("content-type: want application/json, got %q", hdrs["content-type"])
 	}
 	if hdrs["x-request-id"] != "req-42" {
@@ -176,7 +178,7 @@ func TestStringMap_ExtraHeaders(t *testing.T) {
 		"content-type":    "text/plain",
 	}
 	redact.StringMap(hdrs, []string{"x-tenant-secret"})
-	if hdrs["x-tenant-secret"] != "[REDACTED]" {
+	if hdrs["x-tenant-secret"] != redact.Placeholder {
 		t.Errorf("x-tenant-secret: want [REDACTED], got %q", hdrs["x-tenant-secret"])
 	}
 	if hdrs["content-type"] != "text/plain" {
@@ -214,9 +216,9 @@ func TestHeaders_TableDriven(t *testing.T) {
 	}{
 		{
 			name:      "built-in authorization header is redacted",
-			inputHdrs: map[string]string{"Authorization": "Bearer my-token", "Content-Type": "application/json"},
+			inputHdrs: map[string]string{"Authorization": "Bearer my-token", "Content-Type": contentTypeJSON},
 			inputBody: `{"event":"push"}`,
-			wantHdrs:  map[string]string{"Authorization": "[REDACTED]", "Content-Type": "application/json"},
+			wantHdrs:  map[string]string{"Authorization": redact.Placeholder, "Content-Type": contentTypeJSON},
 			wantBody:  `{"event":"push"}`,
 		},
 		{
@@ -224,23 +226,23 @@ func TestHeaders_TableDriven(t *testing.T) {
 			redactExtra: []string{"X-Custom-Token"},
 			inputHdrs:   map[string]string{"X-Custom-Token": "should-be-redacted", "X-Request-Id": "req-001"},
 			inputBody:   `{"data":"ok"}`,
-			wantHdrs:    map[string]string{"X-Custom-Token": "[REDACTED]", "X-Request-Id": "req-001"},
+			wantHdrs:    map[string]string{"X-Custom-Token": redact.Placeholder, "X-Request-Id": "req-001"},
 			wantBody:    `{"data":"ok"}`,
 		},
 		{
 			name:       "body is replaced when redactBody=true",
-			inputHdrs:  map[string]string{"Content-Type": "application/json"},
+			inputHdrs:  map[string]string{"Content-Type": contentTypeJSON},
 			inputBody:  `{"password":"super-secret"}`,
 			redactBody: true,
-			wantHdrs:   map[string]string{"Content-Type": "application/json"},
-			wantBody:   "[REDACTED]",
+			wantHdrs:   map[string]string{"Content-Type": contentTypeJSON},
+			wantBody:   redact.Placeholder,
 		},
 		{
 			name:        "custom and built-in headers both redacted together",
 			redactExtra: []string{"X-Custom-Token"},
-			inputHdrs:   map[string]string{"Authorization": "Bearer tok", "X-Custom-Token": "custom", "Accept": "application/json"},
+			inputHdrs:   map[string]string{"Authorization": "Bearer tok", "X-Custom-Token": "custom", "Accept": contentTypeJSON},
 			inputBody:   `{}`,
-			wantHdrs:    map[string]string{"Authorization": "[REDACTED]", "X-Custom-Token": "[REDACTED]", "Accept": "application/json"},
+			wantHdrs:    map[string]string{"Authorization": redact.Placeholder, "X-Custom-Token": redact.Placeholder, "Accept": contentTypeJSON},
 			wantBody:    `{}`,
 		},
 	}

@@ -46,9 +46,14 @@ func main() {
 	flag.StringVar(&namespace, "namespace", "", "Namespace to watch; empty=all namespaces")
 	flag.StringVar(&logLevel, "log-level", "info", "Log level: debug|info|warn|error")
 	flag.IntVar(&metricsPort, "metrics-port", 9090, "Port for the dedicated Prometheus metrics server")
-	flag.StringVar(&metricsTLSCertFile, "metrics-tls-cert-file", "", "Path to TLS certificate PEM for the metrics server. When set with --metrics-tls-key-file the metrics server uses HTTPS.")
-	flag.StringVar(&metricsTLSKeyFile, "metrics-tls-key-file", "", "Path to TLS private key PEM for the metrics server. Required when --metrics-tls-cert-file is set.")
-	flag.IntVar(&healthPort, "health-port", 8090, "Port for the liveness/readiness /healthz endpoint. Must match the Deployment's probe port (internal/controller/integration_controller.go).")
+	flag.StringVar(&metricsTLSCertFile, "metrics-tls-cert-file", "",
+		"Path to TLS certificate PEM for the metrics server. When set with --metrics-tls-key-file "+
+			"the metrics server uses HTTPS.")
+	flag.StringVar(&metricsTLSKeyFile, "metrics-tls-key-file", "",
+		"Path to TLS private key PEM for the metrics server. Required when --metrics-tls-cert-file is set.")
+	flag.IntVar(&healthPort, "health-port", 8090,
+		"Port for the liveness/readiness /healthz endpoint. Must match the Deployment's probe port "+
+			"(internal/controller/integration_controller.go).")
 	flag.Parse()
 
 	opts := zap.NewDevelopmentConfig()
@@ -84,7 +89,8 @@ func main() {
 	go func() {
 		if metricsTLSCertFile != "" && metricsTLSKeyFile != "" {
 			log.Info("starting metrics HTTPS server", "port", metricsPort)
-			if err := metricsSrv.ListenAndServeTLS(metricsTLSCertFile, metricsTLSKeyFile); err != nil && err != http.ErrServerClosed {
+			if err := metricsSrv.ListenAndServeTLS(metricsTLSCertFile, metricsTLSKeyFile); err != nil &&
+				err != http.ErrServerClosed {
 				log.Error(err, "metrics HTTPS server failed")
 			}
 		} else {

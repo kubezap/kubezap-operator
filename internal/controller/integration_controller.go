@@ -42,6 +42,16 @@ import (
 	automationv1alpha1 "github.com/kubezap/kubezap-operator/api/v1alpha1"
 )
 
+// integrationTypeKafka is the IntegrationSpec.Type / TriggerSpec.Type value "kafka".
+const integrationTypeKafka = "kafka"
+
+// integrationTypeHTTP is the IntegrationSpec.Type value "http" (an HTTP
+// Integration providing shared base URL/auth/default headers to HTTP steps).
+const integrationTypeHTTP = "http"
+
+// triggerTypeWebhook is the TriggerSpec.Type value "webhook".
+const triggerTypeWebhook = "webhook"
+
 // +kubebuilder:rbac:groups=automation.kubezap.io,resources=integrations,verbs=get;list;watch;update;patch
 // +kubebuilder:rbac:groups=automation.kubezap.io,resources=integrations/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch;create;update;patch;delete
@@ -91,7 +101,7 @@ func (r *IntegrationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			return ctrl.Result{}, fmt.Errorf("reconciling plugin deployment: %w", err)
 		}
 		integration.Status.GatewayDeploymentName = deploymentName
-	case "kafka":
+	case integrationTypeKafka:
 		deploymentName, err := r.reconcileKafkaGateway(ctx, &integration)
 		if err != nil {
 			return ctrl.Result{}, fmt.Errorf("reconciling kafka gateway: %w", err)
@@ -170,7 +180,7 @@ func (r *IntegrationReconciler) gatewayAvailableCondition(
 // validateIntegrationSpec validates the Integration spec and returns the first error found.
 func validateIntegrationSpec(spec automationv1alpha1.IntegrationSpec) error {
 	switch spec.Type {
-	case "kafka":
+	case integrationTypeKafka:
 		if spec.Kafka == nil {
 			return fmt.Errorf("spec.kafka must be set when type=kafka")
 		}
@@ -191,7 +201,7 @@ func validateIntegrationSpec(spec automationv1alpha1.IntegrationSpec) error {
 		if len(spec.Nats.Servers) == 0 {
 			return fmt.Errorf("spec.nats.servers must be non-empty")
 		}
-	case "http":
+	case integrationTypeHTTP:
 		if spec.HTTP == nil {
 			return fmt.Errorf("spec.http must be set when type=http")
 		}
@@ -675,7 +685,7 @@ func (r *IntegrationReconciler) reconcileKafkaScaledObject(ctx context.Context, 
 	pairSet := make(map[kafkaTopicCGPair]struct{})
 
 	for _, trigger := range triggerList.Items {
-		if trigger.Spec.Type != "kafka" {
+		if trigger.Spec.Type != integrationTypeKafka {
 			continue
 		}
 		k := trigger.Spec.Kafka
@@ -771,7 +781,7 @@ func (r *IntegrationReconciler) reconcileKafkaScaledObject(ctx context.Context, 
 // Each pair is one (topic, consumerGroup) from a distinct Trigger — no Cartesian product.
 func buildKafkaTriggers(integration *automationv1alpha1.Integration, pairs []kafkaTopicCGPair) []interface{} {
 	brokers := strings.Join(integration.Spec.Kafka.BootstrapServers, ",")
-	var triggers []interface{}
+	triggers := make([]interface{}, 0, len(pairs))
 	for _, p := range pairs {
 		triggers = append(triggers, map[string]interface{}{
 			"type": "kafka",
@@ -980,18 +990,6 @@ func (r *IntegrationReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		For(&automationv1alpha1.Integration{}).
 		Named("integration").
 		Complete(r)
-}
-
-func stringSliceEqual(a, b []string) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		if a[i] != b[i] {
-			return false
-		}
-	}
-	return true
 }
 
 // reconcileNatsGateway ensures the NATS gateway ServiceAccount, Role, RoleBinding, and

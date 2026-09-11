@@ -492,6 +492,10 @@ func (r *IntegrationReconciler) reconcileKafkaGateway(ctx context.Context, integ
 		{APIGroups: []string{"automation.kubezap.io"}, Resources: []string{"triggers"}, Verbs: []string{"get", "list", "watch"}},
 		{APIGroups: []string{"automation.kubezap.io"}, Resources: []string{"integrations"}, Verbs: []string{"get"}},
 		{APIGroups: []string{"automation.kubezap.io"}, Resources: []string{"flowruns"}, Verbs: []string{"create"}},
+		// Required to resolve Integration SASL/TLS secrets, and to watch them so a
+		// rotated credential is picked up without waiting for the Trigger or
+		// Integration to be reconciled again for an unrelated reason.
+		{APIGroups: []string{""}, Resources: []string{"secrets"}, Verbs: []string{"get", "list", "watch"}},
 	}
 	role := &rbacv1.Role{ObjectMeta: metav1.ObjectMeta{Name: "kubezap-gateway", Namespace: ns}}
 	roleResult, err := controllerutil.CreateOrUpdate(ctx, r.Client, role, func() error {
@@ -809,6 +813,10 @@ func (r *IntegrationReconciler) reconcileAmqpGateway(ctx context.Context, integr
 		{APIGroups: []string{"automation.kubezap.io"}, Resources: []string{"triggers"}, Verbs: []string{"get", "list", "watch"}},
 		{APIGroups: []string{"automation.kubezap.io"}, Resources: []string{"integrations"}, Verbs: []string{"get"}},
 		{APIGroups: []string{"automation.kubezap.io"}, Resources: []string{"flowruns"}, Verbs: []string{"create"}},
+		// Required to resolve Integration SASL/TLS secrets, and to watch them so a
+		// rotated credential is picked up without waiting for the Trigger or
+		// Integration to be reconciled again for an unrelated reason.
+		{APIGroups: []string{""}, Resources: []string{"secrets"}, Verbs: []string{"get", "list", "watch"}},
 	}
 	role := &rbacv1.Role{ObjectMeta: metav1.ObjectMeta{Name: "kubezap-gateway", Namespace: ns}}
 	roleResult, err := controllerutil.CreateOrUpdate(ctx, r.Client, role, func() error {
@@ -1011,6 +1019,10 @@ func (r *IntegrationReconciler) reconcileNatsGateway(ctx context.Context, integr
 		{APIGroups: []string{"automation.kubezap.io"}, Resources: []string{"triggers"}, Verbs: []string{"get", "list", "watch"}},
 		{APIGroups: []string{"automation.kubezap.io"}, Resources: []string{"integrations"}, Verbs: []string{"get"}},
 		{APIGroups: []string{"automation.kubezap.io"}, Resources: []string{"flowruns"}, Verbs: []string{"create"}},
+		// Required to resolve Integration SASL/TLS secrets, and to watch them so a
+		// rotated credential is picked up without waiting for the Trigger or
+		// Integration to be reconciled again for an unrelated reason.
+		{APIGroups: []string{""}, Resources: []string{"secrets"}, Verbs: []string{"get", "list", "watch"}},
 	}
 	role := &rbacv1.Role{ObjectMeta: metav1.ObjectMeta{Name: "kubezap-gateway", Namespace: ns}}
 	roleResult, err := controllerutil.CreateOrUpdate(ctx, r.Client, role, func() error {

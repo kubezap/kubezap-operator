@@ -2,8 +2,10 @@ package amqp
 
 import (
 	"context"
+	"crypto/sha256"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/hex"
 	"fmt"
 	"strings"
 	"sync"
@@ -23,20 +25,23 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
 
 	automationv1alpha1 "github.com/kubezap/kubezap-operator/api/v1alpha1"
+	"github.com/kubezap/kubezap-operator/internal/gateway/secretindex"
 )
 
 var controllerScheme = runtime.NewScheme()
 
 func init() {
 	_ = automationv1alpha1.AddToScheme(controllerScheme)
+	_ = corev1.AddToScheme(controllerScheme)
 }
 
 // subscription tracks an active AMQP consumer for a Trigger.
 type subscription struct {
-	cancel          context.CancelFunc
-	integrationName string
-	topic           string
-	routingKey      string
+	cancel                context.CancelFunc
+	integrationName       string
+	topic                 string
+	routingKey            string
+	credentialFingerprint string
 }
 
 // Watcher watches Trigger CRDs via an informer and manages AMQP topic subscriptions.
@@ -46,6 +51,16 @@ type Watcher struct {
 	namespace     string
 	log           logr.Logger
 	subscriptions sync.Map // key: types.NamespacedName, value: *subscription
+
+	// secretIndex and triggers together let a Secret change (see
+	// docs/design/2026-09-11-secret-rotation-watches.md) reprocess exactly the
+	// Triggers whose Integration references it, without an extra API call:
+	// triggers holds the most recently seen object for each Trigger key, and
+	// secretIndex maps a Secret key to the set of Trigger keys that currently
+	// depend on it (via their Integration's username/password/CA secretRefs).
+	secretIndex *secretindex.Index
+	triggersMu  sync.Mutex
+	triggers    map[types.NamespacedName]*automationv1alpha1.Trigger
 }
 
 // NewWatcher creates a new Watcher backed by an informer cache.
@@ -70,7 +85,14 @@ func NewWatcher(c client.Client, cfg *rest.Config, namespace string, log logr.Lo
 		return nil, fmt.Errorf("unable to create cache: %w", err)
 	}
 
-	return &Watcher{client: c, cache: watchCache, namespace: namespace, log: log}, nil
+	return &Watcher{
+		client:      c,
+		cache:       watchCache,
+		namespace:   namespace,
+		log:         log,
+		secretIndex: secretindex.New(),
+		triggers:    make(map[types.NamespacedName]*automationv1alpha1.Trigger),
+	}, nil
 }
 
 // Start launches the informer cache and stays running until ctx is cancelled.
@@ -87,6 +109,17 @@ func (w *Watcher) Start(ctx context.Context) error {
 	})
 	if err != nil {
 		return fmt.Errorf("adding trigger event handler: %w", err)
+	}
+
+	secretInformer, err := w.cache.GetInformer(ctx, &corev1.Secret{})
+	if err != nil {
+		return fmt.Errorf("unable to get secret informer: %w", err)
+	}
+	if _, err := secretInformer.AddEventHandler(toolscache.ResourceEventHandlerFuncs{
+		AddFunc:    func(obj interface{}) { w.handleSecretChange(ctx, obj) },
+		UpdateFunc: func(_, newObj interface{}) { w.handleSecretChange(ctx, newObj) },
+	}); err != nil {
+		return fmt.Errorf("adding secret event handler: %w", err)
 	}
 
 	go func() {
@@ -144,15 +177,23 @@ func (w *Watcher) onTriggerDelete(obj interface{}) {
 		}
 	}
 	key := types.NamespacedName{Name: trigger.Name, Namespace: trigger.Namespace}
+	w.triggersMu.Lock()
+	delete(w.triggers, key)
+	w.triggersMu.Unlock()
+	w.secretIndex.Remove(key)
 	w.stopSubscription(key)
 }
 
 // reconcileTrigger ensures the subscription state for a single Trigger matches its spec.
 func (w *Watcher) reconcileTrigger(ctx context.Context, trigger *automationv1alpha1.Trigger) {
 	key := types.NamespacedName{Name: trigger.Name, Namespace: trigger.Namespace}
+	w.triggersMu.Lock()
+	w.triggers[key] = trigger
+	w.triggersMu.Unlock()
 
 	// Stop subscription if trigger is not an amqp trigger or is disabled.
 	if trigger.Spec.Type != "amqp" || trigger.Spec.Amqp == nil || !trigger.Spec.Enabled {
+		w.secretIndex.Remove(key)
 		w.stopSubscription(key)
 		return
 	}
@@ -161,49 +202,127 @@ func (w *Watcher) reconcileTrigger(ctx context.Context, trigger *automationv1alp
 	routingKey := trigger.Spec.Amqp.RoutingKey
 	integrationName := trigger.Spec.Amqp.IntegrationRef.Name
 
+	integration := &automationv1alpha1.Integration{}
+	if err := w.client.Get(ctx, types.NamespacedName{Namespace: trigger.Namespace, Name: integrationName}, integration); err != nil {
+		w.log.Error(err, "failed to get integration for amqp trigger", "trigger", key, "integration", integrationName)
+		return
+	}
+	if integration.Spec.Amqp == nil {
+		w.log.Error(fmt.Errorf("integration has no amqp spec"), "cannot reconcile amqp trigger", "trigger", key, "integration", integrationName)
+		return
+	}
+
+	creds, credErr := w.resolveAmqpCredentials(ctx, trigger.Namespace, integration.Spec.Amqp)
+	// Index intended secret refs regardless of read success, so a Trigger whose
+	// secret doesn't exist yet still gets reprocessed once it's created.
+	w.secretIndex.Update(key, creds.secretRefs)
+	if credErr != nil {
+		w.log.Error(credErr, "failed to resolve amqp credentials", "trigger", key, "integration", integrationName)
+		return
+	}
+
 	if existing, ok := w.subscriptions.Load(key); ok {
 		sub := existing.(*subscription)
-		if sub.topic == topic && sub.routingKey == routingKey && sub.integrationName == integrationName {
-			return // no change
+		if sub.topic == topic && sub.routingKey == routingKey && sub.integrationName == integrationName && sub.credentialFingerprint == creds.fingerprint {
+			return // no change, not even to credentials
 		}
 		w.log.Info("amqp subscription config changed, restarting",
 			"trigger", key, "topic", topic, "routingKey", routingKey)
 		w.stopSubscription(key)
 	}
 
-	if err := w.startSubscription(ctx, trigger); err != nil {
+	if err := w.startSubscription(ctx, trigger, integration.Spec.Amqp, creds.fingerprint); err != nil {
 		w.log.Error(err, "failed to start amqp subscription", "trigger", key, "topic", topic)
 	}
 }
 
-// startSubscription creates an AMQP consumer for the given Trigger.
-func (w *Watcher) startSubscription(ctx context.Context, trigger *automationv1alpha1.Trigger) error {
+// amqpCredentials holds bookkeeping for change detection (fingerprint) and
+// secret-rotation reprocessing (secretRefs) for an AMQP Integration's
+// username/password/CA secrets. The actual values are re-read independently
+// by connect091/connect10 — this is deliberately not plumbed through to avoid
+// touching the existing connection-establishment code paths.
+type amqpCredentials struct {
+	secretRefs  []types.NamespacedName
+	fingerprint string
+}
+
+// resolveAmqpCredentials reads whichever username/password/CA secrets amqpSpec
+// references and computes a fingerprint over their values, so callers can
+// detect a credential-only rotation without comparing full secret contents.
+func (w *Watcher) resolveAmqpCredentials(ctx context.Context, namespace string, amqpSpec *automationv1alpha1.AmqpIntegrationSpec) (amqpCredentials, error) {
+	var creds amqpCredentials
+	h := sha256.New()
+
+	if amqpSpec.UsernameSecretRef != nil {
+		username, err := w.readSecretKey(ctx, namespace, amqpSpec.UsernameSecretRef.Name, amqpSpec.UsernameSecretRef.Key)
+		if err != nil {
+			return creds, fmt.Errorf("reading username secret: %w", err)
+		}
+		creds.secretRefs = append(creds.secretRefs, types.NamespacedName{Namespace: namespace, Name: amqpSpec.UsernameSecretRef.Name})
+		_, _ = h.Write([]byte(username))
+	}
+	if amqpSpec.PasswordSecretRef != nil {
+		password, err := w.readSecretKey(ctx, namespace, amqpSpec.PasswordSecretRef.Name, amqpSpec.PasswordSecretRef.Key)
+		if err != nil {
+			return creds, fmt.Errorf("reading password secret: %w", err)
+		}
+		creds.secretRefs = append(creds.secretRefs, types.NamespacedName{Namespace: namespace, Name: amqpSpec.PasswordSecretRef.Name})
+		_, _ = h.Write([]byte(password))
+	}
+	if amqpSpec.TLS != nil && amqpSpec.TLS.CASecretRef != nil {
+		caPEM, err := w.readSecretKey(ctx, namespace, amqpSpec.TLS.CASecretRef.Name, amqpSpec.TLS.CASecretRef.Key)
+		if err != nil {
+			return creds, fmt.Errorf("reading CA cert secret: %w", err)
+		}
+		creds.secretRefs = append(creds.secretRefs, types.NamespacedName{Namespace: namespace, Name: amqpSpec.TLS.CASecretRef.Name})
+		_, _ = h.Write([]byte(caPEM))
+	}
+
+	creds.fingerprint = hex.EncodeToString(h.Sum(nil))
+	return creds, nil
+}
+
+// handleSecretChange reprocesses every Trigger currently known to depend on
+// the changed Secret (via its Integration's username/password/CA config),
+// using each Trigger's most recently seen object — the same code path a real
+// Trigger spec change takes.
+func (w *Watcher) handleSecretChange(ctx context.Context, obj interface{}) {
+	secret, ok := obj.(*corev1.Secret)
+	if !ok {
+		return
+	}
+	secretKey := types.NamespacedName{Name: secret.Name, Namespace: secret.Namespace}
+	affected := w.secretIndex.ObjectsFor(secretKey)
+	if len(affected) == 0 {
+		return
+	}
+	w.log.Info("secret changed, reprocessing dependent triggers", "secret", secretKey, "count", len(affected))
+	for _, triggerKey := range affected {
+		w.triggersMu.Lock()
+		trigger := w.triggers[triggerKey]
+		w.triggersMu.Unlock()
+		if trigger == nil {
+			continue
+		}
+		w.reconcileTrigger(ctx, trigger)
+	}
+}
+
+// startSubscription creates an AMQP consumer for the given Trigger, using an
+// already-resolved credential fingerprint (see reconcileTrigger).
+func (w *Watcher) startSubscription(ctx context.Context, trigger *automationv1alpha1.Trigger, amqpSpec *automationv1alpha1.AmqpIntegrationSpec, credentialFingerprint string) error {
 	amqp := trigger.Spec.Amqp
 	integrationName := amqp.IntegrationRef.Name
 	topic := amqp.Topic
 	routingKey := amqp.RoutingKey
 
-	// Fetch the Integration CRD.
-	integration := &automationv1alpha1.Integration{}
-	if err := w.client.Get(ctx, types.NamespacedName{
-		Namespace: trigger.Namespace,
-		Name:      integrationName,
-	}, integration); err != nil {
-		return fmt.Errorf("get integration %s/%s: %w", trigger.Namespace, integrationName, err)
-	}
-
-	if integration.Spec.Amqp == nil {
-		return fmt.Errorf("integration %s/%s has no amqp spec", trigger.Namespace, integrationName)
-	}
-
-	amqpSpec := integration.Spec.Amqp
-
 	subCtx, cancel := context.WithCancel(ctx)
 	sub := &subscription{
-		cancel:          cancel,
-		integrationName: integrationName,
-		topic:           topic,
-		routingKey:      routingKey,
+		cancel:                cancel,
+		integrationName:       integrationName,
+		topic:                 topic,
+		routingKey:            routingKey,
+		credentialFingerprint: credentialFingerprint,
 	}
 
 	key := types.NamespacedName{Name: trigger.Name, Namespace: trigger.Namespace}

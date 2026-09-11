@@ -10,6 +10,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/base64"
+	"encoding/hex"
 	"fmt"
 	"hash"
 	"strings"
@@ -29,20 +30,23 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
 
 	automationv1alpha1 "github.com/kubezap/kubezap-operator/api/v1alpha1"
+	"github.com/kubezap/kubezap-operator/internal/gateway/secretindex"
 )
 
 var controllerScheme = runtime.NewScheme()
 
 func init() {
 	_ = automationv1alpha1.AddToScheme(controllerScheme)
+	_ = corev1.AddToScheme(controllerScheme)
 }
 
 // subscription tracks an active Kafka consumer group for a Trigger.
 type subscription struct {
-	cancel          context.CancelFunc
-	integrationName string
-	topic           string
-	consumerGroup   string
+	cancel                context.CancelFunc
+	integrationName       string
+	topic                 string
+	consumerGroup         string
+	credentialFingerprint string
 }
 
 // Watcher watches Trigger CRDs via an informer and manages Kafka topic subscriptions.
@@ -52,6 +56,16 @@ type Watcher struct {
 	namespace     string
 	log           logr.Logger
 	subscriptions sync.Map // key: types.NamespacedName, value: *subscription
+
+	// secretIndex and triggers together let a Secret change (see
+	// docs/design/2026-09-11-secret-rotation-watches.md) reprocess exactly the
+	// Triggers whose Integration references it, without an extra API call:
+	// triggers holds the most recently seen object for each Trigger key, and
+	// secretIndex maps a Secret key to the set of Trigger keys that currently
+	// depend on it (via their Integration's SASL/TLS secretRefs).
+	secretIndex *secretindex.Index
+	triggersMu  sync.Mutex
+	triggers    map[types.NamespacedName]*automationv1alpha1.Trigger
 }
 
 // NewWatcher creates a new Watcher backed by an informer cache.
@@ -76,7 +90,14 @@ func NewWatcher(c client.Client, cfg *rest.Config, namespace string, log logr.Lo
 		return nil, fmt.Errorf("unable to create cache: %w", err)
 	}
 
-	return &Watcher{client: c, cache: watchCache, namespace: namespace, log: log}, nil
+	return &Watcher{
+		client:      c,
+		cache:       watchCache,
+		namespace:   namespace,
+		log:         log,
+		secretIndex: secretindex.New(),
+		triggers:    make(map[types.NamespacedName]*automationv1alpha1.Trigger),
+	}, nil
 }
 
 // Start launches the informer cache and stays running until ctx is cancelled.
@@ -93,6 +114,17 @@ func (w *Watcher) Start(ctx context.Context) error {
 	})
 	if err != nil {
 		return fmt.Errorf("adding trigger event handler: %w", err)
+	}
+
+	secretInformer, err := w.cache.GetInformer(ctx, &corev1.Secret{})
+	if err != nil {
+		return fmt.Errorf("unable to get secret informer: %w", err)
+	}
+	if _, err := secretInformer.AddEventHandler(toolscache.ResourceEventHandlerFuncs{
+		AddFunc:    func(obj interface{}) { w.handleSecretChange(ctx, obj) },
+		UpdateFunc: func(_, newObj interface{}) { w.handleSecretChange(ctx, newObj) },
+	}); err != nil {
+		return fmt.Errorf("adding secret event handler: %w", err)
 	}
 
 	go func() {
@@ -150,15 +182,23 @@ func (w *Watcher) onTriggerDelete(obj interface{}) {
 		}
 	}
 	key := types.NamespacedName{Name: trigger.Name, Namespace: trigger.Namespace}
+	w.triggersMu.Lock()
+	delete(w.triggers, key)
+	w.triggersMu.Unlock()
+	w.secretIndex.Remove(key)
 	w.stopSubscription(key)
 }
 
 // reconcileTrigger ensures the subscription state for a single Trigger matches its spec.
 func (w *Watcher) reconcileTrigger(ctx context.Context, trigger *automationv1alpha1.Trigger) {
 	key := types.NamespacedName{Name: trigger.Name, Namespace: trigger.Namespace}
+	w.triggersMu.Lock()
+	w.triggers[key] = trigger
+	w.triggersMu.Unlock()
 
 	// Stop subscription if trigger is not a kafka trigger or is disabled.
 	if trigger.Spec.Type != "kafka" || trigger.Spec.Kafka == nil || !trigger.Spec.Enabled {
+		w.secretIndex.Remove(key)
 		w.stopSubscription(key)
 		return
 	}
@@ -170,46 +210,50 @@ func (w *Watcher) reconcileTrigger(ctx context.Context, trigger *automationv1alp
 	}
 	integrationName := trigger.Spec.Kafka.IntegrationRef.Name
 
+	integration := &automationv1alpha1.Integration{}
+	if err := w.client.Get(ctx, types.NamespacedName{Namespace: trigger.Namespace, Name: integrationName}, integration); err != nil {
+		w.log.Error(err, "failed to get integration for kafka trigger", "trigger", key, "integration", integrationName)
+		return
+	}
+	if integration.Spec.Kafka == nil {
+		w.log.Error(fmt.Errorf("integration has no kafka spec"), "cannot reconcile kafka trigger", "trigger", key, "integration", integrationName)
+		return
+	}
+
+	creds, credErr := w.resolveKafkaCredentials(ctx, trigger.Namespace, integration.Spec.Kafka)
+	// Index intended secret refs regardless of read success, so a Trigger whose
+	// secret doesn't exist yet still gets reprocessed once it's created.
+	w.secretIndex.Update(key, creds.secretRefs)
+	if credErr != nil {
+		w.log.Error(credErr, "failed to resolve kafka credentials", "trigger", key, "integration", integrationName)
+		return
+	}
+
 	if existing, ok := w.subscriptions.Load(key); ok {
 		sub := existing.(*subscription)
-		if sub.topic == topic && sub.consumerGroup == cgID && sub.integrationName == integrationName {
-			return // no change
+		if sub.topic == topic && sub.consumerGroup == cgID && sub.integrationName == integrationName && sub.credentialFingerprint == creds.fingerprint {
+			return // no change, not even to credentials
 		}
 		w.log.Info("kafka subscription config changed, restarting",
 			"trigger", key, "topic", topic, "consumerGroup", cgID)
 		w.stopSubscription(key)
 	}
 
-	if err := w.startSubscription(ctx, trigger); err != nil {
+	if err := w.startSubscription(ctx, trigger, integration.Spec.Kafka, creds); err != nil {
 		w.log.Error(err, "failed to start kafka subscription", "trigger", key, "topic", topic)
 	}
 }
 
-// startSubscription creates a sarama consumer group for the given Trigger.
-func (w *Watcher) startSubscription(ctx context.Context, trigger *automationv1alpha1.Trigger) error {
-	kafka := trigger.Spec.Kafka
-	integrationName := kafka.IntegrationRef.Name
-	topic := kafka.Topic
+// startSubscription creates a sarama consumer group for the given Trigger,
+// using already-resolved credentials (see reconcileTrigger).
+func (w *Watcher) startSubscription(ctx context.Context, trigger *automationv1alpha1.Trigger, kafkaSpec *automationv1alpha1.KafkaIntegrationSpec, creds kafkaCredentials) error {
+	integrationName := trigger.Spec.Kafka.IntegrationRef.Name
+	topic := trigger.Spec.Kafka.Topic
 
-	cgID := kafka.ConsumerGroup
+	cgID := trigger.Spec.Kafka.ConsumerGroup
 	if cgID == "" {
 		cgID = "kubezap-" + trigger.Name
 	}
-
-	// Fetch the Integration CRD.
-	integration := &automationv1alpha1.Integration{}
-	if err := w.client.Get(ctx, types.NamespacedName{
-		Namespace: trigger.Namespace,
-		Name:      integrationName,
-	}, integration); err != nil {
-		return fmt.Errorf("get integration %s/%s: %w", trigger.Namespace, integrationName, err)
-	}
-
-	if integration.Spec.Kafka == nil {
-		return fmt.Errorf("integration %s/%s has no kafka spec", trigger.Namespace, integrationName)
-	}
-
-	kafkaSpec := integration.Spec.Kafka
 
 	// Build sarama config.
 	config := sarama.NewConfig()
@@ -223,12 +267,8 @@ func (w *Watcher) startSubscription(ctx context.Context, trigger *automationv1al
 		}
 
 		if kafkaSpec.TLS.CASecretRef != nil {
-			caPEM, err := w.readSecretKey(ctx, trigger.Namespace, kafkaSpec.TLS.CASecretRef.Name, kafkaSpec.TLS.CASecretRef.Key)
-			if err != nil {
-				return fmt.Errorf("reading CA cert secret: %w", err)
-			}
 			pool := x509.NewCertPool()
-			if !pool.AppendCertsFromPEM([]byte(caPEM)) {
+			if !pool.AppendCertsFromPEM([]byte(creds.caPEM)) {
 				return fmt.Errorf("failed to parse CA certificate from secret %s/%s key %s",
 					trigger.Namespace, kafkaSpec.TLS.CASecretRef.Name, kafkaSpec.TLS.CASecretRef.Key)
 			}
@@ -243,20 +283,9 @@ func (w *Watcher) startSubscription(ctx context.Context, trigger *automationv1al
 	if kafkaSpec.SASL != nil {
 		saslCfg := kafkaSpec.SASL
 
-		username, err := w.readSecretKey(ctx, trigger.Namespace,
-			saslCfg.UsernameSecretRef.Name, saslCfg.UsernameSecretRef.Key)
-		if err != nil {
-			return fmt.Errorf("reading SASL username secret: %w", err)
-		}
-		password, err := w.readSecretKey(ctx, trigger.Namespace,
-			saslCfg.PasswordSecretRef.Name, saslCfg.PasswordSecretRef.Key)
-		if err != nil {
-			return fmt.Errorf("reading SASL password secret: %w", err)
-		}
-
 		config.Net.SASL.Enable = true
-		config.Net.SASL.User = username
-		config.Net.SASL.Password = password
+		config.Net.SASL.User = creds.saslUsername
+		config.Net.SASL.Password = creds.saslPassword
 
 		switch saslCfg.Mechanism {
 		case "PLAIN":
@@ -283,10 +312,11 @@ func (w *Watcher) startSubscription(ctx context.Context, trigger *automationv1al
 
 	subCtx, cancel := context.WithCancel(ctx)
 	sub := &subscription{
-		cancel:          cancel,
-		integrationName: integrationName,
-		topic:           topic,
-		consumerGroup:   cgID,
+		cancel:                cancel,
+		integrationName:       integrationName,
+		topic:                 topic,
+		consumerGroup:         cgID,
+		credentialFingerprint: creds.fingerprint,
 	}
 
 	key := types.NamespacedName{Name: trigger.Name, Namespace: trigger.Namespace}
@@ -359,6 +389,83 @@ func (w *Watcher) readSecretKey(ctx context.Context, namespace, name, key string
 		return "", fmt.Errorf("secret %s/%s does not contain key %q", namespace, name, key)
 	}
 	return string(val), nil
+}
+
+// kafkaCredentials holds the Secret-derived values needed to configure a
+// sarama consumer for one Trigger's Integration, plus bookkeeping used for
+// change detection (fingerprint) and secret-rotation reprocessing (secretRefs).
+type kafkaCredentials struct {
+	caPEM        string
+	saslUsername string
+	saslPassword string
+	secretRefs   []types.NamespacedName
+	fingerprint  string
+}
+
+// resolveKafkaCredentials reads whichever TLS/SASL secrets kafkaSpec
+// references and computes a fingerprint over their values, so callers can
+// detect a credential-only rotation without comparing full secret contents.
+func (w *Watcher) resolveKafkaCredentials(ctx context.Context, namespace string, kafkaSpec *automationv1alpha1.KafkaIntegrationSpec) (kafkaCredentials, error) {
+	var creds kafkaCredentials
+	h := sha256.New()
+
+	if kafkaSpec.TLS != nil && kafkaSpec.TLS.Enabled && kafkaSpec.TLS.CASecretRef != nil {
+		caPEM, err := w.readSecretKey(ctx, namespace, kafkaSpec.TLS.CASecretRef.Name, kafkaSpec.TLS.CASecretRef.Key)
+		if err != nil {
+			return creds, fmt.Errorf("reading CA cert secret: %w", err)
+		}
+		creds.caPEM = caPEM
+		creds.secretRefs = append(creds.secretRefs, types.NamespacedName{Namespace: namespace, Name: kafkaSpec.TLS.CASecretRef.Name})
+		_, _ = h.Write([]byte(caPEM))
+	}
+
+	if kafkaSpec.SASL != nil {
+		username, err := w.readSecretKey(ctx, namespace, kafkaSpec.SASL.UsernameSecretRef.Name, kafkaSpec.SASL.UsernameSecretRef.Key)
+		if err != nil {
+			return creds, fmt.Errorf("reading SASL username secret: %w", err)
+		}
+		password, err := w.readSecretKey(ctx, namespace, kafkaSpec.SASL.PasswordSecretRef.Name, kafkaSpec.SASL.PasswordSecretRef.Key)
+		if err != nil {
+			return creds, fmt.Errorf("reading SASL password secret: %w", err)
+		}
+		creds.saslUsername = username
+		creds.saslPassword = password
+		creds.secretRefs = append(creds.secretRefs,
+			types.NamespacedName{Namespace: namespace, Name: kafkaSpec.SASL.UsernameSecretRef.Name},
+			types.NamespacedName{Namespace: namespace, Name: kafkaSpec.SASL.PasswordSecretRef.Name},
+		)
+		_, _ = h.Write([]byte(username))
+		_, _ = h.Write([]byte(password))
+	}
+
+	creds.fingerprint = hex.EncodeToString(h.Sum(nil))
+	return creds, nil
+}
+
+// handleSecretChange reprocesses every Trigger currently known to depend on
+// the changed Secret (via its Integration's SASL/TLS config), using each
+// Trigger's most recently seen object — the same code path a real Trigger
+// spec change takes.
+func (w *Watcher) handleSecretChange(ctx context.Context, obj interface{}) {
+	secret, ok := obj.(*corev1.Secret)
+	if !ok {
+		return
+	}
+	secretKey := types.NamespacedName{Name: secret.Name, Namespace: secret.Namespace}
+	affected := w.secretIndex.ObjectsFor(secretKey)
+	if len(affected) == 0 {
+		return
+	}
+	w.log.Info("secret changed, reprocessing dependent triggers", "secret", secretKey, "count", len(affected))
+	for _, triggerKey := range affected {
+		w.triggersMu.Lock()
+		trigger := w.triggers[triggerKey]
+		w.triggersMu.Unlock()
+		if trigger == nil {
+			continue
+		}
+		w.reconcileTrigger(ctx, trigger)
+	}
 }
 
 // --------------------------------------------------------------------------

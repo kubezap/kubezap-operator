@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -21,12 +22,14 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
 
 	automationv1alpha1 "github.com/kubezap/kubezap-operator/api/v1alpha1"
+	"github.com/kubezap/kubezap-operator/internal/gateway/secretindex"
 )
 
 var controllerScheme = runtime.NewScheme()
 
 func init() {
 	_ = automationv1alpha1.AddToScheme(controllerScheme)
+	_ = corev1.AddToScheme(controllerScheme)
 }
 
 // TriggerWatcher watches Trigger resources and updates the route registry.
@@ -37,6 +40,16 @@ type TriggerWatcher struct {
 	namespace string
 	log       logr.Logger
 	jwksCache *jwk.Cache
+
+	// secretIndex and triggers together let a Secret change (see
+	// docs/design/2026-09-11-secret-rotation-watches.md) reprocess exactly the
+	// Triggers that reference it, without an extra API call: triggers holds the
+	// most recently seen object for each Trigger key (kept in sync by
+	// handleTrigger/handleDelete), and secretIndex maps a Secret key to the set
+	// of Trigger keys that currently reference it.
+	secretIndex *secretindex.Index
+	triggersMu  sync.Mutex
+	triggers    map[types.NamespacedName]*automationv1alpha1.Trigger
 }
 
 // NewTriggerWatcher creates a new TriggerWatcher with an informer cache.
@@ -64,7 +77,16 @@ func NewTriggerWatcher(cfg *rest.Config, k8sClient client.Client, registry *Rout
 		return nil, fmt.Errorf("unable to create cache: %w", err)
 	}
 
-	return &TriggerWatcher{k8sClient: k8sClient, cache: watchCache, registry: registry, namespace: namespace, log: log, jwksCache: jwksCache}, nil
+	return &TriggerWatcher{
+		k8sClient:   k8sClient,
+		cache:       watchCache,
+		registry:    registry,
+		namespace:   namespace,
+		log:         log,
+		jwksCache:   jwksCache,
+		secretIndex: secretindex.New(),
+		triggers:    make(map[types.NamespacedName]*automationv1alpha1.Trigger),
+	}, nil
 }
 
 // Start launches the cache and informer and stays running until ctx is cancelled.
@@ -83,6 +105,17 @@ func (w *TriggerWatcher) Start(ctx context.Context) error {
 		return fmt.Errorf("adding trigger event handler: %w", err)
 	}
 	_ = registration
+
+	secretInformer, err := w.cache.GetInformer(ctx, &corev1.Secret{})
+	if err != nil {
+		return fmt.Errorf("unable to get secret informer: %w", err)
+	}
+	if _, err := secretInformer.AddEventHandler(toolscache.ResourceEventHandlerFuncs{
+		AddFunc:    func(obj interface{}) { w.handleSecretChange(obj) },
+		UpdateFunc: func(oldObj, newObj interface{}) { w.handleSecretChange(newObj) },
+	}); err != nil {
+		return fmt.Errorf("adding secret event handler: %w", err)
+	}
 
 	go func() {
 		if err := w.cache.Start(ctx); err != nil && err != context.Canceled {
@@ -109,6 +142,12 @@ func (w *TriggerWatcher) handleTrigger(obj interface{}) {
 		return
 	}
 
+	key := types.NamespacedName{Name: trigger.Name, Namespace: trigger.Namespace}
+	w.triggersMu.Lock()
+	w.triggers[key] = trigger
+	w.triggersMu.Unlock()
+	w.secretIndex.Update(key, secretRefsForTrigger(trigger))
+
 	if trigger.Spec.Type == "webhook" && trigger.Spec.Enabled && trigger.Spec.Webhook != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
@@ -121,6 +160,67 @@ func (w *TriggerWatcher) handleTrigger(obj interface{}) {
 		return
 	}
 	w.registry.Deregister(entryRoutePath(trigger))
+}
+
+// secretRefsForTrigger returns the Secret keys a webhook Trigger's auth config
+// references, without fetching them. Computed independently of whether those
+// secrets currently exist or can be read, so a Trigger with a missing secret
+// still gets reprocessed once that secret is created — see
+// docs/design/2026-09-11-secret-rotation-watches.md.
+func secretRefsForTrigger(trigger *automationv1alpha1.Trigger) []types.NamespacedName {
+	if trigger.Spec.Type != "webhook" || trigger.Spec.Webhook == nil || trigger.Spec.Webhook.Auth == nil {
+		return nil
+	}
+	auth := trigger.Spec.Webhook.Auth
+	ns := trigger.Namespace
+	switch auth.Type {
+	case "hmac":
+		if auth.HMAC != nil {
+			return []types.NamespacedName{{Namespace: ns, Name: auth.HMAC.SecretRef.Name}}
+		}
+	case "bearer":
+		if auth.Bearer != nil {
+			return []types.NamespacedName{{Namespace: ns, Name: auth.Bearer.TokenSecretRef.Name}}
+		}
+	case "apiKey":
+		if auth.APIKey != nil {
+			return []types.NamespacedName{{Namespace: ns, Name: auth.APIKey.SecretRef.Name}}
+		}
+	case "basic":
+		if auth.Basic != nil {
+			return []types.NamespacedName{{Namespace: ns, Name: auth.Basic.SecretRef.Name}}
+		}
+	case "header-equals":
+		if auth.HeaderEquals != nil {
+			return []types.NamespacedName{{Namespace: ns, Name: auth.HeaderEquals.SecretRef.Name}}
+		}
+	}
+	return nil
+}
+
+// handleSecretChange reprocesses every Trigger currently known to reference
+// the changed Secret, using each Trigger's most recently seen object (no
+// extra API call) — the same code path a real Trigger spec change takes.
+func (w *TriggerWatcher) handleSecretChange(obj interface{}) {
+	secret, ok := obj.(*corev1.Secret)
+	if !ok {
+		return
+	}
+	secretKey := types.NamespacedName{Name: secret.Name, Namespace: secret.Namespace}
+	affected := w.secretIndex.ObjectsFor(secretKey)
+	if len(affected) == 0 {
+		return
+	}
+	w.log.Info("secret changed, reprocessing dependent triggers", "secret", secretKey, "count", len(affected))
+	for _, triggerKey := range affected {
+		w.triggersMu.Lock()
+		trigger := w.triggers[triggerKey]
+		w.triggersMu.Unlock()
+		if trigger == nil {
+			continue
+		}
+		w.handleTrigger(trigger)
+	}
 }
 
 func (w *TriggerWatcher) handleDelete(obj interface{}) {
@@ -137,6 +237,12 @@ func (w *TriggerWatcher) handleDelete(obj interface{}) {
 			return
 		}
 	}
+
+	key := types.NamespacedName{Name: trigger.Name, Namespace: trigger.Namespace}
+	w.triggersMu.Lock()
+	delete(w.triggers, key)
+	w.triggersMu.Unlock()
+	w.secretIndex.Remove(key)
 
 	w.registry.Deregister(entryRoutePath(trigger))
 }

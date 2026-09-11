@@ -83,10 +83,12 @@ func desiredWebhookGatewayRole(namespace string) *rbacv1.Role {
 			},
 			{
 				// Required to resolve Trigger webhook auth secrets (HMAC, bearer,
-				// basic, apiKey, header-equals) at route-registration time.
+				// basic, apiKey, header-equals) at route-registration time, and to
+				// watch them so a rotated secret's new value is picked up without
+				// waiting for the referencing Trigger to be reconciled again.
 				APIGroups: []string{""},
 				Resources: []string{"secrets"},
-				Verbs:     []string{"get"},
+				Verbs:     []string{"get", "list", "watch"},
 			},
 		},
 	}

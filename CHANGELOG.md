@@ -32,16 +32,14 @@ Versions follow [Semantic Versioning](https://semver.org/).
 - **NATS gateway** (`kubezap/nats-gateway`) — NATS JetStream (beta)
 - **`kubezap watch`** CLI subcommand — live FlowRun execution timeline with per-step status badges and elapsed time
 - **`kubezap history`**, **`kubezap triggers`**, **`kubezap flows`** CLI subcommands
-- **Web dashboard** — read-only Vue 3 SPA embedded in operator binary; enable with `--enable-ui`; SSE live updates
 - **`type: http` Integration** — centralized HTTP credentials (base URL, bearer token, TLS config) for `type: http` flow steps
 - **`type: header-equals` webhook auth** — additional per-Trigger auth type alongside HMAC, bearer, OIDC, API-key, IP-allowlist, mTLS
 - **`--disable-cel-cache`** operator flag — escape hatch for CEL expression cache debugging
-- **`--enable-ui` / `--ui-port`** operator flags — replaces previous `--ui-port`-only design
 - OLM bundle validated (`operator-sdk bundle validate` + scorecard; both `basic` and `olm` suites pass)
 - Multi-namespace support: all four OLM install modes (AllNamespaces, SingleNamespace, MultiNamespace, OwnNamespace)
 - KEDA recommended for Kafka gateway scaling (partition-bounded consumer); documented in architecture guide
 - Structured access logs with source IP (webhook gateway); source IP excluded from Prometheus label values (cardinality)
-- `docs/guides/dashboard.md`, `docs/guides/cron-triggers.md`, `docs/guides/troubleshooting.md`
+- `docs/guides/cron-triggers.md`, `docs/guides/troubleshooting.md`
 - `docs/guides/amqp-setup.md`, `docs/guides/nats-setup.md`, `docs/guides/using-the-cli.md`
 - Kubernetes resource-event trigger (`type: resource`) — alpha; dynamic informers in controller (known bugs tracked)
 

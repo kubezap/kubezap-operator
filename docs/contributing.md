@@ -113,29 +113,6 @@ make deploy IMG=ghcr.io/kubezap/controller:$TAG \
 
 The controller reads `WEBHOOK_GATEWAY_IMAGE` and `KAFKA_GATEWAY_IMAGE` at runtime to know which image to use when creating gateway Deployments.
 
-### Enabling the UI when deploying with `make deploy`
-
-`make deploy` does not accept `--enable-ui` as a make variable — it is a controller flag, not a Makefile option. After running `make deploy`, patch the Deployment to add the flag:
-
-```bash
-kubectl patch deployment kubezap-controller-manager -n kubezap-system \
-  --type=json \
-  -p='[{"op":"add","path":"/spec/template/spec/containers/0/args/-","value":"--enable-ui"}]'
-```
-
-To also override the port:
-
-```bash
-kubectl patch deployment kubezap-controller-manager -n kubezap-system \
-  --type=json \
-  -p='[
-    {"op":"add","path":"/spec/template/spec/containers/0/args/-","value":"--enable-ui"},
-    {"op":"add","path":"/spec/template/spec/containers/0/args/-","value":"--ui-port=9000"}
-  ]'
-```
-
-This patch persists until the next `make deploy` run (which re-applies the base manifests). Re-apply the patch if you redeploy.
-
 ## Architecture orientation
 
 ### Binary layout
@@ -237,44 +214,6 @@ Adding a new action type (e.g. `slack`, `email`, `condition`) requires changes i
 4. **Document it** — add the new type to the step action table in `docs/api/flow.md` with all spec fields and an example CR snippet.
 
 5. **Test it** — add Ginkgo `It` blocks to `internal/controller/flowrun_controller_test.go` covering success, failure, and invalid-spec cases.
-
----
-
-## Running the UI locally
-
-The operator includes a read-only web dashboard served directly by the controller binary. The frontend is a Vue application in `ui/` that is compiled into `internal/ui/dist/` at build time.
-
-### Build steps
-
-```bash
-# 1. Build the Vue frontend (requires Node.js / npm)
-make ui
-
-# 2. Build the controller binary (embeds the compiled frontend)
-make build
-```
-
-`make build` calls `make ui` as a prerequisite, so you only need to run `make build` if you want both in one step. If you have already built the frontend and are only iterating on Go code, you can skip `make ui`.
-
-### Run the controller with the UI enabled
-
-```bash
-go run ./cmd/main.go --enable-ui --enable-http2=false
-```
-
-The dashboard listens on port `8082` by default. To change the port:
-
-```bash
-go run ./cmd/main.go --enable-ui --ui-port=9090 --enable-http2=false
-```
-
-The controller must have a valid kubeconfig pointing at a running cluster (k3s, Kind, or a remote cluster). Set `KUBECONFIG` or rely on `~/.kube/config` as usual.
-
-`--enable-http2=false` disables HTTP/2 on the manager's webhook and metrics listeners, which avoids TLS negotiation issues in local development environments without a valid serving certificate.
-
-### Disabling the UI
-
-The UI is disabled by default (`--enable-ui=false`). Omit the flag (or pass `--enable-ui=false`) to run the controller without serving the dashboard.
 
 ---
 

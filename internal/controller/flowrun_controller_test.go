@@ -24,6 +24,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -1423,6 +1424,165 @@ var _ = Describe("FlowRunReconciler", func() {
 			Expect(mock.lastMessage.Topic).To(Equal("orders.us-east"),
 				"topic must be resolved through substituteVars, not published as the raw $(...) template")
 		})
+	})
+
+	Describe("FlowRun terminal-phase immutability", func() {
+		// See docs/architecture/flowrun-state-model.md "Invalid / Dangerous
+		// Transitions": Succeeded→Running, Failed→Running, Cancelled→Running, and
+		// Succeeded→Failed must never occur. A FlowRun already in a terminal phase
+		// must return early on reconcile without touching Status.Steps or dispatching
+		// any step, regardless of which terminal phase it's in.
+		DescribeTable("never re-enters Running or dispatches a step from a terminal phase",
+			func(terminalPhase string) {
+				var requestCount int32
+				server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					atomic.AddInt32(&requestCount, 1)
+					w.WriteHeader(http.StatusOK)
+					_, _ = w.Write([]byte(`{}`))
+				}))
+				defer server.Close()
+
+				seed := GinkgoRandomSeed()
+				flowName := fmt.Sprintf("flow-terminal-%s-%d", strings.ToLower(terminalPhase), seed)
+				flowRunName := fmt.Sprintf("fr-terminal-%s-%d", strings.ToLower(terminalPhase), seed)
+
+				flow := makeFlow(flowName, []automationv1alpha1.FlowStep{
+					{
+						Name: "call-backend",
+						Action: automationv1alpha1.StepAction{
+							Type: "http",
+							HTTP: &automationv1alpha1.HTTPAction{URL: server.URL, Method: "POST"},
+						},
+					},
+				})
+				Expect(k8sClient.Create(ctx, flow)).To(Succeed())
+
+				flowRun := makeFlowRun(flowRunName, flowName)
+				Expect(k8sClient.Create(ctx, flowRun)).To(Succeed())
+
+				now := metav1.Now()
+				flowRun.Status.Phase = terminalPhase
+				flowRun.Status.CompletionTime = &now
+				Expect(k8sClient.Status().Update(ctx, flowRun)).To(Succeed())
+				DeferCleanup(func() {
+					_ = k8sClient.Delete(context.Background(), flowRun)
+					_ = k8sClient.Delete(context.Background(), flow)
+				})
+
+				r := newReconciler()
+				nn := types.NamespacedName{Name: flowRunName, Namespace: testNamespace}
+				_, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: nn})
+				Expect(err).NotTo(HaveOccurred())
+
+				var updated automationv1alpha1.FlowRun
+				Expect(k8sClient.Get(ctx, nn, &updated)).To(Succeed())
+				Expect(updated.Status.Phase).To(Equal(terminalPhase),
+					"a FlowRun in a terminal phase must never transition to any other phase, including Running")
+				Expect(updated.Status.Steps).To(BeEmpty(),
+					"no step should be dispatched once the FlowRun is terminal")
+				Expect(atomic.LoadInt32(&requestCount)).To(Equal(int32(0)),
+					"the step's backend must never be called once the FlowRun is terminal")
+			},
+			Entry("Succeeded", "Succeeded"),
+			Entry("Failed", "Failed"),
+			Entry("Cancelled", "Cancelled"),
+		)
+	})
+
+	Describe("step terminal-phase immutability (Running FlowRun, one step already terminal)", func() {
+		// See docs/architecture/flowrun-state-model.md: "A step in a terminal phase
+		// (Succeeded, Failed, Skipped) must not be re-dispatched." Unlike the
+		// FlowRun-level guard above, this must hold even while the FlowRun itself is
+		// still Running and other steps are still pending — the guard is per-step,
+		// not just a single early-return at the top of Reconcile.
+		DescribeTable("does not re-dispatch a step already in a terminal phase",
+			func(terminalStepPhase string) {
+				var terminalStepRequests, secondStepRequests int32
+				terminalServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					atomic.AddInt32(&terminalStepRequests, 1)
+					w.WriteHeader(http.StatusOK)
+					_, _ = w.Write([]byte(`{}`))
+				}))
+				defer terminalServer.Close()
+				secondServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					atomic.AddInt32(&secondStepRequests, 1)
+					w.WriteHeader(http.StatusOK)
+					_, _ = w.Write([]byte(`{}`))
+				}))
+				defer secondServer.Close()
+
+				seed := GinkgoRandomSeed()
+				flowName := fmt.Sprintf("flow-step-terminal-%s-%d", strings.ToLower(terminalStepPhase), seed)
+				flowRunName := fmt.Sprintf("fr-step-terminal-%s-%d", strings.ToLower(terminalStepPhase), seed)
+
+				flow := makeFlow(flowName, []automationv1alpha1.FlowStep{
+					{
+						Name: "already-done",
+						Action: automationv1alpha1.StepAction{
+							Type: "http",
+							HTTP: &automationv1alpha1.HTTPAction{URL: terminalServer.URL, Method: "POST"},
+						},
+					},
+					{
+						Name:        "second-step",
+						RunAfter:    []string{"already-done"},
+						RetryPolicy: &automationv1alpha1.RetryPolicy{MaxRetries: 0},
+						Action: automationv1alpha1.StepAction{
+							Type: "http",
+							HTTP: &automationv1alpha1.HTTPAction{URL: secondServer.URL, Method: "POST"},
+						},
+					},
+				})
+				// failurePolicy: Continue so a Failed "already-done" still satisfies
+				// second-step's runAfter — this test cares about the terminal-step
+				// re-dispatch guard, not failurePolicy propagation (covered elsewhere).
+				flow.Spec.FailurePolicy = "Continue"
+				Expect(k8sClient.Create(ctx, flow)).To(Succeed())
+
+				flowRun := makeFlowRun(flowRunName, flowName)
+				Expect(k8sClient.Create(ctx, flowRun)).To(Succeed())
+
+				fixedTime := metav1.Now()
+				flowRun.Status.Phase = "Running"
+				flowRun.Status.StartTime = &fixedTime
+				flowRun.Status.Steps = []automationv1alpha1.StepRunStatus{
+					{
+						Name:           "already-done",
+						Phase:          terminalStepPhase,
+						Attempts:       1,
+						StartTime:      &fixedTime,
+						CompletionTime: &fixedTime,
+					},
+				}
+				Expect(k8sClient.Status().Update(ctx, flowRun)).To(Succeed())
+				DeferCleanup(func() {
+					_ = k8sClient.Delete(context.Background(), flowRun)
+					_ = k8sClient.Delete(context.Background(), flow)
+				})
+
+				r := newReconciler()
+				_, err := reconcileUntilTerminal(r, flowRunName, 10)
+				Expect(err).NotTo(HaveOccurred())
+
+				var updated automationv1alpha1.FlowRun
+				nn := types.NamespacedName{Name: flowRunName, Namespace: testNamespace}
+				Expect(k8sClient.Get(ctx, nn, &updated)).To(Succeed())
+
+				firstStep := findStepStatus(updated.Status.Steps, "already-done")
+				Expect(firstStep).NotTo(BeNil())
+				Expect(firstStep.Phase).To(Equal(terminalStepPhase),
+					"an already-terminal step's phase must not change")
+				Expect(firstStep.Attempts).To(Equal(int32(1)),
+					"an already-terminal step must not be re-attempted")
+				Expect(atomic.LoadInt32(&terminalStepRequests)).To(Equal(int32(0)),
+					"an already-terminal step's backend must never be called again")
+
+				Expect(atomic.LoadInt32(&secondStepRequests)).To(Equal(int32(1)),
+					"the dependent step must still be dispatched exactly once")
+			},
+			Entry("Succeeded", "Succeeded"),
+			Entry("Failed", "Failed"),
+		)
 	})
 
 	Describe("doPluginPublish — plugin publisher envelope", func() {

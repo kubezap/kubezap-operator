@@ -93,6 +93,31 @@ Verify the bundle still passes validation:
 operator-sdk bundle validate ./bundle
 ```
 
+**Known operator-sdk quirk**: `operator-sdk generate kustomize manifests` (part of `make bundle`) deterministically drops the `Trigger` CRD's `resources`/`specDescriptors` from `config/manifests/bases/kubezap.clusterserviceversion.yaml` every time it runs — `Flow`/`FlowRun`/`Integration`'s survive correctly, only `Trigger`'s doesn't, for reasons not fully root-caused against operator-sdk v1.42.0. After every `make bundle`, manually re-add this block to `bundle/manifests/kubezap.clusterserviceversion.yaml`'s `Trigger` entry under `customresourcedefinitions.owned` before committing:
+
+```yaml
+      resources:
+      - kind: Deployment
+        version: v1
+      - kind: Service
+        version: v1
+      specDescriptors:
+      - description: Trigger type (webhook, cron, kafka, amqp, nats, resource).
+        displayName: Type
+        path: type
+      - description: Reference to the Flow this Trigger executes when it fires.
+        displayName: Flow Reference
+        path: flowRef
+      - description: Webhook trigger configuration (endpoint path, auth, rate limits).
+        displayName: Webhook
+        path: webhook
+      - description: Kafka trigger configuration (topic, consumer group, integration ref).
+        displayName: Kafka
+        path: kafka
+```
+
+Re-run `operator-sdk bundle validate ./bundle` after the manual edit to confirm it's still valid.
+
 ---
 
 ## 5. Tag and push

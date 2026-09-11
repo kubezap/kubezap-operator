@@ -128,6 +128,74 @@ var _ = Describe("evaluateWhen", func() {
 		})
 	})
 
+	Context("trigger.bodyFields (nested body field access)", func() {
+		It("navigates a nested JSON field via dot-path", func() {
+			td := &automationv1alpha1.TriggerData{
+				Body:        `{"order":{"customer":{"tier":"enterprise"}}}`,
+				ContentType: "application/json",
+			}
+			result, err := r.evaluateWhen(when(`trigger.bodyFields.order.customer.tier == "enterprise"`), nil, nil, td, nil)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result).To(BeTrue())
+		})
+
+		It("indexes into a JSON array", func() {
+			td := &automationv1alpha1.TriggerData{
+				Body:        `{"items":[{"id":"a"},{"id":"b"}]}`,
+				ContentType: "application/json",
+			}
+			result, err := r.evaluateWhen(when(`trigger.bodyFields.items[1].id == "b"`), nil, nil, td, nil)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result).To(BeTrue())
+		})
+
+		It("compares a JSON number as a native CEL double, not a string", func() {
+			td := &automationv1alpha1.TriggerData{
+				Body:        `{"total":4850.00}`,
+				ContentType: "application/json",
+			}
+			result, err := r.evaluateWhen(when(`trigger.bodyFields.total >= 1000.0`), nil, nil, td, nil)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result).To(BeTrue())
+		})
+
+		It("accesses a top-level field from a form-urlencoded body", func() {
+			td := &automationv1alpha1.TriggerData{
+				Body:        "channel=alerts&user=alice",
+				ContentType: "application/x-www-form-urlencoded",
+			}
+			result, err := r.evaluateWhen(when(`trigger.bodyFields.channel == "alerts"`), nil, nil, td, nil)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result).To(BeTrue())
+		})
+
+		It("defaults to an empty map (not an error) for a content type it cannot parse (XML)", func() {
+			td := &automationv1alpha1.TriggerData{
+				Body:        `<order><id>1</id></order>`,
+				ContentType: "application/xml",
+			}
+			result, err := r.evaluateWhen(when(`has(trigger.bodyFields.id)`), nil, nil, td, nil)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result).To(BeFalse())
+		})
+
+		It("defaults to an empty map when triggerData is nil", func() {
+			result, err := r.evaluateWhen(when(`has(trigger.bodyFields.anything)`), nil, nil, nil, nil)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result).To(BeFalse())
+		})
+
+		It("leaves trigger.body as the raw string, unaffected by bodyFields", func() {
+			td := &automationv1alpha1.TriggerData{
+				Body:        `{"eventType":"order.placed"}`,
+				ContentType: "application/json",
+			}
+			result, err := r.evaluateWhen(when(`trigger.body.contains("order.placed") && trigger.bodyFields.eventType == "order.placed"`), nil, nil, td, nil)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result).To(BeTrue())
+		})
+	})
+
 	Context("step status expressions", func() {
 		It("evaluates step status equality to Succeeded", func() {
 			statuses := []automationv1alpha1.StepRunStatus{

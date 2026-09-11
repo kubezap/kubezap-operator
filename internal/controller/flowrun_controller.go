@@ -1739,6 +1739,7 @@ func (r *FlowRunReconciler) evaluateWhen(
 	// Build trigger activation map.
 	triggerMap := map[string]interface{}{
 		"body":          "",
+		"bodyFields":    map[string]interface{}{},
 		"topic":         "",
 		"partition":     "0",
 		"offset":        "0",
@@ -1759,6 +1760,14 @@ func (r *FlowRunReconciler) evaluateWhen(
 			headers[k] = v
 		}
 		triggerMap["headers"] = headers
+		// trigger.bodyFields exposes the same parsed body $(trigger.body.<field>)
+		// interpolation traverses (JSON or form-urlencoded), as a native CEL value —
+		// supports full nested dot-path/index access. Stays an empty map for content
+		// types parseTriggerBody doesn't parse (e.g. XML); trigger.body (raw string)
+		// is unaffected either way.
+		if bodyRoot := parseTriggerBody(triggerData); bodyRoot != nil {
+			triggerMap["bodyFields"] = bodyRoot
+		}
 	}
 
 	// Build steps activation map — hyphens to underscores in step names.

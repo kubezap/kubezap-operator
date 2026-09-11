@@ -136,9 +136,6 @@ type HTTPAction struct {
 	// Inline body template.
 	Body string `json:"body,omitempty"`
 
-	// Body from lookup (e.g. config map key, parameter path).
-	BodyFrom string `json:"bodyFrom,omitempty"`
-
 	// Request timeout in seconds.
 	// +kubebuilder:default=30
 	TimeoutSeconds int32 `json:"timeoutSeconds,omitempty"`

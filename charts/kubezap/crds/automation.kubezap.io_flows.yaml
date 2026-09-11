@@ -92,10 +92,6 @@ spec:
                             body:
                               description: Inline body template.
                               type: string
-                            bodyFrom:
-                              description: Body from lookup (e.g. config map key,
-                                parameter path).
-                              type: string
                             headers:
                               additionalProperties:
                                 type: string

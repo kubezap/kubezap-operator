@@ -71,7 +71,9 @@ spec:
               params:
                 description: Optional runtime parameters.
                 items:
-                  description: ParamValue assigns a value to a step parameter.
+                  description: |-
+                    ParamValue assigns an explicit value to a Flow parameter declared via
+                    FlowSpec.Params (see ParamDeclaration). Used by FlowRunSpec.Params.
                   properties:
                     name:
                       description: Name of the parameter.

@@ -496,11 +496,6 @@ func (in *FlowStep) DeepCopyInto(out *FlowStep) {
 		*out = make([]WhenExpression, len(*in))
 		copy(*out, *in)
 	}
-	if in.Params != nil {
-		in, out := &in.Params, &out.Params
-		*out = make([]ParamValue, len(*in))
-		copy(*out, *in)
-	}
 	in.Action.DeepCopyInto(&out.Action)
 	if in.Results != nil {
 		in, out := &in.Results, &out.Results

@@ -205,22 +205,6 @@ spec:
                       - Continue
                       - Skip
                       type: string
-                    params:
-                      description: Parameters bound for this step.
-                      items:
-                        description: ParamValue assigns a value to a step parameter.
-                        properties:
-                          name:
-                            description: Name of the parameter.
-                            type: string
-                          value:
-                            description: Value to set.
-                            type: string
-                        required:
-                        - name
-                        - value
-                        type: object
-                      type: array
                     results:
                       description: Results produced by the step.
                       items:

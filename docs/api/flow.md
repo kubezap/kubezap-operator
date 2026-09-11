@@ -65,19 +65,19 @@ Conditional execution is controlled by `when` blocks using [CEL (Common Expressi
 
 ## Payload Formats
 
-KubeZap infers the payload format from the `Content-Type` of the triggering event (webhook request body or Kafka message value). The parsed data is then navigable in both `$(...)` interpolation and CEL conditions.
+KubeZap infers the payload format from the `Content-Type` of the triggering event (webhook request body or Kafka message value). For JSON and form-urlencoded bodies, the parsed data is navigable from both `$(...)` interpolation (`$(trigger.body.<field>)`) and CEL `when` conditions (`trigger.bodyFields.<field>` — a differently-named field, since `trigger.body` itself is always the raw string in CEL; see [Using Trigger Data in CEL Conditions](#using-trigger-data-in-cel-conditions)).
 
-| Content-Type                        | Parsed as   | Access pattern                                                                 |
-| ----------------------------------- | ----------- | ------------------------------------------------------------------------------ |
-| `application/json`                  | JSON object | `$(trigger.body.userId)`, `$(trigger.body.order.id)` — full dot-path supported |
-| `application/xml`, `text/xml`       | raw string  | `$(trigger.body)` — full body as string                                        |
-| `application/x-www-form-urlencoded` | raw string  | `$(trigger.body)` — full body as string                                        |
-| `text/plain`                        | raw string  | `$(trigger.body)`                                                              |
-| Other / binary                      | raw string  | `$(trigger.body)`                                                              |
+| Content-Type                        | Parsed as        | Access pattern                                                                                     |
+| ----------------------------------- | ---------------- | --------------------------------------------------------------------------------------------------- |
+| `application/json`                  | JSON object      | `$(trigger.body.userId)`, `$(trigger.body.order.id)` — full dot-path; `trigger.bodyFields.*` in CEL |
+| `application/x-www-form-urlencoded` | flat form fields | `$(trigger.body.field)` — top-level only, no nested dot-path; `trigger.bodyFields.*` in CEL         |
+| `application/xml`, `text/xml`       | raw string       | `$(trigger.body)` — full body as string only                                                        |
+| `text/plain`                        | raw string       | `$(trigger.body)`                                                                                    |
+| Other / binary                      | raw string       | `$(trigger.body)`                                                                                    |
 
 ### Accessing Trigger Body Fields
 
-Use `$(trigger.body)` for the raw body and `$(trigger.body.<field>)` for a JSON field. Full dot-path traversal is supported — for example, `$(trigger.body.order.id)` navigates into a nested object:
+Use `$(trigger.body)` for the raw body and `$(trigger.body.<field>)` for a body field. JSON supports full dot-path traversal — for example, `$(trigger.body.order.id)` navigates into a nested object. Form-urlencoded bodies are flat: only top-level field names resolve (no nested paths, since form encoding has no nesting concept).
 
 ```yaml
 steps:
@@ -92,25 +92,22 @@ steps:
 
 ### Using Trigger Data in CEL Conditions
 
-Unlike `$(...)` interpolation, CEL `when` expressions do **not** get a parsed trigger body — `trigger.body` is always the raw string, regardless of content type. Dot-path field access (`trigger.body.eventType`) is not supported and raises a `when expression error` at evaluation time, failing the step. Use string methods on the raw body instead:
+`trigger.body` in a CEL `when` expression is always the raw string, regardless of content type — the same value `$(trigger.body)` interpolates. Use string methods on it directly:
 
 ```yaml
 when:
   - expression: 'trigger.body.contains("order.placed")'
 ```
 
-To branch on a specific JSON field's value (not just substring matching), declare a Flow [`param`](#paramdeclaration) with the same name as the top-level body field — it is auto-derived from the trigger body and exposed to CEL as a flat string via `params.<name>`:
+For a JSON or form-urlencoded body, `trigger.bodyFields` gives full, typed, nested access into the same parsed structure `$(trigger.body.<field>)` interpolation traverses — dot-path into nested objects, index into arrays, and compare numbers/booleans as native CEL values (no `double()`/`bool()` cast needed, unlike `steps.*.results` and `params.*`, which are always strings):
 
 ```yaml
-params:
-  - name: eventType
-steps:
-  - name: handle-placed
-    when:
-      - expression: 'params.eventType == "order.placed"'
+when:
+  - expression: 'trigger.bodyFields.order.customer.tier == "enterprise"'
+  - expression: 'trigger.bodyFields.total >= 1000.0'
 ```
 
-This only reaches top-level fields; there is currently no way to get a *nested* body field (e.g. `order.customer.tier`) into a CEL condition.
+`trigger.bodyFields` is an empty map (never an evaluation error) when the body isn't JSON or form-urlencoded — e.g. XML — so `has(trigger.bodyFields.x)` and direct access are always safe; fall back to `trigger.body.contains(...)` for those content types (see [Example 6](#example-6-xml-payload-processing)).
 
 ### HTTP Response Formats
 
@@ -1055,12 +1052,18 @@ int(steps.fetch.results.statusCode) < 400
 steps.auth.status == "Succeeded" && steps.extract_fields.results.env == "production"
 steps.check.status == "Failed" || steps.extract_fields.results.force == "true"
 
-# String contains
+# String contains (trigger.body is always the raw string)
 trigger.body.contains("created")
+
+# Nested trigger body field access (JSON/form-urlencoded only — natively typed, no casts needed)
+trigger.bodyFields.order.customer.tier == "enterprise"
+trigger.bodyFields.items[0].id == "a"
+trigger.bodyFields.total >= 1000.0
 
 # Null/empty checks
 steps.fetch.results.userId != ""
 has(steps.fetch.results.userId)
+has(trigger.bodyFields.order)
 ```
 
 ---
@@ -1071,6 +1074,6 @@ has(steps.fetch.results.userId)
 - **No sub-flows**: A Flow cannot reference another Flow as a step. This is planned for a future release.
 - **Step name characters**: Step names must match `^[a-z][a-z0-9-]*$`. When referenced in expressions, hyphens become underscores.
 - **Result values are strings**: All step results are stored as strings. Numeric and boolean values must be cast in CEL conditions using `int()`, `double()`, or `bool()`.
-- **CEL cannot navigate the trigger body**: `trigger.body` in a `when` expression is always the raw string, even for JSON payloads — only string methods (`.contains()`, etc.) work on it directly. Branching on a specific field requires declaring it as a top-level Flow `param` (auto-derived from the body) and testing `params.<name>` instead; see [Using Trigger Data in CEL Conditions](#using-trigger-data-in-cel-conditions). Nested fields are not reachable from CEL at all today.
+- **`trigger.body` in CEL is always the raw string**, even for JSON payloads — only string methods (`.contains()`, etc.) work on it directly. Use `trigger.bodyFields` for typed, nested field access into JSON/form-urlencoded bodies; see [Using Trigger Data in CEL Conditions](#using-trigger-data-in-cel-conditions). XML and other unparsed content types leave `trigger.bodyFields` as an empty map — raw-string matching is the only option there.
 - **Secret resolution**: `$(secrets.name.key)` values are resolved at step execution time and are never stored in the Flow spec or status.
 - **Execution history**: Every execution creates a `FlowRun` CRD with full trigger metadata, step results, and timing. See [FlowRun CRD](flowrun.md). Summary statistics (`lastResult`, `executionCount`) are also recorded on the `Flow` status.

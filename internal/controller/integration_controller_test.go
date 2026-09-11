@@ -24,6 +24,7 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	rbacv1 "k8s.io/api/rbac/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -459,6 +460,41 @@ var _ = Describe("IntegrationReconciler", func() {
 			Expect(cond.Status).To(Equal(metav1.ConditionTrue))
 			Expect(cond.Message).To(ContainSubstring(plainPluginImage))
 			Expect(cond.Message).NotTo(ContainSubstring("@sha256:"))
+		})
+	})
+
+	// See docs/design/2026-09-11-secret-rotation-watches.md: the kafka/amqp/nats
+	// gateways previously had no secrets RBAC at all, so readSecretKey's Get
+	// call must already have been failing with Forbidden in any real cluster.
+	Context("broker gateway RBAC — secrets permission", func() {
+		It("grants get/list/watch on secrets in the shared kubezap-gateway Role", func() {
+			name := "kafka-rbac-secrets"
+			integration := &automationv1alpha1.Integration{
+				ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace},
+				Spec: automationv1alpha1.IntegrationSpec{
+					Type:  "kafka",
+					Kafka: &automationv1alpha1.KafkaIntegrationSpec{BootstrapServers: []string{"broker:9092"}},
+				},
+			}
+			Expect(k8sClient.Create(ctx, integration)).To(Succeed())
+			DeferCleanup(func() {
+				_ = k8sClient.Delete(ctx, integration)
+			})
+
+			reconcile(name)
+
+			role := &rbacv1.Role{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "kubezap-gateway", Namespace: namespace}, role)).To(Succeed())
+
+			var hasSecretsRule bool
+			for _, rule := range role.Rules {
+				if containsString(rule.APIGroups, "") && containsString(rule.Resources, "secrets") {
+					hasSecretsRule = true
+					Expect(rule.Verbs).To(ConsistOf("get", "list", "watch"),
+						"secrets rule must grant get/list/watch — list/watch are required for the Secret informer that detects rotation")
+				}
+			}
+			Expect(hasSecretsRule).To(BeTrue(), "kubezap-gateway Role must grant a secrets rule, or SASL/TLS secretRefs can never resolve against a live cluster")
 		})
 	})
 })

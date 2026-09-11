@@ -2,8 +2,10 @@ package natsgateway
 
 import (
 	"context"
+	"crypto/sha256"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"strings"
@@ -23,20 +25,23 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
 
 	automationv1alpha1 "github.com/kubezap/kubezap-operator/api/v1alpha1"
+	"github.com/kubezap/kubezap-operator/internal/gateway/secretindex"
 )
 
 var controllerScheme = runtime.NewScheme()
 
 func init() {
 	_ = automationv1alpha1.AddToScheme(controllerScheme)
+	_ = corev1.AddToScheme(controllerScheme)
 }
 
 // subscription tracks an active NATS subscription for a Trigger.
 type subscription struct {
-	cancel          context.CancelFunc
-	integrationName string
-	subject         string
-	isJetStream     bool
+	cancel                context.CancelFunc
+	integrationName       string
+	subject               string
+	isJetStream           bool
+	credentialFingerprint string
 }
 
 // Watcher watches Trigger CRDs via an informer and manages NATS subscriptions.
@@ -46,6 +51,16 @@ type Watcher struct {
 	namespace     string
 	log           logr.Logger
 	subscriptions sync.Map // key: types.NamespacedName, value: *subscription
+
+	// secretIndex and triggers together let a Secret change (see
+	// docs/design/2026-09-11-secret-rotation-watches.md) reprocess exactly the
+	// Triggers whose Integration references it, without an extra API call:
+	// triggers holds the most recently seen object for each Trigger key, and
+	// secretIndex maps a Secret key to the set of Trigger keys that currently
+	// depend on it (via their Integration's TLS/credentials/username secretRefs).
+	secretIndex *secretindex.Index
+	triggersMu  sync.Mutex
+	triggers    map[types.NamespacedName]*automationv1alpha1.Trigger
 }
 
 // NewWatcher creates a new Watcher backed by an informer cache.
@@ -70,7 +85,14 @@ func NewWatcher(c client.Client, cfg *rest.Config, namespace string, log logr.Lo
 		return nil, fmt.Errorf("unable to create cache: %w", err)
 	}
 
-	return &Watcher{client: c, cache: watchCache, namespace: namespace, log: log}, nil
+	return &Watcher{
+		client:      c,
+		cache:       watchCache,
+		namespace:   namespace,
+		log:         log,
+		secretIndex: secretindex.New(),
+		triggers:    make(map[types.NamespacedName]*automationv1alpha1.Trigger),
+	}, nil
 }
 
 // Start launches the informer cache and stays running until ctx is cancelled.
@@ -87,6 +109,17 @@ func (w *Watcher) Start(ctx context.Context) error {
 	})
 	if err != nil {
 		return fmt.Errorf("adding trigger event handler: %w", err)
+	}
+
+	secretInformer, err := w.cache.GetInformer(ctx, &corev1.Secret{})
+	if err != nil {
+		return fmt.Errorf("unable to get secret informer: %w", err)
+	}
+	if _, err := secretInformer.AddEventHandler(toolscache.ResourceEventHandlerFuncs{
+		AddFunc:    func(obj interface{}) { w.handleSecretChange(ctx, obj) },
+		UpdateFunc: func(_, newObj interface{}) { w.handleSecretChange(ctx, newObj) },
+	}); err != nil {
+		return fmt.Errorf("adding secret event handler: %w", err)
 	}
 
 	go func() {
@@ -144,15 +177,23 @@ func (w *Watcher) onTriggerDelete(obj interface{}) {
 		}
 	}
 	key := types.NamespacedName{Name: trigger.Name, Namespace: trigger.Namespace}
+	w.triggersMu.Lock()
+	delete(w.triggers, key)
+	w.triggersMu.Unlock()
+	w.secretIndex.Remove(key)
 	w.stopSubscription(key)
 }
 
 // reconcileTrigger ensures the subscription state for a single Trigger matches its spec.
 func (w *Watcher) reconcileTrigger(ctx context.Context, trigger *automationv1alpha1.Trigger) {
 	key := types.NamespacedName{Name: trigger.Name, Namespace: trigger.Namespace}
+	w.triggersMu.Lock()
+	w.triggers[key] = trigger
+	w.triggersMu.Unlock()
 
 	// Stop subscription if trigger is not a nats trigger or is disabled.
 	if trigger.Spec.Type != "nats" || trigger.Spec.Nats == nil || !trigger.Spec.Enabled {
+		w.secretIndex.Remove(key)
 		w.stopSubscription(key)
 		return
 	}
@@ -160,41 +201,135 @@ func (w *Watcher) reconcileTrigger(ctx context.Context, trigger *automationv1alp
 	subject := trigger.Spec.Nats.Subject
 	integrationName := trigger.Spec.Nats.IntegrationRef.Name
 
+	integration := &automationv1alpha1.Integration{}
+	if err := w.client.Get(ctx, types.NamespacedName{Namespace: trigger.Namespace, Name: integrationName}, integration); err != nil {
+		w.log.Error(err, "failed to get integration for nats trigger", "trigger", key, "integration", integrationName)
+		return
+	}
+	if integration.Spec.Nats == nil {
+		w.log.Error(fmt.Errorf("integration has no nats spec"), "cannot reconcile nats trigger", "trigger", key, "integration", integrationName)
+		return
+	}
+
+	creds, credErr := w.resolveNatsCredentials(ctx, trigger.Namespace, integration.Spec.Nats)
+	// Index intended secret refs regardless of read success, so a Trigger whose
+	// secret doesn't exist yet still gets reprocessed once it's created.
+	w.secretIndex.Update(key, creds.secretRefs)
+	if credErr != nil {
+		w.log.Error(credErr, "failed to resolve nats credentials", "trigger", key, "integration", integrationName)
+		return
+	}
+
 	if existing, ok := w.subscriptions.Load(key); ok {
 		sub := existing.(*subscription)
-		if sub.subject == subject && sub.integrationName == integrationName {
-			return // no change
+		if sub.subject == subject && sub.integrationName == integrationName && sub.credentialFingerprint == creds.fingerprint {
+			return // no change, not even to credentials
 		}
 		w.log.Info("nats subscription config changed, restarting",
 			"trigger", key, "subject", subject)
 		w.stopSubscription(key)
 	}
 
-	if err := w.startSubscription(ctx, trigger); err != nil {
+	if err := w.startSubscription(ctx, trigger, integration.Spec.Nats, creds); err != nil {
 		w.log.Error(err, "failed to start nats subscription", "trigger", key, "subject", subject)
 	}
 }
 
-// startSubscription creates a NATS subscription for the given Trigger.
-func (w *Watcher) startSubscription(ctx context.Context, trigger *automationv1alpha1.Trigger) error {
-	nats := trigger.Spec.Nats
-	integrationName := nats.IntegrationRef.Name
-	subject := nats.Subject
+// natsCredentials holds the Secret-derived values needed to configure a NATS
+// connection for one Trigger's Integration, plus bookkeeping for change
+// detection (fingerprint) and secret-rotation reprocessing (secretRefs).
+type natsCredentials struct {
+	caPEM        string
+	credsContent string // NATS .creds file content (JWT+seed), if CredentialsSecretRef is set
+	username     string
+	password     string
+	secretRefs   []types.NamespacedName
+	fingerprint  string
+}
 
-	// Fetch the Integration CRD.
-	integration := &automationv1alpha1.Integration{}
-	if err := w.client.Get(ctx, types.NamespacedName{
-		Namespace: trigger.Namespace,
-		Name:      integrationName,
-	}, integration); err != nil {
-		return fmt.Errorf("get integration %s/%s: %w", trigger.Namespace, integrationName, err)
+// resolveNatsCredentials reads whichever TLS/credentials/username secrets spec
+// references and computes a fingerprint over their values, so callers can
+// detect a credential-only rotation without comparing full secret contents.
+// Unlike startSubscription, this never writes a credentials temp file.
+func (w *Watcher) resolveNatsCredentials(ctx context.Context, namespace string, spec *automationv1alpha1.NatsIntegrationSpec) (natsCredentials, error) {
+	var creds natsCredentials
+	h := sha256.New()
+
+	if spec.TLS != nil && spec.TLS.CASecretRef != nil {
+		caPEM, err := w.readSecretKey(ctx, namespace, spec.TLS.CASecretRef.Name, spec.TLS.CASecretRef.Key)
+		if err != nil {
+			return creds, fmt.Errorf("reading CA cert secret: %w", err)
+		}
+		creds.caPEM = caPEM
+		creds.secretRefs = append(creds.secretRefs, types.NamespacedName{Namespace: namespace, Name: spec.TLS.CASecretRef.Name})
+		_, _ = h.Write([]byte(caPEM))
 	}
 
-	if integration.Spec.Nats == nil {
-		return fmt.Errorf("integration %s/%s has no nats spec", trigger.Namespace, integrationName)
+	if spec.CredentialsSecretRef != nil {
+		credsContent, err := w.readSecretKey(ctx, namespace, spec.CredentialsSecretRef.Name, "nats.creds")
+		if err != nil {
+			return creds, fmt.Errorf("reading nats credentials secret: %w", err)
+		}
+		creds.credsContent = credsContent
+		creds.secretRefs = append(creds.secretRefs, types.NamespacedName{Namespace: namespace, Name: spec.CredentialsSecretRef.Name})
+		_, _ = h.Write([]byte(credsContent))
+	} else if spec.UsernameSecretRef != nil {
+		username, err := w.readSecretKey(ctx, namespace, spec.UsernameSecretRef.Name, spec.UsernameSecretRef.Key)
+		if err != nil {
+			return creds, fmt.Errorf("reading nats username secret: %w", err)
+		}
+		if spec.PasswordSecretRef == nil {
+			return creds, fmt.Errorf("spec.nats.passwordSecretRef must be set when usernameSecretRef is set")
+		}
+		password, err := w.readSecretKey(ctx, namespace, spec.PasswordSecretRef.Name, spec.PasswordSecretRef.Key)
+		if err != nil {
+			return creds, fmt.Errorf("reading nats password secret: %w", err)
+		}
+		creds.username = username
+		creds.password = password
+		creds.secretRefs = append(creds.secretRefs,
+			types.NamespacedName{Namespace: namespace, Name: spec.UsernameSecretRef.Name},
+			types.NamespacedName{Namespace: namespace, Name: spec.PasswordSecretRef.Name},
+		)
+		_, _ = h.Write([]byte(username))
+		_, _ = h.Write([]byte(password))
 	}
 
-	spec := integration.Spec.Nats
+	creds.fingerprint = hex.EncodeToString(h.Sum(nil))
+	return creds, nil
+}
+
+// handleSecretChange reprocesses every Trigger currently known to depend on
+// the changed Secret (via its Integration's TLS/credentials/username config),
+// using each Trigger's most recently seen object — the same code path a real
+// Trigger spec change takes.
+func (w *Watcher) handleSecretChange(ctx context.Context, obj interface{}) {
+	secret, ok := obj.(*corev1.Secret)
+	if !ok {
+		return
+	}
+	secretKey := types.NamespacedName{Name: secret.Name, Namespace: secret.Namespace}
+	affected := w.secretIndex.ObjectsFor(secretKey)
+	if len(affected) == 0 {
+		return
+	}
+	w.log.Info("secret changed, reprocessing dependent triggers", "secret", secretKey, "count", len(affected))
+	for _, triggerKey := range affected {
+		w.triggersMu.Lock()
+		trigger := w.triggers[triggerKey]
+		w.triggersMu.Unlock()
+		if trigger == nil {
+			continue
+		}
+		w.reconcileTrigger(ctx, trigger)
+	}
+}
+
+// startSubscription creates a NATS subscription for the given Trigger, using
+// already-resolved credentials (see reconcileTrigger).
+func (w *Watcher) startSubscription(ctx context.Context, trigger *automationv1alpha1.Trigger, spec *automationv1alpha1.NatsIntegrationSpec, creds natsCredentials) error {
+	integrationName := trigger.Spec.Nats.IntegrationRef.Name
+	subject := trigger.Spec.Nats.Subject
 
 	// Build NATS connection options.
 	opts := []natsio.Option{
@@ -209,12 +344,8 @@ func (w *Watcher) startSubscription(ctx context.Context, trigger *automationv1al
 		}
 
 		if spec.TLS.CASecretRef != nil {
-			caPEM, err := w.readSecretKey(ctx, trigger.Namespace, spec.TLS.CASecretRef.Name, spec.TLS.CASecretRef.Key)
-			if err != nil {
-				return fmt.Errorf("reading CA cert secret: %w", err)
-			}
 			pool := x509.NewCertPool()
-			if !pool.AppendCertsFromPEM([]byte(caPEM)) {
+			if !pool.AppendCertsFromPEM([]byte(creds.caPEM)) {
 				return fmt.Errorf("failed to parse CA certificate from secret %s/%s key %s",
 					trigger.Namespace, spec.TLS.CASecretRef.Name, spec.TLS.CASecretRef.Key)
 			}
@@ -227,10 +358,6 @@ func (w *Watcher) startSubscription(ctx context.Context, trigger *automationv1al
 	// Apply credentials if configured.
 	var credsFilePath string // set below if credentials are written; cleaned up on subscription stop
 	if spec.CredentialsSecretRef != nil {
-		credsContent, err := w.readSecretKey(ctx, trigger.Namespace, spec.CredentialsSecretRef.Name, "nats.creds")
-		if err != nil {
-			return fmt.Errorf("reading nats credentials secret: %w", err)
-		}
 		// Write credentials to a randomly-named temp file. Using a fixed path is a security
 		// risk (predictable name, namespace collisions). The file is removed when the
 		// subscription goroutine exits.
@@ -239,7 +366,7 @@ func (w *Watcher) startSubscription(ctx context.Context, trigger *automationv1al
 			return fmt.Errorf("creating nats credentials temp file: %w", err)
 		}
 		credsFilePath = f.Name()
-		if _, err := f.Write([]byte(credsContent)); err != nil {
+		if _, err := f.Write([]byte(creds.credsContent)); err != nil {
 			_ = f.Close()
 			_ = os.Remove(credsFilePath)
 			return fmt.Errorf("writing nats credentials to temp file: %w", err)
@@ -250,18 +377,7 @@ func (w *Watcher) startSubscription(ctx context.Context, trigger *automationv1al
 		}
 		opts = append(opts, natsio.UserCredentials(credsFilePath))
 	} else if spec.UsernameSecretRef != nil {
-		username, err := w.readSecretKey(ctx, trigger.Namespace, spec.UsernameSecretRef.Name, spec.UsernameSecretRef.Key)
-		if err != nil {
-			return fmt.Errorf("reading nats username secret: %w", err)
-		}
-		if spec.PasswordSecretRef == nil {
-			return fmt.Errorf("spec.nats.passwordSecretRef must be set when usernameSecretRef is set")
-		}
-		password, err := w.readSecretKey(ctx, trigger.Namespace, spec.PasswordSecretRef.Name, spec.PasswordSecretRef.Key)
-		if err != nil {
-			return fmt.Errorf("reading nats password secret: %w", err)
-		}
-		opts = append(opts, natsio.UserInfo(username, password))
+		opts = append(opts, natsio.UserInfo(creds.username, creds.password))
 	}
 
 	// Connect to NATS.
@@ -317,10 +433,11 @@ func (w *Watcher) startSubscription(ctx context.Context, trigger *automationv1al
 
 	key := types.NamespacedName{Name: trigger.Name, Namespace: trigger.Namespace}
 	sub := &subscription{
-		cancel:          cancel,
-		integrationName: integrationName,
-		subject:         subject,
-		isJetStream:     isJetStream,
+		cancel:                cancel,
+		integrationName:       integrationName,
+		subject:               subject,
+		isJetStream:           isJetStream,
+		credentialFingerprint: creds.fingerprint,
 	}
 	w.subscriptions.Store(key, sub)
 

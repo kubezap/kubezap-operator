@@ -142,7 +142,7 @@ func TestRateLimit_HandlerEnforces429(t *testing.T) {
 		MaxInvocations:   2,
 		CooldownWindow:   60 * time.Second,
 	})
-	h := NewWebhookHandler(fakeClient, registry, log)
+	h := NewWebhookHandler(fakeClient, registry, log, nil, 0)
 
 	type result struct {
 		code int

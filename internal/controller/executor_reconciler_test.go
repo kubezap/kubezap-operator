@@ -119,6 +119,18 @@ var _ = Describe("ExecutorReconciler", func() {
 			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: executorNetworkPolicyName, Namespace: namespace}, np)).To(Succeed())
 			Expect(np.Spec.Ingress).To(HaveLen(1))
 			Expect(np.Spec.PolicyTypes).To(ContainElement(networkingv1.PolicyTypeIngress))
+
+			// Egress: SSRF defense-in-depth (see docs/design/2026-09-11-executor-egress-networkpolicy.md).
+			Expect(np.Spec.PolicyTypes).To(ContainElement(networkingv1.PolicyTypeEgress))
+			Expect(np.Spec.Egress).To(HaveLen(2), "one rule for HTTP(S) egress minus blocked ranges, one for DNS")
+			httpEgress := np.Spec.Egress[0]
+			Expect(httpEgress.To).To(HaveLen(2), "one IPv4 ipBlock, one IPv6 ipBlock")
+			Expect(httpEgress.To[0].IPBlock.CIDR).To(Equal("0.0.0.0/0"))
+			Expect(httpEgress.To[0].IPBlock.Except).To(ContainElements(
+				"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "169.254.0.0/16",
+			), "must exclude RFC1918 and link-local/cloud-metadata ranges")
+			Expect(httpEgress.To[1].IPBlock.CIDR).To(Equal("::/0"))
+			Expect(httpEgress.To[1].IPBlock.Except).To(ContainElement("fe80::/10"))
 		})
 
 		It("is idempotent when reconciled twice", func() {

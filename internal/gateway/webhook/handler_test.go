@@ -47,7 +47,26 @@ func newTestHandler(t *testing.T) (*WebhookHandler, client.Client) {
 		FlowRef:          "test-flow",
 		AllowedMethod:    "POST",
 	})
-	h := NewWebhookHandler(fakeClient, registry, log)
+	h := NewWebhookHandler(fakeClient, registry, log, nil, 0)
+	return h, fakeClient
+}
+
+// newTestHandlerWithBodyLimit is like newTestHandler but with an explicit
+// maxStoredBodyBytes, decoupling boundary tests from whatever the production
+// default happens to be.
+func newTestHandlerWithBodyLimit(t *testing.T, limit int) (*WebhookHandler, client.Client) {
+	t.Helper()
+	scheme := newWebhookTestScheme()
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).Build()
+	log := zap.New()
+	registry := NewRouteRegistry(log)
+	registry.Register("/hooks/test", RouteEntry{
+		TriggerName:      "test-trigger",
+		TriggerNamespace: "default",
+		FlowRef:          "test-flow",
+		AllowedMethod:    "POST",
+	})
+	h := NewWebhookHandler(fakeClient, registry, log, nil, limit)
 	return h, fakeClient
 }
 
@@ -90,7 +109,7 @@ func TestBodyTruncated_SmallBody(t *testing.T) {
 // TestBodyTruncated_Exactly4096 verifies that a body of exactly 4096 bytes is stored in full
 // with BodyTruncated=false.
 func TestBodyTruncated_Exactly4096(t *testing.T) {
-	h, k8s := newTestHandler(t)
+	h, k8s := newTestHandlerWithBodyLimit(t, 4096)
 
 	body := strings.Repeat("b", 4096)
 	req := httptest.NewRequest(http.MethodPost, "/hooks/test", bytes.NewBufferString(body))
@@ -114,7 +133,7 @@ func TestBodyTruncated_Exactly4096(t *testing.T) {
 // is stored truncated to 4096 bytes with BodyTruncated=true. This is the bug scenario from
 // the R2 critical bug hunt: prior to the fix, BodyTruncated was false for mid-range bodies.
 func TestBodyTruncated_MidRange(t *testing.T) {
-	h, k8s := newTestHandler(t)
+	h, k8s := newTestHandlerWithBodyLimit(t, 4096)
 
 	// 8192 bytes — well above 4096 but far below 4MB
 	body := strings.Repeat("c", 8192)
@@ -137,7 +156,7 @@ func TestBodyTruncated_MidRange(t *testing.T) {
 
 // TestBodyTruncated_4097Boundary verifies the exact boundary: 4097 bytes triggers truncation.
 func TestBodyTruncated_4097Boundary(t *testing.T) {
-	h, k8s := newTestHandler(t)
+	h, k8s := newTestHandlerWithBodyLimit(t, 4096)
 
 	body := strings.Repeat("d", 4097)
 	req := httptest.NewRequest(http.MethodPost, "/hooks/test", bytes.NewBufferString(body))
@@ -233,7 +252,7 @@ func newTestHandlerWithHMAC(t *testing.T, secret string) (*WebhookHandler, clien
 		AuthType:         "hmac",
 		HMACSecret:       secret,
 	})
-	h := NewWebhookHandler(fakeClient, registry, log)
+	h := NewWebhookHandler(fakeClient, registry, log, nil, 0)
 	return h, fakeClient
 }
 
@@ -256,7 +275,7 @@ func newTestHandlerWithSlackHMAC(t *testing.T, secret string, toleranceSeconds i
 		HMACProvider:              "slack",
 		HMACTimestampToleranceSec: toleranceSeconds,
 	})
-	h := NewWebhookHandler(fakeClient, registry, log)
+	h := NewWebhookHandler(fakeClient, registry, log, nil, 0)
 	return h, fakeClient
 }
 
@@ -564,7 +583,7 @@ func TestCooldownWindowSuppression(t *testing.T) {
 				CooldownWindow:   tc.window,
 			})
 
-			h := NewWebhookHandler(fakeClient, registry, log)
+			h := NewWebhookHandler(fakeClient, registry, log, nil, 0)
 
 			// Snapshot the rate-limited metric before firing requests.
 			rateLimitedBefore := testutil.ToFloat64(
@@ -758,7 +777,7 @@ func TestWebhookRequestDurationHistogram(t *testing.T) {
 					MaxInvocations:   1,
 					CooldownWindow:   10 * time.Second,
 				})
-				return NewWebhookHandler(fakeClient, registry, log), fakeClient
+				return NewWebhookHandler(fakeClient, registry, log, nil, 0), fakeClient
 			},
 			buildRequest: func() *http.Request {
 				// Second request will be rate-limited; the test sends two below.

@@ -19,11 +19,17 @@ This page is a runnable checklist for operators preparing to deploy KubeZap in a
 
 - [ ] **All webhook Triggers must have `spec.webhook.auth` configured.** By default, webhook endpoints accept any request that reaches them. Set an auth type (`hmac`, `bearer`, `oidc`, `basic`, `header-equals`, `ipAllowlist`) on every Trigger before exposing the endpoint outside the cluster.
 
+- [ ] **If using `ipAllowlist`, set `--trusted-proxy-cidrs` on the webhook gateway if — and only if — it sits behind a reverse proxy or load balancer.** By default, the gateway never trusts `X-Forwarded-For`/`X-Real-IP` (a caller reaching it directly could otherwise set either header to any value and bypass the allowlist entirely). If a proxy is in front of the gateway and forwards the real client IP via one of these headers, pass `--trusted-proxy-cidrs` with that proxy's pod/service CIDR so its header is honored; otherwise every request will appear to come from the proxy's own IP and the allowlist will reject everything.
+
+- [ ] **Put a rate limit in front of every externally-reachable webhook Trigger.** `Trigger.spec.webhook.cooldown` is opt-in per-Trigger and only bounds request volume once a request has already reached the gateway (each one still costs a TCP/TLS handshake and an auth check). For real volumetric protection, add rate limiting upstream of the cluster — a WAF rate-based rule, an ingress controller's rate-limit annotations, or API Gateway throttling — so a flood is absorbed before it reaches KubeZap at all. Configure `cooldown` too; the two are complementary, not substitutes for each other.
+
   Guide: [docs/guides/webhook-security.md](webhook-security.md)
 
 ### 2. SSRF protection
 
 - [ ] **Verify the HTTP executor SSRF blocklist covers your private ranges.** The HTTP executor blocks RFC-1918 and link-local CIDRs by default (`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`, `169.254.0.0/16`, `::1/128`, `fc00::/7`). If your environment uses additional private ranges (e.g., a non-standard corporate network), add them with `--http-step-blocked-cidrs` on the controller.
+
+- [ ] **Understand that the software blocklist alone has a DNS-rebinding gap, and confirm the NetworkPolicy defense-in-depth is active (see [§4](#4-networkpolicy)).** The blocklist validates a hostname's resolved address, then the HTTP client resolves the same hostname again to actually connect — an attacker who controls the target's authoritative DNS (realistic whenever a Flow interpolates external/attacker-influenced data into a step URL) can return a safe address for the first lookup and an internal one for the second, bypassing the blocklist. The operator auto-creates a `NetworkPolicy` restricting the executor's egress to the same ranges, which DNS tricks cannot bypass — but only on a `NetworkPolicy`-enforcing CNI (Calico, Cilium, most managed-Kubernetes defaults; **not** plain Flannel). If your CNI doesn't enforce it, add the equivalent restriction via cloud security groups/NACLs on the node subnet instead.
 
   Guide: [docs/dev/http-executor.md](../dev/http-executor.md)
 
@@ -42,6 +48,8 @@ This page is a runnable checklist for operators preparing to deploy KubeZap in a
   ```
 
   Review `config/network-policy/plugin-egress.yaml` and update the placeholder egress CIDRs to match your broker or API endpoints before applying.
+
+  The HTTP executor's `NetworkPolicy` (ingress restricted to the controller pod; egress blocking RFC1918/link-local/CGNAT ranges — see [§2](#2-ssrf-protection)) is auto-created by the operator in every managed namespace, so `config/network-policy/http-executor-ingress.yaml` does not need to be applied manually for that one — it's kept as a reference for auditing or for namespaces the operator doesn't manage. This protection requires a `NetworkPolicy`-enforcing CNI; verify yours enforces it (`kubectl get networkpolicy -A` existing is not proof of enforcement — check your CNI's docs, e.g. Calico/Cilium enforce it, plain Flannel does not).
 
   Guide: [docs/guides/plugin-security.md](plugin-security.md)
 

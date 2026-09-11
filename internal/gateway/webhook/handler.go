@@ -73,15 +73,49 @@ func (ct *cooldownTracker) allow(path string, maxInvocations int32, window time.
 	return true
 }
 
+// defaultMaxStoredBodyBytes is the default cap on how much of a webhook body
+// is stored in TriggerData.Body / made available to Flow processing, independent
+// of (and much smaller than) the body read limit that exists purely to bound
+// memory use. Raised from an earlier 4096 default: truncating mid-JSON leaves
+// an invalid document, which makes trigger.bodyFields and every
+// $(trigger.body.<field>) placeholder resolve as if the field didn't exist —
+// not just truncate its visible portion — and real JSON webhook payloads
+// (GitHub, Slack, Stripe) routinely exceed 4KB. 64KB is still comfortably
+// below the 4MB read limit while covering the common case out of the box. See
+// docs/design/2026-09-11-webhook-gateway-trust-boundary.md.
+const defaultMaxStoredBodyBytes = 65536
+
 type WebhookHandler struct {
-	k8sClient client.Client
-	registry  *RouteRegistry
-	log       logr.Logger
-	cooldown  *cooldownTracker
+	k8sClient          client.Client
+	registry           *RouteRegistry
+	log                logr.Logger
+	cooldown           *cooldownTracker
+	trustedProxies     []*net.IPNet
+	maxStoredBodyBytes int
 }
 
-func NewWebhookHandler(k8sClient client.Client, registry *RouteRegistry, log logr.Logger) *WebhookHandler {
-	return &WebhookHandler{k8sClient: k8sClient, registry: registry, log: log, cooldown: newCooldownTracker()}
+// NewWebhookHandler constructs a WebhookHandler. trustedProxies is forwarded to
+// realClientIP (empty means X-Forwarded-For/X-Real-IP are never trusted — see
+// its doc comment); maxStoredBodyBytes overrides defaultMaxStoredBodyBytes when
+// positive, otherwise the default applies.
+func NewWebhookHandler(
+	k8sClient client.Client,
+	registry *RouteRegistry,
+	log logr.Logger,
+	trustedProxies []*net.IPNet,
+	maxStoredBodyBytes int,
+) *WebhookHandler {
+	if maxStoredBodyBytes <= 0 {
+		maxStoredBodyBytes = defaultMaxStoredBodyBytes
+	}
+	return &WebhookHandler{
+		k8sClient:          k8sClient,
+		registry:           registry,
+		log:                log,
+		cooldown:           newCooldownTracker(),
+		trustedProxies:     trustedProxies,
+		maxStoredBodyBytes: maxStoredBodyBytes,
+	}
 }
 
 func randomHex(length int) string {
@@ -126,8 +160,9 @@ func sourceRange(ipStr string) string {
 
 // authenticateRequest validates the incoming request against the route entry's auth configuration.
 // triggerName is used only for metric labelling when a request is blocked by IP allowlist.
+// trustedProxies is forwarded to realClientIP for the ipAllowlist case — see its doc comment.
 // Returns (http.StatusOK, "") on success, or (statusCode, errorMessage) on failure.
-func authenticateRequest(r *http.Request, body []byte, entry RouteEntry, triggerName string) (int, string) {
+func authenticateRequest(r *http.Request, body []byte, entry RouteEntry, triggerName string, trustedProxies []*net.IPNet) (int, string) {
 	switch entry.AuthType {
 	case authTypeHMAC:
 		if entry.HMACProvider == "slack" {
@@ -189,7 +224,7 @@ func authenticateRequest(r *http.Request, body []byte, entry RouteEntry, trigger
 		}
 
 	case authTypeIPAllowlist:
-		clientIP := realClientIP(r)
+		clientIP := realClientIP(r, trustedProxies)
 		ip := net.ParseIP(clientIP)
 		allowed := false
 		for _, cidr := range entry.IPAllowlist {
@@ -283,10 +318,7 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// accepted path sets it to "accepted" just before the final write.
 	metricResult := "rejected"
 
-	sourceIP, _, splitErr := net.SplitHostPort(r.RemoteAddr)
-	if splitErr != nil {
-		sourceIP = r.RemoteAddr
-	}
+	sourceIP := realClientIP(r, h.trustedProxies)
 
 	defer func() {
 		if rec := recover(); rec != nil {
@@ -360,7 +392,7 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if authStatus, authMsg := authenticateRequest(r, bodyBytes, entry, triggerName); authStatus != http.StatusOK {
+	if authStatus, authMsg := authenticateRequest(r, bodyBytes, entry, triggerName, h.trustedProxies); authStatus != http.StatusOK {
 		status = authStatus
 		writeJSON(w, status, map[string]string{"error": authMsg})
 		return
@@ -376,9 +408,9 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	bodyString := string(bodyBytes)
-	if len(bodyString) > 4096 {
+	if len(bodyString) > h.maxStoredBodyBytes {
 		bodyTruncated = true
-		bodyString = bodyString[:4096]
+		bodyString = bodyString[:h.maxStoredBodyBytes]
 	}
 
 	redactedHeaders := redact.Headers(r.Header, entry.RedactHeaders)

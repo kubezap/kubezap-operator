@@ -1070,6 +1070,7 @@ func (r *FlowRunReconciler) executePublishStep(
 
 	// Route to appropriate publish backend based on integration type.
 	if integration.Spec.Kafka != nil {
+		topic := substituteVars(step.Action.Publish.Topic, stepResults, triggerData, params)
 		body, _, berr := r.substituteVarsWithSecrets(ctx, flowRun.Namespace, step.Action.Publish.Body, stepResults, triggerData, params)
 		if berr != nil {
 			return nil, 0, fmt.Errorf("resolving secrets in publish body for step %q: %w", step.Name, berr)
@@ -1092,7 +1093,7 @@ func (r *FlowRunReconciler) executePublishStep(
 				case <-time.After(r.retryDelay(retryPolicy, attempt)):
 				}
 			}
-			result, lastErr = r.publishToKafka(ctx, integration, step.Action.Publish.Topic, body, headers)
+			result, lastErr = r.publishToKafka(ctx, integration, topic, body, headers)
 			if lastErr == nil {
 				return result, attempt + 1, nil
 			}

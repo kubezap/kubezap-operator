@@ -45,9 +45,11 @@ import (
 // can assert eviction behaviour without connecting to a real broker.
 type mockSyncProducer struct {
 	closeCalled bool
+	lastMessage *sarama.ProducerMessage
 }
 
-func (m *mockSyncProducer) SendMessage(*sarama.ProducerMessage) (int32, int64, error) {
+func (m *mockSyncProducer) SendMessage(msg *sarama.ProducerMessage) (int32, int64, error) {
+	m.lastMessage = msg
 	return 0, 0, nil
 }
 func (m *mockSyncProducer) SendMessages([]*sarama.ProducerMessage) error { return nil }
@@ -1368,6 +1370,56 @@ var _ = Describe("FlowRunReconciler", func() {
 				Expect(r.kafkaProducerLastUsed).NotTo(HaveKey(brokerKey),
 					"evicted producer's last-used entry must be removed from the cache map")
 			})
+		})
+	})
+
+	Describe("executePublishStep — Kafka topic interpolation", func() {
+		It("resolves $(...) placeholders in the topic before publishing, not just in body/headers", func() {
+			const brokerKey = "broker1:9092"
+			mock := &mockSyncProducer{}
+
+			r := &FlowRunReconciler{
+				kafkaProducers:        map[string]sarama.SyncProducer{brokerKey: mock},
+				kafkaProducerLastUsed: map[string]time.Time{brokerKey: time.Now()},
+			}
+
+			integration := &automationv1alpha1.Integration{
+				ObjectMeta: metav1.ObjectMeta{Name: "kafka-integ", Namespace: "default"},
+				Spec: automationv1alpha1.IntegrationSpec{
+					Kafka: &automationv1alpha1.KafkaIntegrationSpec{
+						BootstrapServers: []string{brokerKey},
+					},
+				},
+			}
+
+			flowRun := &automationv1alpha1.FlowRun{
+				ObjectMeta: metav1.ObjectMeta{Name: "run-1", Namespace: "default"},
+			}
+			step := &automationv1alpha1.FlowStep{
+				Name: "publish-step",
+				Action: automationv1alpha1.StepAction{
+					Type: "publish",
+					Publish: &automationv1alpha1.PublishAction{
+						IntegrationRef: corev1.LocalObjectReference{Name: "kafka-integ"},
+						Topic:          "orders.$(trigger.body.region)",
+						Body:           "hello",
+					},
+				},
+			}
+			triggerData := &automationv1alpha1.TriggerData{Body: `{"region":"us-east"}`}
+
+			integCache := map[string]*automationv1alpha1.Integration{
+				"default/kafka-integ": integration,
+			}
+			ctx := context.WithValue(context.Background(), integrationCacheKey, integCache)
+
+			_, attempts, err := r.executePublishStep(ctx, flowRun, step, triggerData, nil, nil)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(attempts).To(Equal(1))
+
+			Expect(mock.lastMessage).NotTo(BeNil())
+			Expect(mock.lastMessage.Topic).To(Equal("orders.us-east"),
+				"topic must be resolved through substituteVars, not published as the raw $(...) template")
 		})
 	})
 

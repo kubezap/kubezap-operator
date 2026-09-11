@@ -39,8 +39,8 @@ VERSION=<NEW>
 sed -i "s/^VERSION ?= .*/VERSION ?= $VERSION/" Makefile
 
 # Helm chart
-sed -i "s/^version: .*/version: $VERSION/" charts/kubezap/Chart.yaml
-sed -i "s/^appVersion: .*/appVersion: \"$VERSION\"/" charts/kubezap/Chart.yaml
+sed -i "s/^version: .*/version: $VERSION/" charts/kubezap-operator/Chart.yaml
+sed -i "s/^appVersion: .*/appVersion: \"$VERSION\"/" charts/kubezap-operator/Chart.yaml
 
 # OLM CSV
 sed -i "s/name: kubezap.v.*/name: kubezap.v$VERSION/" bundle/manifests/kubezap.clusterserviceversion.yaml
@@ -71,7 +71,7 @@ Add a new section at the top of `CHANGELOG.md`:
 Commit the version bumps and changelog together:
 
 ```bash
-git add Makefile charts/kubezap/Chart.yaml bundle/manifests/kubezap.clusterserviceversion.yaml CHANGELOG.md
+git add Makefile charts/kubezap-operator/Chart.yaml bundle/manifests/kubezap.clusterserviceversion.yaml CHANGELOG.md
 git commit -m "chore: bump version to v$VERSION"
 git push origin main
 ```
@@ -126,7 +126,7 @@ docker pull ghcr.io/kubezap/controller:$VERSION
 docker pull ghcr.io/kubezap/webhook-gateway:$VERSION
 
 # Helm chart values reflect new version
-grep appVersion charts/kubezap/Chart.yaml
+grep appVersion charts/kubezap-operator/Chart.yaml
 ```
 
 ---
@@ -137,11 +137,11 @@ Until the Helm chart publish step is automated in CI:
 
 ```bash
 # OCI push (recommended)
-helm package charts/kubezap
-helm push kubezap-$VERSION.tgz oci://ghcr.io/kubezap/charts
+helm package charts/kubezap-operator
+helm push kubezap-operator-$VERSION.tgz oci://ghcr.io/kubezap/charts
 
 # Verify
-helm show chart oci://ghcr.io/kubezap/charts/kubezap --version $VERSION
+helm show chart oci://ghcr.io/kubezap/charts/kubezap-operator --version $VERSION
 ```
 
 > **Note:** The first time, create the OCI package as public in the `kubezap` GitHub org package settings.
@@ -160,7 +160,7 @@ helm show chart oci://ghcr.io/kubezap/charts/kubezap --version $VERSION
 
 - [ ] GitHub Release published with correct binaries and changelog
 - [ ] `ghcr.io/kubezap/controller:$VERSION` and `:latest` pullable
-- [ ] Helm chart installable (`helm install kubezap oci://ghcr.io/kubezap/charts/kubezap --version $VERSION`)
+- [ ] Helm chart installable (`helm install kubezap oci://ghcr.io/kubezap/charts/kubezap-operator --version $VERSION`)
 - [ ] `kubezap version` reports `v$VERSION`
 - [ ] OperatorHub PR opened (if CSV changed)
 - [ ] Announce in project channels (if applicable)

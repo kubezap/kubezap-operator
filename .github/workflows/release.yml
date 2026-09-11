@@ -108,7 +108,7 @@ jobs:
 
       - name: Package and push Helm chart
         run: |
-          helm package charts/kubezap --version ${{ steps.version.outputs.version }} \
+          helm package charts/kubezap-operator --version ${{ steps.version.outputs.version }} \
             --app-version ${{ steps.version.outputs.version }}
-          helm push kubezap-${{ steps.version.outputs.version }}.tgz \
+          helm push kubezap-operator-${{ steps.version.outputs.version }}.tgz \
             oci://ghcr.io/kubezap/charts

@@ -35,7 +35,7 @@ kubectl get pods -n kubezap-system
 ### Helm chart
 
 ```bash
-helm install kubezap kubezap/kubezap
+helm install kubezap kubezap/kubezap-operator
 ```
 
 ### OperatorHub / OLM _(submission pending)_

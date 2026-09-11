@@ -65,12 +65,13 @@ Pending ──► Running ──► Succeeded
                       │
                       └──► Failed        (wait timed out or FlowRun cancelled)
 
-Pending ──► Skipped                      (when condition false, or dep failed under Continue policy)
+Pending ──► Skipped                      (when condition false, dep failed under Continue policy,
+                                           or all runAfter deps were themselves Skipped)
 ```
 
 **Rules:**
 - `Pending` → `Running`: dependencies are met and step is dispatched.
-- `Pending` → `Skipped`: `when` CEL condition is false, or all unsatisfied deps are `Failed` under `failurePolicy: Continue`.
+- `Pending` → `Skipped`: `when` CEL condition is false, all unsatisfied deps are `Failed` under `failurePolicy: Continue`, or all of the step's `runAfter` dependencies were themselves `Skipped` (cascade-skip — see `allDepsSkipped` in `flowrun_controller.go`).
 - `Running` → `Succeeded` / `Failed`: step execution returns a result.
 - `Running` → `Waiting`: step is a `wait` action; recorded as Waiting during the pause interval.
 - `Waiting` → `Running`: the wait duration has elapsed and the step re-enters execution.
@@ -91,7 +92,17 @@ The following transitions are explicitly forbidden and indicate a controller bug
 | `Cancelled` → `Running` | Execution after deletion |
 | Step `Succeeded` → `Running` | Double-execution of a completed step |
 | Step `Failed` → `Running` (without retry increment) | Silent retry without accounting |
-| Empty phase → `Succeeded` / `Failed` | Skipped `Running` phase; metrics/events missed |
+| Empty phase → `Succeeded` / `Failed` | Skipped `Running` phase; metrics/events missed — **except for the common case described in "Step Phase Observability" below, which is accepted, not a bug** |
+
+### Step Phase Observability
+
+For steps that complete synchronously within a single reconcile — the common case for `http`, `transform`, and `publish` steps, and any `wait` step whose duration hasn't elapsed yet on its first execution — the `Running` phase exists only on an in-memory `StepRunStatus` value that gets overwritten with the terminal phase before the batched `Status().Update()` call for that reconcile wave. It is never independently persisted, so it is not observable via `kubectl get flowrun` or `kubectl get flowrun -w` for these steps. No invariant is violated by this and nothing double-executes — the "empty phase → terminal" row above is the expected, common-case shape of a fast step's status history, not evidence of a skipped write.
+
+`Running` **is** genuinely observable mid-execution for exactly two cases:
+- a step retried after an executor transport error (matches the model's retry semantics above), and
+- an unfinished `wait` step (phase `Waiting`).
+
+External tooling that expects to observe every step transition through `Running` before it completes — a dashboard, `kubectl get flowrun -w`, alerting on stuck steps — will not see that transition for typical fast steps today. This is a deliberate architectural tradeoff (one batched status write per reconcile wave, not one write per step) rather than an oversight; adding an intermediate status write per step would make `Running` universally observable at the cost of an extra API call per step per reconcile. That tradeoff has not been made — this document only records the current, accepted behavior.
 
 ---
 

@@ -22,18 +22,69 @@ spec:
       displayName: Flow
       kind: Flow
       name: flows.automation.kubezap.io
+      resources:
+      - kind: Flow
+        name: ""
+        version: v1alpha1
+      specDescriptors:
+      - description: Ordered list of steps to execute in this workflow.
+        displayName: Steps
+        path: steps
+      - description: Input parameters accepted by this Flow.
+        displayName: Parameters
+        path: params
       version: v1alpha1
     - description: FlowRun is an execution instance of a Flow, created by a gateway
         when a trigger fires.
       displayName: FlowRun
       kind: FlowRun
       name: flowruns.automation.kubezap.io
+      resources:
+      - kind: FlowRun
+        name: ""
+        version: v1alpha1
+      specDescriptors:
+      - description: Reference to the Flow this FlowRun executes.
+        displayName: Flow Reference
+        path: flowRef
+      - description: Reference to the Trigger that created this FlowRun.
+        displayName: Trigger Reference
+        path: triggerRef
+      - description: Input parameters for the Flow execution.
+        displayName: Parameters
+        path: params
+      - description: Time-to-live after the FlowRun finishes before automatic deletion.
+        displayName: TTL After Finished
+        path: ttlAfterFinished
       version: v1alpha1
     - description: Integration connects KubeZap to an external system (Kafka, plugin,
         etc.).
       displayName: Integration
       kind: Integration
       name: integrations.automation.kubezap.io
+      resources:
+      - kind: Deployment
+        name: ""
+        version: v1
+      - kind: Service
+        name: ""
+        version: v1
+      - kind: ServiceAccount
+        name: ""
+        version: v1
+      - kind: Role
+        name: ""
+        version: v1
+      - kind: RoleBinding
+        name: ""
+        version: v1
+      specDescriptors:
+      - description: Integration type (kafka, amqp, nats, http, plugin).
+        displayName: Type
+        path: type
+      - description: Kafka integration configuration (bootstrap servers, SASL, TLS).
+        displayName: Kafka
+        path: kafka
       version: v1alpha1
     - description: Trigger is the Schema for the triggers API.
       displayName: Trigger
@@ -68,9 +119,16 @@ spec:
     - Empty (default) — AllNamespaces
     - Single value — OwnNamespace / SingleNamespace
     - Comma-separated — MultiNamespace
+
+    ## Resource Trigger RBAC Note
+
+    In AllNamespaces mode, `type: resource` triggers (alpha) watch arbitrary Kubernetes
+    resource kinds. The controller ServiceAccount must have `get`, `list`, and `watch`
+    permissions on each target resource type. These permissions are NOT included in the
+    default RBAC — users must grant them explicitly via an additional ClusterRole or Role.
   displayName: KubeZap
   icon:
-  - base64data: ""
+  - base64data: iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAIAAAAlC+aJAAAAv0lEQVR42u3ayw2AMAyD4Z4ZgCNnhmAC5mAuVoUZgNhJxC9lAH881MrtWLaj9QwAAAIB07y2GAAAAAAAkAHYz8s5AADoMAAAAEhdyBoDer+Bxp9Q739AsR6bALrdhAOg2wg5ANL0coA0uhxgSK8CeKKrAM70wQBz9GBASvoYQFb0GEBu+k8AaddQvdjKbOaKPPiXgFLRHwMKpjcBqrTTBdNrAeXOB+qUWQAAAOCICQAArhoAAAAAgBbAzV0APwTc+OiGxC5YJyAAAAAASUVORK5CYII=
     mediatype: image/png
   install:
     spec:
@@ -395,6 +453,11 @@ spec:
   links:
   - name: KubeZap Documentation
     url: https://github.com/kubezap/kubezap-operator/docs
+  - name: Source Code
+    url: https://github.com/kubezap/kubezap-operator
+  maintainers:
+  - email: maintainers@kubezap.io
+    name: KubeZap Maintainers
   maturity: alpha
   minKubeVersion: 1.25.0
   provider:

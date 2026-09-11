@@ -165,6 +165,193 @@ spec:
                 required:
                 - url
                 type: object
+              http:
+                description: HTTP specific configuration. Required when type=http.
+                properties:
+                  auth:
+                    description: Authentication configuration.
+                    properties:
+                      apiKey:
+                        description: API key header config. Required when type=apiKey.
+                        properties:
+                          headerName:
+                            description: HTTP header name to set (e.g. "X-Api-Key").
+                            type: string
+                          valueSecretRef:
+                            description: Secret key containing the API key value.
+                            properties:
+                              key:
+                                description: The key of the secret to select from.  Must
+                                  be a valid secret key.
+                                type: string
+                              name:
+                                default: ""
+                                description: |-
+                                  Name of the referent.
+                                  This field is effectively required, but due to backwards compatibility is
+                                  allowed to be empty. Instances of this type with an empty value here are
+                                  almost certainly wrong.
+                                  More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                                type: string
+                              optional:
+                                description: Specify whether the Secret or its key
+                                  must be defined
+                                type: boolean
+                            required:
+                            - key
+                            type: object
+                            x-kubernetes-map-type: atomic
+                        required:
+                        - headerName
+                        - valueSecretRef
+                        type: object
+                      basic:
+                        description: Basic auth config. Required when type=basic.
+                        properties:
+                          passwordSecretRef:
+                            description: Secret key containing the password.
+                            properties:
+                              key:
+                                description: The key of the secret to select from.  Must
+                                  be a valid secret key.
+                                type: string
+                              name:
+                                default: ""
+                                description: |-
+                                  Name of the referent.
+                                  This field is effectively required, but due to backwards compatibility is
+                                  allowed to be empty. Instances of this type with an empty value here are
+                                  almost certainly wrong.
+                                  More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                                type: string
+                              optional:
+                                description: Specify whether the Secret or its key
+                                  must be defined
+                                type: boolean
+                            required:
+                            - key
+                            type: object
+                            x-kubernetes-map-type: atomic
+                          usernameSecretRef:
+                            description: Secret key containing the username.
+                            properties:
+                              key:
+                                description: The key of the secret to select from.  Must
+                                  be a valid secret key.
+                                type: string
+                              name:
+                                default: ""
+                                description: |-
+                                  Name of the referent.
+                                  This field is effectively required, but due to backwards compatibility is
+                                  allowed to be empty. Instances of this type with an empty value here are
+                                  almost certainly wrong.
+                                  More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                                type: string
+                              optional:
+                                description: Specify whether the Secret or its key
+                                  must be defined
+                                type: boolean
+                            required:
+                            - key
+                            type: object
+                            x-kubernetes-map-type: atomic
+                        required:
+                        - passwordSecretRef
+                        - usernameSecretRef
+                        type: object
+                      bearer:
+                        description: Bearer token config. Required when type=bearer.
+                        properties:
+                          tokenSecretRef:
+                            description: Secret key containing the bearer token value.
+                            properties:
+                              key:
+                                description: The key of the secret to select from.  Must
+                                  be a valid secret key.
+                                type: string
+                              name:
+                                default: ""
+                                description: |-
+                                  Name of the referent.
+                                  This field is effectively required, but due to backwards compatibility is
+                                  allowed to be empty. Instances of this type with an empty value here are
+                                  almost certainly wrong.
+                                  More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                                type: string
+                              optional:
+                                description: Specify whether the Secret or its key
+                                  must be defined
+                                type: boolean
+                            required:
+                            - key
+                            type: object
+                            x-kubernetes-map-type: atomic
+                        required:
+                        - tokenSecretRef
+                        type: object
+                      secretUrl:
+                        description: Secret URL config. Required when type=secretUrl.
+                        properties:
+                          urlSecretRef:
+                            description: Secret key containing the full URL (including
+                              embedded credentials).
+                            properties:
+                              key:
+                                description: The key of the secret to select from.  Must
+                                  be a valid secret key.
+                                type: string
+                              name:
+                                default: ""
+                                description: |-
+                                  Name of the referent.
+                                  This field is effectively required, but due to backwards compatibility is
+                                  allowed to be empty. Instances of this type with an empty value here are
+                                  almost certainly wrong.
+                                  More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                                type: string
+                              optional:
+                                description: Specify whether the Secret or its key
+                                  must be defined
+                                type: boolean
+                            required:
+                            - key
+                            type: object
+                            x-kubernetes-map-type: atomic
+                        required:
+                        - urlSecretRef
+                        type: object
+                      type:
+                        allOf:
+                        - enum:
+                          - bearer
+                          - basic
+                          - apiKey
+                          - secretUrl
+                        - enum:
+                          - bearer
+                          - basic
+                          - apiKey
+                          - secretUrl
+                        description: Authentication type.
+                        type: string
+                    required:
+                    - type
+                    type: object
+                  baseUrl:
+                    description: |-
+                      Base URL prepended to step URLs when this Integration is referenced.
+                      If set, the step's url field is treated as a path (e.g. "/repos/org/repo/labels").
+                      If the step url already starts with "http://" or "https://", baseUrl is ignored.
+                    type: string
+                  defaultHeaders:
+                    additionalProperties:
+                      type: string
+                    description: |-
+                      Default headers merged into every request using this Integration.
+                      Step-level headers override these defaults.
+                    type: object
+                type: object
               kafka:
                 description: Kafka specific configuration. Required when type=kafka.
                 properties:
@@ -547,6 +734,19 @@ spec:
                   image:
                     description: Container image for plugin.
                     type: string
+                  imageDigest:
+                    description: |-
+                      ImageDigest is an optional SHA256 digest that pins the plugin image to a
+                      specific content-addressed layer. When set, the operator constructs the
+                      Deployment image reference as "image@sha256:<digest>", preventing silent
+                      updates when the image tag is overwritten.
+
+                      Format: the 64-character hex portion of a SHA256 digest (without the
+                      "sha256:" prefix).
+
+                      Example: "abc123...64chars..."
+                    pattern: ^[a-f0-9]{64}$
+                    type: string
                   publisherPort:
                     default: 8090
                     description: Publisher service port.
@@ -584,11 +784,13 @@ spec:
                   nats: first-party NATS gateway; supports Core and JetStream.
                   plugin: community or custom image implementing the KubeZap plugin contract.
                     See docs/api/plugin-contract.md.
+                  http: lightweight HTTP endpoint with base URL, auth, and default headers.
                 enum:
                 - kafka
                 - amqp
                 - nats
                 - plugin
+                - http
                 type: string
             required:
             - type

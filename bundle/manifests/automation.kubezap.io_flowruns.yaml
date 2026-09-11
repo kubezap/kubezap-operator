@@ -56,15 +56,13 @@ spec:
             properties:
               flowRef:
                 description: |-
-                  Reference to the Flow. Namespace may be set for cross-namespace flows;
-                  if omitted the FlowRun's own namespace is used.
+                  Reference to the Flow to execute. The Flow must be in the same namespace as the FlowRun.
+                  Cross-namespace FlowRefs are not supported in v1alpha1 and are deferred to v1beta1 with a FlowGrant CRD.
                 properties:
                   name:
-                    description: Name of the Flow CR to execute
-                    type: string
-                  namespace:
-                    description: Namespace of the Flow CR. If omitted the Trigger's
-                      namespace is used.
+                    description: |-
+                      Name of the Flow CR to execute. The Flow must be in the same namespace as the referencing resource.
+                      Cross-namespace FlowRefs are not supported in v1alpha1 and are deferred to v1beta1 with a FlowGrant CRD.
                     type: string
                 required:
                 - name
@@ -96,6 +94,10 @@ spec:
                     type: boolean
                   contentType:
                     type: string
+                  eventType:
+                    description: 'EventType is the Kubernetes watch event type for
+                      resource triggers: ADDED, MODIFIED, DELETED.'
+                    type: string
                   headers:
                     additionalProperties:
                       type: string
@@ -113,6 +115,21 @@ spec:
                     format: int32
                     type: integer
                   path:
+                    type: string
+                  resourceAPIVersion:
+                    description: ResourceAPIVersion is the API version of the watched
+                      resource.
+                    type: string
+                  resourceKind:
+                    description: ResourceKind is the kind of the watched resource.
+                    type: string
+                  resourceName:
+                    description: ResourceName is the name of the resource that fired
+                      the trigger.
+                    type: string
+                  resourceNamespace:
+                    description: ResourceNamespace is the namespace of the resource
+                      that fired the trigger.
                     type: string
                   scheduledTime:
                     format: date-time
@@ -133,7 +150,10 @@ spec:
                     enum:
                     - webhook
                     - cron
-                    - pubsub
+                    - kafka
+                    - amqp
+                    - nats
+                    - resource
                     type: string
                 required:
                 - name

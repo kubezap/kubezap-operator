@@ -100,6 +100,11 @@ help: ## Display this help.
 manifests: controller-gen ## Generate WebhookConfiguration, ClusterRole and CustomResourceDefinition objects.
 	$(CONTROLLER_GEN) rbac:roleName=manager-role webhook paths="./..."
 	$(CONTROLLER_GEN) crd paths="github.com/kubezap/kubezap-operator/api/v1alpha1" output:crd:artifacts:config=config/crd/bases
+	$(MAKE) sync-crds
+
+.PHONY: sync-crds
+sync-crds: ## Copy config/crd/bases/* into the Helm chart's crds/ dir, so it can't silently drift again.
+	cp config/crd/bases/*.yaml charts/kubezap-operator/crds/
 
 .PHONY: generate
 generate: controller-gen ## Generate code containing DeepCopy, DeepCopyInto, and DeepCopyObject method implementations.

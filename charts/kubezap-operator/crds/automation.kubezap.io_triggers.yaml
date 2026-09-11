@@ -78,6 +78,34 @@ spec:
                 required:
                 - type
                 type: object
+              amqp:
+                description: Amqp configuration (only for type=amqp)
+                properties:
+                  integrationRef:
+                    description: Reference to an Integration CR with AMQP connection
+                      details.
+                    properties:
+                      name:
+                        default: ""
+                        description: |-
+                          Name of the referent.
+                          This field is effectively required, but due to backwards compatibility is
+                          allowed to be empty. Instances of this type with an empty value here are
+                          almost certainly wrong.
+                          More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                        type: string
+                    type: object
+                    x-kubernetes-map-type: atomic
+                  routingKey:
+                    description: RoutingKey is the AMQP routing key or binding pattern.
+                    type: string
+                  topic:
+                    description: Topic (queue name) to consume from.
+                    type: string
+                required:
+                - integrationRef
+                - topic
+                type: object
               cooldown:
                 description: Cooldown/debounce policy to limit the number of firings
                   in a window.
@@ -117,7 +145,7 @@ spec:
               event:
                 description: |-
                   Event or condition type for resource triggers (create/update/delete).
-                  For external triggers (webhook/cron/pubsub) this is typically empty.
+                  For external triggers (webhook/cron/kafka/amqp/nats) this is typically empty.
                 type: string
               flowRef:
                 description: |-
@@ -126,11 +154,9 @@ spec:
                   be used to perform a quick action (e.g., call an external webhook).
                 properties:
                   name:
-                    description: Name of the Flow CR to execute
-                    type: string
-                  namespace:
-                    description: Namespace of the Flow CR. If omitted the Trigger's
-                      namespace is used.
+                    description: |-
+                      Name of the Flow CR to execute. The Flow must be in the same namespace as the referencing resource.
+                      Cross-namespace FlowRefs are not supported in v1alpha1 and are deferred to v1beta1 with a FlowGrant CRD.
                     type: string
                 required:
                 - name
@@ -170,15 +196,15 @@ spec:
                       Set to "0s" to delete succeeded FlowRuns immediately.
                     type: string
                 type: object
-              pubsub:
-                description: PubSub configuration (only for type=pubsub)
+              kafka:
+                description: Kafka configuration (only for type=kafka)
                 properties:
                   consumerGroup:
-                    description: Kafka consumer group ID. Defaults to "kubezap-<trigger-name>"
+                    description: ConsumerGroup ID. Defaults to "kubezap-<trigger-name>"
                       at runtime.
                     type: string
                   integrationRef:
-                    description: Reference to an Integration CR with broker connection
+                    description: Reference to an Integration CR with Kafka connection
                       details.
                     properties:
                       name:
@@ -192,42 +218,75 @@ spec:
                         type: string
                     type: object
                     x-kubernetes-map-type: atomic
-                  routingKey:
-                    description: RoutingKey is the AMQP routing key or binding pattern.
-                      Used for type=amqp only.
-                    type: string
-                  subject:
-                    description: |-
-                      Subject is the NATS subject to subscribe to. Used for type=nats only.
-                      Supports NATS wildcards (e.g. "orders.*", "events.>").
-                    type: string
                   topic:
                     description: Topic to consume from.
-                    type: string
-                  type:
-                    description: Message broker type.
-                    enum:
-                    - kafka
-                    - amqp
-                    - nats
                     type: string
                 required:
                 - integrationRef
                 - topic
-                - type
                 type: object
-              target:
-                description: |-
-                  Optional target resource in the cluster to watch or reference. Kept
-                  optional for the MVP (external events only by default) but present
-                  so future resource-based triggers can be added without schema changes.
+              nats:
+                description: Nats configuration (only for type=nats)
                 properties:
+                  integrationRef:
+                    description: Reference to an Integration CR with NATS connection
+                      details.
+                    properties:
+                      name:
+                        default: ""
+                        description: |-
+                          Name of the referent.
+                          This field is effectively required, but due to backwards compatibility is
+                          allowed to be empty. Instances of this type with an empty value here are
+                          almost certainly wrong.
+                          More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                        type: string
+                    type: object
+                    x-kubernetes-map-type: atomic
+                  subject:
+                    description: |-
+                      Subject is the NATS subject to subscribe to.
+                      Supports NATS wildcards (e.g. "orders.*", "events.>").
+                    type: string
+                required:
+                - integrationRef
+                - subject
+                type: object
+              resource:
+                description: |-
+                  Resource configuration (only for type=resource).
+                  Watches a Kubernetes resource type for create/update/delete events
+                  and fires the trigger when a matching event occurs.
+                properties:
+                  apiVersion:
+                    description: APIVersion of the resource to watch (e.g. "v1", "apps/v1",
+                      "automation.kubezap.io/v1alpha1").
+                    minLength: 1
+                    type: string
+                  cooldown:
+                    description: |-
+                      Cooldown is a minimum duration that must elapse between FlowRun creations
+                      for the same resource and event type. Events arriving within this window
+                      after the last FlowRun creation are suppressed. Useful for resources that
+                      churn rapidly (e.g. Pod status updates). If omitted, no per-resource
+                      cooldown is applied.
+                    type: string
+                  events:
+                    description: |-
+                      Events specifies which event types fire the trigger.
+                      Valid values: create, update, delete. Defaults to [create] if omitted.
+                    items:
+                      type: string
+                    type: array
                   kind:
-                    description: Kind of resource (Pod, ConfigMap, CustomKind)
+                    description: Kind of the resource to watch (e.g. "Pod", "ConfigMap",
+                      "Deployment").
+                    minLength: 1
                     type: string
                   labelSelector:
-                    description: LabelSelector allows selecting resources by labels
-                      instead of exact name.
+                    description: |-
+                      LabelSelector limits events to resources matching these labels.
+                      If omitted, all resources of the specified kind are watched.
                     properties:
                       matchExpressions:
                         description: matchExpressions is a list of label selector
@@ -272,20 +331,32 @@ spec:
                         type: object
                     type: object
                     x-kubernetes-map-type: atomic
-                  name:
-                    description: Name of a specific resource to target.
-                    type: string
                   namespace:
-                    description: Namespace of the resource. If empty and Name is set,
-                      it defaults to the Trigger's namespace.
+                    description: Namespace to watch. If empty, watches the Trigger's
+                      own namespace.
                     type: string
+                  watchFields:
+                    description: |-
+                      WatchFields limits update events to fire only when one of these
+                      JSON path expressions changes. Only effective for update events.
+                      Uses dot-notation paths, e.g. ".status.phase", ".spec.replicas".
+                      If omitted, all updates fire the trigger.
+                    items:
+                      type: string
+                    type: array
+                required:
+                - apiVersion
+                - kind
                 type: object
               type:
-                description: Type of trigger (webhook, cron, pubsub)
+                description: Type of trigger (webhook, cron, kafka, amqp, nats, resource)
                 enum:
                 - webhook
                 - cron
-                - pubsub
+                - kafka
+                - amqp
+                - nats
+                - resource
                 type: string
               webhook:
                 description: Webhook configuration (only for type=webhook)
@@ -295,114 +366,218 @@ spec:
                       Auth configures authentication for this webhook endpoint.
                       If omitted, the endpoint accepts requests from any caller.
                     properties:
-                      apiKeyHeader:
-                        default: X-Api-Key
-                        description: Header name to check for the API key. Used when
-                          type is "apiKey".
-                        type: string
-                      apiKeySecretRef:
-                        description: API key value secret reference. Used when type
-                          is "apiKey".
+                      apiKey:
+                        description: API key header verification. Used when type is
+                          "apiKey".
                         properties:
-                          key:
-                            description: The key of the secret to select from.  Must
-                              be a valid secret key.
+                          header:
+                            default: X-Api-Key
+                            description: Header name to check for the API key.
                             type: string
-                          name:
-                            default: ""
-                            description: |-
-                              Name of the referent.
-                              This field is effectively required, but due to backwards compatibility is
-                              allowed to be empty. Instances of this type with an empty value here are
-                              almost certainly wrong.
-                              More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
-                            type: string
-                          optional:
-                            description: Specify whether the Secret or its key must
-                              be defined
-                            type: boolean
+                          secretRef:
+                            description: Secret reference — key contains the expected
+                              API key value.
+                            properties:
+                              key:
+                                description: The key of the secret to select from.  Must
+                                  be a valid secret key.
+                                type: string
+                              name:
+                                default: ""
+                                description: |-
+                                  Name of the referent.
+                                  This field is effectively required, but due to backwards compatibility is
+                                  allowed to be empty. Instances of this type with an empty value here are
+                                  almost certainly wrong.
+                                  More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                                type: string
+                              optional:
+                                description: Specify whether the Secret or its key
+                                  must be defined
+                                type: boolean
+                            required:
+                            - key
+                            type: object
+                            x-kubernetes-map-type: atomic
                         required:
-                        - key
+                        - secretRef
                         type: object
-                        x-kubernetes-map-type: atomic
-                      basicAuthSecretRef:
-                        description: Basic auth credentials secret (must have keys
-                          "username" and "password"). Used when type is "basic".
+                      basic:
+                        description: HTTP Basic authentication. Used when type is
+                          "basic".
                         properties:
-                          name:
-                            default: ""
-                            description: |-
-                              Name of the referent.
-                              This field is effectively required, but due to backwards compatibility is
-                              allowed to be empty. Instances of this type with an empty value here are
-                              almost certainly wrong.
-                              More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                          passwordKey:
+                            default: password
+                            description: Key in the Secret that holds the password.
                             type: string
-                        type: object
-                        x-kubernetes-map-type: atomic
-                      bearerTokenSecretRef:
-                        description: Bearer token secret reference. Used when type
-                          is "bearer".
-                        properties:
-                          key:
-                            description: The key of the secret to select from.  Must
-                              be a valid secret key.
+                          secretRef:
+                            description: Reference to the Secret containing the username
+                              and password.
+                            properties:
+                              name:
+                                default: ""
+                                description: |-
+                                  Name of the referent.
+                                  This field is effectively required, but due to backwards compatibility is
+                                  allowed to be empty. Instances of this type with an empty value here are
+                                  almost certainly wrong.
+                                  More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                                type: string
+                            type: object
+                            x-kubernetes-map-type: atomic
+                          usernameKey:
+                            default: username
+                            description: Key in the Secret that holds the username.
                             type: string
-                          name:
-                            default: ""
-                            description: |-
-                              Name of the referent.
-                              This field is effectively required, but due to backwards compatibility is
-                              allowed to be empty. Instances of this type with an empty value here are
-                              almost certainly wrong.
-                              More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
-                            type: string
-                          optional:
-                            description: Specify whether the Secret or its key must
-                              be defined
-                            type: boolean
                         required:
-                        - key
+                        - secretRef
                         type: object
-                        x-kubernetes-map-type: atomic
-                      hmacSecretRef:
-                        description: HMAC secret reference (key contains the shared
-                          secret). Used when type is "hmac".
+                      bearer:
+                        description: Bearer token verification. Used when type is
+                          "bearer".
                         properties:
-                          key:
-                            description: The key of the secret to select from.  Must
-                              be a valid secret key.
-                            type: string
-                          name:
-                            default: ""
-                            description: |-
-                              Name of the referent.
-                              This field is effectively required, but due to backwards compatibility is
-                              allowed to be empty. Instances of this type with an empty value here are
-                              almost certainly wrong.
-                              More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
-                            type: string
-                          optional:
-                            description: Specify whether the Secret or its key must
-                              be defined
-                            type: boolean
+                          tokenSecretRef:
+                            description: Secret reference — key contains the expected
+                              bearer token value.
+                            properties:
+                              key:
+                                description: The key of the secret to select from.  Must
+                                  be a valid secret key.
+                                type: string
+                              name:
+                                default: ""
+                                description: |-
+                                  Name of the referent.
+                                  This field is effectively required, but due to backwards compatibility is
+                                  allowed to be empty. Instances of this type with an empty value here are
+                                  almost certainly wrong.
+                                  More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                                type: string
+                              optional:
+                                description: Specify whether the Secret or its key
+                                  must be defined
+                                type: boolean
+                            required:
+                            - key
+                            type: object
+                            x-kubernetes-map-type: atomic
                         required:
-                        - key
+                        - tokenSecretRef
                         type: object
-                        x-kubernetes-map-type: atomic
+                      headerEquals:
+                        description: Exact header value match. Used when type is "header-equals".
+                        properties:
+                          header:
+                            description: Header name to check (e.g. "X-Gitlab-Token").
+                            type: string
+                          secretRef:
+                            description: Secret reference — key contains the expected
+                              header value.
+                            properties:
+                              key:
+                                description: The key of the secret to select from.  Must
+                                  be a valid secret key.
+                                type: string
+                              name:
+                                default: ""
+                                description: |-
+                                  Name of the referent.
+                                  This field is effectively required, but due to backwards compatibility is
+                                  allowed to be empty. Instances of this type with an empty value here are
+                                  almost certainly wrong.
+                                  More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                                type: string
+                              optional:
+                                description: Specify whether the Secret or its key
+                                  must be defined
+                                type: boolean
+                            required:
+                            - key
+                            type: object
+                            x-kubernetes-map-type: atomic
+                        required:
+                        - header
+                        - secretRef
+                        type: object
+                      hmac:
+                        description: HMAC signature verification. Used when type is
+                          "hmac".
+                        properties:
+                          provider:
+                            default: github
+                            description: |-
+                              Provider selects the HMAC verification scheme. "github" verifies
+                              X-Hub-Signature-256: sha256=<hex> over the raw body (also used by GitLab,
+                              Stripe, Shopify, and most SaaS webhook senders). "slack" verifies
+                              X-Slack-Signature: v0=<hex> over "v0:<timestamp>:<body>" using
+                              X-Slack-Request-Timestamp, and rejects requests outside
+                              timestampToleranceSeconds to guard against replay.
+                            enum:
+                            - github
+                            - slack
+                            type: string
+                          secretRef:
+                            description: Secret reference — key contains the shared
+                              HMAC secret.
+                            properties:
+                              key:
+                                description: The key of the secret to select from.  Must
+                                  be a valid secret key.
+                                type: string
+                              name:
+                                default: ""
+                                description: |-
+                                  Name of the referent.
+                                  This field is effectively required, but due to backwards compatibility is
+                                  allowed to be empty. Instances of this type with an empty value here are
+                                  almost certainly wrong.
+                                  More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                                type: string
+                              optional:
+                                description: Specify whether the Secret or its key
+                                  must be defined
+                                type: boolean
+                            required:
+                            - key
+                            type: object
+                            x-kubernetes-map-type: atomic
+                          timestampToleranceSeconds:
+                            default: 300
+                            description: |-
+                              TimestampToleranceSeconds bounds how far X-Slack-Request-Timestamp may
+                              drift from the current time before the request is rejected. Only used
+                              when provider is "slack". Defaults to 300 (5 minutes), matching Slack's
+                              own recommendation.
+                            format: int32
+                            type: integer
+                        required:
+                        - secretRef
+                        type: object
                       ipAllowlist:
-                        description: |-
-                          CIDR blocks allowed to call this endpoint. Used when type is "ipAllowlist".
-                          Example: ["10.0.0.0/8", "192.168.1.0/24"]
-                        items:
-                          type: string
-                        type: array
-                      oidcAudience:
-                        description: OIDC audience. Used when type is "oidc".
-                        type: string
-                      oidcIssuer:
-                        description: OIDC/JWT issuer URL. Used when type is "oidc".
-                        type: string
+                        description: IP address allowlist. Used when type is "ipAllowlist".
+                        properties:
+                          cidrs:
+                            description: |-
+                              CIDR blocks allowed to call this endpoint.
+                              Example: ["10.0.0.0/8", "192.168.1.0/24"]
+                            items:
+                              type: string
+                            type: array
+                        required:
+                        - cidrs
+                        type: object
+                      oidc:
+                        description: OIDC/JWT verification. Used when type is "oidc".
+                        properties:
+                          audience:
+                            description: Expected audience claim value.
+                            type: string
+                          issuer:
+                            description: OIDC issuer URL (e.g. https://accounts.google.com).
+                            type: string
+                        required:
+                        - issuer
+                        type: object
                       type:
                         description: Authentication method.
                         enum:
@@ -410,9 +585,9 @@ spec:
                         - bearer
                         - oidc
                         - basic
-                        - mtls
                         - apiKey
                         - ipAllowlist
+                        - header-equals
                         type: string
                     required:
                     - type
@@ -426,12 +601,55 @@ spec:
                   path:
                     description: HTTP path exposed by the operator
                     type: string
+                  rateLimit:
+                    description: |-
+                      RateLimit limits the number of requests accepted per time window.
+                      When set, the webhook gateway enforces this limit locally using an
+                      in-memory sliding window per route path.
+                      Note: local enforcement is per-gateway-replica. For cluster-wide enforcement,
+                      combine with admission-level FlowRun count checking (see docs/guides/webhook-security.md).
+                    properties:
+                      maxRequests:
+                        description: |-
+                          MaxRequests is the maximum number of requests allowed within Window.
+                          Must be > 0 when RateLimit is set.
+                        format: int32
+                        minimum: 1
+                        type: integer
+                      window:
+                        default: 60s
+                        description: |-
+                          Window is the duration of the sliding window (e.g. "60s", "1m", "5m").
+                          Defaults to "60s" if omitted.
+                        type: string
+                    required:
+                    - maxRequests
+                    type: object
+                  redactBody:
+                    description: |-
+                      RedactBody when true replaces the webhook request body stored in
+                      FlowRun.Spec.TriggerData with "[REDACTED]". Use when the body contains
+                      credentials or sensitive payloads.
+                    type: boolean
+                  redactHeaders:
+                    description: |-
+                      RedactHeaders is a list of HTTP header names (case-insensitive) whose values
+                      are replaced with "[REDACTED]" before storing in FlowRun.Spec.TriggerData.
+                      The built-in list (Authorization, X-Api-Key, X-Webhook-Secret, X-Hub-Signature,
+                      X-Hub-Signature-256, X-Amz-Security-Token) is always applied regardless of this field.
+                    items:
+                      type: string
+                    type: array
+                    x-kubernetes-list-type: atomic
                 required:
                 - path
                 type: object
             required:
             - type
             type: object
+            x-kubernetes-validations:
+            - message: exactly one of flowRef or action must be set
+              rule: has(self.flowRef) != has(self.action)
           status:
             description: TriggerStatus defines the observed state of Trigger.
             properties:

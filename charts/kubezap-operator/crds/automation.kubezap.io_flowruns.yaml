@@ -55,19 +55,18 @@ spec:
             description: FlowRunSpec defines the desired state of FlowRun.
             properties:
               flowRef:
-                description: Reference to the Flow.
+                description: |-
+                  Reference to the Flow to execute. The Flow must be in the same namespace as the FlowRun.
+                  Cross-namespace FlowRefs are not supported in v1alpha1 and are deferred to v1beta1 with a FlowGrant CRD.
                 properties:
                   name:
-                    default: ""
                     description: |-
-                      Name of the referent.
-                      This field is effectively required, but due to backwards compatibility is
-                      allowed to be empty. Instances of this type with an empty value here are
-                      almost certainly wrong.
-                      More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                      Name of the Flow CR to execute. The Flow must be in the same namespace as the referencing resource.
+                      Cross-namespace FlowRefs are not supported in v1alpha1 and are deferred to v1beta1 with a FlowGrant CRD.
                     type: string
+                required:
+                - name
                 type: object
-                x-kubernetes-map-type: atomic
               params:
                 description: Optional runtime parameters.
                 items:
@@ -95,6 +94,10 @@ spec:
                     type: boolean
                   contentType:
                     type: string
+                  eventType:
+                    description: 'EventType is the Kubernetes watch event type for
+                      resource triggers: ADDED, MODIFIED, DELETED.'
+                    type: string
                   headers:
                     additionalProperties:
                       type: string
@@ -112,6 +115,21 @@ spec:
                     format: int32
                     type: integer
                   path:
+                    type: string
+                  resourceAPIVersion:
+                    description: ResourceAPIVersion is the API version of the watched
+                      resource.
+                    type: string
+                  resourceKind:
+                    description: ResourceKind is the kind of the watched resource.
+                    type: string
+                  resourceName:
+                    description: ResourceName is the name of the resource that fired
+                      the trigger.
+                    type: string
+                  resourceNamespace:
+                    description: ResourceNamespace is the namespace of the resource
+                      that fired the trigger.
                     type: string
                   scheduledTime:
                     format: date-time
@@ -132,7 +150,10 @@ spec:
                     enum:
                     - webhook
                     - cron
-                    - pubsub
+                    - kafka
+                    - amqp
+                    - nats
+                    - resource
                     type: string
                 required:
                 - name
@@ -208,6 +229,11 @@ spec:
                 type: array
               message:
                 type: string
+              observedGeneration:
+                description: ObservedGeneration is the most recent generation observed
+                  by the controller.
+                format: int64
+                type: integer
               phase:
                 enum:
                 - Pending

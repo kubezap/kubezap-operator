@@ -2,33 +2,34 @@
 
 ## Reordering applied
 
-- **§28's ARCHITECTURE NOTE (line ~303) now cross-references §25's TESTING item (line ~250)** — rule violated: Rule 3 (Prerequisites before dependents), applied to a same-area open-decision-blocks-test-completion case. The architecture question ("should synchronous steps persist an observable `Running` phase?") is a genuine prerequisite for fully satisfying the state-model test matrix, but the two items lived in unrelated sections (§25 "Workflow Improvements," §28 "State Transition Correctness Review") with no link between them, so a reader hitting §25's item wouldn't know §28 blocks it. Rather than physically reordering whole sections (§25 predates §28 chronologically and both are thematically anchored to their own review dates), added an explicit forward/back cross-reference in §28's item pointing at §25's, and confirmed §25's item (already resolved with this exact caveat in PR #137, merged today) says the same thing from its side. No other physical moves were needed — the rest of the file's dependency order (research → tests → validation, §20/§21 before §19, §23/§24 P0 before §19, etc.) was already correct on inspection.
+None. §34–§37 (all added since the last groom, PR #138) are retrospective completed-work logs like §26–§33 before them — self-contained find-and-fix passes with no cross-section dependency on each other, and no test-before-fix or research-before-test ordering issue among them. Re-checked the numbered Prioritization Rationale rules against this session's new sections (rule 5, "P0 security fixes before architectural refactors in the same area," is the only one arguably in play — §36's deferred goconst/gocyclo items are exactly the kind of "architectural refactor in the same area" rule 5 says should come after security fixes, and they correctly already do: §37's security fixes are merged, §36's deferred item remains open behind them). No new prioritization rule was needed in the rationale section — the "weigh infra-layer mitigation before a code fix" and "grep exhaustively rather than trust a subagent's sample" principles applied this session are review *methodology*, already spelled out inline in §34/§37's own blockquotes, not schedule-ordering rules in the shape of the existing 10.
 
 ## Items added
 
-None. No finding in this pass was evidenced strongly enough to justify a brand-new schedule item that didn't already exist in some form — the two substantive findings below are status corrections to existing items, not new work.
+Four items added to `## 10. Future / Backlog`, each an explicit, evidenced follow-up named in a design record from this session's work but never promoted to a tracked item — found by grep'ing `docs/design/2026-09-11-*.md` for "follow-up"/"not implemented"/"left as"/"revisit" and cross-checking each hit against `schedule.md` for an existing tracking item (none existed for any of the four):
+
+- Integration-object `secretRef`-change detection (`docs/design/2026-09-11-secret-rotation-watches.md`'s named out-of-scope follow-up).
+- Multi-hop trusted-proxy chain for the webhook gateway (`docs/design/2026-09-11-webhook-gateway-trust-boundary.md`'s Tradeoffs section).
+- Transport-level SSRF DNS-rebinding fix, independent of NetworkPolicy/CNI enforcement (`docs/design/2026-09-11-executor-egress-networkpolicy.md`'s Rejected Alternative A, explicitly "not rejected permanently").
+- Single source of truth for the SSRF blocked-CIDR list, currently duplicated across two Go locations and one YAML file (`docs/design/2026-09-11-executor-egress-networkpolicy.md`'s Tradeoffs section).
+
+All four are genuinely speculative/low-urgency (consistent with the rest of `## 10`), not urgent gaps — filed there, not as a new numbered section.
 
 ## Items removed or annotated
 
-- **§16 P1 VALIDATION (line ~86)** — annotated `[x]`. Its own text already said the real work is "broken down into per-example tasks in §19 below," and every §19 task is now `[x]` except one (`github-autolabel`), which `docs/tech-debt/pending-input-required.md` records as explicitly and permanently deferred by the owner ("still deferred, proceed with other backlog items," confirmed 2026-04-05). A deliberately-deferred owner decision was already treated as non-blocking everywhere else in this schedule; this rollup item's checkbox was simply stale.
-- **§1's header blockquote (line ~38-39)** — added a note recording the above and its consequence: the OperatorHub submission PR's gate list (line 43) is now satisfied except the spec-drift-clean requirement, which by its own "recurring gate" wording must be re-run fresh at actual submission time rather than relying on the one-time §31 baseline. Deliberately did **not** touch the "Paused" language on line 38 itself or the gate-list line 43 — whether to actually start the submission PR is a product decision for the owner, not something a grooming pass should silently resolve by flipping a pause banner.
+None. Re-checked every completed-work section for staleness given this session's major changes (RetryOn removal, CEL `bodyFields`, single-pass interpolation, lint cleanup, webhook hardening, and the earlier web-dashboard removal from before this groom's window): no `[x]` item was found describing something the codebase has since removed or contradicted. The dashboard/`--enable-ui` mentions still present in §16, §21, §23, and §19 (all pre-dating the §33 removal) accurately describe those historical validation tasks *as they were scoped and completed at the time* — matching the explicit precedent already established when §33 was groomed (historical completed-work entries describing now-superseded state are left alone; only §33 itself was special-cased for full historical-record removal, per an explicit owner instruction unique to that feature).
 
 ## Items promoted from Future/Backlog
 
-None. Reviewed every `## 10. Future / Backlog` item against the last several sections' findings (§26-§31) for anything that might have become newly relevant — nothing in recent work references `Step` CRD, multi-namespace flows, additional brokers, the plugin catalog, OpenLineage, multi-region HA, or the S3/Git trigger source. All seven remain genuinely speculative.
-
-## Overlap with in-flight/just-merged work
-
-This session had an open PR (#137) touching `docs/schedule.md` when grooming began; it merged into `main` partway through this pass (rebased cleanly, no conflicts). Four items the groom process would otherwise have flagged as stale (§18 P2 OIDC JWKS doc note, §25 TESTING transition matrix, §25 RECURRING spec-drift gate, §26 P2 RBAC drift) were already resolved by that PR's content — not re-touched here to avoid duplicate/conflicting edits. Two stale "in flight, open PR #137" cross-references written before the merge landed were corrected to reflect that #137 is now merged, once its merge was confirmed mid-pass.
-
-## Other observations (not acted on)
-
-- `docs/review-latest.md` is dated 2026-03-27 and every finding in it is already reflected as `[x]` in the current schedule (§18's items). It's stale but this is expected/by-design for that file (each `/research` run is meant to overwrite it, not accumulate) — not a schedule.md issue, just a note for whoever runs `/research` next.
-- No `[ ]` item was found referencing code, docs, or example directories that no longer exist — spot-checked `IntegrationList.vue` (correctly a *planned* file, not claimed to exist), all `docs/tech-debt/*.md` and `docs/guides/*.md` references, `docs/architecture/flowrun-state-model.md`, and all 10 `examples/*` directories referenced from §19. All present.
+None. Reviewed all 8 pre-existing Future/Backlog items against every finding from §34–§37 — nothing in this session's work (spec-drift fixes, interpolation security, lint cleanup, webhook hardening) touches `Step` CRD, multi-namespace flows, additional brokers, the plugin catalog/reference plugin, OpenLineage, multi-region HA, or the S3/Git trigger source. All eight remain genuinely speculative.
 
 ## No-change items
 
-~55 non-Future `[ ]`/`[x]` line items reviewed across §1, §15-§31; only the 2 described above needed a change. No dependency-order violations found beyond the one described above.
+~40 `[x]` line items across §34–§37 reviewed (all newly added since the last groom pass) plus the 3 previously-open `[ ]` items (§1 OperatorHub gate, §19 `github-autolabel`, §36 DEFERRED lint) re-verified for continued accuracy:
+- `examples/github-autolabel/` confirmed still present (§19 item's reference is not stale).
+- §36's five `gocyclo` complexity numbers (97/31/33/32/37) re-measured via a fresh `make lint` run and found byte-for-byte unchanged despite this session's subsequent edits to two of the five functions (`authenticateRequest` gained a new parameter in §37; complexity score unaffected) — the deferred item's specifics are still accurate, not stale.
+- §36's `goconst` count (7) re-confirmed unchanged after §37's changes.
+- §1's OperatorHub gate blockquote (added by the prior groom, PR #138) still correctly states the recurring-gate caveat; no update needed — the P0 spec-drift baseline it references is by design a one-time historical check, re-run fresh at actual submission time regardless of how much intervening work has happened.
 
 ## Files changed
 

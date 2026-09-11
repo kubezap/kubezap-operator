@@ -381,7 +381,6 @@ The same `ParamValue` type is used in two places with different implementation s
 | `method`         | enum              | No       | `POST`  | HTTP method: `GET`, `POST`, `PUT`, `PATCH`, `DELETE`                                                                        |
 | `headers`        | map[string]string | No       | —       | HTTP headers. Values support `$(...)` interpolation.                                                                        |
 | `body`           | string            | No       | —       | Request body. Supports `$(...)` interpolation.                                                                              |
-| `bodyFrom`       | string            | No       | —       | Populate the body from a step result: `$(steps.name.results.field)`                                                         |
 | `timeoutSeconds` | integer           | No       | `30`    | Request timeout in seconds                                                                                                  |
 | `resultMappings` | map[string]string | No       | —       | Map response fields to step results. Keys are result names; values are JSONPath into the response body (e.g., `$.user.id`). |
 

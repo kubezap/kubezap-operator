@@ -218,9 +218,6 @@ type RetryPolicy struct {
 	// Backoff multiplier.
 	// +kubebuilder:default="2.0"
 	Multiplier string `json:"multiplier,omitempty"`
-
-	// HTTP status codes or error codes that trigger retry.
-	RetryOn []int32 `json:"retryOn,omitempty"`
 }
 
 // FlowStatus defines the observed state of Flow.

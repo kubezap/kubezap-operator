@@ -642,11 +642,11 @@ spec:
     name: handle-pod-ready
 ```
 
-The trigger payload will include the full resource object, previous object (for update events), and event type:
-- `$(trigger.payload.object.metadata.name)` — resource name
-- `$(trigger.payload.object.status.phase)` — field from the resource
-- `$(trigger.payload.eventType)` — `ADDED`, `MODIFIED`, `DELETED`
-- `$(trigger.payload.oldObject.status.phase)` — previous value (update events only)
+The trigger body is the full resource object's JSON (no wrapper key), navigable the same way as any JSON trigger body:
+- `$(trigger.body.metadata.name)` — resource name
+- `$(trigger.body.status.phase)` — field from the resource
+
+**Not accessible from step interpolation**: `eventType` (`ADDED`/`MODIFIED`/`DELETED`) is recorded on the FlowRun's `spec.triggerData` but has no `$(trigger.eventType)` interpolation syntax today. There is also no captured "previous object" for update events — only the current resource state is available.
 
 ---
 

@@ -82,7 +82,7 @@ spec:
         http:
           url: https://httpbin.org/post
           method: POST
-          body: '{"event": "$(trigger.payload.event)"}'
+          body: '{"event": "$(trigger.body.event)"}'
 ```
 
 ```bash

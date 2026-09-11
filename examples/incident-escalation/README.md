@@ -198,7 +198,7 @@ Replace the httpbin GET with your real health endpoint and adjust the JSONPath
 to extract a meaningful health signal:
 
 ```yaml
-url: "https://healthcheck.internal/api/services/$(trigger.payload.service)"
+url: "https://healthcheck.internal/api/services/$(trigger.body.service)"
 method: GET
 resultMappings:
   status: "$.status"   # expects {"status": "healthy"} or {"status": "degraded"}

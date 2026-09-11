@@ -92,12 +92,25 @@ steps:
 
 ### Using Trigger Data in CEL Conditions
 
-CEL `when` expressions can access trigger body fields via `trigger.body`:
+Unlike `$(...)` interpolation, CEL `when` expressions do **not** get a parsed trigger body — `trigger.body` is always the raw string, regardless of content type. Dot-path field access (`trigger.body.eventType`) is not supported and raises a `when expression error` at evaluation time, failing the step. Use string methods on the raw body instead:
 
 ```yaml
 when:
-  - expression: 'trigger.body.eventType == "order.placed"'
+  - expression: 'trigger.body.contains("order.placed")'
 ```
+
+To branch on a specific JSON field's value (not just substring matching), declare a Flow [`param`](#paramdeclaration) with the same name as the top-level body field — it is auto-derived from the trigger body and exposed to CEL as a flat string via `params.<name>`:
+
+```yaml
+params:
+  - name: eventType
+steps:
+  - name: handle-placed
+    when:
+      - expression: 'params.eventType == "order.placed"'
+```
+
+This only reaches top-level fields; there is currently no way to get a *nested* body field (e.g. `order.customer.tier`) into a CEL condition.
 
 ### HTTP Response Formats
 
@@ -495,7 +508,8 @@ restarts.
 | `initialDelay` | duration  | No       | `1s`          | Delay before the first retry                        |
 | `maxDelay`     | duration  | No       | `60s`         | Maximum delay cap between retries                   |
 | `multiplier`   | string    | No       | `"2.0"`       | Multiplier for exponential backoff                  |
-| `retryOn`      | []integer | No       | 5xx, timeouts | HTTP status codes that trigger a retry              |
+
+Retries occur on any non-2xx HTTP response — there is currently no way to filter which status codes trigger a retry.
 
 ---
 
@@ -700,7 +714,7 @@ spec:
           method: POST
           headers:
             X-API-Key: "$(secrets.vendor-api.key)"
-          body: '{"payload": "$(trigger.payload.data)"}'
+          body: '{"payload": "$(trigger.body.data)"}'
           timeoutSeconds: 15
       retryPolicy:
         maxRetries: 5
@@ -708,7 +722,6 @@ spec:
         initialDelay: "2s"
         maxDelay: "2m"
         multiplier: "2.5"
-        retryOn: [429, 500, 502, 503, 504]
       onFailure: Continue
 
     - name: record-failure
@@ -743,7 +756,7 @@ spec:
       action:
         type: http
         http:
-          url: "https://source-system.internal/api/records/$(trigger.payload.recordId)"
+          url: "https://source-system.internal/api/records/$(trigger.body.recordId)"
           method: GET
           resultMappings:
             firstName: "$.first_name"
@@ -790,7 +803,7 @@ spec:
 
 ### Example 6: XML Payload Processing
 
-Receive an XML webhook payload, extract fields using XPath, and forward to a JSON API.
+XML is one of the supported trigger `Content-Type`s, but — unlike JSON and form-urlencoded bodies — it is never parsed into a navigable structure (see [Payload Formats](#payload-formats)). An XML request body is only ever available as the raw string via `$(trigger.body)`, both in step interpolation and in `when` conditions. There is no dot-path or CEL field access into XML trigger bodies today.
 
 The incoming webhook sends:
 ```xml
@@ -803,6 +816,8 @@ The incoming webhook sends:
   <total currency="USD">4850.00</total>
 </orderEvent>
 ```
+
+If you need to branch or extract individual fields from an XML payload like this, the current options are: pre-process the request into JSON before it reaches KubeZap (e.g. a small ingress-side transform), or fall back to string matching on the raw body:
 
 ```yaml
 apiVersion: automation.kubezap.io/v1alpha1
@@ -824,47 +839,40 @@ metadata:
   name: process-xml-order
   namespace: automation
 spec:
-  description: "Process XML order event and route to order management system"
+  description: "Route XML order events by a string match on the raw body"
   steps:
     - name: route-enterprise
-      description: "Route enterprise orders to priority queue"
+      description: "Route likely-enterprise orders to priority queue for closer inspection"
       when:
-        - expression: 'trigger.payload.orderEvent.customer.tier == "enterprise"'
+        - expression: 'trigger.body.contains("<tier>enterprise</tier>")'
       action:
         type: http
         http:
           url: "https://orders.internal/api/priority"
           method: POST
           headers:
-            Content-Type: "application/json"
-          body: |
-            {
-              "orderId": "$(trigger.payload.orderEvent.orderId)",
-              "customerId": "$(trigger.payload.orderEvent.customer.@id)",
-              "customerName": "$(trigger.payload.orderEvent.customer.name)",
-              "total": "$(trigger.payload.orderEvent.total)",
-              "currency": "$(trigger.payload.orderEvent.total.@currency)"
-            }
+            Content-Type: "application/xml"
+          body: "$(trigger.body)"
 
     - name: route-standard
-      description: "Route standard orders to normal queue"
+      description: "Route everything else to normal queue"
       when:
-        - expression: 'trigger.payload.orderEvent.customer.tier != "enterprise"'
+        - expression: '!trigger.body.contains("<tier>enterprise</tier>")'
       action:
         type: http
         http:
           url: "https://orders.internal/api/standard"
           method: POST
           headers:
-            Content-Type: "application/json"
-          body: |
-            {
-              "orderId": "$(trigger.payload.orderEvent.orderId)",
-              "customerName": "$(trigger.payload.orderEvent.customer.name)"
-            }
+            Content-Type: "application/xml"
+          body: "$(trigger.body)"
 ```
 
+Note this is substring matching on raw XML text, not structured field access — it is fragile to whitespace/attribute-order changes and offered only as a fallback. Extracting individual fields (`orderId`, `customer.name`, etc.) out of an incoming XML body into a transformed JSON request is not possible today without pre-processing upstream of KubeZap.
+
 **Calling an XML-response API and extracting fields with XPath:**
+
+This is a separate, fully-supported capability: `resultMappings` on an HTTP step auto-detects XPath syntax (`/`-prefixed) for XML *responses*, regardless of what content type triggered the Flow.
 
 ```yaml
 steps:
@@ -919,7 +927,7 @@ spec:
             Content-Type: "application/json"
           body: |
             {
-              "text": ":fire: Incident detected: $(trigger.payload.alert.name) in $(trigger.payload.alert.environment)"
+              "text": ":fire: Incident detected: $(trigger.body.alert.name) in $(trigger.body.alert.environment)"
             }
           timeoutSeconds: 10
 
@@ -935,8 +943,8 @@ spec:
             Authorization: "Bearer $(secrets.remediation-api.token)"
           body: |
             {
-              "alert": "$(trigger.payload.alert.name)",
-              "environment": "$(trigger.payload.alert.environment)"
+              "alert": "$(trigger.body.alert.name)",
+              "environment": "$(trigger.body.alert.environment)"
             }
           timeoutSeconds: 10
 
@@ -957,7 +965,7 @@ spec:
       action:
         type: http
         http:
-          url: "https://healthcheck.internal/api/services/$(trigger.payload.alert.service)"
+          url: "https://healthcheck.internal/api/services/$(trigger.body.alert.service)"
           method: GET
           headers:
             Authorization: "Bearer $(secrets.healthcheck-api.token)"
@@ -987,12 +995,12 @@ spec:
               "routing_key": "$(secrets.pagerduty-api.routingKey)",
               "event_action": "trigger",
               "payload": {
-                "summary": "Auto-remediation failed: $(trigger.payload.alert.name)",
+                "summary": "Auto-remediation failed: $(trigger.body.alert.name)",
                 "severity": "critical",
-                "source": "$(trigger.payload.alert.environment)",
+                "source": "$(trigger.body.alert.environment)",
                 "custom_details": {
                   "health_status": "$(steps.check_health.results.status)",
-                  "alert": "$(trigger.payload.alert.name)"
+                  "alert": "$(trigger.body.alert.name)"
                 }
               }
             }
@@ -1063,5 +1071,6 @@ has(steps.fetch.results.userId)
 - **No sub-flows**: A Flow cannot reference another Flow as a step. This is planned for a future release.
 - **Step name characters**: Step names must match `^[a-z][a-z0-9-]*$`. When referenced in expressions, hyphens become underscores.
 - **Result values are strings**: All step results are stored as strings. Numeric and boolean values must be cast in CEL conditions using `int()`, `double()`, or `bool()`.
+- **CEL cannot navigate the trigger body**: `trigger.body` in a `when` expression is always the raw string, even for JSON payloads — only string methods (`.contains()`, etc.) work on it directly. Branching on a specific field requires declaring it as a top-level Flow `param` (auto-derived from the body) and testing `params.<name>` instead; see [Using Trigger Data in CEL Conditions](#using-trigger-data-in-cel-conditions). Nested fields are not reachable from CEL at all today.
 - **Secret resolution**: `$(secrets.name.key)` values are resolved at step execution time and are never stored in the Flow spec or status.
 - **Execution history**: Every execution creates a `FlowRun` CRD with full trigger metadata, step results, and timing. See [FlowRun CRD](flowrun.md). Summary statistics (`lastResult`, `executionCount`) are also recorded on the `Flow` status.

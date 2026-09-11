@@ -256,7 +256,7 @@ Prevents a trigger from firing more than a set number of times in a given window
 
 | Field            | Type     | Required | Default | Description                                              |
 | ---------------- | -------- | -------- | ------- | -------------------------------------------------------- |
-| `maxInvocations` | integer  | **Yes**  | —       | Maximum number of firings allowed within `window`        |
+| `maxInvocations` | integer  | No       | `0` (no limit) | Maximum number of firings allowed within `window`. If zero (the default), no limit is applied. |
 | `window`         | duration | No       | `60s`   | Time window for counting invocations (e.g., `60s`, `5m`) |
 
 ### ResourceTrigger
@@ -356,7 +356,7 @@ For cross-namespace watches (when `spec.resource.namespace` differs from the Tri
 
 The operator exposes a dedicated HTTP endpoint for each webhook trigger at the configured `path`. Incoming requests on that path fire the trigger.
 
-The request body is parsed according to the `Content-Type` header and made available as `$(trigger.payload.<field>)`. HTTP headers are available as `$(trigger.header.<name>)`. See [Payload Formats](../overview.md#payload-formats) for supported content types.
+The request body is parsed according to the `Content-Type` header and made available as `$(trigger.body)` (raw) or `$(trigger.body.<field>)` (JSON dot-path, or a flat top-level field for `application/x-www-form-urlencoded`). HTTP headers are available as `$(trigger.headers.<name>)` (plural, case-insensitive). See [Payload Formats](../overview.md#payload-formats) for supported content types and [Flow CRD → Parameter Interpolation](flow.md#parameter-interpolation) for the full `$(...)` reference.
 
 **Exposing the endpoint**: In-cluster services can call the operator's webhook Service directly. For external access, see [Exposing Webhook Triggers](#exposing-webhook-triggers) below.
 
@@ -364,9 +364,7 @@ The request body is parsed according to the `Content-Type` header and made avail
 
 Cron triggers fire on the schedule defined by a standard cron expression. The operator runs a scheduler and fires the trigger at each scheduled time.
 
-The Flow receives timing metadata as parameters:
-- `$(trigger.payload.scheduledTime)` — the scheduled fire time (RFC3339)
-- `$(trigger.payload.actualTime)` — the actual fire time (RFC3339)
+The Flow receives the scheduled fire time via `$(trigger.scheduledTime)` (RFC3339). There is no separate "actual fire time" — the scheduler fires at the scheduled time and that is the only timestamp recorded.
 
 ### Kafka, AMQP, NATS (Broker Triggers)
 
@@ -376,13 +374,13 @@ The operator creates a gateway consumer for each broker trigger (`kafka`, `amqp`
 - **`amqp`** — built-in AMQP gateway (`kubezap-amqp-gateway`), supports AMQP 0-9-1 (RabbitMQ) and AMQP 1.0 (ActiveMQ Artemis)
 - **`nats`** — built-in NATS gateway (`kubezap-nats-gateway`), supports NATS Core and JetStream
 
-The Flow receives the message contents:
-- `$(trigger.payload.value)` — the message value (JSON-decoded if valid JSON, otherwise raw string)
-- `$(trigger.payload.key)` — the message key (Kafka)
-- `$(trigger.payload.topic)` — the topic/queue name
-- `$(trigger.payload.partition)` — the partition number (Kafka only)
-- `$(trigger.payload.offset)` — the message offset (Kafka only)
-- `$(trigger.payload.headers.<name>)` — a message header value
+The Flow receives the message contents via the same `$(trigger.*)` placeholders as any other trigger type:
+- `$(trigger.body)` / `$(trigger.body.<field>)` — the message value (JSON-decoded via dot-path if valid JSON, otherwise the raw string via `$(trigger.body)`)
+- `$(trigger.topic)` — the topic/queue name
+- `$(trigger.partition)` — the partition number (Kafka only; empty for AMQP/NATS)
+- `$(trigger.offset)` — the message offset (Kafka only; empty for AMQP/NATS)
+
+> **Not accessible from step interpolation**: the Kafka message key and any broker-specific message headers (Kafka record headers, AMQP/NATS message headers) are not exposed via `$(...)` syntax today — `$(trigger.headers.<name>)` only resolves HTTP headers from webhook-sourced triggers. If a Flow needs the message key or broker headers, there is currently no supported way to read them.
 
 ### Kubernetes Resource Events
 
@@ -414,13 +412,9 @@ spec:
     name: handle-pod-ready
 ```
 
-The Flow receives the resource event data:
-- `$(trigger.payload.body)` -- full JSON of the resource object
-- `$(trigger.payload.eventType)` -- `ADDED`, `MODIFIED`, or `DELETED`
-- `$(trigger.payload.resourceName)` -- name of the resource
-- `$(trigger.payload.resourceNamespace)` -- namespace of the resource
-- `$(trigger.payload.resourceKind)` -- kind of the resource
-- `$(trigger.payload.resourceAPIVersion)` -- API version of the resource
+The full resource object JSON is available via `$(trigger.body)` / `$(trigger.body.<field>)`, the same as any other trigger type.
+
+**Not accessible from step interpolation**: the event metadata (`eventType`, `resourceName`, `resourceNamespace`, `resourceKind`, `resourceAPIVersion`) is recorded on the FlowRun's `spec.triggerData` (see [FlowRun CRD → TriggerData](flowrun.md#triggerdata)), but there is no `$(trigger.eventType)`/`$(trigger.resourceName)`/etc. interpolation syntax exposing it to step fields or `when:` CEL conditions today. To branch on `eventType` today, you'd need to derive it from the resource object body itself if the information happens to be present there — the trigger-level metadata is not otherwise reachable.
 
 FlowRun naming: `<trigger>-<resource-name>-<eventtype>-<timestamp>`
 

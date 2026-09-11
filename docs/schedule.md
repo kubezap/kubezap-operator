@@ -44,19 +44,6 @@ Items are ordered to minimize rework:
 
 ---
 
-## 15. Dashboard / Monitoring UI
-
-> **Complete (2026-03-21).** CLI `watch` command and read-only Vue web dashboard both shipped. Phase 3 items below are deferred.
-
-### Phase 3 — Future (Tier 3, deferred)
-
-- [ ] **FUTURE** — Integration health page (`/api/v1/:ns/integrations`, `IntegrationList.vue`)
-- [ ] **FUTURE** — Activity graph: FlowRun rate over time from in-process Prometheus registry
-- [ ] **FUTURE** — Search: `?q=` substring filter on trigger/FlowRun name
-- [ ] **FUTURE** — OIDC auth (`--ui-oidc-issuer` etc.) or document kube-rbac-proxy as the recommended production auth path
-
----
-
 ## 18. Code Quality — 2026-03-27 Review
 
 > Items from the periodic health review. Ordered P1 → P2. **Run §18 P1 items before §16 P1 VALIDATION** (see prioritization rationale rule 7).
@@ -375,20 +362,25 @@ Items are ordered to minimize rework:
 
 > Owner decision: both README.md and docs/overview.md's own tagline says "no web UI, no proprietary runtime, no vendor lock-in" — directly contradicted by the shipped `--enable-ui` dashboard. Rather than rewrite the tagline, owner chose to remove the dashboard entirely, since it's a completely separate feature from the `kubezap` CLI (which stays). Decision: **no deprecation cycle, no removal note anywhere** — delete the code and docs outright, and also strip historical records (CHANGELOG v0.3.0 entry, this schedule's own §15 section) rather than leave a paper trail. This is a decision, not a scoping guess — see the two bullets below for exactly what "strip historical records" means.
 
-- [ ] **REMOVAL** — Delete the web dashboard entirely. Scope (confirmed by direct investigation 2026-09-11, not guessed):
-  - `internal/ui/` — entire package: `server.go`, `api.go`, `sse.go`, `runnable.go`, their three `_test.go` files, and the built Vue `dist/` assets (`index.html` + 6 JS/CSS bundles).
-  - `cmd/main.go` (hot file) — remove the `internal/ui` import, `enableUI`/`uiPort`/`uiBearerToken` vars and their three `flag.*Var` registrations, and the `if enableUI { ... }` block that constructs and registers `ui.NewServer`/`ui.Runnable`.
-  - `config/dev/manager_dev_patch.yaml` — remove the `--enable-ui=true` arg.
-  - `docs/guides/dashboard.md`, `docs/design/dashboard.md` — delete both files entirely.
-  - `README.md` — remove the "**Web dashboard**" bullet from the Features list (the tagline above it already says "no web UI" and needs no further edit once the contradiction is gone).
-  - `docs/overview.md`, `docs/contributing.md` — remove dashboard/`--enable-ui` mentions.
-  - `docs/docs-rewrite-plan.md` — this is a stale planning doc already (references a doc reorg that's only partly done); update or remove its `dashboard.md` rows as part of this pass, but don't feel obligated to otherwise groom the rest of the file.
-  - No Helm chart or RBAC changes needed — the dashboard reuses the controller's existing manager client/cache (`mgr.GetClient()`/`mgr.GetCache()`), no dedicated ServiceAccount, port, or extra permission exists for it today.
-  - **Not in scope**: the `kubezap` CLI (`watch`/`history`/`triggers`/`flows` subcommands, `internal/cli/`) is a fully separate feature and must not be touched — it doesn't import `internal/ui` (confirmed by grep) and isn't a "web UI."
-- [ ] **REMOVAL — historical records** — Owner decision: also remove the two records that describe the dashboard as already-shipped, rather than leave them as-is:
-  - `CHANGELOG.md`'s `[v0.3.0]` entry — remove the `**Web dashboard** — read-only Vue 3 SPA embedded in operator binary; enable with \`--enable-ui\`; SSE live updates` bullet, and the related `**--enable-ui / --ui-port** operator flags` bullet in the same section.
-  - `docs/schedule.md` §15 ("Dashboard / Monitoring UI") — remove the section entirely (this section, including its "Complete" note and the 4 Phase-3 `FUTURE` sub-items, all of which are now moot).
-  - This is a deliberate exception to this file's normal practice of treating completed-work log entries as an immutable historical record (see e.g. §31's entries, which describe superseded paths but were left alone) — the owner's instruction for this specific removal was "no notes... just delete it," applied consistently to the changelog and this schedule too.
+- [x] **REMOVAL (done 2026-09-11)** — Deleted the web dashboard entirely. Everything from the original scope list was removed as planned, plus additional scope found only once execution started (the original investigation missed the actual Vue frontend source, not just its built output):
+  - `internal/ui/` — entire package (`server.go`, `api.go`, `sse.go`, `runnable.go`, their three `_test.go` files, and the built `dist/` assets).
+  - `ui/` — **found during execution, not in the original scope**: the actual Vue frontend *source* (`src/`, `package.json`, `vite.config.ts`, etc.), compiled by `make ui` into `internal/ui/dist/`. Deleted entirely, along with its gitignored `node_modules/`.
+  - `Makefile` — **found during execution**: removed the `.PHONY: ui` target (`cd ui && npm ci && npm run build`) and its dependency in `build: ui manifests generate fmt vet`.
+  - `.github/workflows/ci.yml` — **found during execution**: removed the `actions/setup-node@v4` step in the `build` job — it existed only to support the now-deleted frontend build.
+  - `.gitignore` — **found during execution**: removed the now-meaningless `ui/node_modules/` and `internal/ui/dist/` entries.
+  - `cmd/main.go` (hot file) — removed the `internal/ui` import, `enableUI`/`uiPort`/`uiBearerToken` vars and their three `flag.*Var` registrations, and the `if enableUI { ... }` block.
+  - `config/dev/manager_dev_patch.yaml` — removed the `--enable-ui=true` arg.
+  - `docs/guides/dashboard.md`, `docs/design/dashboard.md` — deleted both files.
+  - `README.md`, `docs/overview.md` (2 mentions: architecture paragraph + shipped-features checklist), `docs/contributing.md` (2 whole sections: "Enabling the UI when deploying with `make deploy`", "Running the UI locally") — all dashboard/`--enable-ui` mentions removed.
+  - `docs/docs-rewrite-plan.md` — removed all 6 `dashboard.md`-related rows/mentions (classification table x2, directory-tree sketch x2, move-mapping list, per-file review section, getting-started rewrite brief, remaining-guides polish list); left the rest of the file untouched as noted was fine.
+  - No Helm chart or RBAC changes were needed, confirmed — the dashboard reused the controller's existing manager client/cache with no dedicated ServiceAccount, port, or extra permission.
+  - **Not touched, confirmed correct**: the `kubezap` CLI (`internal/cli/`) — doesn't import `internal/ui`, fully independent.
+  - `go build ./...`, `go vet ./...`, and `make test` all pass with `internal/ui` no longer appearing in the package list at all.
+- [x] **REMOVAL — historical records (done 2026-09-11)** — Per owner decision, also removed the records that described the dashboard as already-shipped, rather than leaving them as historical record:
+  - `CHANGELOG.md`'s `[v0.3.0]` entry — removed the `**Web dashboard**` and `**--enable-ui / --ui-port**` bullets, and its file-list bullet's `docs/guides/dashboard.md` mention.
+  - `docs/overview.md`'s shipped-features checklist — removed the `Web dashboard (... --enable-ui flag)` line (found during execution; not in the original two-item scope, but the same category of "describes the dashboard as shipped").
+  - `docs/schedule.md` §15 ("Dashboard / Monitoring UI") — removed the section entirely (its "Complete" note and 4 Phase-3 `FUTURE` sub-items).
+  - This remains a deliberate, one-off exception to this file's normal practice of treating completed-work log entries as an immutable historical record (§31's entries, describing superseded paths, were correctly left alone during the chart-rename and CRD-drift-resync work) — applied here only because the owner explicitly asked for it for this specific feature.
 
 ---
 

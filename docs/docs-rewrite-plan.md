@@ -26,7 +26,6 @@ Reorganize `docs/` into a two-tier structure: user-facing content at the top lev
 | `docs/guides/nats-setup.md` | user-facing | low |
 | `docs/guides/mocking-http-endpoints.md` | user-facing (dev/test) | low |
 | `docs/guides/using-the-cli.md` | user-facing | low |
-| `docs/guides/dashboard.md` | user-facing | low |
 | `docs/guides/troubleshooting.md` | user-facing | medium |
 | `docs/guides/mockoon-deployment.yaml` | user-facing (supporting file) | n/a |
 | `docs/contributing.md` | internal/dev-only | low |
@@ -35,7 +34,6 @@ Reorganize `docs/` into a two-tier structure: user-facing content at the top lev
 | `docs/review-latest.md` | internal/dev-only | n/a |
 | `docs/groom-latest.md` | internal/dev-only | n/a |
 | `docs/security-review-2026-03-24.md` | internal/dev-only | n/a |
-| `docs/design/dashboard.md` | internal/dev-only | n/a |
 | `docs/design/cli.md` | internal/dev-only | n/a |
 | `docs/design/scale-limitations.md` | dual: extract user-facing summary | medium |
 | `docs/tech-debt/code-debt-2026-03-21.md` | internal/dev-only | n/a |
@@ -66,7 +64,6 @@ docs/
     mocking-http-endpoints.md           # Mockoon for dev/test
     mockoon-deployment.yaml             # supporting manifest
     using-the-cli.md                    # CLI reference
-    dashboard.md                        # web dashboard user guide
     troubleshooting.md                  # operational troubleshooting
     scale-considerations.md             # NEW: user-facing scale guidance (extracted)
   dev/
@@ -77,7 +74,6 @@ docs/
     groom-latest.md                     # moved from docs/groom-latest.md
     security-review-2026-03-24.md       # moved from docs/
     design/
-      dashboard.md                      # moved from docs/design/
       cli.md                            # moved from docs/design/
       scale-limitations.md              # moved from docs/design/ (full internal version)
     tech-debt/
@@ -125,7 +121,7 @@ Key changes from current layout:
 - Currently a redirect stub pointing to `examples/order-router/README.md`. This is the most important page for new users and it has no content of its own.
 - A proper getting-started guide should be self-contained: install -> create a trigger -> create a flow -> send an event -> observe the FlowRun -> next steps. It should not require users to clone the repo and `kubectl apply -k` an example directory.
 
-**Rewrite brief:** Write a standalone getting-started tutorial with inline YAML (not kustomize overlays). Steps: (1) install via Helm, (2) create a simple webhook Trigger, (3) create a simple Flow with one HTTP step, (4) port-forward and curl, (5) inspect the FlowRun with kubectl, (6) link to CLI and dashboard guides. Keep it under 200 lines. The example directory can remain as a more advanced reference.
+**Rewrite brief:** Write a standalone getting-started tutorial with inline YAML (not kustomize overlays). Steps: (1) install via Helm, (2) create a simple webhook Trigger, (3) create a simple Flow with one HTTP step, (4) port-forward and curl, (5) inspect the FlowRun with kubectl, (6) link to the CLI guide. Keep it under 200 lines. The example directory can remain as a more advanced reference.
 
 ### Medium Priority
 
@@ -227,12 +223,8 @@ Key changes from current layout:
 **Issues:** Good reference. Version string shows `v0.0.1` which should track the actual release version.
 **Rewrite brief:** Update version example to use a realistic version. Add shell completion instructions if supported.
 
-#### `docs/guides/dashboard.md`
-**Issues:** Clear and concise. The `--enable-ui` activation and port-forward instructions are well-explained.
-**Rewrite brief:** Minor polish. Add a note about the auto-created Service for the UI.
-
 #### `docs/contributing.md`
-**Issues:** Recently improved with architecture orientation, first-contribution guide, UI build steps, and OLM bundle docs. This is comprehensive and well-structured for contributors.
+**Issues:** Recently improved with architecture orientation, first-contribution guide, and OLM bundle docs. This is comprehensive and well-structured for contributors.
 **Rewrite brief:** Move to `docs/dev/contributing.md`. Absorb the "Adding New Trigger Types" section from `architecture.md`. No content rewrite needed.
 
 ---
@@ -245,7 +237,6 @@ Key changes from current layout:
 - `docs/review-latest.md` -> `docs/dev/review-latest.md`
 - `docs/groom-latest.md` -> `docs/dev/groom-latest.md`
 - `docs/security-review-2026-03-24.md` -> `docs/dev/security-review-2026-03-24.md`
-- `docs/design/dashboard.md` -> `docs/dev/design/dashboard.md`
 - `docs/design/cli.md` -> `docs/dev/design/cli.md`
 - `docs/design/scale-limitations.md` -> `docs/dev/design/scale-limitations.md`
 - `docs/tech-debt/code-debt-2026-03-21.md` -> `docs/dev/tech-debt/code-debt-2026-03-21.md`
@@ -281,7 +272,7 @@ After moves, update all internal cross-references (`CLAUDE.md`, `schedule.md`, e
 
 12. **`docs/api/plugin-contract.md`** -- Update after FlowRef.Namespace removal (schedule section 17 P0).
 
-13. **Remaining guides** (webhook-security, cron-triggers, amqp-setup, nats-setup, cli, dashboard, mocking) -- Minor polish. Lowest effort, lowest impact. Can be done in any order.
+13. **Remaining guides** (webhook-security, cron-triggers, amqp-setup, nats-setup, cli, mocking) -- Minor polish. Lowest effort, lowest impact. Can be done in any order.
 
 ---
 

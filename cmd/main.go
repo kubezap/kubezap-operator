@@ -46,7 +46,6 @@ import (
 	automationv1alpha1 "github.com/kubezap/kubezap-operator/api/v1alpha1"
 	"github.com/kubezap/kubezap-operator/internal/controller"
 	"github.com/kubezap/kubezap-operator/internal/telemetry"
-	"github.com/kubezap/kubezap-operator/internal/ui"
 	kubezapwebhook "github.com/kubezap/kubezap-operator/internal/webhook"
 	// +kubebuilder:scaffold:imports
 )
@@ -84,9 +83,6 @@ func main() {
 	var ssrfAllowClusterInternal bool
 	var executorImage string
 	var executorMTLS bool
-	var enableUI bool
-	var uiPort int
-	var uiBearerToken string
 	flag.StringVar(&metricsAddr, "metrics-bind-address", ":9090", "The address the metrics endpoint binds to. "+
 		"Use :9090 for HTTP (default) or :8443 for HTTPS.")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
@@ -116,12 +112,6 @@ func main() {
 	var executorRPCBaseURL string
 	flag.StringVar(&executorRPCBaseURL, "executor-rpc-base-url", "http://kubezap-http-executor.%s.svc.cluster.local:8091", "Base URL format string for the http-executor Service RPC calls; %s is replaced with the target namespace.")
 	flag.BoolVar(&executorMTLS, "executor-mtls", false, "Enable mTLS between controller and http-executor. When true, the controller generates a self-signed CA at startup, injects certs into the executor Deployment, and rotates them every 23h.")
-	flag.BoolVar(&enableUI, "enable-ui", false,
-		"Enable the read-only web dashboard. When enabled, the operator serves the dashboard on --ui-port and ensures a 'kubezap-ui' Service exists in the operator namespace.")
-	flag.IntVar(&uiPort, "ui-port", 8082,
-		"Port for the read-only web dashboard (only used when --enable-ui=true). Default: 8082.")
-	flag.StringVar(&uiBearerToken, "ui-bearer-token", "",
-		"Optional bearer token to protect the dashboard. When set, requests must include 'Authorization: Bearer <token>'.")
 	flag.BoolVar(&developmentLogging, "development", false,
 		"Enable development logging mode (human-readable, with caller info). Defaults to false for production JSON logging.")
 	var opts zap.Options
@@ -463,20 +453,6 @@ func main() {
 	if err := mgr.AddReadyzCheck("readyz", healthz.Ping); err != nil {
 		setupLog.Error(err, "unable to set up ready check")
 		os.Exit(1)
-	}
-
-	if enableUI {
-		uiServer := ui.NewServer(mgr.GetClient(), uiBearerToken, ui.WithCache(mgr.GetCache()))
-		if err := mgr.Add(&ui.Runnable{
-			Server:    uiServer,
-			Port:      uiPort,
-			Namespace: os.Getenv("POD_NAMESPACE"),
-			Client:    mgr.GetClient(),
-		}); err != nil {
-			setupLog.Error(err, "unable to add UI server to manager")
-			os.Exit(1)
-		}
-		setupLog.Info("dashboard UI enabled", "port", uiPort)
 	}
 
 	setupLog.Info("starting manager")

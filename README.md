@@ -125,7 +125,6 @@ For a full walkthrough see [examples/order-router/](examples/order-router/).
 - **FlowRun GC**: TTL-based cleanup, `kubezap.io/retain` annotation, max FlowRun cap per Trigger
 - **Webhook auth**: HMAC, bearer token, OIDC/JWT, API-key header, IP allowlist, mTLS
 - **Observability**: Prometheus metrics, OpenTelemetry traces (OTLP/gRPC), structured JSON access logs
-- **Web dashboard**: built-in UI served by the controller; enable with `--enable-ui`
 - **CLI**: `kubezap` command — `watch`, `history`, `triggers`, `flows` subcommands
 - **Multi-namespace**: `WATCH_NAMESPACES` supports AllNamespaces, MultiNamespace, SingleNamespace, OwnNamespace
 - **OLM**: all four install modes supported in the CSV bundle

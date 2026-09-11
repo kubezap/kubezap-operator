@@ -30,6 +30,9 @@ import (
 	automationv1alpha1 "github.com/kubezap/kubezap-operator/api/v1alpha1"
 )
 
+// defaultNamespace is the fallback namespace used when none is configured or resolvable.
+const defaultNamespace = "default"
+
 var scheme = runtime.NewScheme()
 
 func init() {
@@ -70,10 +73,10 @@ func BuildClient(kubeconfigPath, contextName, namespaceFlagValue string) (client
 		ns, _, err := kubeConfig.Namespace()
 		if err != nil {
 			// Non-fatal: fall back to default.
-			ns = "default"
+			ns = defaultNamespace
 		}
 		if ns == "" {
-			ns = "default"
+			ns = defaultNamespace
 		}
 		namespace = ns
 	}

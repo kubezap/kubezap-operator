@@ -100,7 +100,7 @@ func (r *TriggerReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		// is still present in the API server (just marked for deletion), so
 		// cleanupWebhookGatewayIfUnused excludes objects with a non-zero
 		// DeletionTimestamp when counting active webhook Triggers.
-		if trg.Spec.Type == "webhook" {
+		if trg.Spec.Type == triggerTypeWebhook {
 			if err := cleanupWebhookGatewayIfUnused(ctx, r.Client, trg.Namespace); err != nil {
 				return ctrl.Result{}, fmt.Errorf("cleaning up webhook gateway: %w", err)
 			}
@@ -128,11 +128,11 @@ func (r *TriggerReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	}
 
 	// Handle webhook triggers — ensure gateway Deployment exists, or clean up if disabled.
-	if trg.Spec.Type == "webhook" && trg.Spec.Enabled {
+	if trg.Spec.Type == triggerTypeWebhook && trg.Spec.Enabled {
 		if err := r.reconcileWebhookGatewayDeployment(ctx, trg.Namespace); err != nil {
 			return ctrl.Result{}, fmt.Errorf("reconciling webhook gateway deployment: %w", err)
 		}
-	} else if trg.Spec.Type == "webhook" && !trg.Spec.Enabled {
+	} else if trg.Spec.Type == triggerTypeWebhook && !trg.Spec.Enabled {
 		if err := cleanupWebhookGatewayIfUnused(ctx, r.Client, trg.Namespace); err != nil {
 			return ctrl.Result{}, fmt.Errorf("cleaning up webhook gateway: %w", err)
 		}
@@ -322,7 +322,7 @@ func cleanupWebhookGatewayIfUnused(ctx context.Context, c client.Client, namespa
 
 	for i := range triggerList.Items {
 		t := &triggerList.Items[i]
-		if t.Spec.Type == "webhook" && t.Spec.Enabled && t.DeletionTimestamp.IsZero() {
+		if t.Spec.Type == triggerTypeWebhook && t.Spec.Enabled && t.DeletionTimestamp.IsZero() {
 			// At least one active webhook Trigger remains — gateway is still needed.
 			return nil
 		}

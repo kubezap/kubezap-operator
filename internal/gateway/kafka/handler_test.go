@@ -36,7 +36,7 @@ func TestSanitizeFlowRunName(t *testing.T) {
 			t.Errorf("sanitizeFlowRunName(%q): result len %d > 253", tc.input, len(got))
 		}
 		for _, ch := range got {
-			if !((ch >= 'a' && ch <= 'z') || (ch >= '0' && ch <= '9') || ch == '-') {
+			if (ch < 'a' || ch > 'z') && (ch < '0' || ch > '9') && ch != '-' {
 				t.Errorf("sanitizeFlowRunName(%q): invalid char %q in result %q", tc.input, ch, got)
 			}
 		}

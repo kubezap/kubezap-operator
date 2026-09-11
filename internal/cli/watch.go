@@ -20,15 +20,16 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"strings"
 	"time"
 
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/watch"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	automationv1alpha1 "github.com/kubezap/kubezap-operator/api/v1alpha1"
 )
+
+// phasePending is the display value for a FlowRun/step/Trigger with no phase set yet.
+const phasePending = "Pending"
 
 // terminalPhases are FlowRun phases that indicate no further progress.
 var terminalPhases = map[string]bool{
@@ -65,7 +66,7 @@ func RenderFlowRunTimeline(fr *automationv1alpha1.FlowRun, elapsed time.Duration
 
 	phase := fr.Status.Phase
 	if phase == "" {
-		phase = "Pending"
+		phase = phasePending
 	}
 
 	// Compute elapsed: prefer actual duration if complete, otherwise use the
@@ -73,7 +74,7 @@ func RenderFlowRunTimeline(fr *automationv1alpha1.FlowRun, elapsed time.Duration
 	var elapsedStr string
 	switch {
 	case fr.Status.StartTime != nil && fr.Status.CompletionTime != nil:
-		d := fr.Status.CompletionTime.Time.Sub(fr.Status.StartTime.Time)
+		d := fr.Status.CompletionTime.Sub(fr.Status.StartTime.Time)
 		elapsedStr = fmt.Sprintf("%.1fs", d.Seconds())
 	case fr.Status.StartTime != nil:
 		d := time.Since(fr.Status.StartTime.Time)
@@ -97,13 +98,13 @@ func RenderFlowRunTimeline(fr *automationv1alpha1.FlowRun, elapsed time.Duration
 
 		stepPhase := step.Phase
 		if stepPhase == "" {
-			stepPhase = "Pending"
+			stepPhase = phasePending
 		}
 
 		var durStr string
 		switch {
 		case step.StartTime != nil && step.CompletionTime != nil:
-			d := step.CompletionTime.Time.Sub(step.StartTime.Time)
+			d := step.CompletionTime.Sub(step.StartTime.Time)
 			durStr = fmt.Sprintf("%.1fs", d.Seconds())
 		case step.StartTime != nil:
 			d := time.Since(step.StartTime.Time)
@@ -144,7 +145,7 @@ func WatchFlowRun(ctx context.Context, c client.Client, namespace, name string, 
 	// client.WithWatch.
 	wc, ok := c.(client.WithWatch)
 	if !ok {
-		return fmt.Errorf("Kubernetes client does not support Watch; upgrade to a watch-capable client")
+		return fmt.Errorf("client does not support Watch (Kubernetes client-go feature); upgrade to a watch-capable client")
 	}
 
 	watchList := &automationv1alpha1.FlowRunList{}
@@ -196,46 +197,4 @@ func WatchFlowRun(ctx context.Context, c client.Client, namespace, name string, 
 			}
 		}
 	}
-}
-
-// buildWatchListOptions returns the ListOptions used to construct a metav1 Watch
-// request for a single named FlowRun. Exported for testing.
-func buildWatchListOptions(namespace, name, resourceVersion string) metav1.ListOptions {
-	return metav1.ListOptions{
-		FieldSelector:   "metadata.name=" + name,
-		ResourceVersion: resourceVersion,
-		Watch:           true,
-	}
-}
-
-// isTerminalPhase reports whether phase is a terminal FlowRun phase.
-func isTerminalPhase(phase string) bool {
-	return terminalPhases[phase]
-}
-
-// fmtStepLine formats a single step line for the timeline. Exported for testing.
-func fmtStepLine(step automationv1alpha1.StepRunStatus) string {
-	badge := stepBadge(step.Phase)
-	stepPhase := step.Phase
-	if stepPhase == "" {
-		stepPhase = "Pending"
-	}
-
-	var durStr string
-	switch {
-	case step.StartTime != nil && step.CompletionTime != nil:
-		d := step.CompletionTime.Time.Sub(step.StartTime.Time)
-		durStr = fmt.Sprintf("%.1fs", d.Seconds())
-	case step.StartTime != nil:
-		// Still running; use elapsed since start.
-		d := time.Since(step.StartTime.Time)
-		durStr = fmt.Sprintf("~%.1fs", d.Seconds())
-	default:
-		durStr = "-"
-	}
-
-	return strings.TrimRight(
-		fmt.Sprintf("  %s  %-24s %-12s %s", badge, step.Name, stepPhase, durStr),
-		" ",
-	)
 }

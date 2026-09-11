@@ -62,7 +62,7 @@ func ListFlowRuns(ctx context.Context, c client.Client, namespace string, opts L
 	items := list.Items
 
 	// Client-side filters.
-	var filtered []automationv1alpha1.FlowRun
+	filtered := make([]automationv1alpha1.FlowRun, 0, len(items))
 	cutoff := time.Time{}
 	if opts.Since > 0 {
 		cutoff = time.Now().Add(-opts.Since)
@@ -83,7 +83,7 @@ func ListFlowRuns(ctx context.Context, c client.Client, namespace string, opts L
 
 	// Sort newest first.
 	sort.Slice(filtered, func(i, j int) bool {
-		return filtered[i].CreationTimestamp.Time.After(filtered[j].CreationTimestamp.Time)
+		return filtered[i].CreationTimestamp.After(filtered[j].CreationTimestamp.Time)
 	})
 
 	switch opts.Format {
@@ -185,7 +185,7 @@ func printFlowRunDetail(w io.Writer, fr *automationv1alpha1.FlowRun) {
 	for _, step := range fr.Status.Steps {
 		startedOffset := "-"
 		if step.StartTime != nil && fr.Status.StartTime != nil {
-			offset := step.StartTime.Time.Sub(fr.Status.StartTime.Time)
+			offset := step.StartTime.Sub(fr.Status.StartTime.Time)
 			startedOffset = fmt.Sprintf("+%.2fs", offset.Seconds())
 		}
 

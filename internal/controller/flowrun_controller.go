@@ -80,11 +80,6 @@ const kafkaProducerIdleTTL = 10 * time.Minute
 // there is no per-request variance to smooth out.
 const executorTransportBackoff = 5 * time.Second
 
-// executorTransportBackoffCap is the maximum requeue delay for consecutive
-// transport failures within a single FlowRun execution. Not currently enforced
-// here (each reconcile uses a fresh backoff), but documented for future use.
-const executorTransportBackoffCap = 2 * time.Minute
-
 // executorTransportError wraps a transport-layer error returned by callExecutor.
 // Transport errors indicate that the http-executor pod itself was unreachable
 // (connection refused, DNS failure, TLS error, context deadline from pod
@@ -480,7 +475,7 @@ func (r *FlowRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 			if existing != nil && existing.Phase != "" && existing.Phase != "Pending" {
 				// Re-admit wait steps that are in Waiting phase — they need to be
 				// rechecked to see if the wait duration has elapsed.
-				if existing.Phase == "Waiting" && step.Action.Type == "wait" {
+				if existing.Phase == "Waiting" && step.Action.Type == stepActionWait {
 					waveSteps = append(waveSteps, readyStep{step: step, stepIdx: i})
 				}
 				continue
@@ -503,7 +498,7 @@ func (r *FlowRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 			// without executing any other steps in the wave.
 			for _, rs := range waveSteps {
 				step := rs.step
-				if step.Action.Type == "wait" {
+				if step.Action.Type == stepActionWait {
 					now := metav1.Now()
 					startTime := &now
 					if existing := findStepStatus(flowRun.Status.Steps, step.Name); existing != nil && existing.StartTime != nil {
@@ -711,7 +706,7 @@ func (r *FlowRunReconciler) executeStep(
 	ctx, stepSpan := otel.Tracer("kubezap.io/flowrun").Start(ctx, "flowrun.step",
 		trace.WithAttributes(
 			attribute.String("step.name", step.Name),
-			attribute.String("step.type", string(step.Action.Type)),
+			attribute.String("step.type", step.Action.Type),
 		))
 	defer stepSpan.End()
 
@@ -724,7 +719,7 @@ func (r *FlowRunReconciler) executeStep(
 	}
 
 	switch step.Action.Type {
-	case "http":
+	case stepActionHTTP:
 		results, msg, attempts, err := r.executeHTTPStep(ctx, log, step, stepResults, triggerData, params, flowRun.Namespace)
 		completionTime := metav1.Now()
 		status.CompletionTime = &completionTime
@@ -745,7 +740,7 @@ func (r *FlowRunReconciler) executeStep(
 			status.Message = msg
 			status.Results = mapsToResults(results)
 		}
-	case "transform":
+	case stepActionTransform:
 		completionTime := metav1.Now()
 		status.CompletionTime = &completionTime
 		if step.Action.Transform == nil {
@@ -759,7 +754,7 @@ func (r *FlowRunReconciler) executeStep(
 			status.Phase = "Succeeded"
 			status.Results = mapsToResults(substituted)
 		}
-	case "publish":
+	case stepActionPublish:
 		result, attempts, err := r.executePublishStep(ctx, flowRun, step, triggerData, stepResults, params)
 		completionTime := metav1.Now()
 		status.CompletionTime = &completionTime
@@ -804,9 +799,9 @@ func (r *FlowRunReconciler) executeHTTPStep(
 	}
 
 	h := step.Action.HTTP
-	// url is the fully-resolved URL (with secret values substituted).
+	// resolvedURL is the fully-resolved URL (with secret values substituted).
 	// displayURL has secret placeholders intact for safe inclusion in log/error messages.
-	url, displayURL, err := r.substituteVarsWithSecrets(ctx, namespace, h.URL, stepResults, triggerData, params)
+	resolvedURL, displayURL, err := r.substituteVarsWithSecrets(ctx, namespace, h.URL, stepResults, triggerData, params)
 	if err != nil {
 		return nil, "", 0, fmt.Errorf("resolving secrets in URL for step %q: %w", step.Name, err)
 	}
@@ -826,7 +821,7 @@ func (r *FlowRunReconciler) executeHTTPStep(
 	// If an HTTP Integration is referenced, merge its base URL, auth headers, and default headers.
 	if h.IntegrationRef != nil && h.IntegrationRef.Name != "" {
 		var err error
-		url, err = r.applyHTTPIntegration(ctx, h.IntegrationRef.Name, namespace, url, headers, stepResults, triggerData, params)
+		resolvedURL, err = r.applyHTTPIntegration(ctx, h.IntegrationRef.Name, namespace, resolvedURL, headers, stepResults, triggerData, params)
 		if err != nil {
 			return nil, "", 0, err
 		}
@@ -835,7 +830,7 @@ func (r *FlowRunReconciler) executeHTTPStep(
 	// Defence-in-depth SSRF pre-check: reject blocked targets before forwarding
 	// to the executor. The executor re-validates independently to guard against
 	// DNS rebinding between this check and the outbound connection.
-	if err := checkSSRF(ctx, url, r.SSRFBlockedCIDRs, r.SSRFAllowClusterInternal); err != nil {
+	if err := checkSSRF(ctx, resolvedURL, r.SSRFBlockedCIDRs, r.SSRFAllowClusterInternal); err != nil {
 		return nil, "", 0, fmt.Errorf("step %q blocked by SSRF protection: %w", step.Name, err)
 	}
 
@@ -868,7 +863,7 @@ func (r *FlowRunReconciler) executeHTTPStep(
 	// Build the executor request once — it is the same for every retry attempt.
 	execReq := executorhttp.ExecuteRequest{
 		Method:         method,
-		URL:            url,
+		URL:            resolvedURL,
 		Headers:        headers,
 		Body:           body,
 		TimeoutSeconds: int(timeoutSec),
@@ -915,8 +910,8 @@ func (r *FlowRunReconciler) executeHTTPStep(
 			// Replace it with displayURL so secret values are not persisted to etcd via
 			// StepRunStatus.Message.
 			errMsg := execResp.Error
-			if url != displayURL {
-				errMsg = strings.ReplaceAll(errMsg, url, displayURL)
+			if resolvedURL != displayURL {
+				errMsg = strings.ReplaceAll(errMsg, resolvedURL, displayURL)
 			}
 			lastErr = fmt.Errorf("%s", errMsg)
 			log.Info("HTTP step executor error", "step", step.Name, "error", errMsg, "attempt", attempt+1)
@@ -951,9 +946,9 @@ func (r *FlowRunReconciler) executeHTTPStep(
 // executorScheme returns "https" when mTLS is enabled and "http" otherwise.
 func (r *FlowRunReconciler) executorScheme() string {
 	if r.ExecutorTLSConfig != nil {
-		return "https"
+		return portNameHTTPS
 	}
-	return "http"
+	return portNameHTTP
 }
 
 // callExecutor sends a fully-resolved ExecuteRequest to the http-executor Service
@@ -1178,7 +1173,7 @@ type pluginPublishFailure struct {
 // iterations.
 func (r *FlowRunReconciler) doPluginPublish(
 	ctx context.Context,
-	url, integrationName, namespace, destination, body string,
+	resolvedURL, integrationName, namespace, destination, body string,
 	headers map[string]string,
 	timeout time.Duration,
 ) (map[string]string, error) {
@@ -1201,7 +1196,7 @@ func (r *FlowRunReconciler) doPluginPublish(
 		return nil, fmt.Errorf("marshalling publish envelope: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(publishCtx, http.MethodPost, url, bytes.NewReader(envelopeBytes))
+	req, err := http.NewRequestWithContext(publishCtx, http.MethodPost, resolvedURL, bytes.NewReader(envelopeBytes))
 	if err != nil {
 		return nil, fmt.Errorf("building publish request: %w", err)
 	}
@@ -1263,7 +1258,7 @@ func (r *FlowRunReconciler) applyHTTPIntegration(
 	ctx context.Context,
 	integrationName string,
 	namespace string,
-	url string,
+	resolvedURL string,
 	headers map[string]string,
 	stepResults map[string]map[string]string,
 	triggerData *automationv1alpha1.TriggerData,
@@ -1290,7 +1285,7 @@ func (r *FlowRunReconciler) applyHTTPIntegration(
 		}
 	}
 	if integration.Spec.HTTP == nil {
-		return url, nil
+		return resolvedURL, nil
 	}
 	httpInteg := integration.Spec.HTTP
 
@@ -1302,20 +1297,20 @@ func (r *FlowRunReconciler) applyHTTPIntegration(
 	}
 
 	// Apply baseUrl: prepend if step URL is a path (not already absolute).
-	if httpInteg.BaseURL != "" && !strings.HasPrefix(url, "http://") && !strings.HasPrefix(url, "https://") {
-		url = strings.TrimRight(httpInteg.BaseURL, "/") + "/" + strings.TrimLeft(url, "/")
+	if httpInteg.BaseURL != "" && !strings.HasPrefix(resolvedURL, "http://") && !strings.HasPrefix(resolvedURL, "https://") {
+		resolvedURL = strings.TrimRight(httpInteg.BaseURL, "/") + "/" + strings.TrimLeft(resolvedURL, "/")
 	}
 
 	// Apply auth.
 	if httpInteg.Auth != nil {
 		var err error
-		url, err = r.applyHTTPAuth(ctx, httpInteg.Auth, integrationName, namespace, url, headers)
+		resolvedURL, err = r.applyHTTPAuth(ctx, httpInteg.Auth, integrationName, namespace, resolvedURL, headers)
 		if err != nil {
 			return "", err
 		}
 	}
 
-	return url, nil
+	return resolvedURL, nil
 }
 
 // applyHTTPAuth resolves the auth configuration from an HTTP Integration and
@@ -1325,7 +1320,7 @@ func (r *FlowRunReconciler) applyHTTPAuth(
 	auth *automationv1alpha1.HttpAuthSpec,
 	integrationName string,
 	namespace string,
-	url string,
+	resolvedURL string,
 	headers map[string]string,
 ) (string, error) {
 	switch auth.Type {
@@ -1363,10 +1358,10 @@ func (r *FlowRunReconciler) applyHTTPAuth(
 			if err != nil {
 				return "", fmt.Errorf("fetching secret URL for integration %q: %w", integrationName, err)
 			}
-			url = secretURL
+			resolvedURL = secretURL
 		}
 	}
-	return url, nil
+	return resolvedURL, nil
 }
 
 func (r *FlowRunReconciler) executeWaitStep(
@@ -1632,7 +1627,7 @@ func (r *FlowRunReconciler) enforceMaxFlowRunsByPhase(ctx context.Context, trigg
 		return err
 	}
 
-	var matching []automationv1alpha1.FlowRun
+	matching := make([]automationv1alpha1.FlowRun, 0, len(list.Items))
 	for _, fr := range list.Items {
 		// Safety fallback: filter by status phase in case older FlowRuns predate the label.
 		if fr.Status.Phase != phase {

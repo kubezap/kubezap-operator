@@ -187,10 +187,7 @@ func (h *Handler) httpClient(tlsSkipVerify bool) *http.Client {
 		return h.HTTPClient
 	}
 
-	skipVerify := false
-	if h.AllowTLSSkipVerify && tlsSkipVerify {
-		skipVerify = true
-	}
+	skipVerify := h.AllowTLSSkipVerify && tlsSkipVerify
 
 	transport := &http.Transport{
 		TLSClientConfig: &tls.Config{

@@ -31,31 +31,31 @@ func newMinimalKafkaWatcher(t *testing.T, objs ...client.Object) *Watcher {
 	}
 }
 
-func newSASLSecret(name, namespace, user, pass string) *corev1.Secret {
+func newSASLSecret(pass string) *corev1.Secret {
 	return &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace},
+		ObjectMeta: metav1.ObjectMeta{Name: "kafka-creds", Namespace: "default"},
 		Data: map[string][]byte{
-			"username": []byte(user),
+			"username": []byte("alice"),
 			"password": []byte(pass),
 		},
 	}
 }
 
-func saslKafkaSpec(secretName string) *automationv1alpha1.KafkaIntegrationSpec {
+func saslKafkaSpec() *automationv1alpha1.KafkaIntegrationSpec {
 	return &automationv1alpha1.KafkaIntegrationSpec{
 		BootstrapServers: []string{"127.0.0.1:1"}, // unreachable on purpose; these tests never need a real broker
 		SASL: &automationv1alpha1.KafkaSASLConfig{
 			Mechanism:         "PLAIN",
-			UsernameSecretRef: corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: secretName}, Key: "username"},
-			PasswordSecretRef: corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: secretName}, Key: "password"},
+			UsernameSecretRef: corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: "kafka-creds"}, Key: "username"},
+			PasswordSecretRef: corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: "kafka-creds"}, Key: "password"},
 		},
 	}
 }
 
 func TestResolveKafkaCredentials_FingerprintStableForSameValues(t *testing.T) {
-	secret := newSASLSecret("kafka-creds", "default", "alice", "s3cr3t")
+	secret := newSASLSecret("s3cr3t")
 	w := newMinimalKafkaWatcher(t, secret)
-	spec := saslKafkaSpec("kafka-creds")
+	spec := saslKafkaSpec()
 
 	a, err := w.resolveKafkaCredentials(context.Background(), "default", spec)
 	if err != nil {
@@ -79,9 +79,9 @@ func TestResolveKafkaCredentials_FingerprintStableForSameValues(t *testing.T) {
 }
 
 func TestResolveKafkaCredentials_FingerprintChangesWithRotatedSecret(t *testing.T) {
-	secret := newSASLSecret("kafka-creds", "default", "alice", "old-password")
+	secret := newSASLSecret("old-password")
 	w := newMinimalKafkaWatcher(t, secret)
-	spec := saslKafkaSpec("kafka-creds")
+	spec := saslKafkaSpec()
 
 	before, err := w.resolveKafkaCredentials(context.Background(), "default", spec)
 	if err != nil {
@@ -104,10 +104,10 @@ func TestResolveKafkaCredentials_FingerprintChangesWithRotatedSecret(t *testing.
 }
 
 func TestReconcileTrigger_IndexesIntegrationSecrets(t *testing.T) {
-	secret := newSASLSecret("kafka-creds", "default", "alice", "s3cr3t")
+	secret := newSASLSecret("s3cr3t")
 	integration := &automationv1alpha1.Integration{
 		ObjectMeta: metav1.ObjectMeta{Name: "kafka-integ", Namespace: "default"},
-		Spec:       automationv1alpha1.IntegrationSpec{Kafka: saslKafkaSpec("kafka-creds")},
+		Spec:       automationv1alpha1.IntegrationSpec{Kafka: saslKafkaSpec()},
 	}
 	w := newMinimalKafkaWatcher(t, secret, integration)
 
@@ -136,10 +136,10 @@ func TestReconcileTrigger_IndexesIntegrationSecrets(t *testing.T) {
 }
 
 func TestHandleSecretChange_ReprocessesDependentKafkaTrigger(t *testing.T) {
-	secret := newSASLSecret("kafka-creds", "default", "alice", "s3cr3t")
+	secret := newSASLSecret("s3cr3t")
 	integration := &automationv1alpha1.Integration{
 		ObjectMeta: metav1.ObjectMeta{Name: "kafka-integ", Namespace: "default"},
-		Spec:       automationv1alpha1.IntegrationSpec{Kafka: saslKafkaSpec("kafka-creds")},
+		Spec:       automationv1alpha1.IntegrationSpec{Kafka: saslKafkaSpec()},
 	}
 	w := newMinimalKafkaWatcher(t, secret, integration)
 	trigger := &automationv1alpha1.Trigger{
@@ -189,10 +189,10 @@ func TestHandleSecretChange_UnrelatedKafkaSecretIgnored(t *testing.T) {
 }
 
 func TestOnTriggerDelete_RemovesKafkaTriggerFromIndex(t *testing.T) {
-	secret := newSASLSecret("kafka-creds", "default", "alice", "s3cr3t")
+	secret := newSASLSecret("s3cr3t")
 	integration := &automationv1alpha1.Integration{
 		ObjectMeta: metav1.ObjectMeta{Name: "kafka-integ", Namespace: "default"},
-		Spec:       automationv1alpha1.IntegrationSpec{Kafka: saslKafkaSpec("kafka-creds")},
+		Spec:       automationv1alpha1.IntegrationSpec{Kafka: saslKafkaSpec()},
 	}
 	w := newMinimalKafkaWatcher(t, secret, integration)
 	trigger := &automationv1alpha1.Trigger{

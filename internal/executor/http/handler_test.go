@@ -38,12 +38,12 @@ func TestExecutorHTTP(t *testing.T) {
 }
 
 // newHandler builds a Handler with default SSRF blocklist and the provided body limit.
-func newHandler(bodyLimit int64) *executorhttp.Handler {
+func newHandler() *executorhttp.Handler {
 	cidrs, err := executorhttp.ParseCIDRList("")
 	Expect(err).NotTo(HaveOccurred())
 	return &executorhttp.Handler{
 		BlockedCIDRs:       cidrs,
-		BodyLimitBytes:     bodyLimit,
+		BodyLimitBytes:     4096,
 		AllowTLSSkipVerify: false,
 	}
 }
@@ -51,10 +51,10 @@ func newHandler(bodyLimit int64) *executorhttp.Handler {
 // newPassthroughHandler builds a Handler with an empty SSRF blocklist so that
 // tests using httptest.NewServer (which binds to 127.0.0.1) are not blocked.
 // Only use this for tests that verify behaviour other than SSRF blocking.
-func newPassthroughHandler(bodyLimit int64) *executorhttp.Handler {
+func newPassthroughHandler() *executorhttp.Handler {
 	return &executorhttp.Handler{
 		BlockedCIDRs:       []*net.IPNet{}, // empty — no IPs blocked; used for tests targeting localhost
-		BodyLimitBytes:     bodyLimit,
+		BodyLimitBytes:     4096,
 		AllowTLSSkipVerify: false,
 	}
 }
@@ -89,7 +89,7 @@ var _ = Describe("Handler", func() {
 	Describe("POST /execute — SSRF protection", func() {
 		Context("when the target URL contains a blocked IP", func() {
 			It("returns HTTP 200 with ssrf_blocked: error for RFC1918 10.x.x.x", func() {
-				h := newHandler(4096)
+				h := newHandler()
 				resp, outerStatus := doExecute(h, executorhttp.ExecuteRequest{
 					Method: "GET",
 					URL:    "http://10.0.0.1/path",
@@ -101,7 +101,7 @@ var _ = Describe("Handler", func() {
 			})
 
 			It("returns HTTP 200 with ssrf_blocked: error for loopback 127.0.0.1", func() {
-				h := newHandler(4096)
+				h := newHandler()
 				resp, outerStatus := doExecute(h, executorhttp.ExecuteRequest{
 					Method: "GET",
 					URL:    "http://127.0.0.1/path",
@@ -111,7 +111,7 @@ var _ = Describe("Handler", func() {
 			})
 
 			It("returns HTTP 200 with ssrf_blocked: error for cloud metadata IP 169.254.169.254", func() {
-				h := newHandler(4096)
+				h := newHandler()
 				resp, outerStatus := doExecute(h, executorhttp.ExecuteRequest{
 					Method: "GET",
 					URL:    "http://169.254.169.254/latest/meta-data/",
@@ -124,7 +124,7 @@ var _ = Describe("Handler", func() {
 
 		Context("when the target URL has a .svc.cluster.local hostname", func() {
 			It("returns HTTP 200 with ssrf_blocked: error without performing DNS resolution", func() {
-				h := newHandler(4096)
+				h := newHandler()
 				resp, outerStatus := doExecute(h, executorhttp.ExecuteRequest{
 					Method: "GET",
 					URL:    "http://my-service.default.svc.cluster.local/api",
@@ -148,7 +148,7 @@ var _ = Describe("Handler", func() {
 			}))
 			defer upstream.Close()
 
-			h := newPassthroughHandler(4096)
+			h := newPassthroughHandler()
 			resp, outerStatus := doExecute(h, executorhttp.ExecuteRequest{
 				Method: "GET",
 				URL:    upstream.URL + "/api",
@@ -170,7 +170,7 @@ var _ = Describe("Handler", func() {
 			}))
 			defer upstream.Close()
 
-			h := newPassthroughHandler(4096)
+			h := newPassthroughHandler()
 			_, outerStatus := doExecute(h, executorhttp.ExecuteRequest{
 				Method:  "POST",
 				URL:     upstream.URL + "/secured",
@@ -192,7 +192,7 @@ var _ = Describe("Handler", func() {
 			}))
 			defer upstream.Close()
 
-			h := newPassthroughHandler(4096)
+			h := newPassthroughHandler()
 			resp, outerStatus := doExecute(h, executorhttp.ExecuteRequest{
 				Method: "GET",
 				URL:    upstream.URL + "/large",
@@ -201,7 +201,7 @@ var _ = Describe("Handler", func() {
 			Expect(outerStatus).To(Equal(http.StatusOK))
 			Expect(resp.Error).To(BeEmpty())
 			Expect(resp.Truncated).To(BeTrue())
-			Expect(len(resp.Body)).To(Equal(4096))
+			Expect(resp.Body).To(HaveLen(4096))
 		})
 
 		It("does not set Truncated when body fits within limit", func() {
@@ -211,7 +211,7 @@ var _ = Describe("Handler", func() {
 			}))
 			defer upstream.Close()
 
-			h := newPassthroughHandler(4096)
+			h := newPassthroughHandler()
 			resp, _ := doExecute(h, executorhttp.ExecuteRequest{
 				Method: "GET",
 				URL:    upstream.URL + "/small",
@@ -224,7 +224,7 @@ var _ = Describe("Handler", func() {
 
 	Describe("POST /execute — invalid requests", func() {
 		It("returns HTTP 400 for an unsupported HTTP method", func() {
-			h := newHandler(4096)
+			h := newHandler()
 			_, outerStatus := doExecute(h, executorhttp.ExecuteRequest{
 				Method: "CONNECT",
 				URL:    "http://example.com/",
@@ -238,7 +238,7 @@ var _ = Describe("Handler", func() {
 			httpReq.Header.Set("Content-Type", "application/json")
 			w := httptest.NewRecorder()
 
-			h := newHandler(4096)
+			h := newHandler()
 			h.ServeExecute(w, httpReq)
 
 			Expect(w.Code).To(Equal(http.StatusBadRequest))
@@ -250,7 +250,7 @@ var _ = Describe("Handler", func() {
 			httpReq.Header.Set("Content-Type", "application/json")
 			w := httptest.NewRecorder()
 
-			h := newHandler(4096)
+			h := newHandler()
 			h.ServeExecute(w, httpReq)
 
 			Expect(w.Code).To(Equal(http.StatusBadRequest))
@@ -259,7 +259,7 @@ var _ = Describe("Handler", func() {
 
 	Describe("GET /healthz", func() {
 		It("returns HTTP 200 with body 'ok'", func() {
-			h := newHandler(4096)
+			h := newHandler()
 			req := httptest.NewRequest(http.MethodGet, "/healthz", nil)
 			w := httptest.NewRecorder()
 
@@ -272,7 +272,7 @@ var _ = Describe("Handler", func() {
 
 	Describe("New (server mux wiring)", func() {
 		It("routes POST /execute to ServeExecute", func() {
-			h := newPassthroughHandler(4096)
+			h := newPassthroughHandler()
 			mux := executorhttp.New(h)
 
 			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -294,7 +294,7 @@ var _ = Describe("Handler", func() {
 		})
 
 		It("routes GET /healthz to ServeHealthz", func() {
-			h := newHandler(4096)
+			h := newHandler()
 			mux := executorhttp.New(h)
 
 			req := httptest.NewRequest(http.MethodGet, "/healthz", nil)

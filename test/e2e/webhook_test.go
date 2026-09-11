@@ -226,7 +226,7 @@ spec:
 
 var _ = Describe("Webhook Trigger -> Transform -> HTTP -> Mockoon", Ordered, func() {
 	BeforeAll(func() {
-		if os.Getenv("SKIP_WEBHOOK_E2E") == "true" {
+		if os.Getenv("SKIP_WEBHOOK_E2E") == envTrue {
 			Skip("SKIP_WEBHOOK_E2E=true; skipping webhook E2E scenario")
 		}
 

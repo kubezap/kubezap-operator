@@ -214,7 +214,7 @@ func (r *ExecutorReconciler) reconcileExecutorDeployment(ctx context.Context, na
 							VolumeMounts:    volumeMounts,
 							Ports: []corev1.ContainerPort{
 								{
-									Name:          "http",
+									Name:          portNameHTTP,
 									ContainerPort: port,
 									Protocol:      corev1.ProtocolTCP,
 								},
@@ -313,7 +313,7 @@ func (r *ExecutorReconciler) reconcileExecutorService(ctx context.Context, names
 			},
 			Ports: []corev1.ServicePort{
 				{
-					Name:       "http",
+					Name:       portNameHTTP,
 					Protocol:   corev1.ProtocolTCP,
 					Port:       port,
 					TargetPort: intstr.FromInt32(port),

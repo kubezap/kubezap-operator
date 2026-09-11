@@ -764,7 +764,7 @@ func TestWebhookRequestDurationHistogram(t *testing.T) {
 				// Second request will be rate-limited; the test sends two below.
 				return httptest.NewRequest(http.MethodPost, "/hooks/rl-hist", bytes.NewBufferString(`{}`))
 			},
-			wantResult: "rate_limited",
+			wantResult: metricResultRateLimited,
 			wantStatus: http.StatusTooManyRequests,
 		},
 	}
@@ -775,7 +775,7 @@ func TestWebhookRequestDurationHistogram(t *testing.T) {
 
 			// For the rate-limited case, fire a first request (should be accepted) then
 			// a second (should be rate-limited). We only care about the second one's label.
-			if tc.wantResult == "rate_limited" {
+			if tc.wantResult == metricResultRateLimited {
 				first := httptest.NewRequest(http.MethodPost, "/hooks/rl-hist", bytes.NewBufferString(`{}`))
 				rr := httptest.NewRecorder()
 				h.ServeHTTP(rr, first)
@@ -786,7 +786,7 @@ func TestWebhookRequestDurationHistogram(t *testing.T) {
 
 			triggerLabel := func() string {
 				switch tc.wantResult {
-				case "rate_limited":
+				case metricResultRateLimited:
 					return "rl-trigger"
 				case "rejected":
 					return "hmac-trigger"

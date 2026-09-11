@@ -42,21 +42,21 @@ import (
 
 // listFlowRunsForTrigger returns all FlowRuns in the given namespace labelled
 // with the trigger name.
-func listFlowRunsForTrigger(namespace, triggerName string) []automationv1alpha1.FlowRun {
+func listFlowRunsForTrigger(triggerName string) []automationv1alpha1.FlowRun {
 	var runs automationv1alpha1.FlowRunList
 	_ = k8sClient.List(ctx, &runs,
-		client.InNamespace(namespace),
+		client.InNamespace("default"),
 		client.MatchingLabels{"kubezap.io/trigger": triggerName},
 	)
 	return runs.Items
 }
 
 // createCronTrigger creates a Trigger CRD with type=cron in the test environment.
-func createCronTrigger(name, namespace, schedule string, cooldown *automationv1alpha1.CooldownPolicy) *automationv1alpha1.Trigger {
+func createCronTrigger(name, schedule string, cooldown *automationv1alpha1.CooldownPolicy) *automationv1alpha1.Trigger {
 	t := &automationv1alpha1.Trigger{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
-			Namespace: namespace,
+			Namespace: "default",
 		},
 		Spec: automationv1alpha1.TriggerSpec{
 			Type:    "cron",
@@ -75,11 +75,11 @@ func createCronTrigger(name, namespace, schedule string, cooldown *automationv1a
 }
 
 // cleanupCronTriggerAndRuns deletes the trigger and all FlowRuns it produced.
-func cleanupCronTriggerAndRuns(namespace, triggerName string, trigger *automationv1alpha1.Trigger) {
+func cleanupCronTriggerAndRuns(triggerName string, trigger *automationv1alpha1.Trigger) {
 	_ = k8sClient.Delete(context.Background(), trigger)
 	var runs automationv1alpha1.FlowRunList
 	_ = k8sClient.List(context.Background(), &runs,
-		client.InNamespace(namespace),
+		client.InNamespace("default"),
 		client.MatchingLabels{"kubezap.io/trigger": triggerName},
 	)
 	for i := range runs.Items {
@@ -99,8 +99,8 @@ var _ = Describe("CronScheduler", func() {
 		It("fires and creates a FlowRun on the first cron tick", func() {
 			triggerName := uniqueName("cron-nocooldown", 1)
 
-			trigger := createCronTrigger(triggerName, testNamespace, "@every 1s", nil)
-			DeferCleanup(func() { cleanupCronTriggerAndRuns(testNamespace, triggerName, trigger) })
+			trigger := createCronTrigger(triggerName, "@every 1s", nil)
+			DeferCleanup(func() { cleanupCronTriggerAndRuns(triggerName, trigger) })
 
 			log := logf.Log.WithName("test-cron")
 			scheduler := NewCronScheduler(k8sClient, log)
@@ -110,7 +110,7 @@ var _ = Describe("CronScheduler", func() {
 
 			// At least one FlowRun should appear within 5 seconds.
 			Eventually(func() int {
-				return len(listFlowRunsForTrigger(testNamespace, triggerName))
+				return len(listFlowRunsForTrigger(triggerName))
 			}, 5*time.Second, 200*time.Millisecond).Should(BeNumerically(">=", 1))
 		})
 	})
@@ -124,8 +124,8 @@ var _ = Describe("CronScheduler", func() {
 				MaxInvocations: 1,
 				Window:         &metav1.Duration{Duration: 60 * time.Second},
 			}
-			trigger := createCronTrigger(triggerName, testNamespace, "@every 1s", cooldown)
-			DeferCleanup(func() { cleanupCronTriggerAndRuns(testNamespace, triggerName, trigger) })
+			trigger := createCronTrigger(triggerName, "@every 1s", cooldown)
+			DeferCleanup(func() { cleanupCronTriggerAndRuns(triggerName, trigger) })
 
 			log := logf.Log.WithName("test-cron")
 			scheduler := NewCronScheduler(k8sClient, log)
@@ -135,13 +135,13 @@ var _ = Describe("CronScheduler", func() {
 
 			// Wait for the first (and only permitted) FlowRun.
 			Eventually(func() int {
-				return len(listFlowRunsForTrigger(testNamespace, triggerName))
+				return len(listFlowRunsForTrigger(triggerName))
 			}, 5*time.Second, 200*time.Millisecond).Should(BeNumerically(">=", 1))
 
 			// The window is 60 seconds; subsequent ticks should be blocked.
 			// Wait another 3 seconds and assert the count has not increased.
 			time.Sleep(3 * time.Second)
-			Expect(listFlowRunsForTrigger(testNamespace, triggerName)).To(HaveLen(1))
+			Expect(listFlowRunsForTrigger(triggerName)).To(HaveLen(1))
 
 			// Trigger status should record the rate-limit.
 			var updated automationv1alpha1.Trigger
@@ -158,8 +158,8 @@ var _ = Describe("CronScheduler", func() {
 				MaxInvocations: 1,
 				Window:         &metav1.Duration{Duration: 1 * time.Second},
 			}
-			trigger := createCronTrigger(triggerName, testNamespace, "@every 1s", cooldown)
-			DeferCleanup(func() { cleanupCronTriggerAndRuns(testNamespace, triggerName, trigger) })
+			trigger := createCronTrigger(triggerName, "@every 1s", cooldown)
+			DeferCleanup(func() { cleanupCronTriggerAndRuns(triggerName, trigger) })
 
 			log := logf.Log.WithName("test-cron")
 			scheduler := NewCronScheduler(k8sClient, log)
@@ -170,7 +170,7 @@ var _ = Describe("CronScheduler", func() {
 			// With a 1-second window and every-second cron, a new window opens on each
 			// tick. Expect at least 2 FlowRuns within 5 seconds.
 			Eventually(func() int {
-				return len(listFlowRunsForTrigger(testNamespace, triggerName))
+				return len(listFlowRunsForTrigger(triggerName))
 			}, 6*time.Second, 300*time.Millisecond).Should(BeNumerically(">=", 2))
 		})
 
@@ -182,8 +182,8 @@ var _ = Describe("CronScheduler", func() {
 				MaxInvocations: 5,
 				Window:         &metav1.Duration{Duration: 60 * time.Second},
 			}
-			trigger := createCronTrigger(triggerName, testNamespace, "@every 1s", cooldown)
-			DeferCleanup(func() { cleanupCronTriggerAndRuns(testNamespace, triggerName, trigger) })
+			trigger := createCronTrigger(triggerName, "@every 1s", cooldown)
+			DeferCleanup(func() { cleanupCronTriggerAndRuns(triggerName, trigger) })
 
 			log := logf.Log.WithName("test-cron")
 			scheduler := NewCronScheduler(k8sClient, log)
@@ -193,7 +193,7 @@ var _ = Describe("CronScheduler", func() {
 
 			// A FlowRun should appear (nil LastTriggeredTime = first invocation → no block).
 			Eventually(func() int {
-				return len(listFlowRunsForTrigger(testNamespace, triggerName))
+				return len(listFlowRunsForTrigger(triggerName))
 			}, 5*time.Second, 200*time.Millisecond).Should(BeNumerically(">=", 1))
 
 			// The scheduler should have patched LastTriggeredTime onto the Trigger status.
@@ -252,7 +252,7 @@ var _ = Describe("CronScheduler", func() {
 
 		It("is idempotent: registering the same trigger twice replaces the old entry", func() {
 			triggerName := uniqueName("cron-idem", 1)
-			trigger := createCronTrigger(triggerName, testNamespace, "0 0 1 1 *", nil) // 1 Jan — won't fire
+			trigger := createCronTrigger(triggerName, "0 0 1 1 *", nil) // 1 Jan — won't fire
 			DeferCleanup(func() { _ = k8sClient.Delete(context.Background(), trigger) })
 
 			log := logf.Log.WithName("test-cron")
@@ -269,8 +269,8 @@ var _ = Describe("CronScheduler", func() {
 		It("creates FlowRuns named <trigger>-<unix-timestamp> with correct ScheduledTime, TriggerRef, and labels", func() {
 			triggerName := uniqueName("cron-t1", 1)
 
-			trigger := createCronTrigger(triggerName, testNamespace, "@every 1s", nil)
-			DeferCleanup(func() { cleanupCronTriggerAndRuns(testNamespace, triggerName, trigger) })
+			trigger := createCronTrigger(triggerName, "@every 1s", nil)
+			DeferCleanup(func() { cleanupCronTriggerAndRuns(triggerName, trigger) })
 
 			log := logf.Log.WithName("test-cron-t1")
 			scheduler := NewCronScheduler(k8sClient, log)
@@ -281,10 +281,10 @@ var _ = Describe("CronScheduler", func() {
 
 			// Wait for the first FlowRun.
 			Eventually(func() int {
-				return len(listFlowRunsForTrigger(testNamespace, triggerName))
+				return len(listFlowRunsForTrigger(triggerName))
 			}, 5*time.Second, 200*time.Millisecond).Should(BeNumerically(">=", 1))
 
-			runs := listFlowRunsForTrigger(testNamespace, triggerName)
+			runs := listFlowRunsForTrigger(triggerName)
 			Expect(runs).NotTo(BeEmpty())
 			fr := runs[0]
 
@@ -313,10 +313,10 @@ var _ = Describe("CronScheduler", func() {
 
 			// Wait for a second FlowRun to confirm multi-fire and name uniqueness.
 			Eventually(func() int {
-				return len(listFlowRunsForTrigger(testNamespace, triggerName))
+				return len(listFlowRunsForTrigger(triggerName))
 			}, 5*time.Second, 200*time.Millisecond).Should(BeNumerically(">=", 2))
 
-			allRuns := listFlowRunsForTrigger(testNamespace, triggerName)
+			allRuns := listFlowRunsForTrigger(triggerName)
 			seen := make(map[string]struct{}, len(allRuns))
 			for _, r := range allRuns {
 				_, dup := seen[r.Name]
@@ -329,7 +329,7 @@ var _ = Describe("CronScheduler", func() {
 	Context("Deregister", func() {
 		It("removes a previously registered trigger without panicking", func() {
 			triggerName := uniqueName("cron-dereg", 1)
-			trigger := createCronTrigger(triggerName, testNamespace, "0 0 1 1 *", nil)
+			trigger := createCronTrigger(triggerName, "0 0 1 1 *", nil)
 			DeferCleanup(func() { _ = k8sClient.Delete(context.Background(), trigger) })
 
 			log := logf.Log.WithName("test-cron")

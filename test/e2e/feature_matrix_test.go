@@ -242,9 +242,9 @@ func fmDeleteInline(yamlContent string) {
 	_, _ = utils.Run(cmd)
 }
 
-// fmCreateFlowRun applies a minimal FlowRun that references the given Flow name
-// in e2eNS.  Returns the FlowRun name.  The caller is responsible for cleanup.
-func fmCreateFlowRun(name, flowName string, extraYAML string) string {
+// fmCreateFlowRun applies a minimal FlowRun named name that references the given
+// Flow name in e2eNS. The caller is responsible for cleanup.
+func fmCreateFlowRun(name, flowName string, extraYAML string) {
 	yaml := fmt.Sprintf(`
 apiVersion: automation.kubezap.io/v1alpha1
 kind: FlowRun
@@ -257,7 +257,6 @@ spec:
 %s
 `, name, e2eNS, flowName, extraYAML)
 	fmApplyInline(yaml)
-	return name
 }
 
 // fmDeleteFlowRun deletes a FlowRun by name in e2eNS (best-effort).

@@ -31,6 +31,10 @@ import (
 	"github.com/kubezap/kubezap-operator/internal/cli/output"
 )
 
+// healthUnknown is returned by pluginHealthStatus when the health of a plugin
+// integration cannot be determined (missing config or a failed healthz call).
+const healthUnknown = "unknown"
+
 // ListIntegrations lists Integration resources with gateway and plugin health status.
 func ListIntegrations(ctx context.Context, c client.Client, namespace string, format output.Format) error {
 	list := &automationv1alpha1.IntegrationList{}
@@ -60,7 +64,7 @@ func printIntegrationTable(ctx context.Context, w io.Writer, c client.Client, it
 
 	for _, intg := range items {
 		gatewayStatus := gatewayDeploymentStatus(ctx, c, &intg, namespace)
-		pluginHealth := pluginHealthStatus(ctx, c, &intg, namespace)
+		pluginHealth := pluginHealthStatus(ctx, &intg, namespace)
 		rows = append(rows, []string{
 			intg.Name,
 			output.Dash(intg.Spec.Type),
@@ -108,12 +112,12 @@ func gatewayDeploymentStatus(ctx context.Context, c client.Client, intg *automat
 
 // pluginHealthStatus calls the plugin's /healthz endpoint for type=plugin integrations.
 // Returns "n/a" for non-plugin types, "Healthy", "Unhealthy", or "unknown".
-func pluginHealthStatus(ctx context.Context, c client.Client, intg *automationv1alpha1.Integration, namespace string) string {
+func pluginHealthStatus(ctx context.Context, intg *automationv1alpha1.Integration, namespace string) string {
 	if intg.Spec.Type != "plugin" {
 		return "n/a"
 	}
 	if intg.Spec.Plugin == nil {
-		return "unknown"
+		return healthUnknown
 	}
 
 	// Build the service URL using the convention kubezap-plugin-<name>.<namespace>.svc.cluster.local.
@@ -130,12 +134,12 @@ func pluginHealthStatus(ctx context.Context, c client.Client, intg *automationv1
 	httpClient := &http.Client{Timeout: 3 * time.Second}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
-		return "unknown"
+		return healthUnknown
 	}
 
 	resp, err := httpClient.Do(req)
 	if err != nil {
-		return "unknown"
+		return healthUnknown
 	}
 	defer resp.Body.Close()
 

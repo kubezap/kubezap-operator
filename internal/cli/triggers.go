@@ -30,6 +30,11 @@ import (
 	"github.com/kubezap/kubezap-operator/internal/cli/output"
 )
 
+// gcPolicyDefaultLabel is the display value used when no FlowRunGCPolicy is
+// configured (i.e. the operator's built-in default applies). Distinct from
+// defaultNamespace even though the string value happens to coincide.
+const gcPolicyDefaultLabel = "default"
+
 // ListTriggers lists Trigger resources with enriched status and prints to stdout.
 func ListTriggers(ctx context.Context, c client.Client, namespace string, format output.Format) error {
 	list := &automationv1alpha1.TriggerList{}
@@ -108,13 +113,13 @@ func triggerStatus(conditions []metav1.Condition) string {
 			return "Error: " + c.Reason
 		}
 	}
-	return "Pending"
+	return phasePending
 }
 
 // fmtGCPolicy formats a FlowRunGCPolicy into a compact string.
 func fmtGCPolicy(gc *automationv1alpha1.FlowRunGCPolicy) string {
 	if gc == nil {
-		return "default"
+		return gcPolicyDefaultLabel
 	}
 
 	var parts []string
@@ -149,7 +154,7 @@ func fmtGCPolicy(gc *automationv1alpha1.FlowRunGCPolicy) string {
 	}
 
 	if len(parts) == 0 {
-		return "default"
+		return gcPolicyDefaultLabel
 	}
 	return strings.Join(parts, " ")
 }

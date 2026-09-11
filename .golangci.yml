@@ -26,6 +26,18 @@ linters:
       rules:
         - name: comment-spacings
         - name: import-shadowing
+    errcheck:
+      # These are all deferred resource-cleanup or best-effort CLI/test output calls
+      # where the error is not actionable (nothing meaningful to do with a failed
+      # HTTP body Close, a stdout/stderr write, or a temp-file removal in test
+      # cleanup) and there is no established convention elsewhere in this repo of
+      # checking them. Real handling errors (a genuine I/O write whose failure must
+      # propagate) are checked normally — this exclude list is deliberately narrow.
+      exclude-functions:
+        - (io.Closer).Close
+        - fmt.Fprintf
+        - fmt.Fprintln
+        - os.Remove
   exclusions:
     generated: lax
     rules:

@@ -158,6 +158,8 @@ var _ = Describe("FlowRunReconciler", func() {
 				return &updated, nil
 			}
 			// If no requeue is requested and phase is not terminal, stop.
+			//nolint:staticcheck // Requeue (not just RequeueAfter) is a real, actively-used
+			// signal in this controller's Reconcile (see flowrun_controller.go) — not vacuous.
 			if !result.Requeue && result.RequeueAfter == 0 {
 				return &updated, nil
 			}

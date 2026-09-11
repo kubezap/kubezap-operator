@@ -14,6 +14,11 @@ import (
 	"github.com/lestrrat-go/jwx/v2/jwt"
 )
 
+const (
+	testOIDCIssuer   = "https://issuer.example.com"
+	testOIDCAudience = "kubezap"
+)
+
 // testKeyPair holds an RSA key pair and the corresponding public JWK set for tests.
 type testKeyPair struct {
 	privateKey *rsa.PrivateKey
@@ -111,8 +116,8 @@ func TestOIDCValidToken(t *testing.T) {
 	srv := newJWKSServer(t, kp.jwks)
 	defer srv.Close()
 
-	issuer := "https://issuer.example.com"
-	audience := "kubezap"
+	issuer := testOIDCIssuer
+	audience := testOIDCAudience
 
 	v := newTestValidator(t, srv.URL, issuer, audience)
 
@@ -135,8 +140,8 @@ func TestOIDCExpiredToken(t *testing.T) {
 	srv := newJWKSServer(t, kp.jwks)
 	defer srv.Close()
 
-	issuer := "https://issuer.example.com"
-	audience := "kubezap"
+	issuer := testOIDCIssuer
+	audience := testOIDCAudience
 
 	v := newTestValidator(t, srv.URL, issuer, audience)
 
@@ -160,11 +165,11 @@ func TestOIDCWrongIssuer(t *testing.T) {
 	srv := newJWKSServer(t, kp.jwks)
 	defer srv.Close()
 
-	v := newTestValidator(t, srv.URL, "https://expected-issuer.example.com", "kubezap")
+	v := newTestValidator(t, srv.URL, "https://expected-issuer.example.com", testOIDCAudience)
 
 	tok := buildToken(t, jwt.NewBuilder().
 		Issuer("https://wrong-issuer.example.com").
-		Audience([]string{"kubezap"}).
+		Audience([]string{testOIDCAudience}).
 		Subject("user-123").
 		Expiration(time.Now().Add(time.Hour)))
 
@@ -181,10 +186,10 @@ func TestOIDCWrongAudience(t *testing.T) {
 	srv := newJWKSServer(t, kp.jwks)
 	defer srv.Close()
 
-	v := newTestValidator(t, srv.URL, "https://issuer.example.com", "expected-audience")
+	v := newTestValidator(t, srv.URL, testOIDCIssuer, "expected-audience")
 
 	tok := buildToken(t, jwt.NewBuilder().
-		Issuer("https://issuer.example.com").
+		Issuer(testOIDCIssuer).
 		Audience([]string{"wrong-audience"}).
 		Subject("user-123").
 		Expiration(time.Now().Add(time.Hour)))
@@ -203,8 +208,8 @@ func TestOIDCInvalidSignature(t *testing.T) {
 	srv := newJWKSServer(t, kp.jwks)
 	defer srv.Close()
 
-	issuer := "https://issuer.example.com"
-	audience := "kubezap"
+	issuer := testOIDCIssuer
+	audience := testOIDCAudience
 
 	v := newTestValidator(t, srv.URL, issuer, audience)
 

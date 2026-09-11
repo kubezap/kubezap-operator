@@ -53,9 +53,13 @@ func main() {
 	flag.IntVar(&metricsPort, "metrics-port", 9090, "Port for the dedicated Prometheus metrics server")
 	flag.StringVar(&namespace, "namespace", "", "Namespace to watch; empty=all namespaces")
 	flag.StringVar(&logLevel, "log-level", "info", "Log level: debug|info|warn|error")
-	flag.StringVar(&tlsCertFile, "tls-cert-file", "", "Path to TLS certificate file (PEM). When set with --tls-key-file the server listens on HTTPS.")
-	flag.StringVar(&tlsKeyFile, "tls-key-file", "", "Path to TLS private key file (PEM). Required when --tls-cert-file is set.")
-	flag.StringVar(&mtlsCAFile, "mtls-ca-file", "", "Path to CA certificate PEM file for verifying client certificates (mTLS). Requires --tls-cert-file and --tls-key-file.")
+	flag.StringVar(&tlsCertFile, "tls-cert-file", "",
+		"Path to TLS certificate file (PEM). When set with --tls-key-file the server listens on HTTPS.")
+	flag.StringVar(&tlsKeyFile, "tls-key-file", "",
+		"Path to TLS private key file (PEM). Required when --tls-cert-file is set.")
+	flag.StringVar(&mtlsCAFile, "mtls-ca-file", "",
+		"Path to CA certificate PEM file for verifying client certificates (mTLS). Requires "+
+			"--tls-cert-file and --tls-key-file.")
 	flag.StringVar(&metricsTLSCertFile, "metrics-tls-cert-file", "", "Path to TLS certificate PEM for the metrics server")
 	flag.StringVar(&metricsTLSKeyFile, "metrics-tls-key-file", "", "Path to TLS key PEM for the metrics server")
 	flag.Parse()
@@ -101,7 +105,8 @@ func main() {
 
 	jwksCache := webhook.NewJWKSCache(ctx)
 
-	watcher, err := webhook.NewTriggerWatcher(cfg, k8sClient, registry, namespace, log.WithName("trigger-watcher"), jwksCache)
+	watcher, err := webhook.NewTriggerWatcher(
+		cfg, k8sClient, registry, namespace, log.WithName("trigger-watcher"), jwksCache)
 	if err != nil {
 		log.Error(err, "unable to create trigger watcher")
 		os.Exit(1)
@@ -173,7 +178,8 @@ func main() {
 	go func() {
 		if metricsTLSCertFile != "" && metricsTLSKeyFile != "" {
 			log.Info("starting metrics HTTPS server", "port", metricsPort)
-			if err := metricsSrv.ListenAndServeTLS(metricsTLSCertFile, metricsTLSKeyFile); err != nil && err != http.ErrServerClosed {
+			if err := metricsSrv.ListenAndServeTLS(metricsTLSCertFile, metricsTLSKeyFile); err != nil &&
+				err != http.ErrServerClosed {
 				log.Error(err, "metrics HTTPS server failed")
 			}
 		} else {

@@ -48,6 +48,8 @@ func main() {
 	var mtlsCAFile string
 	var metricsTLSCertFile string
 	var metricsTLSKeyFile string
+	var trustedProxyCIDRs string
+	var maxStoredBodyBytes int
 
 	flag.IntVar(&port, "port", 8080, "HTTP/HTTPS server port")
 	flag.IntVar(&metricsPort, "metrics-port", 9090, "Port for the dedicated Prometheus metrics server")
@@ -62,7 +64,24 @@ func main() {
 			"--tls-cert-file and --tls-key-file.")
 	flag.StringVar(&metricsTLSCertFile, "metrics-tls-cert-file", "", "Path to TLS certificate PEM for the metrics server")
 	flag.StringVar(&metricsTLSKeyFile, "metrics-tls-key-file", "", "Path to TLS key PEM for the metrics server")
+	flag.StringVar(&trustedProxyCIDRs, "trusted-proxy-cidrs", "",
+		"Comma-separated CIDRs of reverse proxies/load balancers in front of this gateway whose "+
+			"X-Forwarded-For/X-Real-IP headers should be trusted for ipAllowlist webhook auth and "+
+			"access logging. Empty (default) means these headers are never trusted — the TCP peer "+
+			"address is always used. Required for ipAllowlist auth to work correctly behind a proxy.")
+	flag.IntVar(&maxStoredBodyBytes, "max-stored-body-bytes", 0,
+		"Maximum bytes of a webhook body stored in TriggerData.Body and made available to Flow "+
+			"processing (independent of, and much smaller than, the internal read limit that bounds "+
+			"memory use). 0 (default) uses the built-in default of 65536. Truncating mid-JSON breaks "+
+			"trigger.bodyFields and $(trigger.body.*) entirely for the whole payload, not just past "+
+			"the cutoff -- raise this if your webhook payloads exceed the limit.")
 	flag.Parse()
+
+	trustedProxies, err := webhook.ParseTrustedProxyCIDRs(trustedProxyCIDRs)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "invalid --trusted-proxy-cidrs: %v\n", err)
+		os.Exit(1)
+	}
 
 	opts := zap.NewDevelopmentConfig()
 	if level, err := zap.ParseAtomicLevel(logLevel); err == nil {
@@ -119,7 +138,8 @@ func main() {
 	}()
 
 	mux := http.NewServeMux()
-	handler := webhook.NewWebhookHandler(k8sClient, registry, log.WithName("webhook-handler"))
+	handler := webhook.NewWebhookHandler(
+		k8sClient, registry, log.WithName("webhook-handler"), trustedProxies, maxStoredBodyBytes)
 	mux.Handle("/hooks/", handler)
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -135,7 +155,14 @@ func main() {
 		_, _ = w.Write([]byte("not ready"))
 	})
 
-	srv := &http.Server{Addr: fmt.Sprintf(":%d", port), Handler: webhook.AccessLogMiddleware(mux)}
+	srv := &http.Server{
+		Addr:              fmt.Sprintf(":%d", port),
+		Handler:           webhook.AccessLogMiddleware(mux, trustedProxies),
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		WriteTimeout:      30 * time.Second,
+		IdleTimeout:       120 * time.Second,
+	}
 	go func() {
 		if tlsCertFile != "" && tlsKeyFile != "" {
 			tlsCfg := &tls.Config{

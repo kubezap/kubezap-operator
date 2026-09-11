@@ -6,12 +6,25 @@
 # via its internal RPC endpoint (POST /execute on port 8091). These requests include
 # resolved credentials — therefore this channel must be tightly restricted.
 #
-# This file is a refinement of the reference policy shipped in
-# config/samples/network-policy-executor.yaml. Key differences:
-#   - Egress is explicitly modelled: the executor must be able to reach arbitrary
-#     external HTTPS endpoints (it is the component that makes outbound HTTP calls).
-#   - DNS egress is included.
-#   - The ingress rule is identical to the samples reference.
+# As of the fix in docs/design/2026-09-11-executor-egress-networkpolicy.md, the
+# operator auto-creates a NetworkPolicy with this same shape (ingress restricted to
+# the controller pod; egress open except for the ranges below) in every managed
+# namespace via reconcileExecutorNetworkPolicy — you do NOT need to apply this file
+# manually for the policy to take effect. It remains here for manual inspection,
+# cluster auditing, and as a reference if you disable the operator-managed policy
+# and want to reproduce it yourself (e.g. for review before it's auto-applied, or
+# on a namespace the operator doesn't manage).
+#
+# This egress rule is SSRF defense-in-depth, not the primary control: the executor
+# also enforces a software SSRF blocklist (internal/executor/http/ssrf.go), but that
+# blocklist has an inherent DNS-rebinding gap (it resolves a hostname to validate,
+# then the HTTP client resolves the same hostname again to connect — an attacker
+# who controls the target's DNS can return a safe address for the first lookup and
+# a blocked one for the second). NetworkPolicy filters the actual destination IP of
+# the packet the executor sends, which DNS trickery cannot fool. This ONLY works if
+# your cluster's CNI enforces NetworkPolicy (Calico, Cilium, and most managed-K8s
+# defaults do; plain Flannel does not) — if yours doesn't, use cloud security groups
+# / NACLs on the node subnet to block the same ranges as a fallback.
 #
 # NOTE: NetworkPolicy alone is the mandatory baseline. For clusters without a
 # service mesh, enable mTLS on the controller-to-executor channel using the
@@ -22,6 +35,8 @@
 #     0.0.0.0/0 egress CIDR with the specific CIDRs of those services.
 #   - If your cluster enforces strict egress policies, add per-service egress
 #     rules instead of the wide-open CIDR below.
+#   - Keep the except list below in sync with defaultSSRFBlockedCIDRs in
+#     internal/executor/http/ssrf.go if you customize either one.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -54,15 +69,26 @@ spec:
 
   egress:
     # The executor makes outbound HTTP/HTTPS calls on behalf of Flow steps.
-    # Replace 0.0.0.0/0 with the specific CIDRs of your target services if known.
+    # Replace 0.0.0.0/0 (and ::/0) with the specific CIDRs of your target
+    # services if known. The except lists mirror defaultSSRFBlockedCIDRs in
+    # internal/executor/http/ssrf.go.
     - to:
         - ipBlock:
             cidr: 0.0.0.0/0  # TODO: narrow to known external service CIDRs
             except:
-              - 10.0.0.0/8     # block RFC-1918 ranges to prevent SSRF against
-              - 172.16.0.0/12  # internal cluster services. The executor also
-              - 192.168.0.0/16 # enforces a software SSRF blocklist, but defence-
-                               # in-depth at the network layer is recommended.
+              - 10.0.0.0/8      # RFC1918 private ranges
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+              - 127.0.0.0/8     # loopback
+              - 169.254.0.0/16  # link-local — AWS/GCP/Azure instance metadata
+              - 0.0.0.0/8
+              - 100.64.0.0/10   # CGNAT / shared address space (RFC6598)
+        - ipBlock:
+            cidr: ::/0  # TODO: narrow to known external service CIDRs
+            except:
+              - ::1/128     # loopback
+              - fe80::/10   # link-local
+              - fc00::/7    # unique local
       ports:
         - protocol: TCP
           port: 80

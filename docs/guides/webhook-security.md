@@ -23,6 +23,7 @@ Authentication is configured per `Trigger`, so different triggers can use differ
     - [Ingress / Route passthrough](#ingress--route-passthrough)
   - [API Key Header](#api-key-header)
   - [IP Allowlist](#ip-allowlist)
+  - [Body Size Limits](#body-size-limits)
   - [Auth Spec Reference](#auth-spec-reference)
     - [WebhookAuth](#webhookauth)
     - [HMACConfig](#hmacconfig)
@@ -362,7 +363,7 @@ spec:
           - "203.0.113.0/28"   # GitHub webhook IP range (example)
 ```
 
-> **Note:** The source IP seen by the gateway is the pod-network IP, which may be the Ingress controller's cluster IP rather than the original client IP if you are using an Ingress. To handle this, configure your Ingress to forward `X-Forwarded-For` and add a NetworkPolicy or Ingress-level allowlist upstream of the gateway. Per-trigger trusted proxy configuration is planned for a future release.
+> **Note:** By default, the gateway never trusts `X-Forwarded-For`/`X-Real-IP` — it always uses the TCP peer address, which is the Ingress controller's/load balancer's own IP if you're behind one, not the original client's. This is a deliberate, safe default: if the gateway trusted these headers unconditionally, any caller reaching it directly could set either one to an allowed IP and bypass the allowlist entirely. If you're behind a reverse proxy that forwards the real client IP via `X-Forwarded-For` (or `X-Real-IP`), pass `--trusted-proxy-cidrs` (a comma-separated list of CIDRs) to the webhook gateway with that proxy's pod/service CIDR; the header is then honored only when the immediate connection actually comes from a trusted CIDR, using the right-most `X-Forwarded-For` entry (the address the trusted proxy itself observed — a client can prepend a fake entry, but not overwrite the one the proxy appends). This is gateway-wide, not per-Trigger.
 
 > **Note:** Only one `type` is active per Trigger. To combine IP allowlisting with another auth method (e.g., HMAC + IP restriction), use `type: ipAllowlist` for IP enforcement and apply HMAC verification separately, or enforce IP restrictions at the Ingress/NetworkPolicy layer while using an auth type like `hmac` on the Trigger. Support for layering multiple auth methods is planned for a future release.
 
@@ -435,6 +436,17 @@ spec:
 | Field   | Type     | Required | Description                                                                     |
 | ------- | -------- | -------- | ------------------------------------------------------------------------------- |
 | `cidrs` | []string | **Yes**  | CIDR blocks allowed to call this endpoint (e.g., `["10.0.0.0/8", "1.2.3.4/32"]`) |
+
+---
+
+## Body Size Limits
+
+The webhook gateway applies two independent, differently-sized limits to a request body:
+
+- **Read limit (4MB, not configurable):** the gateway refuses to read more than 4MB from the request body at all, returning `413 Request Entity Too Large`. This exists purely to bound memory use against arbitrarily large uploads and is checked before authentication.
+- **Stored/processed limit (64KB by default, configurable via `--max-stored-body-bytes` on the webhook gateway):** independent of, and much smaller than, the read limit — this is how much of the body is actually stored in `FlowRun.spec.triggerData.body` and available to `$(trigger.body...)` interpolation, `trigger.bodyFields` in CEL, and `when` conditions. A body larger than this is silently truncated to the limit and `bodyTruncated: true` is set on the FlowRun.
+
+This truncation applies to the *stored* body, which is the only body every downstream mechanism sees — `$(trigger.body...)` interpolation, CEL's `trigger.bodyFields`, and raw-string `when` conditions (`trigger.body.contains("...")`) all read from the same truncated string. For a JSON (or form-urlencoded) body, truncating mid-structure produces invalid JSON: parsing fails entirely, so `trigger.bodyFields` becomes an empty map and every `$(trigger.body.<field>)` placeholder is left unresolved (literally sent as the placeholder text) rather than just missing one field — **this silently breaks structured field access for the whole payload, not just the part past the cutoff.** The 64KB default comfortably covers most real-world JSON webhook payloads (GitHub push events, Slack interactive payloads, Stripe events), but if your Flow reads any field from the body via interpolation or `bodyFields`, check your actual payload size against the limit — don't assume it's enough for an unusually large integration without verifying. Only raw-string `when` conditions degrade gracefully (they see a truncated but still-valid prefix, with the padding-based bypass risk described above); everything else fails closed to "field not found."
 
 ---
 

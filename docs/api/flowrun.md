@@ -154,8 +154,8 @@ Snapshot of the event that caused this FlowRun. The full set of fields depends o
 | `offset`        | integer           | Kafka message offset (kafka only)                          |
 | `kafkaHeaders`  | map[string]string | Kafka message headers (kafka only)                         |
 | `scheduledTime`        | timestamp         | Scheduled fire time (cron only)                                    |
-| `body`                 | string            | Request or message body (truncated at 4KB)                         |
-| `bodyTruncated`        | boolean           | `true` if the body exceeded 4KB and was truncated                  |
+| `body`                 | string            | Request or message body (truncated at 64KB by default for webhook triggers — configurable via the webhook gateway's `--max-stored-body-bytes` flag; see [Webhook Security](../guides/webhook-security.md#body-size-limits)) |
+| `bodyTruncated`        | boolean           | `true` if the body exceeded the limit and was truncated            |
 | `contentType`          | string            | Content-Type of the body                                           |
 | `eventType`            | string            | Kubernetes watch event type: `ADDED`, `MODIFIED`, `DELETED` (resource triggers only) |
 | `resourceName`         | string            | Name of the watched resource (resource triggers only)              |

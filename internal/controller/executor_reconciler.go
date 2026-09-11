@@ -326,11 +326,46 @@ func (r *ExecutorReconciler) reconcileExecutorService(ctx context.Context, names
 	return err
 }
 
-// reconcileExecutorNetworkPolicy ensures only the controller pod can reach the executor.
+// executorSSRFBlockedEgressCIDRs mirrors internal/executor/http/ssrf.go's
+// defaultSSRFBlockedCIDRs. This NetworkPolicy egress rule is defense-in-depth
+// against the software SSRF blocklist's inherent DNS-rebinding gap (resolve,
+// validate, then let the HTTP transport re-resolve and connect — an attacker
+// who controls the target hostname's DNS can return a safe address for the
+// first lookup and a blocked one for the second). NetworkPolicy filters the
+// actual destination IP of the packet the executor sends, so DNS trickery
+// cannot defeat it the way it defeats the app-level check. Kept in sync with
+// the Go blocklist by convention — see
+// docs/design/2026-09-11-executor-egress-networkpolicy.md. Requires a
+// NetworkPolicy-enforcing CNI (Calico, Cilium, most managed-Kubernetes
+// defaults); on a non-enforcing CNI (e.g. plain Flannel) this provides no
+// additional protection — see docs/guides/security-checklist.md.
+var executorSSRFBlockedEgressCIDRs = []string{
+	"10.0.0.0/8",
+	"172.16.0.0/12",
+	"192.168.0.0/16",
+	"127.0.0.0/8",
+	"169.254.0.0/16", // link-local — includes AWS/GCP/Azure metadata IPs
+	"0.0.0.0/8",
+	"100.64.0.0/10", // CGNAT / shared address space (RFC6598)
+}
+
+var executorSSRFBlockedEgressCIDRsV6 = []string{
+	"::1/128",
+	"fe80::/10", // IPv6 link-local
+	"fc00::/7",  // IPv6 unique local
+}
+
+// reconcileExecutorNetworkPolicy ensures only the controller pod can reach the executor,
+// and that the executor cannot egress to internal/link-local ranges (SSRF defense-in-depth).
 func (r *ExecutorReconciler) reconcileExecutorNetworkPolicy(ctx context.Context, namespace string) error {
 	port := r.executorPort()
 	protocol := corev1.ProtocolTCP
 	portVal := intstr.FromInt32(port)
+	httpPort := intstr.FromInt32(80)
+	httpsPort := intstr.FromInt32(443)
+	dnsPort := intstr.FromInt32(53)
+	dnsUDP := corev1.ProtocolUDP
+	dnsTCP := corev1.ProtocolTCP
 
 	desired := &networkingv1.NetworkPolicy{
 		ObjectMeta: metav1.ObjectMeta{
@@ -367,8 +402,29 @@ func (r *ExecutorReconciler) reconcileExecutorNetworkPolicy(ctx context.Context,
 					},
 				},
 			},
+			Egress: []networkingv1.NetworkPolicyEgressRule{
+				{
+					// Outbound HTTP(S) calls for Flow steps, minus the blocked ranges.
+					To: []networkingv1.NetworkPolicyPeer{
+						{IPBlock: &networkingv1.IPBlock{CIDR: "0.0.0.0/0", Except: executorSSRFBlockedEgressCIDRs}},
+						{IPBlock: &networkingv1.IPBlock{CIDR: "::/0", Except: executorSSRFBlockedEgressCIDRsV6}},
+					},
+					Ports: []networkingv1.NetworkPolicyPort{
+						{Protocol: &protocol, Port: &httpPort},
+						{Protocol: &protocol, Port: &httpsPort},
+					},
+				},
+				{
+					// DNS resolution — always allowed regardless of destination.
+					Ports: []networkingv1.NetworkPolicyPort{
+						{Protocol: &dnsUDP, Port: &dnsPort},
+						{Protocol: &dnsTCP, Port: &dnsPort},
+					},
+				},
+			},
 			PolicyTypes: []networkingv1.PolicyType{
 				networkingv1.PolicyTypeIngress,
+				networkingv1.PolicyTypeEgress,
 			},
 		}
 		return nil

@@ -63,6 +63,9 @@ type TriggerReconciler struct {
 //
 // For more details, check Reconcile and its Result here:
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.21.0/pkg/reconcile
+//
+// nolint:gocyclo // single dispatch-heavy reconcile loop across trigger types; deferred
+// pending owner decision, see docs/schedule.md §36.
 func (r *TriggerReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := logf.FromContext(ctx)
 

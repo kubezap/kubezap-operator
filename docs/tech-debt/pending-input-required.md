@@ -6,6 +6,26 @@ and surfaces the open questions.
 
 ---
 
+## Lint Deferred Items — 2026-09-11
+
+<!-- BACKLOG-PROMPT -->
+**Q: The 12 remaining `make lint` findings (§36) were suppressed via `//nolint`/a path-scoped exclusion rather than fixed by refactoring — is that suppression the permanent answer, or should the bigger refactor happen?**
+
+Why it matters: `internal/controller/flowrun_controller.go`/`flowrun_controller_test.go` use plain string literals (not a typed enum) for `FlowRunStatus.Phase`/`StepRunStatus.Phase`/`FailurePolicy` — `"Running"`, `"Succeeded"`, `"Continue"`, etc. — repeated 10-70+ times each across the two hottest files in the codebase (goconst's default `max-same-issues: 3` cap made this look like only 7 small findings; it isn't). Separately, 5 functions across `internal/controller` and `internal/gateway/webhook` are single dispatch-heavy reconcile loops/config builders well over the cyclomatic-complexity threshold (`Reconcile` at 97 vs. a threshold of 30, most extreme).
+
+Current state (as of 2026-09-11): both are suppressed, not fixed — a path-scoped `goconst` exclusion in `.golangci.yml` for the two flowrun_controller files, and a `// nolint:gocyclo` comment with a one-line justification above each of the 5 functions. `make lint` is clean. No code behavior changed.
+
+Options:
+- (A) Leave the suppressions in place indefinitely — lowest effort, zero risk, but the phase-string family stays typo-prone (a misspelled literal is not a compile error) and the 5 functions stay as-is.
+- (B) Introduce a typed `Phase` enum for the FlowRun/step status strings and the `FailurePolicy` values, then remove the `goconst` exclusion — a real refactor (100+ call-site rename inside live reconciliation logic) needing its own design record per `docs/guides/design-process.md`.
+- (C) Split the 5 flagged functions apart to bring their complexity under 30, then remove their `nolint:gocyclo` comments — `authenticateRequest` (`internal/gateway/webhook/handler.go`) is the most mechanically splittable starting point (one `switch`-per-auth-type function); `Reconcile` (`internal/controller/flowrun_controller.go`) is state-machine-shaped and the riskiest of the five to split.
+- (B) and (C) are independent — either, both, or neither can be done.
+
+No code change is currently blocked on this answer; the suppressions are stable either way. Schedule reference: `docs/schedule.md` §36.
+<!-- BACKLOG-PROMPT -->
+
+---
+
 ## Review 2026-03-21
 
 ### Decisions needed from owner

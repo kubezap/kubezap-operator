@@ -186,6 +186,9 @@ type FlowRunReconciler struct {
 	celCache sync.Map
 }
 
+// nolint:gocyclo // single dispatch-heavy reconcile loop; splitting it apart without a
+// specific extraction plan trades one auditable function for several that only make
+// sense read together -- deferred pending owner decision, see docs/schedule.md §36.
 func (r *FlowRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := logf.FromContext(ctx)
 
@@ -778,6 +781,8 @@ func (r *FlowRunReconciler) executeStep(
 	return status, nil
 }
 
+// nolint:gocyclo // single-pass HTTP step request/response builder with a dispatch
+// case per config option; deferred pending owner decision, see docs/schedule.md §36.
 func (r *FlowRunReconciler) executeHTTPStep(
 	ctx context.Context,
 	log logr.Logger,

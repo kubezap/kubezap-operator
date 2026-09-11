@@ -48,6 +48,16 @@ linters:
           - dupl
           - lll
         path: internal/*
+      # FlowRunStatus.Phase/StepRunStatus.Phase/FailurePolicy string literals
+      # ("Running", "Succeeded", "Pending", "Continue", etc.) repeat 10-70+ times
+      # each across these two files. Deduplicating the whole family into named
+      # constants is a real refactor of live reconciliation logic (a 100+
+      # call-site rename with no compiler safety net, since these are untyped
+      # strings), not a lint fix -- deferred pending an owner decision on
+      # whether to introduce a typed Phase enum instead. See docs/schedule.md §36.
+      - linters:
+          - goconst
+        path: internal/controller/flowrun_controller(_test)?\.go
     paths:
       - third_party$
       - builtin$

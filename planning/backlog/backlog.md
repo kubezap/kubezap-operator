@@ -2,7 +2,7 @@
 
 Master index of every epic and its status. This table is the source of truth for status — keep it in sync with the individual Epic/Story files.
 
-Epics below outside of EPIC-001 are **candidates**, not commitments — confirm scope and order in a `/plan-pi` session; turn a candidate into a real epic file with `/new-epic`.
+The `PI` column is the source of truth for what's actually committed — an epic with a PI value has been through `/plan-pi`; one without (`—`) is still a **candidate**, not a commitment. Turn a candidate into a real epic file with `/new-epic` before it can be considered in a `/plan-pi` session.
 
 ## Epics
 
@@ -10,8 +10,8 @@ Epics below outside of EPIC-001 are **candidates**, not commitments — confirm 
 |---|---|---|---|---|
 | EPIC-001 | Open Source Release Readiness | In Progress | PI-1 | [epics/EPIC-001-open-source-release-readiness.md](epics/EPIC-001-open-source-release-readiness.md) |
 | EPIC-002 | Post-Release Hardening & Feature Backlog | Backlog | — | not yet created — see Backlog Candidates below |
-| EPIC-003 | WebhookGatewayConfig CRD | Backlog | — | [epics/EPIC-003-webhook-gateway-config-crd.md](epics/EPIC-003-webhook-gateway-config-crd.md) |
-| EPIC-004 | Execution Latency Benchmarking (RPC Executor vs. Pod-per-Step) | Backlog | — | [epics/EPIC-004-execution-latency-benchmarking.md](epics/EPIC-004-execution-latency-benchmarking.md) |
+| EPIC-003 | WebhookGatewayConfig CRD | Backlog | PI-1 | [epics/EPIC-003-webhook-gateway-config-crd.md](epics/EPIC-003-webhook-gateway-config-crd.md) |
+| EPIC-004 | Execution Latency Benchmarking (RPC Executor vs. Pod-per-Step) | Backlog | PI-1 | [epics/EPIC-004-execution-latency-benchmarking.md](epics/EPIC-004-execution-latency-benchmarking.md) |
 
 ## Stories
 

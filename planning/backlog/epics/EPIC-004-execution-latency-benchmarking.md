@@ -1,7 +1,7 @@
 # EPIC-004: Execution Latency Benchmarking (RPC Executor vs. Pod-per-Step)
 
 **Status:** Backlog
-**PI:** —
+**PI:** PI-1
 
 ## Problem
 
@@ -37,4 +37,4 @@ Rough, not yet sized — footprinting happens in `/groom-backlog`:
 
 - Explicitly a research spike, not a committed feature — keep it small; don't over-scope into a build commitment.
 - Raised 2026-09-12 during an open-source-positioning discussion (competitive differentiation against Pod-per-step workflow engines like Argo Workflows).
-- Not yet scoped into a PI — candidate for a future `/plan-pi` session.
+- Committed to PI-1 (2026-09-12, via `/plan-pi`) as a parallel track alongside `EPIC-001` — not blocked on EPIC-001 closing (see `planning/roadmap/pi-plan.md`'s Revisions).

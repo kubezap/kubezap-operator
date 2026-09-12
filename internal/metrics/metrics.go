@@ -25,25 +25,32 @@ import (
 	ctrlmetrics "sigs.k8s.io/controller-runtime/pkg/metrics"
 )
 
+// Prometheus label names shared across multiple metric definitions below.
+const (
+	labelNamespace = "namespace"
+	labelFlow      = "flow"
+	labelTrigger   = "trigger"
+)
+
 var (
 	TriggerFirings = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Name: "kubezap_trigger_firings_total",
 		Help: "Total number of trigger firings.",
-	}, []string{"namespace", "trigger", "type", "result"})
+	}, []string{labelNamespace, labelTrigger, "type", "result"})
 	// result values: "success", "rate_limited", "error"
 
 	FlowRunDuration = prometheus.NewHistogramVec(prometheus.HistogramOpts{
 		Name:    "kubezap_flowrun_duration_seconds",
 		Help:    "Duration of FlowRun execution from start to terminal phase.",
 		Buckets: prometheus.DefBuckets,
-	}, []string{"namespace", "flow", "phase"})
+	}, []string{labelNamespace, labelFlow, "phase"})
 	// phase values: "Succeeded", "Failed"
 
 	StepDuration = prometheus.NewHistogramVec(prometheus.HistogramOpts{
 		Name:    "kubezap_step_duration_seconds",
 		Help:    "Duration of individual step execution.",
 		Buckets: prometheus.DefBuckets,
-	}, []string{"namespace", "flow", "step_type", "outcome"})
+	}, []string{labelNamespace, labelFlow, "step_type", "outcome"})
 	// outcome values: "Succeeded", "Failed"
 
 	// WebhookIPBlocked counts requests rejected by the IP allowlist auth handler.
@@ -52,13 +59,13 @@ var (
 	WebhookIPBlocked = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Name: "kubezap_webhook_ip_blocked_total",
 		Help: "Total requests blocked by the webhook IP allowlist, labelled by /24 (IPv4) or /48 (IPv6) source CIDR bucket.",
-	}, []string{"trigger", "source_range"})
+	}, []string{labelTrigger, "source_range"})
 
 	// WebhookRateLimited counts requests suppressed by the cooldown window policy.
 	WebhookRateLimited = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Name: "kubezap_webhook_rate_limited_total",
 		Help: "Total requests suppressed by webhook cooldown window policy.",
-	}, []string{"trigger", "namespace"})
+	}, []string{labelTrigger, labelNamespace})
 
 	// WebhookRequestDuration tracks the end-to-end latency of webhook HTTP requests.
 	// result values: "accepted", "rejected", "rate_limited"
@@ -66,7 +73,7 @@ var (
 		Name:    "kubezap_webhook_request_duration_seconds",
 		Help:    "Duration of webhook HTTP requests in seconds.",
 		Buckets: prometheus.DefBuckets,
-	}, []string{"trigger", "result"})
+	}, []string{labelTrigger, "result"})
 
 	// FlowRunQueueDuration measures time from FlowRun creation to first transition to Running.
 	// Indicates scheduling latency / controller backpressure.
@@ -74,14 +81,14 @@ var (
 		Name:    "kubezap_flowrun_queue_duration_seconds",
 		Help:    "Time from FlowRun creation to first transition to Running phase.",
 		Buckets: prometheus.DefBuckets,
-	}, []string{"namespace", "flow"})
+	}, []string{labelNamespace, labelFlow})
 
 	// WhenExpressionErrors counts CEL 'when' expression evaluation failures per flow.
 	// reason values: "compile_error", "eval_error", "type_error"
 	WhenExpressionErrors = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Name: "kubezap_when_expression_errors_total",
 		Help: "Total CEL 'when' expression evaluation failures, by flow and error reason.",
-	}, []string{"flow", "reason"})
+	}, []string{labelFlow, "reason"})
 
 	// SecretAccesses counts every Kubernetes Secret read performed during FlowRun execution.
 	// Used for PCI-DSS/SOC2 compliance audit trails. Labels:
@@ -90,7 +97,7 @@ var (
 	SecretAccesses = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Name: "kubezap_secret_accesses_total",
 		Help: "Total number of Kubernetes Secret reads performed during FlowRun step execution, by namespace and secret name.",
-	}, []string{"namespace", "secret_name"})
+	}, []string{labelNamespace, "secret_name"})
 )
 
 func init() {
@@ -111,7 +118,7 @@ func init() {
 var flowRunsActiveDesc = prometheus.NewDesc(
 	"kubezap_flowruns_active",
 	"Number of FlowRuns currently in Running or Pending phase, by namespace and phase.",
-	[]string{"namespace", "phase"},
+	[]string{labelNamespace, "phase"},
 	nil,
 )
 

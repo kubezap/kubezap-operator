@@ -1,9 +1,9 @@
 apiVersion: v2
 name: kubezap-operator
 description: >-
-  Enterprise-grade Kubernetes operator providing declarative workflow automation
-  inspired by Zapier. Define automations via CRDs — webhook, cron, Kafka, AMQP, and
-  NATS triggers with conditional flow execution and data transformation.
+  Enterprise-grade Kubernetes operator providing declarative workflow automation. 
+  Define automations via CRDs — webhook, cron, Kafka, AMQP, and NATS triggers with 
+  conditional flow execution and data transformation.
 type: application
 version: 0.0.1
 appVersion: "0.0.1"

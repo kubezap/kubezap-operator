@@ -194,7 +194,7 @@ func (b *MTLSBundle) NeedsRotation() bool {
 // certChainPEM encodes the leaf (and any intermediate) certificates in a tls.Certificate
 // as a PEM block sequence.
 func certChainPEM(cert tls.Certificate) []byte {
-	var buf []byte
+	buf := make([]byte, 0, len(cert.Certificate))
 	for _, der := range cert.Certificate {
 		buf = append(buf, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})...)
 	}

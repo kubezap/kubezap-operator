@@ -65,7 +65,17 @@ func (m *mockSyncProducer) AbortTxn() error                              { retur
 func (m *mockSyncProducer) AddOffsetsToTxn(map[string][]*sarama.PartitionOffsetMetadata, string) error {
 	return nil
 }
+func (m *mockSyncProducer) AddOffsetsToTxnWithGroupMetadata(
+	map[string][]*sarama.PartitionOffsetMetadata, *sarama.ConsumerGroupMetadata,
+) error {
+	return nil
+}
 func (m *mockSyncProducer) AddMessageToTxn(*sarama.ConsumerMessage, string, *string) error {
+	return nil
+}
+func (m *mockSyncProducer) AddMessageToTxnWithGroupMetadata(
+	*sarama.ConsumerMessage, *sarama.ConsumerGroupMetadata, *string,
+) error {
 	return nil
 }
 

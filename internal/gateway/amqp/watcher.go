@@ -191,7 +191,7 @@ func (w *Watcher) reconcileTrigger(ctx context.Context, trigger *automationv1alp
 	w.triggersMu.Unlock()
 
 	// Stop subscription if trigger is not an amqp trigger or is disabled.
-	if trigger.Spec.Type != "amqp" || trigger.Spec.Amqp == nil || !trigger.Spec.Enabled {
+	if trigger.Spec.Type != triggerTypeAMQP || trigger.Spec.Amqp == nil || !trigger.Spec.Enabled {
 		w.secretIndex.Remove(key)
 		w.stopSubscription(key)
 		return

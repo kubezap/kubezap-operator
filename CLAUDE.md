@@ -6,9 +6,7 @@ Project management lives under [`planning/`](planning/) — Epics/Stories (`plan
 
 ## Project Overview
 
-KubeZap is an enterprise-grade Kubernetes operator providing declarative workflow automation inspired by Zapier. Users define automations via CRDs instead of a web UI. Think "Zapier meets Camunda, but Kubernetes-native."
-
-**Long-term goal**: OperatorHub-published, enterprise-ready, with a pluggable marketplace of integrations.
+KubeZap is an enterprise-grade Kubernetes operator providing declarative workflow automation.
 
 ## Claude Interaction Guidelines
 

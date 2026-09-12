@@ -32,13 +32,13 @@ A namespace-scoped `WebhookGatewayConfig` CRD (one per namespace, singleton-styl
 
 ## Candidate Stories
 
-Rough, not yet sized — footprinting happens in `/groom-backlog`:
+Groomed 2026-09-12 (`/groom-backlog`):
 
-- [ ] Design record: CRD shape (fields, singleton naming convention, defaulting behavior), and the annotation deprecation/migration path (deprecate-and-warn vs. hard cutover)
-- [ ] `WebhookGatewayConfig` CRD types + controller: reconciles HPA min/max/target-CPU from spec instead of hardcoded constants
-- [ ] Add `PodDisruptionBudget` reconciliation (new, doesn't exist today) — gated on the CRD's `minAvailable` field being set
-- [ ] Migrate `webhook-tls-secret` / `webhook-mtls-ca-secret` Namespace annotations onto the CRD, per the design record's chosen migration path
-- [ ] Docs: `docs/api/` page for the new CRD; update `docs/guides/webhook-security.md` and `docs/overview.md`'s TLS sections
+- [ ] [STORY-008](../stories/STORY-008-webhookgatewayconfig-design-record.md) — Design record: CRD shape, singleton convention, defaulting behavior, annotation migration path. Fully groomed (real AC/footprint) — this is the only story in the epic that could be, since everything else is downstream of its decisions.
+- [ ] [STORY-009](../stories/STORY-009-webhookgatewayconfig-crd-hpa-controller.md) — `WebhookGatewayConfig` CRD types + controller (HPA reconciliation). Blocked on STORY-008, not yet groomed.
+- [ ] [STORY-010](../stories/STORY-010-webhookgatewayconfig-pdb.md) — `PodDisruptionBudget` reconciliation. Blocked on STORY-008 (and likely STORY-009), not yet groomed.
+- [ ] [STORY-011](../stories/STORY-011-webhookgatewayconfig-tls-migration.md) — Migrate TLS annotations onto the CRD. Blocked on STORY-008/009, not yet groomed.
+- [ ] [STORY-012](../stories/STORY-012-webhookgatewayconfig-docs.md) — Docs for the new CRD. Blocked on all four above, not yet groomed.
 
 ## Dependencies
 
@@ -50,3 +50,4 @@ Rough, not yet sized — footprinting happens in `/groom-backlog`:
 - Owner-confirmed direction (2026-09-12): CRD over continuing to expand annotations/hardcoded constants, specifically because it's easier to extend later.
 - Open question raised by owner: should this CRD also enable HA more directly (e.g. a `minReplicas >= 2` recommendation/validation, not just a raw passthrough number)? Not decided — flag for the design record.
 - Committed to PI-1 (2026-09-12, via `/plan-pi`) as a parallel track alongside `EPIC-001` — not blocked on EPIC-001 closing, and not competing with it for files or focus (see `planning/roadmap/pi-plan.md`'s Revisions).
+- Groomed 2026-09-12 (`/groom-backlog`): only STORY-008 (the design record) could be fully groomed — the other 4 candidate stories are genuinely not footprintable until that record's decisions land, so they're tracked as explicitly blocked/ungroomed placeholders rather than guessed. Next step for this epic is dispatching STORY-008 alone, then re-grooming STORY-009-012 once it's `Approved`.

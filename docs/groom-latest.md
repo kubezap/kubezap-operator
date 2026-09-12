@@ -1,37 +1,36 @@
-# Backlog groom: 2026-09-11
+# Backlog groom: 2026-09-12
 
 ## Reordering applied
 
-None. §34–§37 (all added since the last groom, PR #138) are retrospective completed-work logs like §26–§33 before them — self-contained find-and-fix passes with no cross-section dependency on each other, and no test-before-fix or research-before-test ordering issue among them. Re-checked the numbered Prioritization Rationale rules against this session's new sections (rule 5, "P0 security fixes before architectural refactors in the same area," is the only one arguably in play — §36's deferred goconst/gocyclo items are exactly the kind of "architectural refactor in the same area" rule 5 says should come after security fixes, and they correctly already do: §37's security fixes are merged, §36's deferred item remains open behind them). No new prioritization rule was needed in the rationale section — the "weigh infra-layer mitigation before a code fix" and "grep exhaustively rather than trust a subagent's sample" principles applied this session are review *methodology*, already spelled out inline in §34/§37's own blockquotes, not schedule-ordering rules in the shape of the existing 10.
+- §39's "Final validation and cleanup pass before going public and submitting to OperatorHub" moved from the last item in P1 to its own new "Final Gate" subsection at the end of §39 — rule violated: prerequisites before dependents. The item's own description says it depends on "the items below," but at its old position those "items below" were the P2 list, which is physically below it in the document. A reader working top-to-bottom would reach the gate before the prerequisites it names. No content change beyond a one-line placement note.
+- §1's "OperatorHub submission PR" item updated to also gate on §39 P1 items — rule violated: prerequisites before dependents (§39 exists specifically to track pre-open-source/OperatorHub readiness, but §1's own gate list, last updated before §39 existed, didn't reference it). Added a new Prioritization rationale rule 11 documenting this dependency explicitly, matching the existing pattern (rule 6 does the same for §16).
 
 ## Items added
 
-Four items added to `## 10. Future / Backlog`, each an explicit, evidenced follow-up named in a design record from this session's work but never promoted to a tracked item — found by grep'ing `docs/design/2026-09-11-*.md` for "follow-up"/"not implemented"/"left as"/"revisit" and cross-checking each hit against `schedule.md` for an existing tracking item (none existed for any of the four):
-
-- Integration-object `secretRef`-change detection (`docs/design/2026-09-11-secret-rotation-watches.md`'s named out-of-scope follow-up).
-- Multi-hop trusted-proxy chain for the webhook gateway (`docs/design/2026-09-11-webhook-gateway-trust-boundary.md`'s Tradeoffs section).
-- Transport-level SSRF DNS-rebinding fix, independent of NetworkPolicy/CNI enforcement (`docs/design/2026-09-11-executor-egress-networkpolicy.md`'s Rejected Alternative A, explicitly "not rejected permanently").
-- Single source of truth for the SSRF blocked-CIDR list, currently duplicated across two Go locations and one YAML file (`docs/design/2026-09-11-executor-egress-networkpolicy.md`'s Tradeoffs section).
-
-All four are genuinely speculative/low-urgency (consistent with the rest of `## 10`), not urgent gaps — filed there, not as a new numbered section.
+None — no new evidence from `docs/review-latest.md` or `docs/tech-debt/` surfaced anything not already captured by the owner's §39 items or the existing backlog. (§39 itself was populated across the prior two conversation turns, before this grooming pass; not re-added here.)
 
 ## Items removed or annotated
 
-None. Re-checked every completed-work section for staleness given this session's major changes (RetryOn removal, CEL `bodyFields`, single-pass interpolation, lint cleanup, webhook hardening, and the earlier web-dashboard removal from before this groom's window): no `[x]` item was found describing something the codebase has since removed or contradicted. The dashboard/`--enable-ui` mentions still present in §16, §21, §23, and §19 (all pre-dating the §33 removal) accurately describe those historical validation tasks *as they were scoped and completed at the time* — matching the explicit precedent already established when §33 was groomed (historical completed-work entries describing now-superseded state are left alone; only §33 itself was special-cased for full historical-record removal, per an explicit owner instruction unique to that feature).
+- Annotated (not removed): §39's "Review build/release/registry-push automation" and "Vulnerability/dependency management" P1 items both touch `.github/workflows/` — added a note that these are hot files per `CLAUDE.md`'s Parallel Agent Guidelines if picked up in parallel (serialize or assign one wiring pass), to prevent two independent agents editing `ci.yml` at the same time later.
+- No stale items found: spot-checked every guide/doc path referenced from an open `[ ]` item (`docs/guides/spec-drift.md`, `pre-merge-checklist.md`, `code-review-strategy.md`, `design-process.md`, `security-checklist.md`, `docs/architecture/flowrun-state-model.md`) — all exist.
 
 ## Items promoted from Future/Backlog
 
-None. Reviewed all 8 pre-existing Future/Backlog items against every finding from §34–§37 — nothing in this session's work (spec-drift fixes, interpolation security, lint cleanup, webhook hardening) touches `Step` CRD, multi-namespace flows, additional brokers, the plugin catalog/reference plugin, OpenLineage, multi-region HA, or the S3/Git trigger source. All eight remain genuinely speculative.
+None. Reviewed all 9 Future/Backlog items against recent findings (`docs/schedule.md` §38, this session's PR #155) — none have new evidence promoting them to active work. Two of them (`config/webhook`/`config/certmanager` scaffolding, the `kustomization.yaml` image-transformer bug) were *added* to Future/Backlog by the prior session's work (§38), not promoted by this pass.
 
 ## No-change items
 
-~40 `[x]` line items across §34–§37 reviewed (all newly added since the last groom pass) plus the 3 previously-open `[ ]` items (§1 OperatorHub gate, §19 `github-autolabel`, §36 DEFERRED lint) re-verified for continued accuracy:
-- `examples/github-autolabel/` confirmed still present (§19 item's reference is not stale).
-- §36's five `gocyclo` complexity numbers (97/31/33/32/37) re-measured via a fresh `make lint` run and found byte-for-byte unchanged despite this session's subsequent edits to two of the five functions (`authenticateRequest` gained a new parameter in §37; complexity score unaffected) — the deferred item's specifics are still accurate, not stale.
-- §36's `goconst` count (7) re-confirmed unchanged after §37's changes.
-- §1's OperatorHub gate blockquote (added by the prior groom, PR #138) still correctly states the recurring-gate caveat; no update needed — the P0 spec-drift baseline it references is by design a one-time historical check, re-run fresh at actual submission time regardless of how much intervening work has happened.
+`docs/tech-debt/pending-input-required.md` — checked for open `<!-- BACKLOG-PROMPT -->` blocks per Step 0; none found, all entries are `<!-- ANSWERED -->`. No `/backlog` blocker.
+
+`docs/review-latest.md` — still the 2026-03-27 review; all its findings are long since closed out (`[x]` in §18). Not stale enough to delete (kept per this file's normal practice of leaving completed-work records as history, per `docs/schedule.md`'s own §31/§33 precedent), but contributed nothing new to this pass.
+
+~530 lines across §1–§39 and Future/Backlog reviewed; no other reordering violations, stale references, or promotion candidates found.
 
 ## Files changed
 
 - docs/schedule.md
 - docs/groom-latest.md
+
+## Suggested next step
+
+Run `/backlog` to work the top items — likely candidates from §39 P1 are `SECURITY.md` (small, self-contained, no code dependencies) or the git history secret-scan (read-only, informational, no code change risk) as easy, low-conflict first picks; the two `.github/workflows/`-touching items (vulnerability automation, build/release review) should probably go together in one pass given the note added above.

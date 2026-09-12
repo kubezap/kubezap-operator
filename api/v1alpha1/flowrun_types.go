@@ -82,12 +82,28 @@ type ResultValue struct {
 	Value string `json:"value"`
 }
 
+// StepPhase is the execution phase of an individual Flow step. Distinct from
+// FlowRunPhase (rather than sharing one "Phase" type) so the compiler catches a
+// value valid for one but not the other being used in place of the wrong one —
+// e.g. Waiting is a valid StepPhase but was, before this type existed, mistakenly
+// documented as a valid FlowRunPhase too. See docs/design/2026-09-11-typed-phase-enums.md.
+type StepPhase string
+
+const (
+	StepPhasePending   StepPhase = "Pending"
+	StepPhaseRunning   StepPhase = "Running"
+	StepPhaseSucceeded StepPhase = "Succeeded"
+	StepPhaseFailed    StepPhase = "Failed"
+	StepPhaseSkipped   StepPhase = "Skipped"
+	StepPhaseWaiting   StepPhase = "Waiting"
+)
+
 // StepRunStatus tracks execution state for an individual Flow step.
 type StepRunStatus struct {
 	Name string `json:"name"`
 
 	// +kubebuilder:validation:Enum=Pending;Running;Succeeded;Failed;Skipped;Waiting
-	Phase string `json:"phase,omitempty"`
+	Phase StepPhase `json:"phase,omitempty"`
 
 	StartTime      *metav1.Time  `json:"startTime,omitempty"`
 	CompletionTime *metav1.Time  `json:"completionTime,omitempty"`
@@ -101,6 +117,18 @@ type StepRunStatus struct {
 	ResumeAfter *metav1.Time `json:"resumeAfter,omitempty"`
 }
 
+// FlowRunPhase is the overall execution phase of a FlowRun. Distinct from
+// StepPhase — see its doc comment for why.
+type FlowRunPhase string
+
+const (
+	FlowRunPhasePending   FlowRunPhase = "Pending"
+	FlowRunPhaseRunning   FlowRunPhase = "Running"
+	FlowRunPhaseSucceeded FlowRunPhase = "Succeeded"
+	FlowRunPhaseFailed    FlowRunPhase = "Failed"
+	FlowRunPhaseCancelled FlowRunPhase = "Cancelled"
+)
+
 // FlowRunStatus defines the observed state of FlowRun.
 type FlowRunStatus struct {
 	// ObservedGeneration is the most recent generation observed by the controller.
@@ -108,7 +136,7 @@ type FlowRunStatus struct {
 	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
 
 	// +kubebuilder:validation:Enum=Pending;Running;Succeeded;Failed;Cancelled
-	Phase string `json:"phase,omitempty"`
+	Phase FlowRunPhase `json:"phase,omitempty"`
 
 	Conditions     []metav1.Condition `json:"conditions,omitempty"`
 	StartTime      *metav1.Time       `json:"startTime,omitempty"`

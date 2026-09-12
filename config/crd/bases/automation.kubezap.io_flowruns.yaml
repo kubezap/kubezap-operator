@@ -235,6 +235,9 @@ spec:
                 format: int64
                 type: integer
               phase:
+                description: |-
+                  FlowRunPhase is the overall execution phase of a FlowRun. Distinct from
+                  StepPhase — see its doc comment for why.
                 enum:
                 - Pending
                 - Running
@@ -261,6 +264,12 @@ spec:
                     name:
                       type: string
                     phase:
+                      description: |-
+                        StepPhase is the execution phase of an individual Flow step. Distinct from
+                        FlowRunPhase (rather than sharing one "Phase" type) so the compiler catches a
+                        value valid for one but not the other being used in place of the wrong one —
+                        e.g. Waiting is a valid StepPhase but was, before this type existed, mistakenly
+                        documented as a valid FlowRunPhase too. See docs/design/2026-09-11-typed-phase-enums.md.
                       enum:
                       - Pending
                       - Running

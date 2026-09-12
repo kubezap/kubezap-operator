@@ -154,7 +154,7 @@ var _ = Describe("FlowRunReconciler", func() {
 				return nil, fetchErr
 			}
 			switch updated.Status.Phase {
-			case "Succeeded", "Failed", "Cancelled":
+			case automationv1alpha1.FlowRunPhaseSucceeded, automationv1alpha1.FlowRunPhaseFailed, automationv1alpha1.FlowRunPhaseCancelled:
 				return &updated, nil
 			}
 			// If no requeue is requested and phase is not terminal, stop.
@@ -185,7 +185,7 @@ var _ = Describe("FlowRunReconciler", func() {
 		It("sets FlowRun phase=Failed with a descriptive message", func() {
 			updated, err := reconcileAndFetch(flowRun.Name)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(updated.Status.Phase).To(Equal("Failed"))
+			Expect(updated.Status.Phase).To(Equal(automationv1alpha1.FlowRunPhaseFailed))
 			Expect(updated.Status.Message).To(ContainSubstring("nonexistent-flow"))
 		})
 	})
@@ -235,7 +235,7 @@ var _ = Describe("FlowRunReconciler", func() {
 			r := newReconciler()
 			updated, err := reconcileUntilTerminal(r, flowRun.Name, 10)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(updated.Status.Phase).To(Equal("Succeeded"))
+			Expect(updated.Status.Phase).To(Equal(automationv1alpha1.FlowRunPhaseSucceeded))
 		})
 
 		It("records the step result in status.stepStatuses with phase=Succeeded", func() {
@@ -244,7 +244,7 @@ var _ = Describe("FlowRunReconciler", func() {
 			Expect(err).NotTo(HaveOccurred())
 			Expect(updated.Status.Steps).NotTo(BeEmpty())
 			Expect(updated.Status.Steps[0].Name).To(Equal("call-backend"))
-			Expect(updated.Status.Steps[0].Phase).To(Equal("Succeeded"))
+			Expect(updated.Status.Steps[0].Phase).To(Equal(automationv1alpha1.StepPhaseSucceeded))
 		})
 	})
 
@@ -295,7 +295,7 @@ var _ = Describe("FlowRunReconciler", func() {
 			r := newReconciler()
 			updated, err := reconcileUntilTerminal(r, flowRun.Name, 10)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(updated.Status.Phase).To(Equal("Failed"))
+			Expect(updated.Status.Phase).To(Equal(automationv1alpha1.FlowRunPhaseFailed))
 		})
 	})
 
@@ -329,7 +329,7 @@ var _ = Describe("FlowRunReconciler", func() {
 
 			// Set status to Succeeded via the status subresource.
 			now := metav1.Now()
-			flowRun.Status.Phase = "Succeeded"
+			flowRun.Status.Phase = automationv1alpha1.FlowRunPhaseSucceeded
 			flowRun.Status.CompletionTime = &now
 			Expect(k8sClient.Status().Update(ctx, flowRun)).To(Succeed())
 			DeferCleanup(func() {
@@ -346,7 +346,7 @@ var _ = Describe("FlowRunReconciler", func() {
 
 			var updated automationv1alpha1.FlowRun
 			Expect(k8sClient.Get(ctx, nn, &updated)).To(Succeed())
-			Expect(updated.Status.Phase).To(Equal("Succeeded"))
+			Expect(updated.Status.Phase).To(Equal(automationv1alpha1.FlowRunPhaseSucceeded))
 			// No step statuses should have been added by the reconciler (already terminal).
 			Expect(updated.Status.Steps).To(BeEmpty())
 		})
@@ -377,7 +377,7 @@ var _ = Describe("FlowRunReconciler", func() {
 
 			// Simulate a Running FlowRun that started 2 hours ago.
 			startedAt := metav1.NewTime(time.Now().Add(-2 * time.Hour))
-			flowRun.Status.Phase = "Running"
+			flowRun.Status.Phase = automationv1alpha1.FlowRunPhaseRunning
 			flowRun.Status.StartTime = &startedAt
 			Expect(k8sClient.Status().Update(ctx, flowRun)).To(Succeed())
 
@@ -397,7 +397,7 @@ var _ = Describe("FlowRunReconciler", func() {
 
 			var updated automationv1alpha1.FlowRun
 			Expect(k8sClient.Get(ctx, nn, &updated)).To(Succeed())
-			Expect(updated.Status.Phase).To(Equal("Failed"))
+			Expect(updated.Status.Phase).To(Equal(automationv1alpha1.FlowRunPhaseFailed))
 			Expect(updated.Status.Message).To(ContainSubstring("execution timeout exceeded"))
 		})
 	})
@@ -472,7 +472,7 @@ var _ = Describe("FlowRunReconciler", func() {
 			Expect(err).NotTo(HaveOccurred())
 			_ = nn
 
-			Expect(updated.Status.Phase).To(Equal("Succeeded"))
+			Expect(updated.Status.Phase).To(Equal(automationv1alpha1.FlowRunPhaseSucceeded))
 			Expect(updated.Finalizers).NotTo(ContainElement("kubezap.io/executing"))
 		})
 	})
@@ -505,7 +505,7 @@ var _ = Describe("FlowRunReconciler", func() {
 
 			// Set phase=Running via status subresource.
 			now := metav1.Now()
-			flowRun.Status.Phase = "Running"
+			flowRun.Status.Phase = automationv1alpha1.FlowRunPhaseRunning
 			flowRun.Status.StartTime = &now
 			Expect(k8sClient.Status().Update(ctx, flowRun)).To(Succeed())
 
@@ -542,7 +542,7 @@ var _ = Describe("FlowRunReconciler", func() {
 			// docs/architecture/flowrun-state-model.md. Reporting it as "Failed" would
 			// misrepresent an intentional deletion as an error in status, conditions,
 			// and the kubezap_flowrun_duration_seconds metric.
-			Expect(updated.Status.Phase).To(Equal("Cancelled"))
+			Expect(updated.Status.Phase).To(Equal(automationv1alpha1.FlowRunPhaseCancelled))
 			Expect(updated.Finalizers).NotTo(ContainElement("kubezap.io/executing"))
 
 			cond := apimeta.FindStatusCondition(updated.Status.Conditions, "Cancelled")
@@ -579,7 +579,7 @@ var _ = Describe("FlowRunReconciler", func() {
 			// Set phase=Running via status subresource — the annotation only takes
 			// effect while Running (docs/api/flowrun.md: "Cancel a running FlowRun").
 			now := metav1.Now()
-			flowRun.Status.Phase = "Running"
+			flowRun.Status.Phase = automationv1alpha1.FlowRunPhaseRunning
 			flowRun.Status.StartTime = &now
 			Expect(k8sClient.Status().Update(ctx, flowRun)).To(Succeed())
 
@@ -597,7 +597,7 @@ var _ = Describe("FlowRunReconciler", func() {
 
 			var updated automationv1alpha1.FlowRun
 			Expect(k8sClient.Get(ctx, nn, &updated)).To(Succeed())
-			Expect(updated.Status.Phase).To(Equal("Cancelled"))
+			Expect(updated.Status.Phase).To(Equal(automationv1alpha1.FlowRunPhaseCancelled))
 			Expect(updated.DeletionTimestamp).To(BeNil())
 
 			cond := apimeta.FindStatusCondition(updated.Status.Conditions, "Cancelled")
@@ -623,7 +623,7 @@ var _ = Describe("FlowRunReconciler", func() {
 
 			var updated automationv1alpha1.FlowRun
 			Expect(k8sClient.Get(ctx, nn, &updated)).To(Succeed())
-			Expect(updated.Status.Phase).NotTo(Equal("Cancelled"))
+			Expect(updated.Status.Phase).NotTo(Equal(automationv1alpha1.FlowRunPhaseCancelled))
 		})
 	})
 
@@ -651,7 +651,7 @@ var _ = Describe("FlowRunReconciler", func() {
 
 			updated, err := reconcileAndFetch(flowRunName)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(updated.Status.Phase).To(Equal("Failed"))
+			Expect(updated.Status.Phase).To(Equal(automationv1alpha1.FlowRunPhaseFailed))
 			Expect(updated.Status.Message).To(ContainSubstring("orderId"))
 			Expect(updated.Status.Steps).To(BeEmpty(), "no step should have been dispatched")
 		})
@@ -686,7 +686,7 @@ var _ = Describe("FlowRunReconciler", func() {
 			r := newReconciler()
 			updated, err := reconcileUntilTerminal(r, flowRunName, 5)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(updated.Status.Phase).To(Equal("Succeeded"))
+			Expect(updated.Status.Phase).To(Equal(automationv1alpha1.FlowRunPhaseSucceeded))
 			Expect(updated.Status.Steps).To(HaveLen(1))
 			Expect(updated.Status.Steps[0].Results).To(ContainElement(
 				automationv1alpha1.ResultValue{Name: "resolvedOrderId", Value: "ord-live-test"},
@@ -725,7 +725,7 @@ var _ = Describe("FlowRunReconciler", func() {
 			// beyond the default 72h TTLFailed and the 1h ExecutionTimeout
 			// we will configure on the reconciler.
 			startedAt := metav1.NewTime(time.Now().Add(-4 * time.Hour))
-			flowRun.Status.Phase = "Running"
+			flowRun.Status.Phase = automationv1alpha1.FlowRunPhaseRunning
 			flowRun.Status.StartTime = &startedAt
 			Expect(k8sClient.Status().Update(ctx, flowRun)).To(Succeed())
 
@@ -752,7 +752,7 @@ var _ = Describe("FlowRunReconciler", func() {
 
 			var updated automationv1alpha1.FlowRun
 			Expect(k8sClient.Get(ctx, nn, &updated)).To(Succeed())
-			Expect(updated.Status.Phase).To(Equal("Failed"))
+			Expect(updated.Status.Phase).To(Equal(automationv1alpha1.FlowRunPhaseFailed))
 			Expect(updated.Status.Message).To(ContainSubstring("execution timeout exceeded"))
 			Expect(updated.Finalizers).NotTo(ContainElement("kubezap.io/executing"))
 		})
@@ -813,23 +813,23 @@ var _ = Describe("FlowRunReconciler", func() {
 			Expect(err).NotTo(HaveOccurred())
 
 			// Overall FlowRun should succeed — all steps reached a terminal state.
-			Expect(updated.Status.Phase).To(Equal("Succeeded"))
+			Expect(updated.Status.Phase).To(Equal(automationv1alpha1.FlowRunPhaseSucceeded))
 
 			// Verify individual step statuses.
 			Expect(updated.Status.Steps).To(HaveLen(3))
 
 			stepA := findStepStatus(updated.Status.Steps, "step-a")
 			Expect(stepA).NotTo(BeNil())
-			Expect(stepA.Phase).To(Equal("Succeeded"))
+			Expect(stepA.Phase).To(Equal(automationv1alpha1.StepPhaseSucceeded))
 
 			stepB := findStepStatus(updated.Status.Steps, "step-b")
 			Expect(stepB).NotTo(BeNil())
-			Expect(stepB.Phase).To(Equal("Skipped"))
+			Expect(stepB.Phase).To(Equal(automationv1alpha1.StepPhaseSkipped))
 			Expect(stepB.Message).To(ContainSubstring("when condition"))
 
 			stepC := findStepStatus(updated.Status.Steps, "step-c")
 			Expect(stepC).NotTo(BeNil())
-			Expect(stepC.Phase).To(Equal("Skipped"))
+			Expect(stepC.Phase).To(Equal(automationv1alpha1.StepPhaseSkipped))
 			Expect(stepC.Message).To(ContainSubstring("runAfter dependencies were skipped"))
 		})
 	})
@@ -913,12 +913,12 @@ var _ = Describe("FlowRunReconciler", func() {
 			Expect(err).NotTo(HaveOccurred())
 
 			// Overall FlowRun must succeed.
-			Expect(updated.Status.Phase).To(Equal("Succeeded"))
+			Expect(updated.Status.Phase).To(Equal(automationv1alpha1.FlowRunPhaseSucceeded))
 
 			// Transform step must have succeeded and emitted the orderId result.
 			transformStatus := findStepStatus(updated.Status.Steps, "transform-step")
 			Expect(transformStatus).NotTo(BeNil())
-			Expect(transformStatus.Phase).To(Equal("Succeeded"))
+			Expect(transformStatus.Phase).To(Equal(automationv1alpha1.StepPhaseSucceeded))
 			Expect(transformStatus.Results).To(ContainElement(
 				automationv1alpha1.ResultValue{Name: "orderId", Value: "ORD-42"},
 			))
@@ -926,7 +926,7 @@ var _ = Describe("FlowRunReconciler", func() {
 			// HTTP step must have succeeded.
 			httpStatus := findStepStatus(updated.Status.Steps, "http-step")
 			Expect(httpStatus).NotTo(BeNil())
-			Expect(httpStatus.Phase).To(Equal("Succeeded"))
+			Expect(httpStatus.Phase).To(Equal(automationv1alpha1.StepPhaseSucceeded))
 
 			// The server must have received a request whose URL contains the substituted orderId.
 			Expect(capturedURL).To(ContainSubstring("ORD-42"))
@@ -991,7 +991,7 @@ var _ = Describe("FlowRunReconciler", func() {
 			Expect(k8sClient.Get(ctx, nn, &updated)).To(Succeed())
 			waitStatus := findStepStatus(updated.Status.Steps, "wait-step")
 			Expect(waitStatus).NotTo(BeNil())
-			Expect(waitStatus.Phase).To(Equal("Waiting"))
+			Expect(waitStatus.Phase).To(Equal(automationv1alpha1.StepPhaseWaiting))
 			Expect(waitStatus.ResumeAfter).NotTo(BeNil())
 		})
 
@@ -1009,7 +1009,7 @@ var _ = Describe("FlowRunReconciler", func() {
 			Expect(k8sClient.Get(ctx, nn, &midRun)).To(Succeed())
 			waitStatus := findStepStatus(midRun.Status.Steps, "wait-step")
 			Expect(waitStatus).NotTo(BeNil())
-			Expect(waitStatus.Phase).To(Equal("Waiting"))
+			Expect(waitStatus.Phase).To(Equal(automationv1alpha1.StepPhaseWaiting))
 
 			// Sleep long enough for the 100ms wait to elapse.
 			time.Sleep(150 * time.Millisecond)
@@ -1026,7 +1026,7 @@ var _ = Describe("FlowRunReconciler", func() {
 			Expect(k8sClient.Get(ctx, nn, &midRun2)).To(Succeed())
 			doneStep := findStepStatus(midRun2.Status.Steps, "wait-step")
 			Expect(doneStep).NotTo(BeNil())
-			Expect(doneStep.Phase).To(Equal("Succeeded"))
+			Expect(doneStep.Phase).To(Equal(automationv1alpha1.StepPhaseSucceeded))
 			Expect(doneStep.CompletionTime).NotTo(BeNil())
 
 			// Third reconcile: all steps are terminal, FlowRun transitions to Succeeded.
@@ -1035,7 +1035,7 @@ var _ = Describe("FlowRunReconciler", func() {
 
 			var finished automationv1alpha1.FlowRun
 			Expect(k8sClient.Get(ctx, nn, &finished)).To(Succeed())
-			Expect(finished.Status.Phase).To(Equal("Succeeded"))
+			Expect(finished.Status.Phase).To(Equal(automationv1alpha1.FlowRunPhaseSucceeded))
 		})
 	})
 
@@ -1104,13 +1104,13 @@ var _ = Describe("FlowRunReconciler", func() {
 			Expect(err).NotTo(HaveOccurred())
 
 			// The FlowRun should succeed because the 3rd attempt returns 200.
-			Expect(updated.Status.Phase).To(Equal("Succeeded"))
+			Expect(updated.Status.Phase).To(Equal(automationv1alpha1.FlowRunPhaseSucceeded))
 
 			// Verify the step itself succeeded.
 			Expect(updated.Status.Steps).NotTo(BeEmpty())
 			retryStep := findStepStatus(updated.Status.Steps, "retry-step")
 			Expect(retryStep).NotTo(BeNil())
-			Expect(retryStep.Phase).To(Equal("Succeeded"))
+			Expect(retryStep.Phase).To(Equal(automationv1alpha1.StepPhaseSucceeded))
 
 			// The mock server should have received exactly 3 calls (2 x 503, 1 x 200).
 			Expect(calls.Load()).To(BeNumerically("==", 3))
@@ -1191,13 +1191,13 @@ var _ = Describe("FlowRunReconciler", func() {
 			Expect(err).NotTo(HaveOccurred())
 
 			// The FlowRun must have failed (unreachable target host).
-			Expect(updated.Status.Phase).To(Equal("Failed"),
+			Expect(updated.Status.Phase).To(Equal(automationv1alpha1.FlowRunPhaseFailed),
 				"expected FlowRun to fail because target host is unreachable")
 
 			// Find the failed step status.
 			stepStatus := findStepStatus(updated.Status.Steps, "http-with-secret")
 			Expect(stepStatus).NotTo(BeNil(), "expected step status to be recorded")
-			Expect(stepStatus.Phase).To(Equal("Failed"))
+			Expect(stepStatus.Phase).To(Equal(automationv1alpha1.StepPhaseFailed))
 
 			// THE SECURITY ASSERTION: the raw secret value must not appear in the
 			// persisted step message.
@@ -1280,7 +1280,7 @@ var _ = Describe("FlowRunReconciler", func() {
 				}
 				var current automationv1alpha1.FlowRun
 				Expect(k8sClient.Get(ctx, nn, &current)).To(Succeed())
-				if current.Status.Phase == "Succeeded" || current.Status.Phase == "Failed" {
+				if current.Status.Phase == automationv1alpha1.FlowRunPhaseSucceeded || current.Status.Phase == automationv1alpha1.FlowRunPhaseFailed {
 					break
 				}
 				result, err = r.Reconcile(ctx, ctrl.Request{NamespacedName: nn})
@@ -1294,14 +1294,14 @@ var _ = Describe("FlowRunReconciler", func() {
 			// The FlowRun must NOT be marked Failed — it should still be Running.
 			var updated automationv1alpha1.FlowRun
 			Expect(k8sClient.Get(ctx, nn, &updated)).To(Succeed())
-			Expect(updated.Status.Phase).To(Equal("Running"),
+			Expect(updated.Status.Phase).To(Equal(automationv1alpha1.FlowRunPhaseRunning),
 				"FlowRun must remain Running on executor transport failure, not Failed")
 
 			// The step must NOT appear as Failed in the status (it should be absent
 			// or still Running — not persisted as a failure).
 			stepStatus := findStepStatus(updated.Status.Steps, "http-step")
 			if stepStatus != nil {
-				Expect(stepStatus.Phase).NotTo(Equal("Failed"),
+				Expect(stepStatus.Phase).NotTo(Equal(automationv1alpha1.StepPhaseFailed),
 					"step must not be marked Failed on executor transport error")
 			}
 		})
@@ -1435,7 +1435,7 @@ var _ = Describe("FlowRunReconciler", func() {
 		// must return early on reconcile without touching Status.Steps or dispatching
 		// any step, regardless of which terminal phase it's in.
 		DescribeTable("never re-enters Running or dispatches a step from a terminal phase",
-			func(terminalPhase string) {
+			func(terminalPhase automationv1alpha1.FlowRunPhase) {
 				var requestCount int32
 				server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 					atomic.AddInt32(&requestCount, 1)
@@ -1445,8 +1445,8 @@ var _ = Describe("FlowRunReconciler", func() {
 				defer server.Close()
 
 				seed := GinkgoRandomSeed()
-				flowName := fmt.Sprintf("flow-terminal-%s-%d", strings.ToLower(terminalPhase), seed)
-				flowRunName := fmt.Sprintf("fr-terminal-%s-%d", strings.ToLower(terminalPhase), seed)
+				flowName := fmt.Sprintf("flow-terminal-%s-%d", strings.ToLower(string(terminalPhase)), seed)
+				flowRunName := fmt.Sprintf("fr-terminal-%s-%d", strings.ToLower(string(terminalPhase)), seed)
 
 				flow := makeFlow(flowName, []automationv1alpha1.FlowStep{
 					{
@@ -1485,9 +1485,9 @@ var _ = Describe("FlowRunReconciler", func() {
 				Expect(atomic.LoadInt32(&requestCount)).To(Equal(int32(0)),
 					"the step's backend must never be called once the FlowRun is terminal")
 			},
-			Entry("Succeeded", "Succeeded"),
-			Entry("Failed", "Failed"),
-			Entry("Cancelled", "Cancelled"),
+			Entry("Succeeded", automationv1alpha1.FlowRunPhaseSucceeded),
+			Entry("Failed", automationv1alpha1.FlowRunPhaseFailed),
+			Entry("Cancelled", automationv1alpha1.FlowRunPhaseCancelled),
 		)
 	})
 
@@ -1498,7 +1498,7 @@ var _ = Describe("FlowRunReconciler", func() {
 		// still Running and other steps are still pending — the guard is per-step,
 		// not just a single early-return at the top of Reconcile.
 		DescribeTable("does not re-dispatch a step already in a terminal phase",
-			func(terminalStepPhase string) {
+			func(terminalStepPhase automationv1alpha1.StepPhase) {
 				var terminalStepRequests, secondStepRequests int32
 				terminalServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 					atomic.AddInt32(&terminalStepRequests, 1)
@@ -1514,8 +1514,8 @@ var _ = Describe("FlowRunReconciler", func() {
 				defer secondServer.Close()
 
 				seed := GinkgoRandomSeed()
-				flowName := fmt.Sprintf("flow-step-terminal-%s-%d", strings.ToLower(terminalStepPhase), seed)
-				flowRunName := fmt.Sprintf("fr-step-terminal-%s-%d", strings.ToLower(terminalStepPhase), seed)
+				flowName := fmt.Sprintf("flow-step-terminal-%s-%d", strings.ToLower(string(terminalStepPhase)), seed)
+				flowRunName := fmt.Sprintf("fr-step-terminal-%s-%d", strings.ToLower(string(terminalStepPhase)), seed)
 
 				flow := makeFlow(flowName, []automationv1alpha1.FlowStep{
 					{
@@ -1538,14 +1538,14 @@ var _ = Describe("FlowRunReconciler", func() {
 				// failurePolicy: Continue so a Failed "already-done" still satisfies
 				// second-step's runAfter — this test cares about the terminal-step
 				// re-dispatch guard, not failurePolicy propagation (covered elsewhere).
-				flow.Spec.FailurePolicy = "Continue"
+				flow.Spec.FailurePolicy = automationv1alpha1.FailurePolicyContinue
 				Expect(k8sClient.Create(ctx, flow)).To(Succeed())
 
 				flowRun := makeFlowRun(flowRunName, flowName)
 				Expect(k8sClient.Create(ctx, flowRun)).To(Succeed())
 
 				fixedTime := metav1.Now()
-				flowRun.Status.Phase = "Running"
+				flowRun.Status.Phase = automationv1alpha1.FlowRunPhaseRunning
 				flowRun.Status.StartTime = &fixedTime
 				flowRun.Status.Steps = []automationv1alpha1.StepRunStatus{
 					{
@@ -1582,8 +1582,8 @@ var _ = Describe("FlowRunReconciler", func() {
 				Expect(atomic.LoadInt32(&secondStepRequests)).To(Equal(int32(1)),
 					"the dependent step must still be dispatched exactly once")
 			},
-			Entry("Succeeded", "Succeeded"),
-			Entry("Failed", "Failed"),
+			Entry("Succeeded", automationv1alpha1.StepPhaseSucceeded),
+			Entry("Failed", automationv1alpha1.StepPhaseFailed),
 		)
 	})
 

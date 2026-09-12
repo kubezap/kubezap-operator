@@ -46,7 +46,7 @@ var _ = Describe("enforceMaxFlowRunsByPhase", func() {
 	// makeTerminalFlowRun creates and persists a FlowRun with the given phase and a
 	// completion time offset from now (negative = older). It is labeled with the
 	// trigger name so the GC list query can locate it.
-	makeTerminalFlowRun := func(name, phase string, completedAgo time.Duration) *automationv1alpha1.FlowRun {
+	makeTerminalFlowRun := func(name string, phase automationv1alpha1.FlowRunPhase, completedAgo time.Duration) *automationv1alpha1.FlowRun {
 		completionTime := metav1.NewTime(time.Now().Add(-completedAgo))
 		fr := &automationv1alpha1.FlowRun{
 			ObjectMeta: metav1.ObjectMeta{
@@ -54,7 +54,7 @@ var _ = Describe("enforceMaxFlowRunsByPhase", func() {
 				Namespace: testNamespace,
 				Labels: map[string]string{
 					"kubezap.io/trigger": triggerName,
-					"kubezap.io/phase":   phase,
+					"kubezap.io/phase":   string(phase),
 				},
 			},
 			Spec: automationv1alpha1.FlowRunSpec{
@@ -69,7 +69,7 @@ var _ = Describe("enforceMaxFlowRunsByPhase", func() {
 	}
 
 	// makeRetainedFlowRun is like makeTerminalFlowRun but adds the retain annotation.
-	makeRetainedFlowRun := func(name, phase string, completedAgo time.Duration) *automationv1alpha1.FlowRun {
+	makeRetainedFlowRun := func(name string, phase automationv1alpha1.FlowRunPhase, completedAgo time.Duration) *automationv1alpha1.FlowRun {
 		completionTime := metav1.NewTime(time.Now().Add(-completedAgo))
 		fr := &automationv1alpha1.FlowRun{
 			ObjectMeta: metav1.ObjectMeta{
@@ -77,7 +77,7 @@ var _ = Describe("enforceMaxFlowRunsByPhase", func() {
 				Namespace: testNamespace,
 				Labels: map[string]string{
 					"kubezap.io/trigger": triggerName,
-					"kubezap.io/phase":   phase,
+					"kubezap.io/phase":   string(phase),
 				},
 				Annotations: map[string]string{
 					retainAnnotation: "true",
@@ -105,15 +105,15 @@ var _ = Describe("enforceMaxFlowRunsByPhase", func() {
 
 	Context("when the count is at or below the limit", func() {
 		It("deletes nothing", func() {
-			fr1 := makeTerminalFlowRun("gc-under-1-"+seedValue(1), "Succeeded", 10*time.Minute)
-			fr2 := makeTerminalFlowRun("gc-under-2-"+seedValue(2), "Succeeded", 5*time.Minute)
+			fr1 := makeTerminalFlowRun("gc-under-1-"+seedValue(1), automationv1alpha1.FlowRunPhaseSucceeded, 10*time.Minute)
+			fr2 := makeTerminalFlowRun("gc-under-2-"+seedValue(2), automationv1alpha1.FlowRunPhaseSucceeded, 5*time.Minute)
 			DeferCleanup(func() {
 				cleanupFlowRun(fr1)
 				cleanupFlowRun(fr2)
 			})
 
 			r := newGCReconciler()
-			Expect(r.enforceMaxFlowRunsByPhase(ctx, triggerName, testNamespace, "Succeeded", 3)).To(Succeed())
+			Expect(r.enforceMaxFlowRunsByPhase(ctx, triggerName, testNamespace, automationv1alpha1.FlowRunPhaseSucceeded, 3)).To(Succeed())
 
 			// Both FlowRuns should still exist.
 			var got automationv1alpha1.FlowRun
@@ -122,15 +122,15 @@ var _ = Describe("enforceMaxFlowRunsByPhase", func() {
 		})
 
 		It("deletes nothing when count exactly equals max", func() {
-			fr1 := makeTerminalFlowRun("gc-exact-1-"+seedValue(1), "Succeeded", 10*time.Minute)
-			fr2 := makeTerminalFlowRun("gc-exact-2-"+seedValue(2), "Succeeded", 5*time.Minute)
+			fr1 := makeTerminalFlowRun("gc-exact-1-"+seedValue(1), automationv1alpha1.FlowRunPhaseSucceeded, 10*time.Minute)
+			fr2 := makeTerminalFlowRun("gc-exact-2-"+seedValue(2), automationv1alpha1.FlowRunPhaseSucceeded, 5*time.Minute)
 			DeferCleanup(func() {
 				cleanupFlowRun(fr1)
 				cleanupFlowRun(fr2)
 			})
 
 			r := newGCReconciler()
-			Expect(r.enforceMaxFlowRunsByPhase(ctx, triggerName, testNamespace, "Succeeded", 2)).To(Succeed())
+			Expect(r.enforceMaxFlowRunsByPhase(ctx, triggerName, testNamespace, automationv1alpha1.FlowRunPhaseSucceeded, 2)).To(Succeed())
 
 			var got automationv1alpha1.FlowRun
 			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: fr1.Name, Namespace: testNamespace}, &got)).To(Succeed())
@@ -141,9 +141,9 @@ var _ = Describe("enforceMaxFlowRunsByPhase", func() {
 	Context("when the count exceeds the limit for Succeeded phase", func() {
 		It("deletes the oldest FlowRun to bring the count within the cap", func() {
 			// oldest → 30 min ago, middle → 20 min, newest → 10 min
-			oldest := makeTerminalFlowRun("gc-over-old-"+seedValue(1), "Succeeded", 30*time.Minute)
-			middle := makeTerminalFlowRun("gc-over-mid-"+seedValue(2), "Succeeded", 20*time.Minute)
-			newest := makeTerminalFlowRun("gc-over-new-"+seedValue(3), "Succeeded", 10*time.Minute)
+			oldest := makeTerminalFlowRun("gc-over-old-"+seedValue(1), automationv1alpha1.FlowRunPhaseSucceeded, 30*time.Minute)
+			middle := makeTerminalFlowRun("gc-over-mid-"+seedValue(2), automationv1alpha1.FlowRunPhaseSucceeded, 20*time.Minute)
+			newest := makeTerminalFlowRun("gc-over-new-"+seedValue(3), automationv1alpha1.FlowRunPhaseSucceeded, 10*time.Minute)
 			DeferCleanup(func() {
 				// oldest may already be deleted; ignore not-found.
 				cleanupFlowRun(oldest)
@@ -153,7 +153,7 @@ var _ = Describe("enforceMaxFlowRunsByPhase", func() {
 
 			r := newGCReconciler()
 			// Max 2 Succeeded → oldest must be deleted.
-			Expect(r.enforceMaxFlowRunsByPhase(ctx, triggerName, testNamespace, "Succeeded", 2)).To(Succeed())
+			Expect(r.enforceMaxFlowRunsByPhase(ctx, triggerName, testNamespace, automationv1alpha1.FlowRunPhaseSucceeded, 2)).To(Succeed())
 
 			var got automationv1alpha1.FlowRun
 			// Oldest should be gone.
@@ -167,9 +167,9 @@ var _ = Describe("enforceMaxFlowRunsByPhase", func() {
 
 	Context("when the count exceeds the limit for Failed phase", func() {
 		It("deletes the oldest failed FlowRuns without touching succeeded ones", func() {
-			failedOld := makeTerminalFlowRun("gc-fail-old-"+seedValue(1), "Failed", 60*time.Minute)
-			failedNew := makeTerminalFlowRun("gc-fail-new-"+seedValue(2), "Failed", 10*time.Minute)
-			succeeded := makeTerminalFlowRun("gc-succ-"+seedValue(3), "Succeeded", 5*time.Minute)
+			failedOld := makeTerminalFlowRun("gc-fail-old-"+seedValue(1), automationv1alpha1.FlowRunPhaseFailed, 60*time.Minute)
+			failedNew := makeTerminalFlowRun("gc-fail-new-"+seedValue(2), automationv1alpha1.FlowRunPhaseFailed, 10*time.Minute)
+			succeeded := makeTerminalFlowRun("gc-succ-"+seedValue(3), automationv1alpha1.FlowRunPhaseSucceeded, 5*time.Minute)
 			DeferCleanup(func() {
 				cleanupFlowRun(failedOld)
 				cleanupFlowRun(failedNew)
@@ -178,7 +178,7 @@ var _ = Describe("enforceMaxFlowRunsByPhase", func() {
 
 			r := newGCReconciler()
 			// Max 1 Failed → oldest failed is deleted; succeeded is untouched.
-			Expect(r.enforceMaxFlowRunsByPhase(ctx, triggerName, testNamespace, "Failed", 1)).To(Succeed())
+			Expect(r.enforceMaxFlowRunsByPhase(ctx, triggerName, testNamespace, automationv1alpha1.FlowRunPhaseFailed, 1)).To(Succeed())
 
 			var got automationv1alpha1.FlowRun
 			// Oldest failed should be gone.
@@ -193,9 +193,9 @@ var _ = Describe("enforceMaxFlowRunsByPhase", func() {
 	Context("retain annotation exemption", func() {
 		It("does not delete a FlowRun annotated with kubezap.io/retain=true", func() {
 			// 3 runs, max 2 — but the oldest is retained; the second-oldest should be deleted instead.
-			retained := makeRetainedFlowRun("gc-retain-"+seedValue(1), "Succeeded", 60*time.Minute)
-			toDelete := makeTerminalFlowRun("gc-nodelete-"+seedValue(2), "Succeeded", 30*time.Minute)
-			newest := makeTerminalFlowRun("gc-newest-"+seedValue(3), "Succeeded", 10*time.Minute)
+			retained := makeRetainedFlowRun("gc-retain-"+seedValue(1), automationv1alpha1.FlowRunPhaseSucceeded, 60*time.Minute)
+			toDelete := makeTerminalFlowRun("gc-nodelete-"+seedValue(2), automationv1alpha1.FlowRunPhaseSucceeded, 30*time.Minute)
+			newest := makeTerminalFlowRun("gc-newest-"+seedValue(3), automationv1alpha1.FlowRunPhaseSucceeded, 10*time.Minute)
 			DeferCleanup(func() {
 				cleanupFlowRun(retained)
 				cleanupFlowRun(toDelete)
@@ -206,7 +206,7 @@ var _ = Describe("enforceMaxFlowRunsByPhase", func() {
 			// Max 2 — but retained is exempt, so only non-retained ones are counted and sorted.
 			// There are 2 non-retained (toDelete, newest); max is 2 → exactly at limit → no deletion.
 			// Change max to 1 to force a deletion of the older non-retained.
-			Expect(r.enforceMaxFlowRunsByPhase(ctx, triggerName, testNamespace, "Succeeded", 1)).To(Succeed())
+			Expect(r.enforceMaxFlowRunsByPhase(ctx, triggerName, testNamespace, automationv1alpha1.FlowRunPhaseSucceeded, 1)).To(Succeed())
 
 			var got automationv1alpha1.FlowRun
 			// Retained FlowRun must survive regardless of its age.
@@ -221,9 +221,9 @@ var _ = Describe("enforceMaxFlowRunsByPhase", func() {
 
 	Context("max=0 (delete all non-retained)", func() {
 		It("deletes all eligible FlowRuns when max is 0", func() {
-			fr1 := makeTerminalFlowRun("gc-zero-1-"+seedValue(1), "Succeeded", 10*time.Minute)
-			fr2 := makeTerminalFlowRun("gc-zero-2-"+seedValue(2), "Succeeded", 5*time.Minute)
-			retained := makeRetainedFlowRun("gc-zero-retain-"+seedValue(3), "Succeeded", 2*time.Minute)
+			fr1 := makeTerminalFlowRun("gc-zero-1-"+seedValue(1), automationv1alpha1.FlowRunPhaseSucceeded, 10*time.Minute)
+			fr2 := makeTerminalFlowRun("gc-zero-2-"+seedValue(2), automationv1alpha1.FlowRunPhaseSucceeded, 5*time.Minute)
+			retained := makeRetainedFlowRun("gc-zero-retain-"+seedValue(3), automationv1alpha1.FlowRunPhaseSucceeded, 2*time.Minute)
 			DeferCleanup(func() {
 				cleanupFlowRun(fr1)
 				cleanupFlowRun(fr2)
@@ -231,7 +231,7 @@ var _ = Describe("enforceMaxFlowRunsByPhase", func() {
 			})
 
 			r := newGCReconciler()
-			Expect(r.enforceMaxFlowRunsByPhase(ctx, triggerName, testNamespace, "Succeeded", 0)).To(Succeed())
+			Expect(r.enforceMaxFlowRunsByPhase(ctx, triggerName, testNamespace, automationv1alpha1.FlowRunPhaseSucceeded, 0)).To(Succeed())
 
 			var got automationv1alpha1.FlowRun
 			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: fr1.Name, Namespace: testNamespace}, &got)).
@@ -249,11 +249,11 @@ var _ = Describe("enforceMaxFlowRunsByPhase", func() {
 			// Create 5 Succeeded FlowRuns with staggered completion times.
 			// oldest1 (50m ago) and oldest2 (40m ago) should be deleted;
 			// mid (30m), recent (20m), newest (10m) should survive.
-			oldest1 := makeTerminalFlowRun("gc-t4-oldest1-"+seedValue(1), "Succeeded", 50*time.Minute)
-			oldest2 := makeTerminalFlowRun("gc-t4-oldest2-"+seedValue(2), "Succeeded", 40*time.Minute)
-			mid := makeTerminalFlowRun("gc-t4-mid-"+seedValue(3), "Succeeded", 30*time.Minute)
-			recent := makeTerminalFlowRun("gc-t4-recent-"+seedValue(4), "Succeeded", 20*time.Minute)
-			newest := makeTerminalFlowRun("gc-t4-newest-"+seedValue(5), "Succeeded", 10*time.Minute)
+			oldest1 := makeTerminalFlowRun("gc-t4-oldest1-"+seedValue(1), automationv1alpha1.FlowRunPhaseSucceeded, 50*time.Minute)
+			oldest2 := makeTerminalFlowRun("gc-t4-oldest2-"+seedValue(2), automationv1alpha1.FlowRunPhaseSucceeded, 40*time.Minute)
+			mid := makeTerminalFlowRun("gc-t4-mid-"+seedValue(3), automationv1alpha1.FlowRunPhaseSucceeded, 30*time.Minute)
+			recent := makeTerminalFlowRun("gc-t4-recent-"+seedValue(4), automationv1alpha1.FlowRunPhaseSucceeded, 20*time.Minute)
+			newest := makeTerminalFlowRun("gc-t4-newest-"+seedValue(5), automationv1alpha1.FlowRunPhaseSucceeded, 10*time.Minute)
 			DeferCleanup(func() {
 				cleanupFlowRun(oldest1)
 				cleanupFlowRun(oldest2)
@@ -263,7 +263,7 @@ var _ = Describe("enforceMaxFlowRunsByPhase", func() {
 			})
 
 			r := newGCReconciler()
-			Expect(r.enforceMaxFlowRunsByPhase(ctx, triggerName, testNamespace, "Succeeded", 3)).To(Succeed())
+			Expect(r.enforceMaxFlowRunsByPhase(ctx, triggerName, testNamespace, automationv1alpha1.FlowRunPhaseSucceeded, 3)).To(Succeed())
 
 			var got automationv1alpha1.FlowRun
 			// The 2 oldest should be deleted.
@@ -281,11 +281,11 @@ var _ = Describe("enforceMaxFlowRunsByPhase", func() {
 			// 5 Succeeded FlowRuns, but the oldest is retained.
 			// With max=3: retained is exempt, so 4 non-retained runs compete for 3 slots.
 			// The oldest non-retained (second) should be deleted; the other 3 non-retained survive.
-			retained := makeRetainedFlowRun("gc-t4-ret-"+seedValue(1), "Succeeded", 50*time.Minute)
-			second := makeTerminalFlowRun("gc-t4-sec-"+seedValue(2), "Succeeded", 40*time.Minute)
-			third := makeTerminalFlowRun("gc-t4-thr-"+seedValue(3), "Succeeded", 30*time.Minute)
-			fourth := makeTerminalFlowRun("gc-t4-fth-"+seedValue(4), "Succeeded", 20*time.Minute)
-			fifth := makeTerminalFlowRun("gc-t4-fif-"+seedValue(5), "Succeeded", 10*time.Minute)
+			retained := makeRetainedFlowRun("gc-t4-ret-"+seedValue(1), automationv1alpha1.FlowRunPhaseSucceeded, 50*time.Minute)
+			second := makeTerminalFlowRun("gc-t4-sec-"+seedValue(2), automationv1alpha1.FlowRunPhaseSucceeded, 40*time.Minute)
+			third := makeTerminalFlowRun("gc-t4-thr-"+seedValue(3), automationv1alpha1.FlowRunPhaseSucceeded, 30*time.Minute)
+			fourth := makeTerminalFlowRun("gc-t4-fth-"+seedValue(4), automationv1alpha1.FlowRunPhaseSucceeded, 20*time.Minute)
+			fifth := makeTerminalFlowRun("gc-t4-fif-"+seedValue(5), automationv1alpha1.FlowRunPhaseSucceeded, 10*time.Minute)
 			DeferCleanup(func() {
 				cleanupFlowRun(retained)
 				cleanupFlowRun(second)
@@ -295,7 +295,7 @@ var _ = Describe("enforceMaxFlowRunsByPhase", func() {
 			})
 
 			r := newGCReconciler()
-			Expect(r.enforceMaxFlowRunsByPhase(ctx, triggerName, testNamespace, "Succeeded", 3)).To(Succeed())
+			Expect(r.enforceMaxFlowRunsByPhase(ctx, triggerName, testNamespace, automationv1alpha1.FlowRunPhaseSucceeded, 3)).To(Succeed())
 
 			var got automationv1alpha1.FlowRun
 			// Retained FlowRun must survive regardless of being the oldest.

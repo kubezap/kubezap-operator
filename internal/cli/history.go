@@ -72,7 +72,7 @@ func ListFlowRuns(ctx context.Context, c client.Client, namespace string, opts L
 		if opts.FlowFilter != "" && fr.Spec.FlowRef.Name != opts.FlowFilter {
 			continue
 		}
-		if opts.PhaseFilter != "" && !strings.EqualFold(fr.Status.Phase, opts.PhaseFilter) {
+		if opts.PhaseFilter != "" && !strings.EqualFold(string(fr.Status.Phase), opts.PhaseFilter) {
 			continue
 		}
 		if !cutoff.IsZero() && fr.CreationTimestamp.Time.Before(cutoff) {
@@ -106,7 +106,7 @@ func printFlowRunTable(w io.Writer, items []automationv1alpha1.FlowRun) {
 		if fr.Spec.TriggerRef != nil {
 			triggerName = fr.Spec.TriggerRef.Name
 		}
-		phase := output.Dash(fr.Status.Phase)
+		phase := output.Dash(string(fr.Status.Phase))
 		dur := flowRunDuration(fr)
 		age := output.FmtAge(fr.CreationTimestamp)
 		rows = append(rows, []string{
@@ -170,7 +170,7 @@ func printFlowRunDetail(w io.Writer, fr *automationv1alpha1.FlowRun) {
 	fmt.Fprintf(w, "FlowRun:   %s\n", fr.Name)
 	fmt.Fprintf(w, "Flow:      %s\n", output.Dash(fr.Spec.FlowRef.Name))
 	fmt.Fprintf(w, "Trigger:   %s\n", triggerName)
-	fmt.Fprintf(w, "Phase:     %s\n", output.Dash(fr.Status.Phase))
+	fmt.Fprintf(w, "Phase:     %s\n", output.Dash(string(fr.Status.Phase)))
 	fmt.Fprintf(w, "Started:   %s\n", startStr)
 	fmt.Fprintf(w, "Duration:  %s\n", dur)
 
@@ -195,7 +195,7 @@ func printFlowRunDetail(w io.Writer, fr *automationv1alpha1.FlowRun) {
 
 		rows = append(rows, []string{
 			step.Name,
-			output.Dash(step.Phase),
+			output.Dash(string(step.Phase)),
 			startedOffset,
 			stepDur,
 			attempts,
@@ -207,7 +207,7 @@ func printFlowRunDetail(w io.Writer, fr *automationv1alpha1.FlowRun) {
 
 	// Print failure messages below the table.
 	for _, step := range fr.Status.Steps {
-		if step.Message != "" && strings.EqualFold(step.Phase, "Failed") {
+		if step.Message != "" && step.Phase == automationv1alpha1.StepPhaseFailed {
 			fmt.Fprintf(w, "  message: %s\n", step.Message)
 		}
 	}
@@ -230,7 +230,7 @@ func fmtResults(results []automationv1alpha1.ResultValue) string {
 // TODO: Replace polling with a proper controller-runtime Watch call once the
 // watch API usage pattern is established for CLI tools.
 func WatchFlowRuns(ctx context.Context, c client.Client, namespace string, opts ListFlowRunOpts) error {
-	seen := map[string]string{} // name -> phase at last check
+	seen := map[string]automationv1alpha1.FlowRunPhase{} // name -> phase at last check
 
 	headers := []string{"NAME", "TRIGGER", "FLOW", "PHASE", "DURATION", "AGE"}
 	output.PrintTable(os.Stdout, headers, nil)
@@ -259,7 +259,7 @@ func WatchFlowRuns(ctx context.Context, c client.Client, namespace string, opts 
 			for i := range list.Items {
 				fr := &list.Items[i]
 				phase := fr.Status.Phase
-				if phase != "Succeeded" && phase != "Failed" && phase != "Cancelled" {
+				if phase != automationv1alpha1.FlowRunPhaseSucceeded && phase != automationv1alpha1.FlowRunPhaseFailed && phase != automationv1alpha1.FlowRunPhaseCancelled {
 					continue
 				}
 				if opts.FlowFilter != "" && fr.Spec.FlowRef.Name != opts.FlowFilter {

@@ -51,7 +51,7 @@ func TestRenderFlowRunTimeline_Header(t *testing.T) {
 			},
 		},
 		Status: automationv1alpha1.FlowRunStatus{
-			Phase:     "Running",
+			Phase:     automationv1alpha1.FlowRunPhaseRunning,
 			StartTime: makeTime(base, 0),
 		},
 	}
@@ -83,7 +83,7 @@ func TestRenderFlowRunTimeline_NoTriggerRef(t *testing.T) {
 		Spec: automationv1alpha1.FlowRunSpec{
 			FlowRef: automationv1alpha1.FlowReference{Name: "my-flow"},
 		},
-		Status: automationv1alpha1.FlowRunStatus{Phase: "Pending"},
+		Status: automationv1alpha1.FlowRunStatus{Phase: automationv1alpha1.FlowRunPhasePending},
 	}
 
 	var buf bytes.Buffer
@@ -108,31 +108,31 @@ func TestRenderFlowRunTimeline_StepBadges(t *testing.T) {
 			},
 		},
 		Status: automationv1alpha1.FlowRunStatus{
-			Phase:     "Running",
+			Phase:     automationv1alpha1.FlowRunPhaseRunning,
 			StartTime: makeTime(base, 0),
 			Steps: []automationv1alpha1.StepRunStatus{
 				{
 					Name:           "validate-order",
-					Phase:          "Succeeded",
+					Phase:          automationv1alpha1.StepPhaseSucceeded,
 					StartTime:      makeTime(base, 0),
 					CompletionTime: makeTime(base, 1200*time.Millisecond),
 				},
 				{
 					Name:      "enrich-customer",
-					Phase:     "Running",
+					Phase:     automationv1alpha1.StepPhaseRunning,
 					StartTime: makeTime(base, 1200*time.Millisecond),
 				},
 				{
 					Name:  "notify-warehouse",
-					Phase: "Pending",
+					Phase: automationv1alpha1.StepPhasePending,
 				},
 				{
 					Name:  "send-confirmation",
-					Phase: "Waiting",
+					Phase: automationv1alpha1.StepPhaseWaiting,
 				},
 				{
 					Name:  "cleanup",
-					Phase: "Skipped",
+					Phase: automationv1alpha1.StepPhaseSkipped,
 				},
 			},
 		},
@@ -172,7 +172,7 @@ func TestRenderFlowRunTimeline_CompletedDuration(t *testing.T) {
 			FlowRef: automationv1alpha1.FlowReference{Name: "flow-a"},
 		},
 		Status: automationv1alpha1.FlowRunStatus{
-			Phase:          "Succeeded",
+			Phase:          automationv1alpha1.FlowRunPhaseSucceeded,
 			StartTime:      makeTime(base, 0),
 			CompletionTime: &metav1.Time{Time: end},
 		},
@@ -197,19 +197,19 @@ func TestRenderFlowRunTimeline_FailedStep(t *testing.T) {
 			FlowRef: automationv1alpha1.FlowReference{Name: "flow-b"},
 		},
 		Status: automationv1alpha1.FlowRunStatus{
-			Phase:          "Failed",
+			Phase:          automationv1alpha1.FlowRunPhaseFailed,
 			StartTime:      makeTime(base, 0),
 			CompletionTime: makeTime(base, 3*time.Second),
 			Steps: []automationv1alpha1.StepRunStatus{
 				{
 					Name:           "step-ok",
-					Phase:          "Succeeded",
+					Phase:          automationv1alpha1.StepPhaseSucceeded,
 					StartTime:      makeTime(base, 0),
 					CompletionTime: makeTime(base, 1*time.Second),
 				},
 				{
 					Name:           "step-fail",
-					Phase:          "Failed",
+					Phase:          automationv1alpha1.StepPhaseFailed,
 					StartTime:      makeTime(base, 1*time.Second),
 					CompletionTime: makeTime(base, 3*time.Second),
 					Message:        "connection refused",
@@ -236,7 +236,7 @@ func TestRenderFlowRunTimeline_NoSteps(t *testing.T) {
 		Spec: automationv1alpha1.FlowRunSpec{
 			FlowRef: automationv1alpha1.FlowReference{Name: "flow-c"},
 		},
-		Status: automationv1alpha1.FlowRunStatus{Phase: "Pending"},
+		Status: automationv1alpha1.FlowRunStatus{Phase: automationv1alpha1.FlowRunPhasePending},
 	}
 
 	var buf bytes.Buffer

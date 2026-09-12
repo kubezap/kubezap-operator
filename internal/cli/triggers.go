@@ -61,7 +61,7 @@ func ListTriggers(ctx context.Context, c client.Client, namespace string, format
 		if fr.Spec.TriggerRef == nil {
 			continue
 		}
-		if fr.Status.Phase == "Running" {
+		if fr.Status.Phase == automationv1alpha1.FlowRunPhaseRunning {
 			activeCount[fr.Spec.TriggerRef.Name]++
 		}
 	}

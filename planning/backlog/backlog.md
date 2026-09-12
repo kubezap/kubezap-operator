@@ -29,6 +29,9 @@ The `PI` column is the source of truth for what's actually committed — an epic
 | STORY-010 | [PodDisruptionBudget reconciliation](stories/STORY-010-webhookgatewayconfig-pdb.md) | EPIC-003 | Groomed | S |
 | STORY-011 | [Cut over webhook TLS annotations (hard cutover)](stories/STORY-011-webhookgatewayconfig-tls-migration.md) | EPIC-003 | Groomed | S |
 | STORY-012 | [Docs for `WebhookGatewayConfig`](stories/STORY-012-webhookgatewayconfig-docs.md) | EPIC-003 | Backlog — blocked on STORY-009/010/011 | S |
+| STORY-013 | [Define benchmark methodology](stories/STORY-013-benchmark-methodology.md) | EPIC-004 | Groomed | S |
+| STORY-014 | [Build and run the benchmark harness](stories/STORY-014-benchmark-harness.md) | EPIC-004 | Backlog — blocked on STORY-013 | M |
+| STORY-015 | [Write up results and a pursue/don't-pursue recommendation](stories/STORY-015-benchmark-writeup.md) | EPIC-004 | Backlog — blocked on STORY-014 | S |
 
 ## Backlog Candidates (not yet epics)
 

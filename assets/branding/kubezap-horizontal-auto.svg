@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 300" role="img" aria-labelledby="title desc">
+  <title id="title">KubeZap logo</title>
+  <desc id="desc">KubeZap Kubernetes-native workflow automation logo.</desc>
+  <style>
+    .kz-face-top, .kz-face-right { fill: #4F718A; }
+    .kz-face-left { fill: #243447; }
+    .kz-bolt { fill: #C89B3C; }
+    .kz-highlight { fill: #FFFFFF; opacity: .92; }
+    .kz-text { fill: #243447; }
+    @media (prefers-color-scheme: dark) {
+      .kz-face-top, .kz-face-right { fill: #C7D3DB; }
+      .kz-face-left { fill: #7E93A1; }
+      .kz-highlight { fill: #FFFFFF; opacity: 1; }
+      .kz-text { fill: #FFFFFF; }
+    }
+  </style>
+  <path class="kz-face-top" d="M128 18 232 78 128 138 24 78Z"/>
+  <path class="kz-face-left" d="M24 78 128 138 128 238 24 178Z"/>
+  <path class="kz-face-right" d="M232 78 128 138 128 238 232 178Z"/>
+  <path class="kz-bolt" d="M143 34 62 151h58l-22 71 96-130h-59Z"/>
+  <path class="kz-highlight" d="M143 34 151 39 78 145h50l-2 8H62Z"/>
+  <path class="kz-highlight" d="m194 92-9 12h-54l7-10h59Z"/>
+  <path class="kz-highlight" d="m98 222 10-29 8 0-12 38Z"/>
+  <text class="kz-text" x="278" y="151" font-family="Inter, Montserrat, Poppins, Arial, sans-serif"
+        font-size="88" font-weight="700" letter-spacing="-3">KubeZap</text>
+</svg>

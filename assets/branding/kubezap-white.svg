@@ -19,10 +19,13 @@
 </symbol>
 </defs>
   
-  <path fill="#FFFFFF" d="M128 18 232 78 128 138 24 78Z"/>
-<path fill="#FFFFFF" d="M24 78 128 138 128 238 24 178Z"/>
-<path fill="#FFFFFF" d="M232 78 128 138 128 238 232 178Z"/>
+  <path fill="#C7D3DB" d="M128 18 232 78 128 138 24 78Z"/>
+<path fill="#7E93A1" d="M24 78 128 138 128 238 24 178Z"/>
+<path fill="#C7D3DB" d="M232 78 128 138 128 238 232 178Z"/>
 <path fill="#C89B3C" d="M143 34 62 151h58l-22 71 96-130h-59Z"/>
+<path fill="#FFFFFF" d="M143 34 151 39 78 145h50l-2 8H62Z"/>
+<path fill="#FFFFFF" d="m194 92-9 12h-54l7-10h59Z"/>
+<path fill="#FFFFFF" d="m98 222 10-29 8 0-12 38Z"/>
   <text x="278" y="151" font-family="Inter, Montserrat, Poppins, Arial, sans-serif"
         font-size="88" font-weight="700" letter-spacing="-3" fill="#FFFFFF">KubeZap</text>
 

@@ -143,17 +143,17 @@ func (col *FlowRunActiveCollector) Collect(ch chan<- prometheus.Metric) {
 	counts := make(map[string]map[string]int)
 	for i := range list.Items {
 		phase := list.Items[i].Status.Phase
-		if phase != "Running" && phase != "Pending" && phase != "" {
+		if phase != automationv1alpha1.FlowRunPhaseRunning && phase != automationv1alpha1.FlowRunPhasePending && phase != "" {
 			continue
 		}
 		if phase == "" {
-			phase = "Pending"
+			phase = automationv1alpha1.FlowRunPhasePending
 		}
 		ns := list.Items[i].Namespace
 		if counts[ns] == nil {
 			counts[ns] = make(map[string]int)
 		}
-		counts[ns][phase]++
+		counts[ns][string(phase)]++
 	}
 
 	for ns, phases := range counts {

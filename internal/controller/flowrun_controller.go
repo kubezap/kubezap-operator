@@ -69,6 +69,10 @@ const retainAnnotation = "kubezap.io/retain"
 const cancelAnnotation = "kubezap.io/cancel"
 const executingFinalizer = "kubezap.io/executing"
 
+// annotationValueTrue is the string value Kubernetes annotations are compared
+// against for the boolean-flag annotations above (annotations are always strings).
+const annotationValueTrue = "true"
+
 // kafkaProducerIdleTTL is the maximum idle time before a cached Kafka producer
 // is closed and recreated on next use.
 const kafkaProducerIdleTTL = 10 * time.Minute
@@ -209,7 +213,7 @@ func (r *FlowRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	defer span.End()
 
 	// FlowRun was deleted while running — cancel it and remove executing finalizer.
-	if !flowRun.DeletionTimestamp.IsZero() && flowRun.Status.Phase == "Running" {
+	if !flowRun.DeletionTimestamp.IsZero() && flowRun.Status.Phase == automationv1alpha1.FlowRunPhaseRunning {
 		if err := r.cancelFlowRun(ctx, &flowRun, "FlowRun deleted while running"); err != nil {
 			return ctrl.Result{}, err
 		}
@@ -220,7 +224,7 @@ func (r *FlowRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	// (docs/api/flowrun.md kubectl cheat sheet). Only meaningful while Running — a FlowRun
 	// that hasn't started yet or has already reached a terminal phase is handled by the
 	// existing paths above/below.
-	if flowRun.Status.Phase == "Running" && flowRun.Annotations[cancelAnnotation] == "true" {
+	if flowRun.Status.Phase == automationv1alpha1.FlowRunPhaseRunning && flowRun.Annotations[cancelAnnotation] == annotationValueTrue {
 		if err := r.cancelFlowRun(ctx, &flowRun, "FlowRun cancelled via kubezap.io/cancel annotation"); err != nil {
 			return ctrl.Result{}, err
 		}
@@ -228,7 +232,7 @@ func (r *FlowRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	}
 
 	// GC: handle terminal FlowRuns (TTL expiry + maxFlowRuns cap).
-	if flowRun.Status.Phase == "Succeeded" || flowRun.Status.Phase == "Failed" || flowRun.Status.Phase == "Cancelled" {
+	if flowRun.Status.Phase == automationv1alpha1.FlowRunPhaseSucceeded || flowRun.Status.Phase == automationv1alpha1.FlowRunPhaseFailed || flowRun.Status.Phase == automationv1alpha1.FlowRunPhaseCancelled {
 		if requeue, err := r.reconcileGC(ctx, &flowRun); err != nil {
 			return ctrl.Result{}, err
 		} else if requeue > 0 {
@@ -239,7 +243,7 @@ func (r *FlowRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 
 	// Skip already-terminal FlowRuns.
 	switch flowRun.Status.Phase {
-	case "Succeeded", "Failed", "Cancelled":
+	case automationv1alpha1.FlowRunPhaseSucceeded, automationv1alpha1.FlowRunPhaseFailed, automationv1alpha1.FlowRunPhaseCancelled:
 		return ctrl.Result{}, nil
 	}
 
@@ -262,7 +266,7 @@ func (r *FlowRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	ctx = context.WithValue(ctx, integrationCacheKey, integCache)
 
 	// Transition Pending → Running.
-	if flowRun.Status.Phase == "" || flowRun.Status.Phase == "Pending" {
+	if flowRun.Status.Phase == "" || flowRun.Status.Phase == automationv1alpha1.FlowRunPhasePending {
 		if !containsString(flowRun.Finalizers, executingFinalizer) {
 			flowRun.Finalizers = append(flowRun.Finalizers, executingFinalizer)
 			if err := r.Update(ctx, &flowRun); err != nil {
@@ -274,7 +278,7 @@ func (r *FlowRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 			// following Status().Update.
 		}
 		now := metav1.Now()
-		flowRun.Status.Phase = "Running"
+		flowRun.Status.Phase = automationv1alpha1.FlowRunPhaseRunning
 		flowRun.Status.StartTime = &now
 		setFlowRunCondition(&flowRun, metav1.Condition{
 			Type:               "Running",
@@ -331,7 +335,7 @@ func (r *FlowRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	// can reference outputs of already-completed steps on re-entry.
 	stepResults := make(map[string]map[string]string) // stepName → resultName → value
 	for _, ss := range flowRun.Status.Steps {
-		if (ss.Phase == "Succeeded" || ss.Phase == "Skipped") && ss.Results != nil {
+		if (ss.Phase == automationv1alpha1.StepPhaseSucceeded || ss.Phase == automationv1alpha1.StepPhaseSkipped) && ss.Results != nil {
 			stepResults[ss.Name] = resultsToMap(ss.Results)
 		}
 	}
@@ -357,9 +361,9 @@ func (r *FlowRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 			allTerminal = false
 		} else {
 			switch existing.Phase {
-			case "Succeeded", "Skipped", "Failed":
+			case automationv1alpha1.StepPhaseSucceeded, automationv1alpha1.StepPhaseSkipped, automationv1alpha1.StepPhaseFailed:
 				// terminal — ok
-			case "Running", "Waiting":
+			case automationv1alpha1.StepPhaseRunning, automationv1alpha1.StepPhaseWaiting:
 				anyRunning = true
 				allTerminal = false
 			default:
@@ -380,14 +384,14 @@ func (r *FlowRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		// First, handle any immediate (non-IO) transitions: cascade-skip and
 		// when=false skips. These may unblock subsequent waves so we process
 		// them inline before deciding whether to requeue.
-		failurePolicyContinue := flow.Spec.FailurePolicy == "Continue"
+		failurePolicyContinue := flow.Spec.FailurePolicy == automationv1alpha1.FailurePolicyContinue
 		skippedAny := false
 		for _, step := range flow.Spec.Steps {
 			if !r.dependenciesMet(step, flowRun.Status.Steps, failurePolicyContinue) {
 				continue
 			}
 			existing := findStepStatus(flowRun.Status.Steps, step.Name)
-			if existing != nil && existing.Phase != "" && existing.Phase != "Pending" {
+			if existing != nil && existing.Phase != "" && existing.Phase != automationv1alpha1.StepPhasePending {
 				// Already processed.
 				continue
 			}
@@ -397,7 +401,7 @@ func (r *FlowRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 				now := metav1.Now()
 				flowRun.Status.Steps = upsertStepStatus(flowRun.Status.Steps, automationv1alpha1.StepRunStatus{
 					Name:           step.Name,
-					Phase:          "Skipped",
+					Phase:          automationv1alpha1.StepPhaseSkipped,
 					Message:        "all runAfter dependencies were skipped",
 					CompletionTime: &now,
 				})
@@ -420,14 +424,14 @@ func (r *FlowRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 					failMsg := fmt.Sprintf("when expression error: %v", err)
 					flowRun.Status.Steps = upsertStepStatus(flowRun.Status.Steps, automationv1alpha1.StepRunStatus{
 						Name:           step.Name,
-						Phase:          "Failed",
+						Phase:          automationv1alpha1.StepPhaseFailed,
 						Message:        failMsg,
 						CompletionTime: &now,
 					})
 					if err2 := r.Status().Update(ctx, &flowRun); err2 != nil {
 						return ctrl.Result{}, err2
 					}
-					if step.OnFailure == "Continue" || flow.Spec.FailurePolicy == "Continue" {
+					if step.OnFailure == automationv1alpha1.OnFailureActionContinue || flow.Spec.FailurePolicy == automationv1alpha1.FailurePolicyContinue {
 						skippedAny = true
 						continue
 					}
@@ -437,7 +441,7 @@ func (r *FlowRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 					now := metav1.Now()
 					flowRun.Status.Steps = upsertStepStatus(flowRun.Status.Steps, automationv1alpha1.StepRunStatus{
 						Name:           step.Name,
-						Phase:          "Skipped",
+						Phase:          automationv1alpha1.StepPhaseSkipped,
 						Message:        "when condition evaluated to false",
 						CompletionTime: &now,
 					})
@@ -475,10 +479,10 @@ func (r *FlowRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 				continue
 			}
 			existing := findStepStatus(flowRun.Status.Steps, step.Name)
-			if existing != nil && existing.Phase != "" && existing.Phase != "Pending" {
+			if existing != nil && existing.Phase != "" && existing.Phase != automationv1alpha1.StepPhasePending {
 				// Re-admit wait steps that are in Waiting phase — they need to be
 				// rechecked to see if the wait duration has elapsed.
-				if existing.Phase == "Waiting" && step.Action.Type == stepActionWait {
+				if existing.Phase == automationv1alpha1.StepPhaseWaiting && step.Action.Type == stepActionWait {
 					waveSteps = append(waveSteps, readyStep{step: step, stepIdx: i})
 				}
 				continue
@@ -515,14 +519,14 @@ func (r *FlowRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 					requeueAfter, err := r.executeWaitStep(ctx, log, &flowRun, step, &ss)
 					if err != nil {
 						completionTime := metav1.Now()
-						ss.Phase = "Failed"
+						ss.Phase = automationv1alpha1.StepPhaseFailed
 						ss.Message = err.Error()
 						ss.CompletionTime = &completionTime
 						flowRun.Status.Steps = upsertStepStatus(flowRun.Status.Steps, ss)
 						if err2 := r.Status().Update(ctx, &flowRun); err2 != nil {
 							return ctrl.Result{}, err2
 						}
-						if step.OnFailure == "Continue" || flow.Spec.FailurePolicy == "Continue" {
+						if step.OnFailure == automationv1alpha1.OnFailureActionContinue || flow.Spec.FailurePolicy == automationv1alpha1.FailurePolicyContinue {
 							return ctrl.Result{Requeue: true}, nil
 						}
 						return ctrl.Result{}, r.failFlowRun(ctx, &flowRun, fmt.Sprintf("step %q failed: %s", step.Name, ss.Message))
@@ -537,7 +541,7 @@ func (r *FlowRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 					}
 					// Wait elapsed — mark Succeeded and requeue to process next wave.
 					completionTime := metav1.Now()
-					ss.Phase = "Succeeded"
+					ss.Phase = automationv1alpha1.StepPhaseSucceeded
 					ss.CompletionTime = &completionTime
 					flowRun.Status.Steps = upsertStepStatus(flowRun.Status.Steps, ss)
 					if err2 := r.Status().Update(ctx, &flowRun); err2 != nil {
@@ -575,7 +579,7 @@ func (r *FlowRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 							results[i] = stepResult{
 								name:         step.Name,
 								stepType:     step.Action.Type,
-								status:       automationv1alpha1.StepRunStatus{Name: step.Name, Phase: "Running"},
+								status:       automationv1alpha1.StepRunStatus{Name: step.Name, Phase: automationv1alpha1.StepPhaseRunning},
 								duration:     dur,
 								requeueAfter: executorTransportBackoff,
 							}
@@ -585,7 +589,7 @@ func (r *FlowRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 						// occur under current implementation, but handled defensively).
 						results[i] = stepResult{
 							name: step.Name, stepType: step.Action.Type,
-							status:   automationv1alpha1.StepRunStatus{Name: step.Name, Phase: "Failed", Message: err.Error()},
+							status:   automationv1alpha1.StepRunStatus{Name: step.Name, Phase: automationv1alpha1.StepPhaseFailed, Message: err.Error()},
 							duration: dur,
 						}
 						return
@@ -595,8 +599,8 @@ func (r *FlowRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 						status:   *ss,
 						duration: dur,
 					}
-					if ss.Phase == "Failed" {
-						if step.OnFailure != "Continue" && flow.Spec.FailurePolicy != "Continue" {
+					if ss.Phase == automationv1alpha1.StepPhaseFailed {
+						if step.OnFailure != automationv1alpha1.OnFailureActionContinue && flow.Spec.FailurePolicy != automationv1alpha1.FailurePolicyContinue {
 							fr.failFatal = true
 							fr.failMsg = fmt.Sprintf("step %q failed: %s", step.Name, ss.Message)
 						}
@@ -626,7 +630,7 @@ func (r *FlowRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 			for _, res := range results {
 				metrics.StepDuration.WithLabelValues(
 					flowRun.Namespace, flowRun.Spec.FlowRef.Name,
-					res.stepType, res.status.Phase,
+					res.stepType, string(res.status.Phase),
 				).Observe(res.duration.Seconds())
 				flowRun.Status.Steps = upsertStepStatus(flowRun.Status.Steps, res.status)
 				if res.failFatal && fatalMsg == "" {
@@ -650,11 +654,11 @@ func (r *FlowRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	// after step failures, but the FlowRun is Failed if any step without
 	// onFailure:Continue ended in Failed state.
 	for _, ss := range flowRun.Status.Steps {
-		if ss.Phase != "Failed" {
+		if ss.Phase != automationv1alpha1.StepPhaseFailed {
 			continue
 		}
 		for _, step := range flow.Spec.Steps {
-			if step.Name == ss.Name && step.OnFailure != "Continue" && flow.Spec.FailurePolicy != "Continue" {
+			if step.Name == ss.Name && step.OnFailure != automationv1alpha1.OnFailureActionContinue && flow.Spec.FailurePolicy != automationv1alpha1.FailurePolicyContinue {
 				msg := fmt.Sprintf("step %q failed: %s", ss.Name, ss.Message)
 				return ctrl.Result{}, r.failFlowRun(ctx, &flowRun, msg)
 			}
@@ -662,7 +666,7 @@ func (r *FlowRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	}
 
 	now := metav1.Now()
-	flowRun.Status.Phase = "Succeeded"
+	flowRun.Status.Phase = automationv1alpha1.FlowRunPhaseSucceeded
 	flowRun.Status.CompletionTime = &now
 	setFlowRunCondition(&flowRun, metav1.Condition{
 		Type:               "Succeeded",
@@ -716,7 +720,7 @@ func (r *FlowRunReconciler) executeStep(
 	now := metav1.Now()
 	status := &automationv1alpha1.StepRunStatus{
 		Name:      step.Name,
-		Phase:     "Running",
+		Phase:     automationv1alpha1.StepPhaseRunning,
 		StartTime: &now,
 		Attempts:  1,
 	}
@@ -736,10 +740,10 @@ func (r *FlowRunReconciler) executeStep(
 				// as Failed; return the error so the reconciler can requeue instead.
 				return status, err
 			}
-			status.Phase = "Failed"
+			status.Phase = automationv1alpha1.StepPhaseFailed
 			status.Message = err.Error()
 		} else {
-			status.Phase = "Succeeded"
+			status.Phase = automationv1alpha1.StepPhaseSucceeded
 			status.Message = msg
 			status.Results = mapsToResults(results)
 		}
@@ -747,14 +751,14 @@ func (r *FlowRunReconciler) executeStep(
 		completionTime := metav1.Now()
 		status.CompletionTime = &completionTime
 		if step.Action.Transform == nil {
-			status.Phase = "Failed"
+			status.Phase = automationv1alpha1.StepPhaseFailed
 			status.Message = fmt.Sprintf("step %q has type=transform but no transform spec", step.Name)
 		} else {
 			substituted := make(map[string]string, len(step.Action.Transform.Mappings))
 			for k, v := range step.Action.Transform.Mappings {
 				substituted[k] = substituteVars(v, stepResults, triggerData, params)
 			}
-			status.Phase = "Succeeded"
+			status.Phase = automationv1alpha1.StepPhaseSucceeded
 			status.Results = mapsToResults(substituted)
 		}
 	case stepActionPublish:
@@ -765,15 +769,15 @@ func (r *FlowRunReconciler) executeStep(
 			status.Attempts = int32(attempts)
 		}
 		if err != nil {
-			status.Phase = "Failed"
+			status.Phase = automationv1alpha1.StepPhaseFailed
 			status.Message = err.Error()
 		} else {
-			status.Phase = "Succeeded"
+			status.Phase = automationv1alpha1.StepPhaseSucceeded
 			status.Results = mapsToResults(result)
 		}
 	default:
 		completionTime := metav1.Now()
-		status.Phase = "Failed"
+		status.Phase = automationv1alpha1.StepPhaseFailed
 		status.CompletionTime = &completionTime
 		status.Message = fmt.Sprintf("unknown step action type: %q", step.Action.Type)
 	}
@@ -1391,7 +1395,7 @@ func (r *FlowRunReconciler) executeWaitStep(
 	if existing != nil && existing.ResumeAfter != nil {
 		if time.Now().Before(existing.ResumeAfter.Time) {
 			stepStatus.ResumeAfter = existing.ResumeAfter
-			stepStatus.Phase = "Waiting"
+			stepStatus.Phase = automationv1alpha1.StepPhaseWaiting
 			remaining := time.Until(existing.ResumeAfter.Time)
 			log.Info("wait step still sleeping", "step", step.Name, "remaining", remaining)
 			return remaining, nil
@@ -1403,7 +1407,7 @@ func (r *FlowRunReconciler) executeWaitStep(
 	// First time reaching this step — set ResumeAfter and return duration.
 	resumeAt := metav1.NewTime(time.Now().Add(duration))
 	stepStatus.ResumeAfter = &resumeAt
-	stepStatus.Phase = "Waiting"
+	stepStatus.Phase = automationv1alpha1.StepPhaseWaiting
 	log.Info("wait step sleeping", "step", step.Name, "duration", duration, "resumeAfter", resumeAt)
 	return duration, nil
 }
@@ -1441,17 +1445,17 @@ func (r *FlowRunReconciler) retryDelay(policy *automationv1alpha1.RetryPolicy, a
 // state model in docs/architecture/flowrun-state-model.md), setting the corresponding
 // condition, persisting status, removing the executing finalizer, and recording
 // FlowRunDuration under the correct phase label.
-func (r *FlowRunReconciler) finishFlowRun(ctx context.Context, flowRun *automationv1alpha1.FlowRun, phase, reason, msg string) error {
+func (r *FlowRunReconciler) finishFlowRun(ctx context.Context, flowRun *automationv1alpha1.FlowRun, phase automationv1alpha1.FlowRunPhase, reason, msg string) error {
 	now := metav1.Now()
 	if flowRun.Labels == nil {
 		flowRun.Labels = make(map[string]string)
 	}
-	flowRun.Labels["kubezap.io/phase"] = phase
+	flowRun.Labels["kubezap.io/phase"] = string(phase)
 	flowRun.Status.Phase = phase
 	flowRun.Status.CompletionTime = &now
 	flowRun.Status.Message = msg
 	setFlowRunCondition(flowRun, metav1.Condition{
-		Type:               phase,
+		Type:               string(phase),
 		Status:             metav1.ConditionTrue,
 		Reason:             reason,
 		Message:            msg,
@@ -1460,10 +1464,10 @@ func (r *FlowRunReconciler) finishFlowRun(ctx context.Context, flowRun *automati
 	if flowRun.Status.StartTime != nil {
 		duration := time.Since(flowRun.Status.StartTime.Time)
 		metrics.FlowRunDuration.WithLabelValues(
-			flowRun.Namespace, flowRun.Spec.FlowRef.Name, phase,
+			flowRun.Namespace, flowRun.Spec.FlowRef.Name, string(phase),
 		).Observe(duration.Seconds())
 	}
-	if phase == "Failed" {
+	if phase == automationv1alpha1.FlowRunPhaseFailed {
 		trace.SpanFromContext(ctx).SetStatus(otelcodes.Error, "FlowRun failed")
 	}
 	// Status update first — r.Update() would overwrite the local object with the
@@ -1480,14 +1484,14 @@ func (r *FlowRunReconciler) finishFlowRun(ctx context.Context, flowRun *automati
 }
 
 func (r *FlowRunReconciler) failFlowRun(ctx context.Context, flowRun *automationv1alpha1.FlowRun, msg string) error {
-	return r.finishFlowRun(ctx, flowRun, "Failed", "FlowRunFailed", msg)
+	return r.finishFlowRun(ctx, flowRun, automationv1alpha1.FlowRunPhaseFailed, "FlowRunFailed", msg)
 }
 
 // cancelFlowRun transitions a FlowRun to the Cancelled phase — used when the object is
 // deleted while Running (see docs/architecture/flowrun-state-model.md). Cancellation is
 // not a failure: it must not be reported as "Failed" in status, conditions, or metrics.
 func (r *FlowRunReconciler) cancelFlowRun(ctx context.Context, flowRun *automationv1alpha1.FlowRun, msg string) error {
-	return r.finishFlowRun(ctx, flowRun, "Cancelled", "FlowRunCancelled", msg)
+	return r.finishFlowRun(ctx, flowRun, automationv1alpha1.FlowRunPhaseCancelled, "FlowRunCancelled", msg)
 }
 
 func setFlowRunCondition(flowRun *automationv1alpha1.FlowRun, condition metav1.Condition) {
@@ -1512,9 +1516,9 @@ func (r *FlowRunReconciler) dependenciesMet(step automationv1alpha1.FlowStep, st
 			return false
 		}
 		switch s.Phase {
-		case "Succeeded", "Skipped":
+		case automationv1alpha1.StepPhaseSucceeded, automationv1alpha1.StepPhaseSkipped:
 			// always satisfied
-		case "Failed":
+		case automationv1alpha1.StepPhaseFailed:
 			// satisfied only when the flow is configured to continue past failures
 			if !failurePolicyContinue {
 				return false
@@ -1532,7 +1536,7 @@ func (r *FlowRunReconciler) reconcileGC(ctx context.Context, flowRun *automation
 	log := logf.FromContext(ctx)
 
 	// Exempt from GC if retain annotation is set.
-	if flowRun.Annotations[retainAnnotation] == "true" {
+	if flowRun.Annotations[retainAnnotation] == annotationValueTrue {
 		return 0, nil
 	}
 
@@ -1551,7 +1555,7 @@ func (r *FlowRunReconciler) reconcileGC(ctx context.Context, flowRun *automation
 
 	// Determine TTL. Priority: per-FlowRun spec > per-trigger GC policy > operator flag.
 	ttl := r.TTLSucceeded
-	if flowRun.Status.Phase == "Failed" {
+	if flowRun.Status.Phase == automationv1alpha1.FlowRunPhaseFailed {
 		ttl = r.TTLFailed
 	}
 	// Apply per-trigger TTL override from FlowRunGC policy.
@@ -1560,11 +1564,11 @@ func (r *FlowRunReconciler) reconcileGC(ctx context.Context, flowRun *automation
 		if err := r.Get(ctx, types.NamespacedName{Name: triggerName, Namespace: flowRun.Namespace}, &trigger); err == nil {
 			if gc := trigger.Spec.FlowRunGC; gc != nil {
 				switch flowRun.Status.Phase {
-				case "Succeeded":
+				case automationv1alpha1.FlowRunPhaseSucceeded:
 					if gc.TTLAfterSucceeded != nil {
 						ttl = gc.TTLAfterSucceeded.Duration
 					}
-				case "Failed":
+				case automationv1alpha1.FlowRunPhaseFailed:
 					if gc.TTLAfterFailed != nil {
 						ttl = gc.TTLAfterFailed.Duration
 					}
@@ -1604,12 +1608,12 @@ func (r *FlowRunReconciler) reconcileGC(ctx context.Context, flowRun *automation
 // enforceFlowRunGCPolicy applies per-state count caps from a FlowRunGCPolicy.
 func (r *FlowRunReconciler) enforceFlowRunGCPolicy(ctx context.Context, triggerName, namespace string, policy automationv1alpha1.FlowRunGCPolicy) error {
 	if policy.MaxSucceeded != nil {
-		if err := r.enforceMaxFlowRunsByPhase(ctx, triggerName, namespace, "Succeeded", *policy.MaxSucceeded); err != nil {
+		if err := r.enforceMaxFlowRunsByPhase(ctx, triggerName, namespace, automationv1alpha1.FlowRunPhaseSucceeded, *policy.MaxSucceeded); err != nil {
 			return err
 		}
 	}
 	if policy.MaxFailed != nil {
-		if err := r.enforceMaxFlowRunsByPhase(ctx, triggerName, namespace, "Failed", *policy.MaxFailed); err != nil {
+		if err := r.enforceMaxFlowRunsByPhase(ctx, triggerName, namespace, automationv1alpha1.FlowRunPhaseFailed, *policy.MaxFailed); err != nil {
 			return err
 		}
 	}
@@ -1618,7 +1622,7 @@ func (r *FlowRunReconciler) enforceFlowRunGCPolicy(ctx context.Context, triggerN
 
 // enforceMaxFlowRunsByPhase deletes the oldest FlowRuns in the given phase for a trigger
 // until the count is within the max cap.
-func (r *FlowRunReconciler) enforceMaxFlowRunsByPhase(ctx context.Context, triggerName, namespace, phase string, max int32) error {
+func (r *FlowRunReconciler) enforceMaxFlowRunsByPhase(ctx context.Context, triggerName, namespace string, phase automationv1alpha1.FlowRunPhase, max int32) error {
 	log := logf.FromContext(ctx)
 
 	var list automationv1alpha1.FlowRunList
@@ -1626,7 +1630,7 @@ func (r *FlowRunReconciler) enforceMaxFlowRunsByPhase(ctx context.Context, trigg
 		client.InNamespace(namespace),
 		client.MatchingLabels{
 			"kubezap.io/trigger": triggerName,
-			"kubezap.io/phase":   phase,
+			"kubezap.io/phase":   string(phase),
 		},
 	); err != nil {
 		return err
@@ -1638,7 +1642,7 @@ func (r *FlowRunReconciler) enforceMaxFlowRunsByPhase(ctx context.Context, trigg
 		if fr.Status.Phase != phase {
 			continue
 		}
-		if fr.Annotations[retainAnnotation] == "true" {
+		if fr.Annotations[retainAnnotation] == annotationValueTrue {
 			continue
 		}
 		matching = append(matching, fr)
@@ -1855,7 +1859,7 @@ func allDepsSkipped(step automationv1alpha1.FlowStep, flowRun *automationv1alpha
 	}
 	for _, dep := range step.RunAfter {
 		s := findStepStatus(flowRun.Status.Steps, dep)
-		if s == nil || s.Phase != "Skipped" {
+		if s == nil || s.Phase != automationv1alpha1.StepPhaseSkipped {
 			return false
 		}
 	}
@@ -2357,7 +2361,7 @@ func (r *FlowRunReconciler) Start(ctx context.Context) error {
 		} else {
 			for i := range list.Items {
 				fr := &list.Items[i]
-				if fr.Status.Phase != "Running" || fr.Status.StartTime == nil {
+				if fr.Status.Phase != automationv1alpha1.FlowRunPhaseRunning || fr.Status.StartTime == nil {
 					continue
 				}
 				if time.Since(fr.Status.StartTime.Time) <= r.ExecutionTimeout {

@@ -32,22 +32,22 @@ import (
 const phasePending = "Pending"
 
 // terminalPhases are FlowRun phases that indicate no further progress.
-var terminalPhases = map[string]bool{
-	"Succeeded": true,
-	"Failed":    true,
-	"Cancelled": true,
+var terminalPhases = map[automationv1alpha1.FlowRunPhase]bool{
+	automationv1alpha1.FlowRunPhaseSucceeded: true,
+	automationv1alpha1.FlowRunPhaseFailed:    true,
+	automationv1alpha1.FlowRunPhaseCancelled: true,
 }
 
 // stepBadge returns the single-character badge for a step phase.
-func stepBadge(phase string) string {
+func stepBadge(phase automationv1alpha1.StepPhase) string {
 	switch phase {
-	case "Succeeded":
+	case automationv1alpha1.StepPhaseSucceeded:
 		return "✓"
-	case "Failed":
+	case automationv1alpha1.StepPhaseFailed:
 		return "✗"
-	case "Running":
+	case automationv1alpha1.StepPhaseRunning:
 		return "●"
-	case "Skipped":
+	case automationv1alpha1.StepPhaseSkipped:
 		return "-"
 	default:
 		// Pending, Waiting, or empty

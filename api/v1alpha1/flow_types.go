@@ -21,6 +21,14 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
+// FailurePolicy controls Flow-level behavior when a step fails.
+type FailurePolicy string
+
+const (
+	FailurePolicyFail     FailurePolicy = "Fail"
+	FailurePolicyContinue FailurePolicy = "Continue"
+)
+
 // FlowSpec defines the desired state of Flow.
 type FlowSpec struct {
 	// Optional human-readable description for this Flow.
@@ -33,7 +41,7 @@ type FlowSpec struct {
 	// Behavior when a step fails.
 	// +kubebuilder:validation:Enum=Fail;Continue
 	// +kubebuilder:default=Fail
-	FailurePolicy string `json:"failurePolicy,omitempty"`
+	FailurePolicy FailurePolicy `json:"failurePolicy,omitempty"`
 
 	// Parameters that can be passed into the Flow.
 	Params []ParamDeclaration `json:"params,omitempty"`
@@ -60,6 +68,17 @@ type ParamDeclaration struct {
 	// Default value used when parameter is omitted.
 	Default string `json:"default,omitempty"`
 }
+
+// OnFailureAction controls step-level behavior when this specific step fails.
+// Distinct from FailurePolicy (rather than sharing one type) because it has a
+// third valid value, Skip, that FailurePolicy does not.
+type OnFailureAction string
+
+const (
+	OnFailureActionFail     OnFailureAction = "Fail"
+	OnFailureActionContinue OnFailureAction = "Continue"
+	OnFailureActionSkip     OnFailureAction = "Skip"
+)
 
 // FlowStep represents a single step in a Flow.
 type FlowStep struct {
@@ -89,7 +108,7 @@ type FlowStep struct {
 
 	// Policy for step failure handling.
 	// +kubebuilder:validation:Enum=Fail;Continue;Skip
-	OnFailure string `json:"onFailure,omitempty"`
+	OnFailure OnFailureAction `json:"onFailure,omitempty"`
 }
 
 // WhenExpression specifies a condition to evaluate prior to step execution.

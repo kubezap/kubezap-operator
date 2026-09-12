@@ -199,7 +199,7 @@ var _ = Describe("evaluateWhen", func() {
 	Context("step status expressions", func() {
 		It("evaluates step status equality to Succeeded", func() {
 			statuses := []automationv1alpha1.StepRunStatus{
-				{Name: "step1", Phase: "Succeeded"},
+				{Name: "step1", Phase: automationv1alpha1.StepPhaseSucceeded},
 			}
 			result, err := r.evaluateWhen(when(`steps.step1.status == "Succeeded"`), nil, statuses, nil, nil)
 			Expect(err).NotTo(HaveOccurred())
@@ -208,7 +208,7 @@ var _ = Describe("evaluateWhen", func() {
 
 		It("returns false when step phase does not match", func() {
 			statuses := []automationv1alpha1.StepRunStatus{
-				{Name: "step1", Phase: "Failed"},
+				{Name: "step1", Phase: automationv1alpha1.StepPhaseFailed},
 			}
 			result, err := r.evaluateWhen(when(`steps.step1.status == "Succeeded"`), nil, statuses, nil, nil)
 			Expect(err).NotTo(HaveOccurred())
@@ -261,7 +261,7 @@ var _ = Describe("evaluateWhen", func() {
 		It("returns true only when all expressions are true", func() {
 			td := &automationv1alpha1.TriggerData{Topic: "orders"}
 			statuses := []automationv1alpha1.StepRunStatus{
-				{Name: "validate", Phase: "Succeeded"},
+				{Name: "validate", Phase: automationv1alpha1.StepPhaseSucceeded},
 			}
 			result, err := r.evaluateWhen(
 				when(`trigger.topic == "orders"`, `steps.validate.status == "Succeeded"`),

@@ -34,9 +34,9 @@ Open:
 - [x] [STORY-001](../stories/STORY-001-docs-cleanup-pass.md) — Final public-facing docs cleanup pass
 - [x] [STORY-002](../stories/STORY-002-contributing-docs-cleanup.md) — Clean up `docs/contributing.md`
 - [ ] [STORY-003](../stories/STORY-003-test-suite-value-review.md) — Test suite value review
-- [ ] [STORY-004](../stories/STORY-004-github-pages-website.md) — Product/docs website via GitHub Pages (content scope decided 2026-09-12: rendered `docs/` only)
+- [x] [STORY-004](../stories/STORY-004-github-pages-website.md) — Product/docs website via GitHub Pages (content scope decided 2026-09-12: rendered `docs/` only)
 - [x] [STORY-005](../stories/STORY-005-community-health-files.md) — `CODE_OF_CONDUCT.md` + issue/PR templates
-- [ ] [STORY-006](../stories/STORY-006-support-channel-decision.md) — Support/community channel decision
+- [x] [STORY-006](../stories/STORY-006-support-channel-decision.md) — Support/community channel decision
 - [ ] [STORY-007](../stories/STORY-007-final-release-validation.md) — Final release validation and OperatorHub submission (rollup gate — last)
 
 ## Dependencies
@@ -46,4 +46,4 @@ Open:
 
 ## Notes
 
-All 7 stories were `Groomed` (2026-09-12 `/groom-backlog` session) — STORY-004's content-scope decision (rendered `docs/` only) and STORY-006's channel decision (GitHub Discussions) were made during that session. STORY-001/002/003/005/006 are independent of each other (disjoint footprints, see each story) and were `/plan-parallel`ed into two batches (`planning/checkpoints/checkpoint-2026-09-12/work-packages.md`). Batch 1 (STORY-001, 002, 005) dispatched via `/dispatch-work` and merged 2026-09-12 (PRs #181, #179, #180). STORY-003 is partially done (PR #174 satisfied its e2e-failures AC; brittle-test review + write-up still open). Batch 2 (STORY-004, STORY-006) is next. STORY-007 must be last — it depends on every other story in this Epic plus the pre-existing OperatorHub gate list.
+All 7 stories were `Groomed` (2026-09-12 `/groom-backlog` session) — STORY-004's content-scope decision (rendered `docs/` only) and STORY-006's channel decision (GitHub Discussions) were made during that session. STORY-001/002/003/005/006 are independent of each other (disjoint footprints, see each story) and were `/plan-parallel`ed into two batches (`planning/checkpoints/checkpoint-2026-09-12/work-packages.md`). Batch 1 (STORY-001, 002, 005) dispatched via `/dispatch-work` and merged 2026-09-12 (PRs #181, #179, #180). STORY-003 is partially done (PR #174 satisfied its e2e-failures AC; brittle-test review + write-up still open). Batch 2 (STORY-004 → PR #184, STORY-006 → PR #183) merged 2026-09-12 — both have one remaining manual admin action outside code (enabling the Pages source and enabling Discussions respectively; see each story's Status). STORY-007 must be last — it depends on every other story in this Epic plus the pre-existing OperatorHub gate list.

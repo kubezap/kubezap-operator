@@ -1,7 +1,7 @@
 # EPIC-003: WebhookGatewayConfig CRD
 
 **Status:** Backlog
-**PI:** —
+**PI:** PI-1
 
 ## Problem
 
@@ -49,4 +49,4 @@ Rough, not yet sized — footprinting happens in `/groom-backlog`:
 
 - Owner-confirmed direction (2026-09-12): CRD over continuing to expand annotations/hardcoded constants, specifically because it's easier to extend later.
 - Open question raised by owner: should this CRD also enable HA more directly (e.g. a `minReplicas >= 2` recommendation/validation, not just a raw passthrough number)? Not decided — flag for the design record.
-- Not yet scoped into a PI — candidate for a future `/plan-pi` session.
+- Committed to PI-1 (2026-09-12, via `/plan-pi`) as a parallel track alongside `EPIC-001` — not blocked on EPIC-001 closing, and not competing with it for files or focus (see `planning/roadmap/pi-plan.md`'s Revisions).

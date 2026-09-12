@@ -162,6 +162,10 @@ func sourceRange(ipStr string) string {
 // triggerName is used only for metric labelling when a request is blocked by IP allowlist.
 // trustedProxies is forwarded to realClientIP for the ipAllowlist case — see its doc comment.
 // Returns (http.StatusOK, "") on success, or (statusCode, errorMessage) on failure.
+//
+// nolint:gocyclo // one switch case per auth type, each a few lines; the most
+// mechanically splittable of the deferred gocyclo items if ever revisited, see
+// docs/schedule.md §36.
 func authenticateRequest(r *http.Request, body []byte, entry RouteEntry, triggerName string, trustedProxies []*net.IPNet) (int, string) {
 	switch entry.AuthType {
 	case authTypeHMAC:

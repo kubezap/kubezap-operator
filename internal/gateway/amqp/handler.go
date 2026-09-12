@@ -18,6 +18,9 @@ import (
 	"github.com/kubezap/kubezap-operator/internal/gateway/redact"
 )
 
+// triggerTypeAMQP is the TriggerSpec.Type value "amqp".
+const triggerTypeAMQP = "amqp"
+
 // nonAlphaNumDash matches any character that is not a lowercase letter, digit, or dash.
 var nonAlphaNumDash = regexp.MustCompile(`[^a-z0-9-]`)
 
@@ -90,7 +93,7 @@ func (h *MessageHandler091) handleDelivery(ctx context.Context, d amqp091.Delive
 			Namespace: h.triggerNamespace,
 			Labels: map[string]string{
 				"kubezap.io/trigger":      h.triggerName,
-				"kubezap.io/trigger-type": "amqp",
+				"kubezap.io/trigger-type": triggerTypeAMQP,
 				"kubezap.io/flow":         h.flowRefName,
 			},
 		},
@@ -98,10 +101,10 @@ func (h *MessageHandler091) handleDelivery(ctx context.Context, d amqp091.Delive
 			FlowRef: automationv1alpha1.FlowReference{Name: h.flowRefName},
 			TriggerRef: &automationv1alpha1.TriggerReference{
 				Name: h.triggerName,
-				Type: "amqp",
+				Type: triggerTypeAMQP,
 			},
 			TriggerData: &automationv1alpha1.TriggerData{
-				Source:  "amqp",
+				Source:  triggerTypeAMQP,
 				Body:    string(d.Body),
 				Headers: hdrs,
 				Topic:   routingKey,
@@ -199,7 +202,7 @@ func (h *MessageHandler10) handleMessage(ctx context.Context, msg *goamqp.Messag
 			Namespace: h.triggerNamespace,
 			Labels: map[string]string{
 				"kubezap.io/trigger":      h.triggerName,
-				"kubezap.io/trigger-type": "amqp",
+				"kubezap.io/trigger-type": triggerTypeAMQP,
 				"kubezap.io/flow":         h.flowRefName,
 			},
 		},
@@ -207,10 +210,10 @@ func (h *MessageHandler10) handleMessage(ctx context.Context, msg *goamqp.Messag
 			FlowRef: automationv1alpha1.FlowReference{Name: h.flowRefName},
 			TriggerRef: &automationv1alpha1.TriggerReference{
 				Name: h.triggerName,
-				Type: "amqp",
+				Type: triggerTypeAMQP,
 			},
 			TriggerData: &automationv1alpha1.TriggerData{
-				Source:  "amqp",
+				Source:  triggerTypeAMQP,
 				Body:    body,
 				Headers: hdrs,
 			},

@@ -461,6 +461,8 @@ func (r *FlowRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 				return ctrl.Result{}, client.IgnoreNotFound(err)
 			}
 			// Requeue immediately: the skips may have made new steps ready.
+			//nolint:staticcheck // Requeue:true (no RequeueAfter) deliberately defers to the
+			// controller's own rate limiter -- not equivalent to any RequeueAfter value.
 			return ctrl.Result{Requeue: true}, nil
 		}
 
@@ -527,6 +529,8 @@ func (r *FlowRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 							return ctrl.Result{}, err2
 						}
 						if step.OnFailure == automationv1alpha1.OnFailureActionContinue || flow.Spec.FailurePolicy == automationv1alpha1.FailurePolicyContinue {
+							//nolint:staticcheck // Requeue:true (no RequeueAfter) deliberately defers to the
+							// controller's own rate limiter -- not equivalent to any RequeueAfter value.
 							return ctrl.Result{Requeue: true}, nil
 						}
 						return ctrl.Result{}, r.failFlowRun(ctx, &flowRun, fmt.Sprintf("step %q failed: %s", step.Name, ss.Message))
@@ -547,6 +551,8 @@ func (r *FlowRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 					if err2 := r.Status().Update(ctx, &flowRun); err2 != nil {
 						return ctrl.Result{}, err2
 					}
+					//nolint:staticcheck // Requeue:true (no RequeueAfter) deliberately defers to the
+					// controller's own rate limiter -- not equivalent to any RequeueAfter value.
 					return ctrl.Result{Requeue: true}, nil
 				}
 			}
@@ -646,6 +652,8 @@ func (r *FlowRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 			}
 
 			// Wave complete — requeue immediately to process the next wave.
+			//nolint:staticcheck // Requeue:true (no RequeueAfter) deliberately defers to the
+			// controller's own rate limiter -- not equivalent to any RequeueAfter value.
 			return ctrl.Result{Requeue: true}, nil
 		} // end else (waveSteps non-empty)
 	}

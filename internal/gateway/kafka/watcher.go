@@ -196,7 +196,7 @@ func (w *Watcher) reconcileTrigger(ctx context.Context, trigger *automationv1alp
 	w.triggersMu.Unlock()
 
 	// Stop subscription if trigger is not a kafka trigger or is disabled.
-	if trigger.Spec.Type != "kafka" || trigger.Spec.Kafka == nil || !trigger.Spec.Enabled {
+	if trigger.Spec.Type != triggerTypeKafka || trigger.Spec.Kafka == nil || !trigger.Spec.Enabled {
 		w.secretIndex.Remove(key)
 		w.stopSubscription(key)
 		return

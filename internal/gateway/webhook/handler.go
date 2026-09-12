@@ -85,6 +85,9 @@ func (ct *cooldownTracker) allow(path string, maxInvocations int32, window time.
 // docs/design/2026-09-11-webhook-gateway-trust-boundary.md.
 const defaultMaxStoredBodyBytes = 65536
 
+// errorJSONKey is the map key used for {"error": "..."} JSON error responses.
+const errorJSONKey = "error"
+
 type WebhookHandler struct {
 	k8sClient          client.Client
 	registry           *RouteRegistry
@@ -362,7 +365,7 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	entry, ok := h.registry.Lookup(r.URL.Path)
 	if !ok {
 		status = http.StatusNotFound
-		writeJSON(w, status, map[string]string{"error": "no trigger registered for this path"})
+		writeJSON(w, status, map[string]string{errorJSONKey: "no trigger registered for this path"})
 		return
 	}
 	triggerName = entry.TriggerName
@@ -371,7 +374,7 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if strings.ToUpper(r.Method) != entry.AllowedMethod {
 		status = http.StatusMethodNotAllowed
 		w.Header().Set("Allow", entry.AllowedMethod)
-		writeJSON(w, status, map[string]string{"error": "method not allowed"})
+		writeJSON(w, status, map[string]string{errorJSONKey: "method not allowed"})
 		return
 	}
 
@@ -381,7 +384,7 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		status = http.StatusInternalServerError
 		h.log.Error(err, "unable to read request body")
-		writeJSON(w, status, map[string]string{"error": "unable to read request body"})
+		writeJSON(w, status, map[string]string{errorJSONKey: "unable to read request body"})
 		return
 	}
 
@@ -392,13 +395,13 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	if bodyTruncated {
 		status = http.StatusRequestEntityTooLarge
-		writeJSON(w, status, map[string]string{"error": "request body exceeds maximum allowed size"})
+		writeJSON(w, status, map[string]string{errorJSONKey: "request body exceeds maximum allowed size"})
 		return
 	}
 
 	if authStatus, authMsg := authenticateRequest(r, bodyBytes, entry, triggerName, h.trustedProxies); authStatus != http.StatusOK {
 		status = authStatus
-		writeJSON(w, status, map[string]string{"error": authMsg})
+		writeJSON(w, status, map[string]string{errorJSONKey: authMsg})
 		return
 	}
 
@@ -407,7 +410,7 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		status = http.StatusTooManyRequests
 		metricResult = metricResultRateLimited
 		metrics.WebhookRateLimited.WithLabelValues(triggerName, triggerNamespace).Inc()
-		writeJSON(w, status, map[string]string{"error": "cooldown window exceeded"})
+		writeJSON(w, status, map[string]string{errorJSONKey: "cooldown window exceeded"})
 		return
 	}
 
@@ -498,7 +501,7 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		status = http.StatusInternalServerError
 		h.log.Error(err, "unable to create FlowRun", "flowRun", flowRunName, "trigger", entry.TriggerName, "namespace", entry.TriggerNamespace)
-		writeJSON(w, status, map[string]string{"error": "unable to create FlowRun"})
+		writeJSON(w, status, map[string]string{errorJSONKey: "unable to create FlowRun"})
 		return
 	}
 

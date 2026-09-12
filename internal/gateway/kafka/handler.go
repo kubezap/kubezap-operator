@@ -16,6 +16,9 @@ import (
 	"github.com/kubezap/kubezap-operator/internal/gateway/redact"
 )
 
+// triggerTypeKafka is the TriggerSpec.Type value "kafka".
+const triggerTypeKafka = "kafka"
+
 // traceParentKey is an unexported context key for carrying W3C traceparent values.
 type traceParentKey struct{}
 
@@ -100,7 +103,7 @@ func (h *MessageHandler) HandleMessage(ctx context.Context, topic string, partit
 			Namespace: h.triggerNamespace,
 			Labels: map[string]string{
 				"kubezap.io/trigger":      h.triggerName,
-				"kubezap.io/trigger-type": "kafka",
+				"kubezap.io/trigger-type": triggerTypeKafka,
 				"kubezap.io/flow":         h.flowRefName,
 			},
 		},
@@ -108,10 +111,10 @@ func (h *MessageHandler) HandleMessage(ctx context.Context, topic string, partit
 			FlowRef: automationv1alpha1.FlowReference{Name: h.flowRefName},
 			TriggerRef: &automationv1alpha1.TriggerReference{
 				Name: h.triggerName,
-				Type: "kafka",
+				Type: triggerTypeKafka,
 			},
 			TriggerData: &automationv1alpha1.TriggerData{
-				Source:    "kafka",
+				Source:    triggerTypeKafka,
 				Body:      string(payload),
 				Headers:   hdrs,
 				Topic:     topic,

@@ -156,8 +156,7 @@ metadata:
     categories: Integration & Delivery
     containerImage: ghcr.io/kubezap/controller:latest
     createdAt: "2026-09-11T14:30:59Z"
-    description: Declarative workflow automation for Kubernetes — Zapier meets Camunda,
-      but Kubernetes-native.
+    description: Declarative workflow automation for Kubernetes
     operatorframework.io/suggested-namespace: kubezap-system
     operators.operatorframework.io/builder: operator-sdk-v1.42.0
     operators.operatorframework.io/project_layout: go.kubebuilder.io/v4
@@ -245,8 +244,7 @@ spec:
       version: v1alpha1
   description: |
     KubeZap is an enterprise-grade Kubernetes operator providing declarative
-    workflow automation inspired by Zapier. Users define automations via CRDs
-    instead of a web UI — think "Zapier meets Camunda, but Kubernetes-native."
+    workflow automation.
 
     ## Features
 

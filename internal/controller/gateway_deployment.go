@@ -17,6 +17,8 @@ limitations under the License.
 package controller
 
 import (
+	"context"
+	"fmt"
 	"os"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -26,7 +28,12 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/utils/ptr"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	automationv1alpha1 "github.com/kubezap/kubezap-operator/api/v1alpha1"
 )
+
+// +kubebuilder:rbac:groups=automation.kubezap.io,resources=webhookgatewayconfigs,verbs=get;list;watch
 
 const (
 	webhookGatewayDeploymentName = "kubezap-webhook-gateway"
@@ -127,10 +134,39 @@ func desiredWebhookGatewayRoleBinding(namespace string) *rbacv1.RoleBinding {
 // desiredWebhookGatewayHPA returns the desired HorizontalPodAutoscaler for the webhook
 // gateway Deployment in the given namespace. It targets CPU utilization at 70% with a
 // min of 1 and max of 10 replicas.
+//
+// This is a thin wrapper around desiredWebhookGatewayHPAFromConfig with a nil config,
+// preserved so existing callers (and their compiled behavior) are unaffected by the
+// addition of WebhookGatewayConfig support.
 func desiredWebhookGatewayHPA(namespace string) *autoscalingv2.HorizontalPodAutoscaler {
+	return desiredWebhookGatewayHPAFromConfig(namespace, nil)
+}
+
+// desiredWebhookGatewayHPAFromConfig returns the desired HorizontalPodAutoscaler for the
+// webhook gateway Deployment in the given namespace, reading MinReplicas, MaxReplicas, and
+// TargetCPUUtilization from cfg.Spec.HPA when cfg is non-nil.
+//
+// A nil cfg, a cfg with a nil Spec.HPA, or a Spec.HPA with individual nil fields all fall
+// back — per field — to today's exact hardcoded defaults (min=1, max=10, target-CPU=70%),
+// so a namespace with no WebhookGatewayConfig (or one that leaves HPA fields unset)
+// reconciles byte-identically to before WebhookGatewayConfig existed.
+func desiredWebhookGatewayHPAFromConfig(namespace string, cfg *automationv1alpha1.WebhookGatewayConfig) *autoscalingv2.HorizontalPodAutoscaler {
 	cpuUtilization := int32(70)
 	minReplicas := int32(1)
 	maxReplicas := int32(10)
+
+	if cfg != nil && cfg.Spec.HPA != nil {
+		hpa := cfg.Spec.HPA
+		if hpa.MinReplicas != nil {
+			minReplicas = *hpa.MinReplicas
+		}
+		if hpa.MaxReplicas != nil {
+			maxReplicas = *hpa.MaxReplicas
+		}
+		if hpa.TargetCPUUtilization != nil {
+			cpuUtilization = *hpa.TargetCPUUtilization
+		}
+	}
 
 	return &autoscalingv2.HorizontalPodAutoscaler{
 		ObjectMeta: metav1.ObjectMeta{
@@ -163,6 +199,26 @@ func desiredWebhookGatewayHPA(namespace string) *autoscalingv2.HorizontalPodAuto
 			},
 		},
 	}
+}
+
+// getWebhookGatewayConfig returns the namespace's WebhookGatewayConfig object, or nil if
+// none exists. The singleton-per-namespace invariant (at most one object, any name) is
+// enforced at admission time by the WebhookGatewayConfig validating webhook — this helper
+// simply returns the first (and, per that invariant, only) item found.
+//
+// Not yet called from the Trigger reconcile loop: wiring desiredWebhookGatewayHPAFromConfig
+// into ensureWebhookGateway (internal/controller/trigger_controller.go) is left to a
+// follow-up integration pass — see this story's final report for the exact call-site change
+// needed.
+func getWebhookGatewayConfig(ctx context.Context, c client.Client, namespace string) (*automationv1alpha1.WebhookGatewayConfig, error) {
+	var list automationv1alpha1.WebhookGatewayConfigList
+	if err := c.List(ctx, &list, client.InNamespace(namespace)); err != nil {
+		return nil, fmt.Errorf("listing WebhookGatewayConfig in namespace %s: %w", namespace, err)
+	}
+	if len(list.Items) == 0 {
+		return nil, nil
+	}
+	return &list.Items[0], nil
 }
 
 // desiredWebhookGatewayService returns the desired ClusterIP service for the webhook gateway.

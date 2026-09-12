@@ -5,4 +5,5 @@ resources:
 - automation_v1alpha1_flowrun.yaml
 - automation_v1alpha1_integration.yaml
 - automation_v1alpha1_integration_http.yaml
+- automation_v1alpha1_webhookgatewayconfig.yaml
 # +kubebuilder:scaffold:manifestskustomizesamples

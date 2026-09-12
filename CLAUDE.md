@@ -42,7 +42,7 @@ If a request jumps directly to implementation without design context, Claude sho
 
 ## Tech Stack
 
-- Go 1.24
+- Go 1.25 (see `go.mod` for the exact pinned patch version — kept current with upstream security releases; see `docs/schedule.md` §39 dependency management)
 - Kubebuilder v4 (`sigs.k8s.io/controller-runtime v0.21`)
 - Operator SDK (OLM bundle generation scaffolded)
 - Ginkgo v2 + Gomega (testing)

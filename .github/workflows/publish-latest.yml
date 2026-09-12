@@ -24,6 +24,8 @@ jobs:
             dockerfile: cmd/amqp-gateway/Dockerfile
           - name: nats-gateway
             dockerfile: cmd/nats-gateway/Dockerfile
+          - name: http-executor
+            dockerfile: cmd/http-executor/Dockerfile
     steps:
       - uses: actions/checkout@v4
 

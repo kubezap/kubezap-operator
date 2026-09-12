@@ -6,6 +6,22 @@ and surfaces the open questions.
 
 ---
 
+## Move Internal PM Content Out of the Public Repo — 2026-09-12
+
+<!-- BACKLOG-PROMPT -->
+**Q: `docs/schedule.md`, `docs/groom-latest.md`, `docs/review-latest.md`, and `docs/tech-debt/` (this file included) are internal project-management working documents, not user-facing product docs — but they currently ship in the same repo that's about to go public/open-source. What's the mechanism for keeping them out of the public repo?**
+
+Options considered, none implemented — this needs an owner decision before any file move happens (moving `docs/schedule.md` mid-flight would break every `/groom`/`/backlog` session's ability to find it, and picking wrong risks losing this project's own development history):
+
+- **(A) Separate private tracking repo** — move `docs/schedule.md` + `docs/tech-debt/` + the two `-latest.md` logs to a private companion repo (e.g. `kubezap/kubezap-internal`); `/groom`/`/backlog` skills would need to `cd` into a second checkout or be pointed at a different path.
+- **(B) `internal-docs/`-style directory excluded from the public mirror** — keep everything in this one repo, but if/when a public mirror or export step exists, exclude a clearly-named directory. Simplest for now, but only works if "going public" means mirroring/exporting rather than just flipping this exact repo's visibility to public (if the repo itself becomes public, an excluded-from-mirror directory doesn't help — it's still sitting right there in the same public repo).
+- **(C) Just flip the repo public with these files still in it** — accept that competitors/users can read the team's own backlog and internal findings. Lowest effort, but contradicts the premise of the schedule item ("not user-facing... reads as distinctly internal").
+- **(D) Delete/summarize before going public, keep no historical record** — precedent exists for this (§33's Web UI removal explicitly stripped historical schedule entries per an owner instruction unique to that feature), but doing it for the *entire* schedule/tech-debt corpus would erase a lot of real decision history (design rationale, rejected alternatives, why bugs were fixed the way they were) that's valuable context for future contributors, not just this project's internal management.
+
+**No fallback action taken this pass** — none of A–D is reversible-and-safe enough to guess at (A means restructuring how future `/groom`/`/backlog` sessions find their input file; C/D are one-way once the repo is actually public). Left as `[ ]` in `docs/schedule.md` §39 pending this answer.
+
+---
+
 ## Lint Deferred Items — 2026-09-11
 
 <!-- ANSWERED -->

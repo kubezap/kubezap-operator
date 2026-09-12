@@ -38,6 +38,20 @@ jobs:
           go mod tidy
           make test
 
+  govulncheck:
+    name: Vulnerability Scan (govulncheck)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Run govulncheck
+        run: make vulncheck
+
   build:
     name: Build
     runs-on: ubuntu-latest
@@ -61,6 +75,9 @@ jobs:
           go build -o bin/kafka-gateway   ./cmd/kafka-gateway
           go build -o bin/amqp-gateway    ./cmd/amqp-gateway
           go build -o bin/nats-gateway    ./cmd/nats-gateway
+
+      - name: Build http-executor binary
+        run: go build -o bin/http-executor ./cmd/http-executor
 
   docker-build:
     name: Docker Build (validate)
@@ -104,4 +121,11 @@ jobs:
         with:
           context: .
           file: cmd/nats-gateway/Dockerfile
+          push: false
+
+      - name: Build http-executor image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: cmd/http-executor/Dockerfile
           push: false

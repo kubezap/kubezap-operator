@@ -37,10 +37,11 @@ var _ = Describe("ExecutorReconciler", func() {
 
 	newReconciler := func() *ExecutorReconciler {
 		return &ExecutorReconciler{
-			Client:        k8sClient,
-			Scheme:        scheme.Scheme,
-			ExecutorImage: testImage,
-			ExecutorPort:  defaultExecutorPort,
+			Client:            k8sClient,
+			Scheme:            scheme.Scheme,
+			ExecutorImage:     testImage,
+			ExecutorPort:      defaultExecutorPort,
+			OperatorNamespace: "kubezap-system",
 		}
 	}
 
@@ -120,6 +121,25 @@ var _ = Describe("ExecutorReconciler", func() {
 			Expect(np.Spec.Ingress).To(HaveLen(1))
 			Expect(np.Spec.PolicyTypes).To(ContainElement(networkingv1.PolicyTypeIngress))
 
+			// Regression test: the ingress From peer must match the REAL
+			// controller-manager pod's labels (config/manager/manager.yaml — no
+			// app.kubernetes.io/component label exists on that pod) and must carry a
+			// NamespaceSelector, since the controller normally runs in a different
+			// namespace than the executor it's reaching. A selector that doesn't match
+			// the real pod silently breaks every HTTP step whenever NetworkPolicy is
+			// actually enforced by the cluster's CNI.
+			Expect(np.Spec.Ingress[0].From).To(HaveLen(1))
+			peer := np.Spec.Ingress[0].From[0]
+			Expect(peer.PodSelector).NotTo(BeNil())
+			Expect(peer.PodSelector.MatchLabels).To(Equal(map[string]string{
+				"app.kubernetes.io/name": "kubezap",
+				"control-plane":          "controller-manager",
+			}))
+			Expect(peer.NamespaceSelector).NotTo(BeNil())
+			Expect(peer.NamespaceSelector.MatchLabels).To(Equal(map[string]string{
+				"kubernetes.io/metadata.name": "kubezap-system",
+			}))
+
 			// Egress: SSRF defense-in-depth (see docs/design/2026-09-11-executor-egress-networkpolicy.md).
 			Expect(np.Spec.PolicyTypes).To(ContainElement(networkingv1.PolicyTypeEgress))
 			Expect(np.Spec.Egress).To(HaveLen(2), "one rule for HTTP(S) egress minus blocked ranges, one for DNS")
@@ -131,6 +151,8 @@ var _ = Describe("ExecutorReconciler", func() {
 			), "must exclude RFC1918 and link-local/cloud-metadata ranges")
 			Expect(httpEgress.To[1].IPBlock.CIDR).To(Equal("::/0"))
 			Expect(httpEgress.To[1].IPBlock.Except).To(ContainElement("fe80::/10"))
+			Expect(httpEgress.Ports).To(BeEmpty(),
+				"must not restrict destination ports — Flow steps and integrations legitimately target arbitrary ports, not just 80/443")
 		})
 
 		It("is idempotent when reconciled twice", func() {
@@ -146,6 +168,26 @@ var _ = Describe("ExecutorReconciler", func() {
 
 			np := &networkingv1.NetworkPolicy{}
 			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: executorNetworkPolicyName, Namespace: namespace}, np)).To(Succeed())
+		})
+
+		It("drops the RFC1918/link-local egress exceptions when SSRFAllowClusterInternal is set", func() {
+			r := newReconciler()
+			r.SSRFAllowClusterInternal = true
+			_, err := r.Reconcile(ctx, ctrl.Request{
+				NamespacedName: types.NamespacedName{Name: flowRun.Name, Namespace: namespace},
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			np := &networkingv1.NetworkPolicy{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: executorNetworkPolicyName, Namespace: namespace}, np)).To(Succeed())
+			Expect(np.Spec.Egress).To(HaveLen(2))
+			httpEgress := np.Spec.Egress[0]
+			Expect(httpEgress.To).To(HaveLen(2))
+			Expect(httpEgress.To[0].IPBlock.CIDR).To(Equal("0.0.0.0/0"))
+			Expect(httpEgress.To[0].IPBlock.Except).To(BeEmpty(),
+				"in-cluster calls (e.g. to a dev Mockoon service) must not be network-blocked when the software SSRF check already allows them")
+			Expect(httpEgress.To[1].IPBlock.CIDR).To(Equal("::/0"))
+			Expect(httpEgress.To[1].IPBlock.Except).To(BeEmpty())
 		})
 	})
 

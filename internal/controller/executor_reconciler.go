@@ -85,6 +85,15 @@ type ExecutorReconciler struct {
 	// Deployment args. For dev/test environments where HTTP steps must call in-cluster
 	// services. Mirrors FlowRunReconciler.SSRFAllowClusterInternal.
 	SSRFAllowClusterInternal bool
+
+	// OperatorNamespace is the namespace the controller-manager pod itself runs in
+	// (POD_NAMESPACE). The executor NetworkPolicy's ingress rule must reference this
+	// namespace explicitly: the executor is reconciled into the *watched* namespace
+	// (req.Namespace, e.g. "default"), which is frequently different from the
+	// operator's own namespace (e.g. "kubezap-system") — a NetworkPolicyPeer's bare
+	// PodSelector only matches pods in the same namespace as the NetworkPolicy itself,
+	// so cross-namespace ingress requires a NamespaceSelector too.
+	OperatorNamespace string
 }
 
 func (r *ExecutorReconciler) executorImage() string {
@@ -99,6 +108,36 @@ func (r *ExecutorReconciler) executorPort() int32 {
 		return r.ExecutorPort
 	}
 	return defaultExecutorPort
+}
+
+// egressExceptCIDRs returns the IPv4 ranges excluded from the executor's egress
+// allowlist, i.e. the ranges Flow steps may NOT reach. Empty when
+// SSRFAllowClusterInternal is set, since that dev/test flag already disables the
+// equivalent software-layer check — see the Egress rule comment above.
+func (r *ExecutorReconciler) egressExceptCIDRs() []string {
+	if r.SSRFAllowClusterInternal {
+		return nil
+	}
+	return executorSSRFBlockedEgressCIDRs
+}
+
+// egressExceptCIDRsV6 is the IPv6 equivalent of egressExceptCIDRs.
+func (r *ExecutorReconciler) egressExceptCIDRsV6() []string {
+	if r.SSRFAllowClusterInternal {
+		return nil
+	}
+	return executorSSRFBlockedEgressCIDRsV6
+}
+
+// operatorNamespace returns the namespace the controller-manager pod itself runs in.
+// Falls back to the project's conventional default (config/default's namespace) if
+// unset, so an ExecutorReconciler constructed without it (e.g. in tests) still
+// produces a well-formed, restrictive NamespaceSelector rather than an empty one.
+func (r *ExecutorReconciler) operatorNamespace() string {
+	if r.OperatorNamespace != "" {
+		return r.OperatorNamespace
+	}
+	return "kubezap-system"
 }
 
 // Reconcile ensures a kubezap-http-executor Deployment, Service, and NetworkPolicy
@@ -361,8 +400,6 @@ func (r *ExecutorReconciler) reconcileExecutorNetworkPolicy(ctx context.Context,
 	port := r.executorPort()
 	protocol := corev1.ProtocolTCP
 	portVal := intstr.FromInt32(port)
-	httpPort := intstr.FromInt32(80)
-	httpsPort := intstr.FromInt32(443)
 	dnsPort := intstr.FromInt32(53)
 	dnsUDP := corev1.ProtocolUDP
 	dnsTCP := corev1.ProtocolTCP
@@ -386,10 +423,21 @@ func (r *ExecutorReconciler) reconcileExecutorNetworkPolicy(ctx context.Context,
 				{
 					From: []networkingv1.NetworkPolicyPeer{
 						{
+							// Matches config/manager/manager.yaml's controller-manager pod
+							// template labels exactly (it does NOT carry an
+							// app.kubernetes.io/component label). A namespace selector is
+							// required alongside it: the controller-manager pod normally
+							// runs in a different namespace (its own, e.g. "kubezap-system")
+							// than this NetworkPolicy (the watched namespace, e.g. "default").
 							PodSelector: &metav1.LabelSelector{
 								MatchLabels: map[string]string{
-									"app.kubernetes.io/name":      "kubezap",
-									"app.kubernetes.io/component": "controller",
+									"app.kubernetes.io/name": "kubezap",
+									"control-plane":          "controller-manager",
+								},
+							},
+							NamespaceSelector: &metav1.LabelSelector{
+								MatchLabels: map[string]string{
+									"kubernetes.io/metadata.name": r.operatorNamespace(),
 								},
 							},
 						},
@@ -404,14 +452,21 @@ func (r *ExecutorReconciler) reconcileExecutorNetworkPolicy(ctx context.Context,
 			},
 			Egress: []networkingv1.NetworkPolicyEgressRule{
 				{
-					// Outbound HTTP(S) calls for Flow steps, minus the blocked ranges.
+					// Outbound calls for Flow steps, minus the blocked ranges. No port
+					// restriction: Flow HTTP steps and integrations legitimately target
+					// arbitrary ports (internal APIs and dev/test mocks are frequently
+					// not on 80/443), and the design intent here (see
+					// docs/design/2026-09-11-executor-egress-networkpolicy.md) is a
+					// destination-CIDR blocklist, not a port allowlist.
+					// When SSRFAllowClusterInternal is set (dev/test only — see
+					// config/dev/manager_dev_patch.yaml), the software SSRF check already
+					// permits in-cluster hostnames; mirror that here by dropping the
+					// RFC1918/link-local exceptions so this network-layer rule doesn't
+					// silently block the same in-cluster calls (e.g. Flow steps hitting an
+					// in-cluster Mockoon service) the dev flag was meant to allow.
 					To: []networkingv1.NetworkPolicyPeer{
-						{IPBlock: &networkingv1.IPBlock{CIDR: "0.0.0.0/0", Except: executorSSRFBlockedEgressCIDRs}},
-						{IPBlock: &networkingv1.IPBlock{CIDR: "::/0", Except: executorSSRFBlockedEgressCIDRsV6}},
-					},
-					Ports: []networkingv1.NetworkPolicyPort{
-						{Protocol: &protocol, Port: &httpPort},
-						{Protocol: &protocol, Port: &httpsPort},
+						{IPBlock: &networkingv1.IPBlock{CIDR: "0.0.0.0/0", Except: r.egressExceptCIDRs()}},
+						{IPBlock: &networkingv1.IPBlock{CIDR: "::/0", Except: r.egressExceptCIDRsV6()}},
 					},
 				},
 				{

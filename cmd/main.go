@@ -391,6 +391,10 @@ func main() {
 		setupLog.Error(err, "unable to create controller", "controller", "Integration")
 		os.Exit(1)
 	}
+	operatorNamespace := os.Getenv("POD_NAMESPACE")
+	if operatorNamespace == "" {
+		operatorNamespace = defaultNamespace
+	}
 	executorReconciler := &controller.ExecutorReconciler{
 		Client:                   mgr.GetClient(),
 		Scheme:                   mgr.GetScheme(),
@@ -398,6 +402,7 @@ func main() {
 		MTLSEnabled:              executorMTLS,
 		MTLSBundle:               initialMTLSBundle,
 		SSRFAllowClusterInternal: ssrfAllowClusterInternal,
+		OperatorNamespace:        operatorNamespace,
 	}
 	if err = executorReconciler.SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Executor")

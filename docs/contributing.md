@@ -113,6 +113,15 @@ make deploy IMG=ghcr.io/kubezap/controller:$TAG \
 
 The controller reads `WEBHOOK_GATEWAY_IMAGE` and `KAFKA_GATEWAY_IMAGE` at runtime to know which image to use when creating gateway Deployments.
 
+**Known issues with this workflow (tracked in `docs/schedule.md` §10 Future/Backlog):**
+
+- `make deploy`'s `IMG=` override currently has no effect — `config/manager/kustomization.yaml`'s image transformer `name: controller` doesn't match `manager.yaml`'s actual image reference, so the deployment always redeploys whatever's cached under `:latest` regardless of the tag you pass. Until that's fixed, build and import as `:latest` and force a fresh pod with `kubectl rollout restart deployment/kubezap-controller-manager -n kubezap-system` (and `kubectl delete pod` for any gateway/executor Deployment the controller itself reconciles, since a bare `rollout restart` on those gets reverted by the reconciler).
+- The controller-manager unconditionally starts an admission-webhook TLS server on boot but has no cert available under a plain `make deploy` (no cert-manager wiring is scaffolded yet) — it will crash-loop with `open /tmp/k8s-webhook-server/serving-certs/tls.crt: no such file or directory`. Generate a self-signed cert and mount it before/after deploying:
+  ```bash
+  ./hack/gen-webhook-certs.sh kubezap-system kubezap-webhook-certs
+  kubectl apply -k config/dev   # mounts the cert + sets --webhook-cert-path (dev/test only)
+  ```
+
 ## Architecture orientation
 
 ### Binary layout

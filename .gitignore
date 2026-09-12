@@ -30,7 +30,12 @@ go.work
 before
 after
 coredns.yaml
-.claude/
+
+# .claude/ is mostly project-shared config (skills, templates, agents, hooks) and should be
+# tracked — only exclude genuinely personal/generated state.
+.claude/settings.local.json
+.claude/agent-memory/
+.claude/worktrees/
 
 # gateway binaries (built at repo root during development)
 /kafka-gateway

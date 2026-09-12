@@ -164,8 +164,8 @@ func sourceRange(ipStr string) string {
 // Returns (http.StatusOK, "") on success, or (statusCode, errorMessage) on failure.
 //
 // nolint:gocyclo // one switch case per auth type, each a few lines; the most
-// mechanically splittable of the deferred gocyclo items if ever revisited, see
-// docs/schedule.md §36.
+// mechanically splittable of these if ever revisited, but owner decided
+// (2026-09-11) to keep all of them as one function each for now.
 func authenticateRequest(r *http.Request, body []byte, entry RouteEntry, triggerName string, trustedProxies []*net.IPNet) (int, string) {
 	switch entry.AuthType {
 	case authTypeHMAC:

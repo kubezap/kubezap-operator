@@ -1,0 +1,48 @@
+# Backlog
+
+Master index of every epic and its status. This table is the source of truth for status — keep it in sync with the individual Epic/Story files.
+
+Epics below outside of EPIC-001 are **candidates**, not commitments — confirm scope and order in a `/plan-pi` session; turn a candidate into a real epic file with `/new-epic`.
+
+## Epics
+
+| ID | Title | Status | PI | File |
+|---|---|---|---|---|
+| EPIC-001 | Open Source Release Readiness | In Progress | PI-1 | [epics/EPIC-001-open-source-release-readiness.md](epics/EPIC-001-open-source-release-readiness.md) |
+| EPIC-002 | Post-Release Hardening & Feature Backlog | Backlog | — | not yet created — see Backlog Candidates below |
+
+## Stories
+
+| ID | Title | Epic | Status | Size |
+|---|---|---|---|---|
+| STORY-001 | [Final public-facing docs cleanup pass](stories/STORY-001-docs-cleanup-pass.md) | EPIC-001 | Backlog | M |
+| STORY-002 | [Clean up `docs/contributing.md`](stories/STORY-002-contributing-docs-cleanup.md) | EPIC-001 | Backlog | S |
+| STORY-003 | [Test suite value review](stories/STORY-003-test-suite-value-review.md) | EPIC-001 | Backlog | L |
+| STORY-004 | [Product/docs website via GitHub Pages](stories/STORY-004-github-pages-website.md) | EPIC-001 | Backlog (not groomed) | unknown |
+| STORY-005 | [`CODE_OF_CONDUCT.md` + issue/PR templates](stories/STORY-005-community-health-files.md) | EPIC-001 | Backlog | S |
+| STORY-006 | [Support/community channel decision](stories/STORY-006-support-channel-decision.md) | EPIC-001 | Backlog | XS |
+| STORY-007 | [Final release validation and OperatorHub submission](stories/STORY-007-final-release-validation.md) | EPIC-001 | Backlog | M |
+
+## Backlog Candidates (not yet epics)
+
+Carried over from the project's old task log, not yet scoped into Epics. Each needs `/new-epic` (or folding into an existing one) before it's real backlog work.
+
+**Found bugs / gaps, already diagnosed:**
+- Properly scaffold `config/webhook` + `config/certmanager` (standard kubebuilder shape: webhook Service, `ValidatingWebhookConfiguration`s with `cert-manager.io/inject-ca-from`, a self-signed `Issuer` + `Certificate`) so admission webhooks work via a real, rotating, cert-manager-issued cert in production — not just the self-signed dev/e2e workaround (`hack/gen-webhook-certs.sh`). Until this lands, every real (non-dev, non-e2e) deployment following `docs/contributing.md`'s `make deploy` workflow crash-loops on boot. Needs a design record (security posture / external dependency).
+- Fix `config/manager/kustomization.yaml`'s image transformer: `name: controller` doesn't match `manager.yaml`'s actual image reference (`ghcr.io/kubezap/controller:latest`), so `make docker-build`/`make deploy`'s `IMG=` override silently no-ops. Likely fix: change the transformer's `name` to `ghcr.io/kubezap/controller`.
+- Image signing/provenance (cosign/SLSA) for the 6 published container images — needs a decision on signing mechanism (keyless/Sigstore vs. KMS-backed) and whether OperatorHub/OLM has its own provenance expectations for certified operators.
+- Single source of truth for the SSRF blocked-CIDR list — currently duplicated across `internal/executor/http/ssrf.go`, `internal/controller/executor_reconciler.go`, and `config/network-policy/http-executor-ingress.yaml`, kept in sync by code-comment convention only.
+- Close the SSRF DNS-rebinding gap in the HTTP transport itself, not just via NetworkPolicy — the current fix (see `docs/design/2026-09-11-executor-egress-networkpolicy.md`) relies on the cluster's CNI enforcing NetworkPolicy egress; a non-enforcing CNI (plain Flannel) gets no protection. A transport-level fix (pin the validated IP, redial per-redirect, preserve SNI/Host) would close the gap independent of CNI, at meaningfully higher complexity.
+- Multi-hop trusted-proxy chain for the webhook gateway — `--trusted-proxy-cidrs` (see `docs/design/2026-09-11-webhook-gateway-trust-boundary.md`) validates only the immediate TCP peer, not a chain of multiple trusted hops (CDN → WAF → ingress → gateway).
+- Integration-object `secretRef`-change detection — the secret-rotation watches (`docs/design/2026-09-11-secret-rotation-watches.md`) detect a rotated Secret's *contents* changing, but not an Integration's `secretRef` field itself being repointed to a *different* Secret.
+- Controller-side mTLS for the plugin publisher channel — plain HTTP between the controller and a plugin's `/publish` endpoint today (see `docs/guides/plugin-security.md`'s "Controller-Side mTLS (Roadmap)" section); a service mesh is the documented interim mitigation.
+
+**Speculative features:**
+- `Step` CRD for reusable step definitions
+- Multi-namespace flows — deferred to v1beta1; requires a FlowGrant CRD (like Gateway API ReferenceGrant) for cross-namespace authorization
+- Additional message brokers: GCP Pub/Sub, Solace (non-AMQP), TIBCO EMS (via plugin model)
+- Plugin catalog / marketplace with community registry and maturity levels
+- Reference plugin implementation
+- OpenLineage support
+- Multi-region HA support
+- S3/Git event trigger source

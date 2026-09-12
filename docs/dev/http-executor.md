@@ -266,4 +266,4 @@ FlowRunReconciler.Reconcile()
 
 ## Open questions
 
-None — all design decisions resolved. See `docs/tech-debt/pending-input-required.md` §Security Design Review 2026-03-24 Q5.
+None — all design decisions resolved.

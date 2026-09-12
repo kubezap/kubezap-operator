@@ -1,7 +1,7 @@
 # Webhook Gateway Trust Boundary Hardening
 
-> Status: Draft
-> Related: `docs/schedule.md` §37, `internal/gateway/webhook/{handler,accesslog}.go`, `cmd/webhook-gateway/main.go`
+> Status: Approved
+> Related: `internal/gateway/webhook/{handler,accesslog}.go`, `cmd/webhook-gateway/main.go`
 
 ## 1. Problem Statement
 

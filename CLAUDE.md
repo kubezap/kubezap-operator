@@ -1,14 +1,14 @@
 # KubeZap — CLAUDE.md
 
-## Project Schedule
+## Project Planning
 
-See [`docs/schedule.md`](docs/schedule.md) for the current task checklist, prioritized by feature/module. Start here at the beginning of each session to know what has been done and what is next.
+Project management lives under [`planning/`](planning/) — Epics/Stories (`planning/backlog/`), the current PI's committed order (`planning/roadmap/pi-plan.md`), and periodic checkpoints (`planning/checkpoints/`). Start at `planning/backlog/backlog.md` at the beginning of each session to know what's done and what's next. Use the `/plan-pi`, `/new-epic`, `/groom-backlog`, `/plan-parallel`, `/dispatch-work`, `/checkpoint`, and `/adr` skills rather than editing these files free-hand.
 
 ## Project Overview
 
 KubeZap is an enterprise-grade Kubernetes operator providing declarative workflow automation inspired by Zapier. Users define automations via CRDs instead of a web UI. Think "Zapier meets Camunda, but Kubernetes-native."
 
-**Long-term goal**: Build to a level suitable for acquisition by a large company that can commercialize it. Target: OperatorHub-published, enterprise-ready, pluggable marketplace of integrations.
+**Long-term goal**: OperatorHub-published, enterprise-ready, with a pluggable marketplace of integrations.
 
 ## Claude Interaction Guidelines
 
@@ -42,7 +42,7 @@ If a request jumps directly to implementation without design context, Claude sho
 
 ## Tech Stack
 
-- Go 1.25 (see `go.mod` for the exact pinned patch version — kept current with upstream security releases; see `docs/schedule.md` §39 dependency management)
+- Go 1.25 (see `go.mod` for the exact pinned patch version — kept current with upstream security releases; see `SECURITY.md`'s Dependency Vulnerability Management section)
 - Kubebuilder v4 (`sigs.k8s.io/controller-runtime v0.21`)
 - Operator SDK (OLM bundle generation scaffolded)
 - Ginkgo v2 + Gomega (testing)
@@ -99,7 +99,7 @@ Built-in:
 3. **Kafka** — Consumer on a topic (dedicated gateway; KEDA-scalable)
 4. **AMQP** — RabbitMQ, ActiveMQ Artemis, Azure Service Bus, IBM MQ (beta)
 5. **NATS** — NATS JetStream (beta)
-6. **Resource** — Kubernetes resource events via dynamic informers (alpha; see known limitations in `docs/tech-debt/`)
+6. **Resource** — Kubernetes resource events via dynamic informers (alpha; see known limitations in `docs/api/trigger.md`)
 
 Planned: GCP Pub/Sub, Solace (non-AMQP), S3/Git events, additional brokers via plugin model
 
@@ -125,7 +125,7 @@ Planned: GCP Pub/Sub, Solace (non-AMQP), S3/Git events, additional brokers via p
 ## Development Philosophy
 
 - **Documentation-driven development**: Define interfaces in docs/specs first, implement against them. Iterate between prototypes and docs before finalizing.
-- **Design records for non-trivial changes**: Before implementing a new CRD field, controller, gateway, binary, or any change to reconciliation logic, state transitions, security posture, or external dependencies, produce a design record per `docs/guides/design-process.md` (six required sections, filed under `docs/design/`). Skip only for typo fixes, test-only additions, and doc-only changes.
+- **Design records for non-trivial changes**: Before implementing a new CRD field, controller, gateway, binary, or any change to reconciliation logic, state transitions, security posture, or external dependencies, produce a design record per `planning/process/design-process.md` (six required sections, filed under `docs/design/`, indexed in `docs/design/README.md`). Skip only for typo fixes, test-only additions, and doc-only changes.
 - **Declarative everything**: All configuration via CRDs — no imperative runtime APIs
 - **Idempotent and resilient**: All reconcilers must be safe to re-run at any time
 - **Observability from day one**: All meaningful operations emit Prometheus metrics + OTel traces
@@ -173,7 +173,7 @@ test/                 # Unit and E2E test infrastructure
   5. Add sample CR in `config/samples/`
   6. Write Ginkgo tests
 - Tests use Ginkgo BDD style: `Describe`/`Context`/`It` blocks with Gomega matchers
-- **`+kubebuilder:rbac` markers must be free-floating, not attached to a declaration.** They are package-scoped: put them in their own comment block separated by a blank line from the type/func/var below. If they end up inside a declaration's doc comment (e.g. directly above `type FooReconciler struct`), controller-gen **silently ignores them** — no error, `make manifests` just quietly omits those rules and the operator ships missing permissions. This bit us once already (see `docs/schedule.md` §30):
+- **`+kubebuilder:rbac` markers must be free-floating, not attached to a declaration.** They are package-scoped: put them in their own comment block separated by a blank line from the type/func/var below. If they end up inside a declaration's doc comment (e.g. directly above `type FooReconciler struct`), controller-gen **silently ignores them** — no error, `make manifests` just quietly omits those rules and the operator ships missing permissions. This bit us once already:
 
   ```go
   // +kubebuilder:rbac:groups=networking.k8s.io,resources=networkpolicies,verbs=get;list;watch
@@ -197,11 +197,11 @@ test/                 # Unit and E2E test infrastructure
 
 ## Code Review Strategy
 
-- Follow `docs/guides/code-review-strategy.md` for all code reviews. Never issue an open-ended "review the codebase" or "review this file" prompt — name one target invariant, concern, or review type from the guide (e.g. idempotency audit, state transition correctness, security boundary audit) as the entry point. Targeted reviews catch real bugs; full-repo scans produce too much noise to act on.
+- Follow `planning/process/code-review-strategy.md` for all code reviews. Never issue an open-ended "review the codebase" or "review this file" prompt — name one target invariant, concern, or review type from the guide (e.g. idempotency audit, state transition correctness, security boundary audit) as the entry point. Targeted reviews catch real bugs; full-repo scans produce too much noise to act on.
 
 ## Pre-Merge Checklist
 
-- Before marking any non-trivial feature complete, work through `docs/guides/pre-merge-checklist.md`. All **[GATE]** items (invariant verification, spec drift check, lint/test, documentation) must be satisfied before merge. All **[FILE]** items (test coverage gaps) require a corresponding `docs/schedule.md` entry, not just a mention in the PR description.
+- Before marking any non-trivial feature complete, work through `planning/process/pre-merge-checklist.md`. All **[GATE]** items (invariant verification, spec drift check, lint/test, documentation) must be satisfied before merge. All **[FILE]** items (test coverage gaps) require a corresponding Story in `planning/backlog/`, not just a mention in the PR description.
 
 ## OpenShift / OperatorHub
 
@@ -291,7 +291,7 @@ Before creating any agents, list every file each task will need to read **and wr
 - `api/v1alpha1/groupversion_info.go` — scheme registration
 - `go.mod` / `go.sum` — dependency changes
 - `config/rbac/role.yaml`, `config/rbac/namespaced_role.yaml` — regenerated by `make manifests`
-- `docs/schedule.md` — only one agent should mark items complete
+- `planning/backlog/backlog.md` — only one agent should mark items complete
 
 **Safe to parallelize** — agents can work on these simultaneously without conflict:
 

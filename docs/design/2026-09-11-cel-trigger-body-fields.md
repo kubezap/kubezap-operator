@@ -1,7 +1,7 @@
 # CEL Access to Nested Trigger Body Fields
 
-> Status: Draft
-> Related: `docs/schedule.md` §34 (spec drift finding), `docs/api/flow.md`
+> Status: Approved
+> Related: `docs/api/flow.md`
 
 ## 1. Problem Statement
 

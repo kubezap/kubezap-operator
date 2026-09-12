@@ -267,8 +267,8 @@ func entryRoutePath(trigger *automationv1alpha1.Trigger) string {
 // buildRouteEntry constructs a RouteEntry from a Trigger, loading auth secrets as needed.
 // Returns an error if a required secret cannot be fetched; in that case the route must NOT be registered.
 //
-// nolint:gocyclo // single-pass config builder with a case per auth type; deferred
-// pending owner decision, see docs/schedule.md §36.
+// nolint:gocyclo // single-pass config builder with a case per auth type; owner
+// decided (2026-09-11) to keep it as one function rather than split it.
 func (w *TriggerWatcher) buildRouteEntry(ctx context.Context, trigger *automationv1alpha1.Trigger) (RouteEntry, error) {
 	// FlowRef.Namespace was removed in v1alpha1; Flow is always in the same namespace as the Trigger.
 	flowNamespace := trigger.Namespace

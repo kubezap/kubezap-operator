@@ -146,7 +146,8 @@ To verify the implementation conforms to this model:
 
 1. **Static check**: search for all `.Phase =` assignments in `flowrun_controller.go` and verify each assignment is a valid transition given the surrounding conditions.
 2. **Test coverage**: every valid transition should have at least one unit test; every invalid transition should have a test that confirms it cannot occur.
-3. **Schedule item**: see `docs/schedule.md` §25 for the conformance validation task.
+
+This validation was last run in full 2026-09-10; re-run it (via a `/groom-backlog`-created Story) whenever `flowrun_controller.go`'s phase-transition logic changes materially, not on a fixed schedule.
 
 ---
 
@@ -154,5 +155,5 @@ To verify the implementation conforms to this model:
 
 - Implementation: `internal/controller/flowrun_controller.go`
 - Types: `api/v1alpha1/flowrun_types.go`
-- [Code Review Strategy — State Transition Correctness](../guides/code-review-strategy.md#8-state-transition-correctness)
+- [Code Review Strategy — State Transition Correctness](../../planning/process/code-review-strategy.md#8-state-transition-correctness)
 - [FlowRun API docs](../api/flowrun.md)

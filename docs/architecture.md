@@ -613,7 +613,7 @@ The controller already maintains an informer cache connected to the Kubernetes A
 
 ### Resource Trigger spec
 
-> **Status:** Implemented in `internal/controller/trigger_controller.go` and `internal/controller/resource_watcher.go`. Production-readiness is under review — see `docs/tech-debt/pending-input-required.md` Q2.
+> **Status:** Implemented in `internal/controller/trigger_controller.go` and `internal/controller/resource_watcher.go`. Alpha-stability — see `docs/api/trigger.md` for the full list of known limitations.
 
 ```yaml
 apiVersion: automation.kubezap.io/v1alpha1

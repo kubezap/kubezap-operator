@@ -1,7 +1,7 @@
 # Example: Kubernetes Pod Failure -> ITSM Ticket
 
 > **Alpha feature:** `type: resource` triggers are implemented but alpha-quality.
-> Known limitations apply — see [docs/tech-debt/](../../docs/tech-debt/) for details.
+> Known limitations apply — see [docs/api/trigger.md](../../docs/api/trigger.md) for details.
 > Notable limitations: naive pluralization fallback for irregular resource kinds
 > (e.g. `Ingress`, `NetworkPolicy`) and no guarantee of exactly-once FlowRun
 > creation under very high event rates. Not recommended for production use.

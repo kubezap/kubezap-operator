@@ -146,9 +146,9 @@ deploying a plugin. The operator installs whatever image is specified in the
 ## Controller-Side mTLS (Roadmap)
 
 Plain HTTP between the controller and the plugin's `/publish` endpoint is a known
-limitation. Controller-side mTLS for the publisher channel is on the roadmap and
-is tracked in `docs/tech-debt/`. Until that ships, use a service mesh as described
-above.
+limitation. Controller-side mTLS for the publisher channel is on the roadmap —
+see `planning/backlog/backlog.md`'s Backlog Candidates. Until that ships, use a
+service mesh as described above.
 
 ## Related Resources
 

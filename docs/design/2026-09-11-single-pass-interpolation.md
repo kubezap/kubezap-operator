@@ -1,7 +1,7 @@
 # Single-Pass Template Interpolation
 
-> Status: Draft
-> Related: `docs/schedule.md` §35, `internal/controller/flowrun_controller.go` (`substituteVars`, `substituteVarsWithSecrets`)
+> Status: Approved
+> Related: `internal/controller/flowrun_controller.go` (`substituteVars`, `substituteVarsWithSecrets`)
 
 ## 1. Problem Statement
 
@@ -47,7 +47,7 @@ Rejected: the two functions already share nearly all resolution logic; maintaini
 ## 5. Tradeoffs
 
 - The fast-path optimization in the old `substituteVarsWithSecrets` (skip building a parallel display string when the template has no `$(secrets.` substring at all) is dropped. The single-pass version always builds two output buffers in lockstep; the extra cost is one more `strings.Builder.WriteString` call per resolved token, negligible next to the API calls this function already makes for real secrets.
-- The malformed-placeholder handling used to `break` out of the whole secrets-scanning loop after the first malformed `$(secrets.<name>)` (no key), a known minor bug already on record (`docs/tech-debt/code-review-results-2026-04-04.md`). The rewrite fixes this as a natural side effect (an unmatched token is simply left verbatim and scanning continues) rather than as a deliberately separate change — noted here so it isn't mistaken for scope creep.
+- The malformed-placeholder handling used to `break` out of the whole secrets-scanning loop after the first malformed `$(secrets.<name>)` (no key), a known minor pre-existing bug. The rewrite fixes this as a natural side effect (an unmatched token is simply left verbatim and scanning continues) rather than as a deliberately separate change — noted here so it isn't mistaken for scope creep.
 - Fixing numeric rendering via `strconv.FormatFloat(f, 'f', -1, 64)` (shortest round-trip decimal, never scientific notation) rather than switching to `json.Number` decoding is a smaller, more conservative fix — it corrects display for every value within float64's exact-integer range (±2^53, comfortably covering epoch-millis timestamps and typical order/record IDs) without the CEL-breaking side effect described in Constraints. It does not fix precision loss for integers *larger* than 2^53 (e.g. 19-digit snowflake IDs) — those are already lossy at the `json.Unmarshal` step, before formatting is ever reached, and fixing that would require the `UseNumber()` change this design explicitly avoids. Out of scope here.
 
 ## 6. Final Decision

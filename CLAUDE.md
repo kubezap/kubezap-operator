@@ -4,6 +4,8 @@
 
 Project management lives under [`planning/`](planning/) — Epics/Stories (`planning/backlog/`), the current PI's committed order (`planning/roadmap/pi-plan.md`), and periodic checkpoints (`planning/checkpoints/`). Start at `planning/backlog/backlog.md` at the beginning of each session to know what's done and what's next. Use the `/plan-pi`, `/new-epic`, `/groom-backlog`, `/plan-parallel`, `/dispatch-work`, `/checkpoint`, and `/adr` skills rather than editing these files free-hand.
 
+**Batch planning-only PRs.** When a session runs several planning-only actions back to back (grooming multiple epics, a PI-plan revision, a parallel-work plan, a status-update pass), land them as one PR, not one per action — separate PRs here mostly just create avoidable merge-conflict churn on shared files like `planning/backlog/backlog.md`. Only split into separate PRs when there's a real reason to (e.g. one needs to merge before a dependent implementation PR can, or the user asks to review a piece in isolation).
+
 ## Project Overview
 
 KubeZap is an enterprise-grade Kubernetes operator providing declarative workflow automation.

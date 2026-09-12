@@ -14,7 +14,7 @@ jobs:
     name: Release CLI binaries
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0  # GoReleaser needs full history for changelog
 
@@ -51,7 +51,7 @@ jobs:
           - name: http-executor
             dockerfile: cmd/http-executor/Dockerfile
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -90,7 +90,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: release-cli   # ensures the GitHub Release exists before chart publish
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install Helm
         uses: azure/setup-helm@v4

@@ -1,7 +1,7 @@
 # STORY-009: `WebhookGatewayConfig` CRD types + controller (HPA reconciliation + singleton webhook)
 
 **Epic:** EPIC-003 — WebhookGatewayConfig CRD
-**Status:** Groomed
+**Status:** Planned (WP-1 — see `planning/checkpoints/checkpoint-2026-09-12/work-packages-2.md`)
 **Size:** M
 
 ## Description

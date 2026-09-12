@@ -47,7 +47,6 @@ Versions follow [Semantic Versioning](https://semver.org/).
 - Go module path renamed to `github.com/kubezap/kubezap-operator` (GitHub org: `kubezap`)
 - `type: pubsub` trigger renamed to `type: kafka` / `type: amqp` / `type: nats` at API level
 - Metrics port normalized to `:9090` HTTP across all components
-- `MockEndpoint` CRD removed; replaced by Mockoon (see `docs/guides/mocking-http-endpoints.md`)
 
 ### Fixed
 - CEL dot-path variable resolution (`$(trigger.body.nested.field)`) — full depth now supported

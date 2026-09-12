@@ -11,6 +11,7 @@ Epics below outside of EPIC-001 are **candidates**, not commitments — confirm 
 | EPIC-001 | Open Source Release Readiness | In Progress | PI-1 | [epics/EPIC-001-open-source-release-readiness.md](epics/EPIC-001-open-source-release-readiness.md) |
 | EPIC-002 | Post-Release Hardening & Feature Backlog | Backlog | — | not yet created — see Backlog Candidates below |
 | EPIC-003 | WebhookGatewayConfig CRD | Backlog | — | [epics/EPIC-003-webhook-gateway-config-crd.md](epics/EPIC-003-webhook-gateway-config-crd.md) |
+| EPIC-004 | Execution Latency Benchmarking (RPC Executor vs. Pod-per-Step) | Backlog | — | [epics/EPIC-004-execution-latency-benchmarking.md](epics/EPIC-004-execution-latency-benchmarking.md) |
 
 ## Stories
 

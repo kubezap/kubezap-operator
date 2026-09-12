@@ -10,6 +10,14 @@ Trigger on webhooks, Kafka messages, cron schedules, or Kubernetes resource even
 
 ---
 
+## Why KubeZap
+
+**Credentials never leave the cluster's trust boundary.** The controller resolves secrets in-memory and hands a fully-substituted request to a dedicated, low-privilege HTTP executor pod — no Kubernetes API access, no secrets RBAC, independent SSRF protection. Your API keys are never written to etcd and never stored in a separate workflow database.
+
+**One model, not a system of systems.** A workflow is `Trigger → Flow → FlowRun` — three CRDs, one mental model, from event to result. Every execution is a real Kubernetes object you can `kubectl get` end to end: what fired it, what each step did, and why.
+
+---
+
 ## Install
 
 ### Prerequisites
@@ -130,7 +138,7 @@ For a full walkthrough see [examples/order-router/](examples/order-router/).
 - **CLI**: `kubezap` command — `watch`, `history`, `triggers`, `flows` subcommands
 - **Multi-namespace**: `WATCH_NAMESPACES` supports AllNamespaces, MultiNamespace, SingleNamespace, OwnNamespace
 - **OLM**: all four install modes supported in the CSV bundle
-- **Security**: distroless images, non-root, read-only root FS, restricted SCC compliant
+- **Security**: distroless images, non-root, read-only root FS, restricted SCC compliant, credentials resolved in-memory and never persisted to etcd or a workflow database
 
 ---
 

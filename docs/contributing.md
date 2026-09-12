@@ -78,7 +78,7 @@ KIND_CLUSTER=kubezap-test-e2e go test ./test/e2e/ -v -ginkgo.v
 | ------------------------------------ | ------------------------------------------------------------ |
 | `CERT_MANAGER_INSTALL_SKIP=true`     | Skip CertManager install (if already present in the cluster) |
 | `KAFKA_BOOTSTRAP_SERVERS=` _(unset)_ | Kafka Trigger tests are skipped automatically                |
-| `SKIP_WEBHOOK_E2E=true`              | Skip the Webhook→Transform→HTTP→MockEndpoint scenario        |
+| `SKIP_WEBHOOK_E2E=true`              | Skip the Webhook→Transform→HTTP→Mockoon scenario             |
 
 ## Local development with k3s
 
@@ -128,38 +128,38 @@ The controller reads `WEBHOOK_GATEWAY_IMAGE` and `KAFKA_GATEWAY_IMAGE` at runtim
 
 KubeZap consists of five separate binaries, each with its own container image:
 
-| Binary / entry point            | Image                       | Purpose                                                                                      |
-| ------------------------------- | --------------------------- | -------------------------------------------------------------------------------------------- |
-| `cmd/main.go`                   | `kubezap/controller`        | Kubernetes operator: reconciles all CRDs, manages gateway Deployments, executes FlowRuns     |
-| `cmd/webhook-gateway/main.go`   | `kubezap/webhook-gateway`   | HTTP server: watches Trigger CRDs, registers routes dynamically, creates FlowRuns            |
-| `cmd/kafka-gateway/main.go`     | `kubezap/kafka-gateway`     | Kafka consumer: watches Trigger CRDs, manages topic subscriptions, creates FlowRuns          |
-| `cmd/amqp-gateway/main.go`      | `kubezap/amqp-gateway`      | AMQP consumer (RabbitMQ, Azure Service Bus, IBM MQ): beta                                    |
-| `cmd/nats-gateway/main.go`      | `kubezap/nats-gateway`      | NATS JetStream consumer: beta                                                                |
-| `cmd/kubezap/`                  | —                           | CLI tool (`bin/kubezap`), built with `make build-cli`                                        |
+| Binary / entry point          | Image                     | Purpose                                                                                  |
+| ----------------------------- | ------------------------- | ---------------------------------------------------------------------------------------- |
+| `cmd/main.go`                 | `kubezap/controller`      | Kubernetes operator: reconciles all CRDs, manages gateway Deployments, executes FlowRuns |
+| `cmd/webhook-gateway/main.go` | `kubezap/webhook-gateway` | HTTP server: watches Trigger CRDs, registers routes dynamically, creates FlowRuns        |
+| `cmd/kafka-gateway/main.go`   | `kubezap/kafka-gateway`   | Kafka consumer: watches Trigger CRDs, manages topic subscriptions, creates FlowRuns      |
+| `cmd/amqp-gateway/main.go`    | `kubezap/amqp-gateway`    | AMQP consumer (RabbitMQ, Azure Service Bus, IBM MQ): beta                                |
+| `cmd/nats-gateway/main.go`    | `kubezap/nats-gateway`    | NATS JetStream consumer: beta                                                            |
+| `cmd/kubezap/`                | —                         | CLI tool (`bin/kubezap`), built with `make build-cli`                                    |
 
 The controller is the only binary that interacts with the Kubernetes API for reconciliation. Gateways interact with the Kubernetes API only to watch Trigger CRDs and create FlowRun CRDs. All gateway→controller communication flows through the `FlowRun` CRD — gateways create a FlowRun; the controller picks it up and executes the steps.
 
 ### Key packages
 
-| Package                       | Description                                                                                 |
-| ----------------------------- | ------------------------------------------------------------------------------------------- |
-| `api/v1alpha1/`               | CRD Go type definitions — source of truth for all CRD schemas and kubebuilder markers       |
-| `internal/controller/`        | All reconciler implementations (one file per controller, plus shared helpers)               |
-| `internal/gateway/webhook/`   | Webhook gateway request handling, route registration, HMAC/bearer/OIDC auth                 |
-| `internal/gateway/kafka/`     | Kafka consumer, partition management, offset tracking                                        |
-| `internal/gateway/amqp/`      | AMQP gateway (beta)                                                                          |
-| `internal/gateway/nats/`      | NATS JetStream gateway (beta)                                                                |
-| `internal/metrics/`           | Prometheus metric definitions shared across packages                                         |
+| Package                     | Description                                                                           |
+| --------------------------- | ------------------------------------------------------------------------------------- |
+| `api/v1alpha1/`             | CRD Go type definitions — source of truth for all CRD schemas and kubebuilder markers |
+| `internal/controller/`      | All reconciler implementations (one file per controller, plus shared helpers)         |
+| `internal/gateway/webhook/` | Webhook gateway request handling, route registration, HMAC/bearer/OIDC auth           |
+| `internal/gateway/kafka/`   | Kafka consumer, partition management, offset tracking                                 |
+| `internal/gateway/amqp/`    | AMQP gateway (beta)                                                                   |
+| `internal/gateway/nats/`    | NATS JetStream gateway (beta)                                                         |
+| `internal/metrics/`         | Prometheus metric definitions shared across packages                                  |
 
 ### Reconciler entry points
 
 Each controller is registered with the manager via `SetupWithManager`. The four active reconcilers and their source files are:
 
-| Reconciler            | File                                        | Watches                          |
-| --------------------- | ------------------------------------------- | -------------------------------- |
-| `FlowReconciler`      | `internal/controller/flow_controller.go:147`       | `Flow`                           |
-| `TriggerReconciler`   | `internal/controller/trigger_controller.go:187`    | `Trigger`, manages gateway Deployments |
-| `FlowRunReconciler`   | `internal/controller/flowrun_controller.go:1302`   | `FlowRun`, executes step graphs  |
+| Reconciler              | File                                                | Watches                                   |
+| ----------------------- | --------------------------------------------------- | ----------------------------------------- |
+| `FlowReconciler`        | `internal/controller/flow_controller.go:147`        | `Flow`                                    |
+| `TriggerReconciler`     | `internal/controller/trigger_controller.go:187`     | `Trigger`, manages gateway Deployments    |
+| `FlowRunReconciler`     | `internal/controller/flowrun_controller.go:1302`    | `FlowRun`, executes step graphs           |
 | `IntegrationReconciler` | `internal/controller/integration_controller.go:933` | `Integration`, manages plugin Deployments |
 
 ### Important design patterns
@@ -170,12 +170,12 @@ Each controller is registered with the manager via `SetupWithManager`. The four 
 
 **Action types.** The valid step action types are validated in `validateFlowSpec` (`internal/controller/flow_controller.go`) and executed in the corresponding `execute*Step` functions in `flowrun_controller.go`:
 
-| Action type   | Validate location         | Execute function              |
-| ------------- | ------------------------- | ----------------------------- |
-| `http`        | `validateFlowSpec`        | `executeHTTPStep`             |
-| `transform`   | `validateFlowSpec`        | `executeStep` (inline)        |
-| `publish`     | `validateFlowSpec`        | `executePublishStep`          |
-| `wait`        | `validateFlowSpec`        | `executeWaitStep`             |
+| Action type | Validate location  | Execute function       |
+| ----------- | ------------------ | ---------------------- |
+| `http`      | `validateFlowSpec` | `executeHTTPStep`      |
+| `transform` | `validateFlowSpec` | `executeStep` (inline) |
+| `publish`   | `validateFlowSpec` | `executePublishStep`   |
+| `wait`      | `validateFlowSpec` | `executeWaitStep`      |
 
 ---
 

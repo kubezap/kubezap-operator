@@ -19,7 +19,7 @@ needed to run it.
 
 | Example                                     | Trigger                       | What it demonstrates                                               |
 | ------------------------------------------- | ----------------------------- | ------------------------------------------------------------------ |
-| [order-router](order-router/)               | Webhook                       | Core feature tour: transform, CEL branching, MockEndpoints         |
+| [order-router](order-router/)               | Webhook                       | Core feature tour: transform, CEL branching                        |
 | [kafka-enrichment](kafka-enrichment/)       | Kafka                         | Event enrichment pipeline: enrich → conditional route → re-publish |
 | [incident-escalation](incident-escalation/) | Webhook                       | Parallel steps, wait/resume, conditional escalation                |
 | [github-autolabel](github-autolabel/)       | Webhook (HMAC)                | HMAC auth, header extraction, GitHub API integration               |

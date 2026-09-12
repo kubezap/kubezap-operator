@@ -26,6 +26,7 @@ make build          # compile the operator binary
 make docker-build IMG=ghcr.io/kubezap/controller:latest
 docker build -t ghcr.io/kubezap/webhook-gateway:latest -f cmd/webhook-gateway/Dockerfile .
 docker build -t ghcr.io/kubezap/kafka-gateway:latest   -f cmd/kafka-gateway/Dockerfile .
+docker build -t ghcr.io/kubezap/http-executor:latest   -f cmd/http-executor/Dockerfile .
 docker build -t ghcr.io/kubezap/amqp-gateway:latest    -f cmd/amqp-gateway/Dockerfile .
 docker build -t ghcr.io/kubezap/nats-gateway:latest    -f cmd/nats-gateway/Dockerfile .
 ```
@@ -93,6 +94,7 @@ TAG=$(git rev-parse --short HEAD)
 make docker-build IMG=ghcr.io/kubezap/controller:$TAG
 docker build -t ghcr.io/kubezap/webhook-gateway:$TAG -f cmd/webhook-gateway/Dockerfile .
 docker build -t ghcr.io/kubezap/kafka-gateway:$TAG   -f cmd/kafka-gateway/Dockerfile .
+docker build -t ghcr.io/kubezap/http-executor:$TAG   -f cmd/http-executor/Dockerfile .
 docker build -t ghcr.io/kubezap/amqp-gateway:$TAG    -f cmd/amqp-gateway/Dockerfile .
 docker build -t ghcr.io/kubezap/nats-gateway:$TAG    -f cmd/nats-gateway/Dockerfile .
 
@@ -100,10 +102,14 @@ docker build -t ghcr.io/kubezap/nats-gateway:$TAG    -f cmd/nats-gateway/Dockerf
 docker save ghcr.io/kubezap/controller:$TAG      | sudo k3s ctr images import -
 docker save ghcr.io/kubezap/webhook-gateway:$TAG | sudo k3s ctr images import -
 docker save ghcr.io/kubezap/kafka-gateway:$TAG   | sudo k3s ctr images import -
+docker save ghcr.io/kubezap/http-executor:$TAG   | sudo k3s ctr images import -
 docker save ghcr.io/kubezap/amqp-gateway:$TAG    | sudo k3s ctr images import -
 docker save ghcr.io/kubezap/nats-gateway:$TAG    | sudo k3s ctr images import -
+```
 
-# Deploy
+Now deploy. Note that `make deploy`'s `IMG=` override currently has no effect — `config/manager/kustomization.yaml`'s image transformer `name: controller` doesn't match `manager.yaml`'s actual image reference, so the deployment always redeploys whatever's cached under `:latest` regardless of the tag you pass here:
+
+```bash
 make deploy IMG=ghcr.io/kubezap/controller:$TAG \
   WEBHOOK_GATEWAY_IMAGE=ghcr.io/kubezap/webhook-gateway:$TAG \
   KAFKA_GATEWAY_IMAGE=ghcr.io/kubezap/kafka-gateway:$TAG \
@@ -111,33 +117,36 @@ make deploy IMG=ghcr.io/kubezap/controller:$TAG \
   NATS_GATEWAY_IMAGE=ghcr.io/kubezap/nats-gateway:$TAG
 ```
 
-The controller reads `WEBHOOK_GATEWAY_IMAGE` and `KAFKA_GATEWAY_IMAGE` at runtime to know which image to use when creating gateway Deployments.
+The controller reads the `WEBHOOK_GATEWAY_IMAGE`, `KAFKA_GATEWAY_IMAGE`, `AMQP_GATEWAY_IMAGE`, and `NATS_GATEWAY_IMAGE` environment variables above at runtime to know which image to use when creating each gateway's Deployment. The http-executor image is controlled differently — via the controller's `--executor-image` flag (default `ghcr.io/kubezap/http-executor:latest`), not an env var — so there's no `EXECUTOR_IMAGE=` equivalent to pass to `make deploy`; to pick up a locally-built http-executor image, either import it tagged as `:latest` (see below) or pass `--executor-image` yourself via a kustomize patch, following the pattern in `config/dev/manager_dev_patch.yaml`.
 
-**Known issues with this workflow (tracked in `planning/backlog/backlog.md`'s Backlog Candidates):**
+Until the `IMG=` transformer mismatch above is fixed, the practical workaround for picking up any new controller build (not just http-executor) is to build and import as `:latest` and force a fresh pod with `kubectl rollout restart deployment/kubezap-controller-manager -n kubezap-system` (and `kubectl delete pod` for any gateway/executor Deployment the controller itself reconciles, since a bare `rollout restart` on those gets reverted by the reconciler).
 
-- `make deploy`'s `IMG=` override currently has no effect — `config/manager/kustomization.yaml`'s image transformer `name: controller` doesn't match `manager.yaml`'s actual image reference, so the deployment always redeploys whatever's cached under `:latest` regardless of the tag you pass. Until that's fixed, build and import as `:latest` and force a fresh pod with `kubectl rollout restart deployment/kubezap-controller-manager -n kubezap-system` (and `kubectl delete pod` for any gateway/executor Deployment the controller itself reconciles, since a bare `rollout restart` on those gets reverted by the reconciler).
-- The controller-manager unconditionally starts an admission-webhook TLS server on boot but has no cert available under a plain `make deploy` (no cert-manager wiring is scaffolded yet) — it will crash-loop with `open /tmp/k8s-webhook-server/serving-certs/tls.crt: no such file or directory`. Generate a self-signed cert and mount it before/after deploying:
-  ```bash
-  ./hack/gen-webhook-certs.sh kubezap-system kubezap-webhook-certs
-  kubectl apply -k config/dev   # mounts the cert + sets --webhook-cert-path (dev/test only)
-  ```
+Finally, the controller-manager unconditionally starts an admission-webhook TLS server on boot but has no cert available under a plain `make deploy` (no cert-manager wiring is scaffolded yet) — without one it will crash-loop with `open /tmp/k8s-webhook-server/serving-certs/tls.crt: no such file or directory`. Generate a self-signed cert and apply the dev overlay that mounts it before the pod will come up healthy:
+
+```bash
+./hack/gen-webhook-certs.sh kubezap-system kubezap-webhook-certs
+kubectl apply -k config/dev   # mounts the cert + sets --webhook-cert-path (dev/test only)
+```
+
+Both of these are tracked as known limitations in `planning/backlog/backlog.md`'s Backlog Candidates.
 
 ## Architecture orientation
 
 ### Binary layout
 
-KubeZap consists of five separate binaries, each with its own container image:
+KubeZap consists of seven binaries: six service binaries, each with its own container image, plus the `kubezap` CLI (distributed as a binary only, no image):
 
-| Binary / entry point          | Image                     | Purpose                                                                                  |
-| ----------------------------- | ------------------------- | ---------------------------------------------------------------------------------------- |
-| `cmd/main.go`                 | `kubezap/controller`      | Kubernetes operator: reconciles all CRDs, manages gateway Deployments, executes FlowRuns |
-| `cmd/webhook-gateway/main.go` | `kubezap/webhook-gateway` | HTTP server: watches Trigger CRDs, registers routes dynamically, creates FlowRuns        |
-| `cmd/kafka-gateway/main.go`   | `kubezap/kafka-gateway`   | Kafka consumer: watches Trigger CRDs, manages topic subscriptions, creates FlowRuns      |
-| `cmd/amqp-gateway/main.go`    | `kubezap/amqp-gateway`    | AMQP consumer (RabbitMQ, Azure Service Bus, IBM MQ): beta                                |
-| `cmd/nats-gateway/main.go`    | `kubezap/nats-gateway`    | NATS JetStream consumer: beta                                                            |
-| `cmd/kubezap/`                | —                         | CLI tool (`bin/kubezap`), built with `make build-cli`                                    |
+| Binary / entry point          | Image                     | Purpose                                                                                                                                     |
+| ----------------------------- | ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| `cmd/main.go`                 | `kubezap/controller`      | Kubernetes operator: reconciles all CRDs, manages gateway and executor Deployments, delegates HTTP steps to the http-executor. **Does NOT make outbound HTTP calls itself.** |
+| `cmd/webhook-gateway/main.go` | `kubezap/webhook-gateway` | HTTP server: watches Trigger CRDs, registers routes dynamically, creates FlowRuns                                                          |
+| `cmd/kafka-gateway/main.go`   | `kubezap/kafka-gateway`   | Kafka consumer: watches Trigger CRDs, manages topic subscriptions, creates FlowRuns                                                        |
+| `cmd/http-executor/main.go`   | `kubezap/http-executor`   | HTTP step executor: receives fully-resolved HTTP requests from the controller via internal `POST /execute` RPC, executes them with an SSRF blocklist, and returns the result. Minimal RBAC (no Secret access). One Deployment per namespace, managed by `ExecutorReconciler`. |
+| `cmd/amqp-gateway/main.go`    | `kubezap/amqp-gateway`    | AMQP consumer (RabbitMQ, Azure Service Bus, IBM MQ): beta                                                                                   |
+| `cmd/nats-gateway/main.go`    | `kubezap/nats-gateway`    | NATS JetStream consumer: beta                                                                                                                |
+| `cmd/kubezap/`                | —                         | CLI tool (`bin/kubezap`), built with `make build-cli`                                                                                       |
 
-The controller is the only binary that interacts with the Kubernetes API for reconciliation. Gateways interact with the Kubernetes API only to watch Trigger CRDs and create FlowRun CRDs. All gateway→controller communication flows through the `FlowRun` CRD — gateways create a FlowRun; the controller picks it up and executes the steps.
+The controller is the only binary that interacts with the Kubernetes API for reconciliation. Gateways interact with the Kubernetes API only to watch Trigger CRDs and create FlowRun CRDs. All gateway→controller communication flows through the `FlowRun` CRD — gateways create a FlowRun; the controller picks it up and executes the step graph, delegating individual `http` steps to the http-executor over an internal RPC call rather than making outbound HTTP requests itself. Kubernetes resource-event triggers (the alpha `Resource` trigger type) are a special case handled directly inside the controller via dynamic informers (`internal/controller/resource_watcher.go`) — there is no separate gateway binary for them.
 
 ### Key packages
 
@@ -149,18 +158,20 @@ The controller is the only binary that interacts with the Kubernetes API for rec
 | `internal/gateway/kafka/`   | Kafka consumer, partition management, offset tracking                                 |
 | `internal/gateway/amqp/`    | AMQP gateway (beta)                                                                   |
 | `internal/gateway/nats/`    | NATS JetStream gateway (beta)                                                         |
+| `internal/executor/http/`   | http-executor request handling — SSRF-blocklisted execution of fully-resolved HTTP requests received over the internal RPC |
 | `internal/metrics/`         | Prometheus metric definitions shared across packages                                  |
 
 ### Reconciler entry points
 
-Each controller is registered with the manager via `SetupWithManager`. The four active reconcilers and their source files are:
+Each controller is registered with the manager via `SetupWithManager`. The five active reconcilers and their source files are:
 
-| Reconciler              | File                                                | Watches                                   |
-| ----------------------- | --------------------------------------------------- | ----------------------------------------- |
-| `FlowReconciler`        | `internal/controller/flow_controller.go:147`        | `Flow`                                    |
-| `TriggerReconciler`     | `internal/controller/trigger_controller.go:187`     | `Trigger`, manages gateway Deployments    |
-| `FlowRunReconciler`     | `internal/controller/flowrun_controller.go:1302`    | `FlowRun`, executes step graphs           |
-| `IntegrationReconciler` | `internal/controller/integration_controller.go:933` | `Integration`, manages plugin Deployments |
+| Reconciler              | File                                                  | Watches                                                                                             |
+| ----------------------- | ------------------------------------------------------ | ----------------------------------------------------------------------------------------------------- |
+| `FlowReconciler`        | `internal/controller/flow_controller.go:52`           | `Flow`                                                                                              |
+| `TriggerReconciler`     | `internal/controller/trigger_controller.go:69`        | `Trigger`, manages gateway Deployments                                                              |
+| `FlowRunReconciler`     | `internal/controller/flowrun_controller.go:198`       | `FlowRun`, executes step graphs                                                                     |
+| `IntegrationReconciler` | `internal/controller/integration_controller.go:68`    | `Integration`, manages plugin Deployments                                                            |
+| `ExecutorReconciler`    | `internal/controller/executor_reconciler.go:147`      | `FlowRun`, `Trigger` — provisions the http-executor Deployment/Service/NetworkPolicy per namespace  |
 
 ### Important design patterns
 

@@ -22,11 +22,11 @@ A written benchmark report exists (methodology, scenario definition, p50/p95 ste
 
 ## Candidate Stories
 
-Rough, not yet sized — footprinting happens in `/groom-backlog`:
+Groomed 2026-09-12 (`/groom-backlog`) — all three fully groomed, no blocking design record needed (this is a research spike: no CRD/controller/security-posture change, and the Argo Workflows comparison baseline is a one-off local measurement tool, not a shipped KubeZap dependency):
 
-- [ ] Define benchmark methodology: representative scenario (webhook → N HTTP calls), comparison baseline (Argo Workflows), and metrics (p50/p95 step latency, per-step resource overhead, cold-start cost)
-- [ ] Build/run the benchmark harness against both systems
-- [ ] Write up results and a pursue/don't-pursue recommendation
+- [ ] [STORY-013](../stories/STORY-013-benchmark-methodology.md) — Define benchmark methodology (scenario, baseline version, metrics, run parameters). Groomed, ready to dispatch.
+- [ ] [STORY-014](../stories/STORY-014-benchmark-harness.md) — Build and run the harness against both systems. Groomed; blocked on STORY-013.
+- [ ] [STORY-015](../stories/STORY-015-benchmark-writeup.md) — Write up results and a pursue/don't-pursue recommendation. Groomed; blocked on STORY-014.
 
 ## Dependencies
 
@@ -38,3 +38,4 @@ Rough, not yet sized — footprinting happens in `/groom-backlog`:
 - Explicitly a research spike, not a committed feature — keep it small; don't over-scope into a build commitment.
 - Raised 2026-09-12 during an open-source-positioning discussion (competitive differentiation against Pod-per-step workflow engines like Argo Workflows).
 - Committed to PI-1 (2026-09-12, via `/plan-pi`) as a parallel track alongside `EPIC-001` — not blocked on EPIC-001 closing (see `planning/roadmap/pi-plan.md`'s Revisions).
+- Groomed 2026-09-12 (`/groom-backlog`): all 3 stories fully groomed in one pass (unlike EPIC-003, nothing here needed a blocking design record first). Sequential dependency chain (013 → 014 → 015) — dispatch STORY-013 first.

@@ -1,5 +1,8 @@
 # Secret rotation detection for gateway watchers
 
+> Status: Approved
+> Related: `internal/gateway/{webhook,kafka,amqp,nats}/watcher.go`, `internal/gateway/secretindex`
+
 ## Problem Statement
 
 Webhook Trigger auth secrets (HMAC/bearer/basic/apiKey/header-equals — `internal/gateway/webhook/watcher.go`) and Kafka/AMQP/NATS broker credentials (SASL/TLS, resolved via the referenced `Integration` — `internal/gateway/{kafka,amqp,nats}/watcher.go`) are read once, via a direct (uncached) `client.Get` call, at the moment the gateway processes a Trigger add-or-update event. The resolved value is then held in memory indefinitely: in the webhook gateway's `RouteRegistry` entry, or in the kafka/amqp/nats gateway's `subscription` entry.

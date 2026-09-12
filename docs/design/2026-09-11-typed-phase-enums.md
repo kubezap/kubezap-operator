@@ -1,13 +1,13 @@
 # Typed Phase/FailurePolicy Enums
 
-> Status: Draft
-> Related: `docs/schedule.md` §36, `docs/tech-debt/pending-input-required.md` ("Lint Deferred Items — 2026-09-11")
+> Status: Approved
+> Related: `api/v1alpha1/{flow,flowrun}_types.go`
 
 ## 1. Problem Statement
 
 `FlowRunStatus.Phase`, `StepRunStatus.Phase`, `FlowSpec.FailurePolicy`, and `FlowStep.OnFailure` are all plain `string` fields, each with a documented value set enforced only by a `+kubebuilder:validation:Enum` marker (API-server-side admission validation) and otherwise written/compared as bare string literals throughout the controller, CLI, and tests. This has already caused one real, previously-shipped bug this session found and fixed: `docs/api/flowrun.md` documented `Waiting` as a valid FlowRun-level phase, when it is only ever a valid *step*-level phase — the two fields share no type, so nothing caught a FlowRun-level phase check being written against the step-level value set. Nothing stops the same class of mistake from happening again in either direction, or a plain typo (`"Succeeeded"`) from compiling silently and only failing at runtime as an unmatched comparison.
 
-This was flagged by `make lint`'s `goconst` linter (`docs/schedule.md` §36: `true`, `Pending`, `Skipped`, `Waiting`, `Cancelled`, `Running`, `Continue` each repeated 3+ times in `internal/controller/flowrun_controller.go`/`_test.go` — the visible finding undercounts the real scope: `Succeeded` and `Failed` alone each appear 70+/38+ times package-wide, and a full-repo grep for these values touches 16 files). §36 deferred a decision (introduce a typed enum vs. leave the suppression in place) rather than guess; the owner has now decided: do it.
+This was flagged by `make lint`'s `goconst` linter (`true`, `Pending`, `Skipped`, `Waiting`, `Cancelled`, `Running`, `Continue` each repeated 3+ times in `internal/controller/flowrun_controller.go`/`_test.go` — the visible finding undercounts the real scope: `Succeeded` and `Failed` alone each appear 70+/38+ times package-wide, and a full-repo grep for these values touches 16 files). The initial lint-cleanup pass deferred a decision (introduce a typed enum vs. leave the suppression in place) rather than guess; the owner has now decided: do it.
 
 ## 2. Constraints
 

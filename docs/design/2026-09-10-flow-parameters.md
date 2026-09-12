@@ -1,7 +1,7 @@
 # Flow Parameters
 
-> Status: Draft
-> Related: `docs/schedule.md` §31 (spec drift finding), `docs/api/flow.md`, `docs/api/flowrun.md`
+> Status: Approved
+> Related: `docs/api/flow.md`, `docs/api/flowrun.md`
 
 ## 1. Problem Statement
 

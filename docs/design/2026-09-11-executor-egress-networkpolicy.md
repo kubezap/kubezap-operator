@@ -1,7 +1,7 @@
 # HTTP Executor Egress NetworkPolicy (SSRF Defense-in-Depth)
 
-> Status: Draft
-> Related: `docs/schedule.md` §37, `internal/controller/executor_reconciler.go`, `internal/executor/http/ssrf.go`, `config/network-policy/http-executor-ingress.yaml`
+> Status: Approved
+> Related: `internal/controller/executor_reconciler.go`, `internal/executor/http/ssrf.go`, `config/network-policy/http-executor-ingress.yaml`
 
 ## 1. Problem Statement
 
@@ -45,7 +45,7 @@ Rejected: KubeZap doesn't know a Flow's target hosts ahead of time (URLs are fre
 
 Extend `reconcileExecutorNetworkPolicy` to add an `Egress` rule to the operator-created `NetworkPolicy`, blocking the same ranges as `defaultSSRFBlockedCIDRs` (`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`, `169.254.0.0/16`, `100.64.0.0/10`, plus IPv6 equivalents `::1/128`, `fe80::/10`, `fc00::/7`) via an `ipBlock: {cidr: 0.0.0.0/0, except: [...]}` (and a parallel IPv6 `::/0` block), plus an always-open DNS egress rule (UDP/TCP 53). Set `PolicyTypes: [Ingress, Egress]`. Fix the missing `169.254.0.0/16` exception in the manual reference file `config/network-policy/http-executor-ingress.yaml` for consistency. Cross-reference `docs/guides/security-checklist.md`'s SSRF section (§2) and NetworkPolicy section (§4) so the connection between them is explicit, and add the CNI-enforcement caveat plus a cloud-security-group fallback note.
 
-### Addendum (2026-09-12, `docs/schedule.md` §38)
+### Addendum (2026-09-12, live-cluster validation pass)
 
 Two corrections found during a live-cluster validation pass, on a k3s cluster that (unlike the assumption implicit in "on a non-enforcing CNI this provides no additional protection") **does** enforce NetworkPolicy — which is exactly what surfaced both:
 

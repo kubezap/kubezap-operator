@@ -1,5 +1,8 @@
 # Plugin publish envelope
 
+> Status: Approved
+> Related: `docs/api/integration.md` (Publisher contract), `internal/controller/flowrun_controller.go` (`doPluginPublish`)
+
 ## Problem Statement
 
 `docs/api/integration.md`'s Publisher contract documents that the controller calls a plugin's `POST /publish` endpoint with a JSON envelope:
@@ -18,7 +21,7 @@ and that a successful response looks like `{"messageId": "<optional: broker-assi
 
 The actual implementation (`executePublishStep`'s plugin branch, `doPluginPublish` in `internal/controller/flowrun_controller.go`) does none of this. It POSTs the raw, resolved `Body` string directly as the HTTP request body, with `Headers` set as literal HTTP request headers, to a URL built from the Integration name and namespace. `PublishAction.Topic` — the field a Flow author sets to say *where* to publish — is never sent to the plugin in any form: not as `destination`, not as a header, not anywhere. On success, the response body is discarded entirely (`doPluginPublish` returns a bare empty `map[string]string{}`); on failure, the raw response body is embedded in the returned Go error string, but the documented `{"error": "..."}` JSON shape is never parsed out of it.
 
-User impact: any plugin image written to the documented contract is broken against this controller today. It receives an HTTP body it cannot correctly interpret as "the message to publish" (no framing distinguishes envelope from payload) and has no way to learn which topic/queue/subject the Flow author intended — the one piece of information the whole abstraction exists to carry. This was found with zero existing test coverage of `doPluginPublish`, discovered while fixing an unrelated, narrower bug (Kafka-path `Topic` not being `$(...)`-interpolated — see `docs/schedule.md` §31).
+User impact: any plugin image written to the documented contract is broken against this controller today. It receives an HTTP body it cannot correctly interpret as "the message to publish" (no framing distinguishes envelope from payload) and has no way to learn which topic/queue/subject the Flow author intended — the one piece of information the whole abstraction exists to carry. This was found with zero existing test coverage of `doPluginPublish`, discovered while fixing an unrelated, narrower bug (Kafka-path `Topic` not being `$(...)`-interpolated).
 
 This is the last remaining gap in an otherwise-working publish path: the Kafka branch of `executePublishStep` is correct (topic interpolation now fixed, `partition`/`offset` are returned as step results). Only the plugin branch is broken.
 

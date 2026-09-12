@@ -192,7 +192,7 @@ type FlowRunReconciler struct {
 
 // nolint:gocyclo // single dispatch-heavy reconcile loop; splitting it apart without a
 // specific extraction plan trades one auditable function for several that only make
-// sense read together -- deferred pending owner decision, see docs/schedule.md §36.
+// sense read together -- owner decided (2026-09-11) to keep it as one function.
 func (r *FlowRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := logf.FromContext(ctx)
 
@@ -786,7 +786,7 @@ func (r *FlowRunReconciler) executeStep(
 }
 
 // nolint:gocyclo // single-pass HTTP step request/response builder with a dispatch
-// case per config option; deferred pending owner decision, see docs/schedule.md §36.
+// case per config option; owner decided (2026-09-11) to keep it as one function.
 func (r *FlowRunReconciler) executeHTTPStep(
 	ctx context.Context,
 	log logr.Logger,

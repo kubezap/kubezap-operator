@@ -1036,7 +1036,7 @@ $(params.<name>)                         → resolved Flow parameter (see ParamD
 
 > In expressions, step names use underscores: `fetch-user` → `steps.fetch_user`.
 >
-> **Not implemented**: `$(trigger.name)`, `$(trigger.namespace)`, `$(trigger.type)`, `$(configmaps.<name>.<key>)`, and `$(env.<VAR_NAME>)` do not exist despite appearing in older drafts of this doc — see `docs/schedule.md` for tracking. `$(secrets.<name>.<key>)` is the only supported way to pull config into a step today; for non-secret config, inline the value directly in the Flow.
+> **Not implemented**: `$(trigger.name)`, `$(trigger.namespace)`, `$(trigger.type)`, `$(configmaps.<name>.<key>)`, and `$(env.<VAR_NAME>)` do not exist despite appearing in older drafts of this doc. `$(secrets.<name>.<key>)` is the only supported way to pull config into a step today; for non-secret config, inline the value directly in the Flow.
 
 ### CEL Quick Reference
 

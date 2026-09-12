@@ -24,11 +24,11 @@ The `PI` column is the source of truth for what's actually committed — an epic
 | STORY-005 | [`CODE_OF_CONDUCT.md` + issue/PR templates](stories/STORY-005-community-health-files.md) | EPIC-001 | Done (PR #180) | S |
 | STORY-006 | [Support/community channel decision](stories/STORY-006-support-channel-decision.md) | EPIC-001 | Planned (Batch 2) | XS |
 | STORY-007 | [Final release validation and OperatorHub submission](stories/STORY-007-final-release-validation.md) | EPIC-001 | Groomed | M |
-| STORY-008 | [Design record: WebhookGatewayConfig CRD shape & migration path](stories/STORY-008-webhookgatewayconfig-design-record.md) | EPIC-003 | Groomed | S |
-| STORY-009 | [`WebhookGatewayConfig` CRD types + controller (HPA)](stories/STORY-009-webhookgatewayconfig-crd-hpa-controller.md) | EPIC-003 | Backlog — blocked on STORY-008 | unknown |
-| STORY-010 | [PodDisruptionBudget reconciliation](stories/STORY-010-webhookgatewayconfig-pdb.md) | EPIC-003 | Backlog — blocked on STORY-008 | unknown |
-| STORY-011 | [Migrate webhook TLS annotations onto the CRD](stories/STORY-011-webhookgatewayconfig-tls-migration.md) | EPIC-003 | Backlog — blocked on STORY-008 | unknown |
-| STORY-012 | [Docs for `WebhookGatewayConfig`](stories/STORY-012-webhookgatewayconfig-docs.md) | EPIC-003 | Backlog — blocked on STORY-008/009/010/011 | unknown |
+| STORY-008 | [Design record: WebhookGatewayConfig CRD shape & migration path](stories/STORY-008-webhookgatewayconfig-design-record.md) | EPIC-003 | Done (`docs/design/2026-09-12-webhookgatewayconfig-crd.md`, Approved) | S |
+| STORY-009 | [`WebhookGatewayConfig` CRD types + controller (HPA + singleton webhook)](stories/STORY-009-webhookgatewayconfig-crd-hpa-controller.md) | EPIC-003 | Groomed | M |
+| STORY-010 | [PodDisruptionBudget reconciliation](stories/STORY-010-webhookgatewayconfig-pdb.md) | EPIC-003 | Groomed | S |
+| STORY-011 | [Cut over webhook TLS annotations (hard cutover)](stories/STORY-011-webhookgatewayconfig-tls-migration.md) | EPIC-003 | Groomed | S |
+| STORY-012 | [Docs for `WebhookGatewayConfig`](stories/STORY-012-webhookgatewayconfig-docs.md) | EPIC-003 | Backlog — blocked on STORY-009/010/011 | S |
 
 ## Backlog Candidates (not yet epics)
 

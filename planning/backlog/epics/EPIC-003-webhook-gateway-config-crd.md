@@ -21,24 +21,24 @@ A namespace-scoped `WebhookGatewayConfig` CRD (one per namespace, singleton-styl
 ## Success Metric
 
 - `kubectl explain webhookgatewayconfig` documents every field; invalid values are rejected at admission time (CEL/kubebuilder validation), not silently ignored.
-- A namespace with no `WebhookGatewayConfig` behaves identically to today (same HPA defaults, same annotation-driven TLS behavior during the migration window, or documented equivalent defaults after annotations are removed).
+- A namespace with no `WebhookGatewayConfig` behaves identically to today (same HPA defaults; TLS annotations are hard-cut-over per `docs/design/2026-09-12-webhookgatewayconfig-crd.md`, not kept alongside the CRD).
 - A namespace that sets `minAvailable` on the PDB field actually gets a `PodDisruptionBudget` reconciled for its gateway Deployment — closing the "no real HA by default" gap.
 
 ## Related Design Docs
 
+- `docs/design/2026-09-12-webhookgatewayconfig-crd.md` — **Approved.** This epic's own design record: CRD shape (`spec.tls`/`spec.hpa`/`spec.podDisruptionBudget`), admission-webhook singleton enforcement, hard-cutover annotation migration, plain-passthrough `minReplicas` (no HA minimum enforced).
 - `docs/design/2026-09-11-webhook-gateway-trust-boundary.md` — the existing `--trusted-proxy-cidrs` flag this CRD could eventually also hold per-namespace.
-- None yet for this epic's own decisions (CRD shape, annotation migration/deprecation path, PDB defaults) — needs a new `docs/design/*.md` record via `/adr` before implementation, since this is a new CRD + controller + a migration touching security-relevant TLS config.
 - Tangentially related backlog item (see `planning/backlog/backlog.md`'s Backlog Candidates): the discovery that `docs/api/trigger.md`'s *outbound* TLS annotations (`tls-ca-secret`, `tls-client-cert-secret`, `tls-insecure-skip-verify`) are undocumented-in-code fiction. That's a separate, unrelated mechanism (outbound calls, not gateway inbound serving) and is not in scope here — noted only so the two don't get conflated during design.
 
 ## Candidate Stories
 
-Groomed 2026-09-12 (`/groom-backlog`):
+Groomed 2026-09-12 (`/groom-backlog`); re-groomed same day once STORY-008's design record was approved:
 
-- [ ] [STORY-008](../stories/STORY-008-webhookgatewayconfig-design-record.md) — Design record: CRD shape, singleton convention, defaulting behavior, annotation migration path. Fully groomed (real AC/footprint) — this is the only story in the epic that could be, since everything else is downstream of its decisions.
-- [ ] [STORY-009](../stories/STORY-009-webhookgatewayconfig-crd-hpa-controller.md) — `WebhookGatewayConfig` CRD types + controller (HPA reconciliation). Blocked on STORY-008, not yet groomed.
-- [ ] [STORY-010](../stories/STORY-010-webhookgatewayconfig-pdb.md) — `PodDisruptionBudget` reconciliation. Blocked on STORY-008 (and likely STORY-009), not yet groomed.
-- [ ] [STORY-011](../stories/STORY-011-webhookgatewayconfig-tls-migration.md) — Migrate TLS annotations onto the CRD. Blocked on STORY-008/009, not yet groomed.
-- [ ] [STORY-012](../stories/STORY-012-webhookgatewayconfig-docs.md) — Docs for the new CRD. Blocked on all four above, not yet groomed.
+- [x] [STORY-008](../stories/STORY-008-webhookgatewayconfig-design-record.md) — Design record: CRD shape, singleton convention, defaulting behavior, annotation migration path. Done — `docs/design/2026-09-12-webhookgatewayconfig-crd.md`, Approved.
+- [ ] [STORY-009](../stories/STORY-009-webhookgatewayconfig-crd-hpa-controller.md) — `WebhookGatewayConfig` CRD types + controller (HPA reconciliation + singleton admission webhook). Groomed, ready to dispatch.
+- [ ] [STORY-010](../stories/STORY-010-webhookgatewayconfig-pdb.md) — `PodDisruptionBudget` reconciliation. Groomed, ready to dispatch (depends on STORY-009).
+- [ ] [STORY-011](../stories/STORY-011-webhookgatewayconfig-tls-migration.md) — Hard-cutover TLS annotations onto the CRD. Groomed, ready to dispatch (depends on STORY-009).
+- [ ] [STORY-012](../stories/STORY-012-webhookgatewayconfig-docs.md) — Docs for the new CRD. Still blocked — documents shipped behavior, not the design, so it waits for STORY-009/010/011.
 
 ## Dependencies
 
@@ -48,6 +48,7 @@ Groomed 2026-09-12 (`/groom-backlog`):
 ## Notes
 
 - Owner-confirmed direction (2026-09-12): CRD over continuing to expand annotations/hardcoded constants, specifically because it's easier to extend later.
-- Open question raised by owner: should this CRD also enable HA more directly (e.g. a `minReplicas >= 2` recommendation/validation, not just a raw passthrough number)? Not decided — flag for the design record.
 - Committed to PI-1 (2026-09-12, via `/plan-pi`) as a parallel track alongside `EPIC-001` — not blocked on EPIC-001 closing, and not competing with it for files or focus (see `planning/roadmap/pi-plan.md`'s Revisions).
-- Groomed 2026-09-12 (`/groom-backlog`): only STORY-008 (the design record) could be fully groomed — the other 4 candidate stories are genuinely not footprintable until that record's decisions land, so they're tracked as explicitly blocked/ungroomed placeholders rather than guessed. Next step for this epic is dispatching STORY-008 alone, then re-grooming STORY-009-012 once it's `Approved`.
+- Groomed 2026-09-12 (`/groom-backlog`): initially only STORY-008 (the design record) could be fully groomed — the other 4 candidate stories were genuinely not footprintable until that record's decisions landed.
+- **Design decisions made same day, directly with the owner** (see `docs/design/2026-09-12-webhookgatewayconfig-crd.md` for full rationale): singleton enforced via admission webhook (not a fixed name); annotation migration is a hard cutover (no deprecate-and-warn window — the project hasn't gone public yet, so there's no compatibility obligation to protect); `minReplicas` is plain passthrough with a minimum of 1, no HA-minimum enforcement (matches today's actual default, avoids rejecting a config that mirrors current behavior). STORY-009/010/011 re-groomed immediately after with real AC/footprints reflecting these decisions.
+- Next step: dispatch STORY-009 first (STORY-010/011 both depend on the CRD types/controller it introduces).

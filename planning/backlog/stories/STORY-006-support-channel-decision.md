@@ -1,7 +1,7 @@
 # STORY-006: Support/community channel decision
 
 **Epic:** EPIC-001 — Open Source Release Readiness
-**Status:** Planned (Batch 2, WP-5 — see `planning/checkpoints/checkpoint-2026-09-12/work-packages.md`)
+**Status:** Done (PR #183, merged 2026-09-12) — Discussions intentionally not enabled yet (owner decision: wait until the repo is actually public, see `planning/backlog/follow-ups.md`); checked `gh api repos/.../` and `has_discussions` is `false`, as expected. Enable in Settings → Features as part of the public-launch sequence, not before.
 **Size:** XS
 
 ## Description
@@ -11,8 +11,8 @@
 ## Acceptance Criteria
 
 - [x] Owner decision recorded (GitHub Discussions).
-- [ ] Discussions enabled in repo settings with starter categories (e.g. Q&A, Ideas, Show and tell).
-- [ ] `README.md` links to Discussions (a "Getting Help" / "Community" section or similar).
+- [ ] Discussions enabled in repo settings with starter categories (e.g. Q&A, Ideas, Show and tell) — **needs an admin to do this manually**, not achievable via a code change.
+- [x] `README.md` links to Discussions — added a "Getting Help" section (PR #183).
 
 ## File / Module Footprint
 

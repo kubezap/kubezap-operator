@@ -61,8 +61,9 @@ func main() {
 		"Allow callers to request TLS verification skip via tlsSkipVerify:true in the request; "+
 			"off by default")
 	flag.BoolVar(&allowClusterInternal, "ssrf-allow-in-cluster", false,
-		"Disable SSRF protection for in-cluster service endpoints (.svc.cluster.local) and RFC1918 "+
-			"CIDRs. For dev/test only — NOT safe in production without NetworkPolicy enforcement.")
+		"Disable SSRF protection for in-cluster service endpoints (.svc.cluster.local) only; other "+
+			"targets (including RFC1918 IP literals) remain blocked. For dev/test only — NOT safe in "+
+			"production without NetworkPolicy enforcement.")
 	flag.BoolVar(&mtls, "mtls", false, "Enable mTLS; requires --tls-cert-file, --tls-key-file, --tls-ca-file")
 	flag.StringVar(&tlsCertFile, "tls-cert-file", "", "Path to PEM-encoded server certificate (required when --mtls=true)")
 	flag.StringVar(&tlsKeyFile, "tls-key-file", "", "Path to PEM-encoded server private key (required when --mtls=true)")

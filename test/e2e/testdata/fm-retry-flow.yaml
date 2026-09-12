@@ -11,9 +11,6 @@ spec:
         maxRetries: 2
         backoffType: Fixed
         initialDelay: 1s
-        retryOn:
-          - 500
-          - 503
       action:
         type: http
         http:

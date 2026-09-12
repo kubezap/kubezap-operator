@@ -401,7 +401,7 @@ var _ = Describe("HTTP executor", Label("executor"), Ordered, func() {
 			Eventually(func(g Gomega) {
 				out, err := executorKubectlGet("flowruns",
 					"-l", "kubezap.io/trigger=executor-http-trigger",
-					"-o", `jsonpath={.items[0].status.stepRuns[?(@.name=="call-echo")].results.body}`)
+					"-o", `jsonpath={.items[0].status.steps[?(@.name=="call-echo")].results[?(@.name=="body")].value}`)
 				g.Expect(err).NotTo(HaveOccurred())
 				g.Expect(strings.TrimSpace(out)).NotTo(BeEmpty(), "step result body is empty")
 			}, 30*time.Second, 2*time.Second).Should(Succeed())
@@ -474,14 +474,20 @@ var _ = Describe("HTTP executor", Label("executor"), Ordered, func() {
 				g.Expect(out).To(Equal("Failed"), "SSRF FlowRun phase not Failed; current: %s", out)
 			}, 5*time.Minute, 5*time.Second).Should(Succeed())
 
-			By("asserting the step result message contains ssrf_blocked:")
+			By("asserting the step result message reports the SSRF block")
+			// The controller's own defence-in-depth pre-check (checkSSRF in
+			// internal/controller/flowrun_controller.go) rejects this target before ever
+			// calling the executor, so the message comes from that path ("step %q blocked
+			// by SSRF protection: %w"), not the executor's "ssrf_blocked:"-prefixed one —
+			// that prefix only appears when the *executor* independently catches something
+			// the controller's pre-check didn't (e.g. a DNS-rebound address).
 			Eventually(func(g Gomega) {
 				out, err := executorKubectlGet("flowruns",
 					"-l", "kubezap.io/trigger=executor-ssrf-trigger",
-					"-o", `jsonpath={.items[0].status.stepRuns[?(@.name=="ssrf-attempt")].message}`)
+					"-o", `jsonpath={.items[0].status.steps[?(@.name=="ssrf-attempt")].message}`)
 				g.Expect(err).NotTo(HaveOccurred())
-				g.Expect(out).To(ContainSubstring("ssrf_blocked:"),
-					"expected ssrf_blocked: prefix in step message; got: %s", out)
+				g.Expect(out).To(ContainSubstring("blocked by SSRF protection"))
+				g.Expect(out).To(ContainSubstring("169.254.169.254"))
 			}, 30*time.Second, 2*time.Second).Should(Succeed())
 		})
 	})

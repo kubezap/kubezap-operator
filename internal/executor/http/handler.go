@@ -56,8 +56,10 @@ type Handler struct {
 	// always enforced regardless of the request field value.
 	AllowTLSSkipVerify bool
 
-	// AllowClusterInternal disables the .svc.cluster.local hostname block and
-	// removes RFC1918/loopback CIDRs from the default SSRF blocklist. Intended
+	// AllowClusterInternal disables the .svc.cluster.local hostname block, and the
+	// CIDR blocklist for such targets only (a Service's ClusterIP legitimately falls
+	// in RFC1918 space). Other targets — IP literals and non-cluster hostnames —
+	// remain subject to the full CIDR blocklist regardless of this flag. Intended
 	// for development and testing environments where in-cluster service calls are
 	// required. NOT recommended in production — only enable when the executor has
 	// appropriate NetworkPolicy restrictions in place.

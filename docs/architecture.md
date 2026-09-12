@@ -224,7 +224,7 @@ kubectl auth can-i create flowruns \
 
 Plugin Deployments (type=plugin Integrations) do **not** receive automatic RBAC from the
 operator. The plugin image is user-supplied and its permissions are the cluster admin's
-responsibility. See [Plugin Trust Model](../api/integration.md#plugin-integration-type).
+responsibility. See [Plugin Trust Model](api/integration.md#plugin-integration-type).
 
 ---
 
@@ -326,7 +326,7 @@ spec:
         lagThreshold: "50"
 ```
 
-KEDA is supported for partition-bounded scaling of Kafka gateways via the Kafka scaler. See the [Integration CRD](../api/integration.md) for configuration details.
+KEDA is supported for partition-bounded scaling of Kafka gateways via the Kafka scaler. See the [Integration CRD](api/integration.md) for configuration details.
 
 ### Controller
 

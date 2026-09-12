@@ -1,8 +1,6 @@
-<p align="center">
-  <img src="assets/branding/kubezap-vertical.svg" alt="KubeZap" width="220">
-</p>
-
-# KubeZap
+<h1 align="center">
+  <img src="assets/branding/kubezap-icon.svg" alt="" width="32" height="32"> KubeZap
+</h1>
 
 [![CI](https://github.com/kubezap/kubezap-operator/actions/workflows/ci.yml/badge.svg)](https://github.com/kubezap/kubezap-operator/actions/workflows/ci.yml)
 

@@ -1,7 +1,7 @@
 # STORY-013: Define execution-latency benchmark methodology
 
 **Epic:** EPIC-004 — Execution Latency Benchmarking (RPC Executor vs. Pod-per-Step)
-**Status:** Groomed
+**Status:** Planned (WP-2 — see `planning/checkpoints/checkpoint-2026-09-12/work-packages-2.md`)
 **Size:** S
 
 ## Description

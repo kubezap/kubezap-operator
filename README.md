@@ -1,5 +1,9 @@
 <h1 align="center">
-  <img src="assets/branding/kubezap-icon.svg" alt="" width="32" height="32"> KubeZap
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/kubezap/kubezap-operator/main/assets/branding/kubezap-white.svg">
+    <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/kubezap/kubezap-operator/main/assets/branding/kubezap-horizontal.svg">
+    <img src="assets/branding/kubezap-horizontal.svg" alt="KubeZap" width="300">
+  </picture>
 </h1>
 
 [![CI](https://github.com/kubezap/kubezap-operator/actions/workflows/ci.yml/badge.svg)](https://github.com/kubezap/kubezap-operator/actions/workflows/ci.yml)

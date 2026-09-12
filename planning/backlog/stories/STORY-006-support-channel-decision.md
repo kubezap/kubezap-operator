@@ -1,29 +1,29 @@
 # STORY-006: Support/community channel decision
 
 **Epic:** EPIC-001 — Open Source Release Readiness
-**Status:** Backlog — owner decision needed
+**Status:** Groomed
 **Size:** XS
 
 ## Description
 
-GitHub Discussions vs. Slack vs. Discord vs. issues-only. Low effort once decided, but ties into STORY-004 (the website — commonly linked from a docs/product site) and the README, so worth deciding before those land rather than after.
+**Decided (2026-09-12, via `/groom-backlog`): GitHub Discussions.** Lowest friction — built into the repo, no separate account/tool for users to adopt, enables directly in repo settings.
 
 ## Acceptance Criteria
 
-- [ ] Owner decision recorded here.
-- [ ] `README.md` links to the chosen channel.
-- [ ] If GitHub Discussions: enabled in repo settings with starter categories.
+- [x] Owner decision recorded (GitHub Discussions).
+- [ ] Discussions enabled in repo settings with starter categories (e.g. Q&A, Ideas, Show and tell).
+- [ ] `README.md` links to Discussions (a "Getting Help" / "Community" section or similar).
 
 ## File / Module Footprint
 
 - `README.md`
-- (repo settings — not a file change, needs whoever has admin access)
+- (repo settings — not a file change, needs whoever has admin access to enable Discussions)
 
 ## Dependencies
 
 - Depends on: none
-- Blocks: STORY-004 benefits from this being decided first (so the website can link to it), but doesn't hard-block it.
+- Blocks: none — STORY-004 (website) can optionally link here too, but doesn't hard-depend on it.
 
 ## Notes
 
-This is genuinely a `follow-ups.md`-style open question, not a groomed-and-ready story — flag to the owner at the next `/checkpoint` rather than guessing a default.
+Decision made during the 2026-09-12 `/groom-backlog` session — no longer an open owner question.

@@ -17,13 +17,13 @@ The `PI` column is the source of truth for what's actually committed — an epic
 
 | ID | Title | Epic | Status | Size |
 |---|---|---|---|---|
-| STORY-001 | [Final public-facing docs cleanup pass](stories/STORY-001-docs-cleanup-pass.md) | EPIC-001 | Backlog | M |
-| STORY-002 | [Clean up `docs/contributing.md`](stories/STORY-002-contributing-docs-cleanup.md) | EPIC-001 | Backlog | S |
-| STORY-003 | [Test suite value review](stories/STORY-003-test-suite-value-review.md) | EPIC-001 | Backlog | L |
-| STORY-004 | [Product/docs website via GitHub Pages](stories/STORY-004-github-pages-website.md) | EPIC-001 | Backlog (not groomed) | unknown |
-| STORY-005 | [`CODE_OF_CONDUCT.md` + issue/PR templates](stories/STORY-005-community-health-files.md) | EPIC-001 | Backlog | S |
-| STORY-006 | [Support/community channel decision](stories/STORY-006-support-channel-decision.md) | EPIC-001 | Backlog | XS |
-| STORY-007 | [Final release validation and OperatorHub submission](stories/STORY-007-final-release-validation.md) | EPIC-001 | Backlog | M |
+| STORY-001 | [Final public-facing docs cleanup pass](stories/STORY-001-docs-cleanup-pass.md) | EPIC-001 | Groomed | M |
+| STORY-002 | [Clean up `docs/contributing.md`](stories/STORY-002-contributing-docs-cleanup.md) | EPIC-001 | Groomed — partially done | S |
+| STORY-003 | [Test suite value review](stories/STORY-003-test-suite-value-review.md) | EPIC-001 | Groomed — partially done | L |
+| STORY-004 | [Product/docs website via GitHub Pages](stories/STORY-004-github-pages-website.md) | EPIC-001 | Groomed | S |
+| STORY-005 | [`CODE_OF_CONDUCT.md` + issue/PR templates](stories/STORY-005-community-health-files.md) | EPIC-001 | Groomed | S |
+| STORY-006 | [Support/community channel decision](stories/STORY-006-support-channel-decision.md) | EPIC-001 | Groomed | XS |
+| STORY-007 | [Final release validation and OperatorHub submission](stories/STORY-007-final-release-validation.md) | EPIC-001 | Groomed | M |
 
 ## Backlog Candidates (not yet epics)
 

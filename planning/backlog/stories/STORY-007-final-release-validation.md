@@ -1,7 +1,7 @@
 # STORY-007: Final release validation and OperatorHub submission
 
 **Epic:** EPIC-001 — Open Source Release Readiness
-**Status:** Backlog
+**Status:** Groomed
 **Size:** M — mostly validation/process, not new code
 
 ## Description

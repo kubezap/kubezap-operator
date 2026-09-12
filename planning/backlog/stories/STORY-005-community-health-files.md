@@ -1,7 +1,7 @@
 # STORY-005: `CODE_OF_CONDUCT.md` + issue/PR templates
 
 **Epic:** EPIC-001 — Open Source Release Readiness
-**Status:** Backlog
+**Status:** Groomed
 **Size:** S
 
 ## Description

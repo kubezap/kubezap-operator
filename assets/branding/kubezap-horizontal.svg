@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 300" role="img" aria-labelledby="title desc">
+  <title id="title">KubeZap logo</title>
+  <desc id="desc">KubeZap Kubernetes-native workflow automation logo.</desc>
+  <defs>
+<symbol id="kubezap-icon" viewBox="0 0 256 256">
+  <!-- top face -->
+  <path fill="#4F718A" d="M128 18 232 78 128 138 24 78Z"/>
+  <!-- left face -->
+  <path fill="#243447" d="M24 78 128 138 128 238 24 178Z"/>
+  <!-- right face -->
+  <path fill="#4F718A" d="M232 78 128 138 128 238 232 178Z"/>
+  <!-- lightning bolt -->
+  <path fill="#C89B3C" d="M143 34 62 151h58l-22 71 96-130h-59Z"/>
+  <!-- subtle separators around the bolt/cube -->
+  <path fill="#FFFFFF" d="M143 34 151 39 78 145h50l-2 8H62Z" opacity=".92"/>
+  <path fill="#FFFFFF" d="m194 92-9 12h-54l7-10h59Z" opacity=".92"/>
+  <path fill="#FFFFFF" d="m98 222 10-29 8 0-12 38Z" opacity=".92"/>
+</symbol>
+</defs>
+  
+  <use href="#kubezap-icon" x="24" y="22" width="220" height="220"/>
+  <text x="278" y="151" font-family="Inter, Montserrat, Poppins, Arial, sans-serif"
+        font-size="88" font-weight="700" letter-spacing="-3" fill="#243447">KubeZap</text>
+
+</svg>

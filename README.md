@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/branding/kubezap-vertical.svg" alt="KubeZap" width="220">
+</p>
+
 # KubeZap
 
 [![CI](https://github.com/kubezap/kubezap-operator/actions/workflows/ci.yml/badge.svg)](https://github.com/kubezap/kubezap-operator/actions/workflows/ci.yml)

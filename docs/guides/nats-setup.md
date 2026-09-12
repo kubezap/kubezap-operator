@@ -654,4 +654,4 @@ After the stream is created, delete and re-create the Trigger (or wait for the n
 
 - [Integration CRD Reference](../api/integration.md) -- full spec for all Integration types
 - [Trigger CRD Reference](../api/trigger.md) -- full spec for all Trigger types including PubSubTrigger fields
-- [Kafka Gateway Setup](kafka-setup.md) -- if you also need Kafka integration
+- [Kafka Integration Reference](../api/integration.md#kafka-type-kafka) -- if you also need Kafka integration

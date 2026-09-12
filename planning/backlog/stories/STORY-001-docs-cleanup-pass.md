@@ -1,7 +1,7 @@
 # STORY-001: Final public-facing docs cleanup pass
 
 **Epic:** EPIC-001 — Open Source Release Readiness
-**Status:** Groomed
+**Status:** Planned (Batch 1, WP-1 — see `planning/checkpoints/checkpoint-2026-09-12/work-packages.md`)
 **Size:** M
 
 ## Description
@@ -19,7 +19,7 @@ A pass over `docs/` for public-facing polish — tone, consistency, dead links, 
 - `docs/*.md` (root-level docs)
 - `docs/api/*.md`
 - `docs/guides/*.md`
-- Excludes: `docs/design/` (technical decision records, not public-facing polish targets), anything under `planning/` (internal PM content, out of scope for a public-docs pass by definition)
+- Excludes: `docs/design/` (technical decision records, not public-facing polish targets), anything under `planning/` (internal PM content, out of scope for a public-docs pass by definition), and `docs/contributing.md` (owned by STORY-002 — resolved 2026-09-12 via `/plan-parallel` to make these two stories parallel-safe rather than serialized)
 
 ## Dependencies
 
@@ -28,4 +28,4 @@ A pass over `docs/` for public-facing polish — tone, consistency, dead links, 
 
 ## Notes
 
-Broad footprint by nature (a sweep, not a targeted fix) — `/plan-parallel` should treat this as potentially overlapping with STORY-002 (`docs/contributing.md` is inside `docs/*.md`) and serialize accordingly, or scope STORY-001 to exclude `docs/contributing.md` explicitly and let STORY-002 own it.
+Broad footprint by nature (a sweep, not a targeted fix). Resolved 2026-09-12 (`/plan-parallel`): `docs/contributing.md` is explicitly excluded from this story's footprint (see above) so it doesn't overlap STORY-002, which owns that file — the two run in parallel.

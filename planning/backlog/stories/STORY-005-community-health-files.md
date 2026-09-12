@@ -1,7 +1,7 @@
 # STORY-005: `CODE_OF_CONDUCT.md` + issue/PR templates
 
 **Epic:** EPIC-001 — Open Source Release Readiness
-**Status:** Groomed
+**Status:** Planned (Batch 1, WP-3 — see `planning/checkpoints/checkpoint-2026-09-12/work-packages.md`)
 **Size:** S
 
 ## Description

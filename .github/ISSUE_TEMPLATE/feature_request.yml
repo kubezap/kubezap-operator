@@ -1,0 +1,64 @@
+name: Feature Request
+description: Suggest a new feature or enhancement for KubeZap
+title: "[Feature]: "
+labels: ["enhancement", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the suggestion. KubeZap follows a documentation-driven,
+        design-first workflow, so the more context you give us about the
+        underlying problem (rather than jumping straight to a specific API
+        shape), the easier it is for us to design a good solution.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem does this solve?
+      description: >
+        Describe the problem or use case you're running into. Focus on the
+        "why" — what are you trying to accomplish, and what's currently
+        stopping you?
+      placeholder: |
+        e.g. "I need to trigger a Flow from an S3 event, but there's no
+        built-in Trigger type for that yet."
+    validations:
+      required: true
+
+  - type: textarea
+    id: workaround
+    attributes:
+      label: Current workaround
+      description: >
+        How are you working around this today, if at all (e.g. a custom
+        plugin Integration, an external script, polling, a different tool
+        entirely)?
+    validations:
+      required: false
+
+  - type: textarea
+    id: proposed-solution
+    attributes:
+      label: Proposed solution (optional)
+      description: >
+        If you have an idea of what the feature/API might look like (new CRD
+        field, new Trigger type, new Flow step action, etc.), sketch it here.
+        This is a starting point for discussion, not a final spec.
+    validations:
+      required: false
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Any other approaches you considered and why you didn't go with them.
+    validations:
+      required: false
+
+  - type: textarea
+    id: additional-context
+    attributes:
+      label: Additional context
+      description: Anything else relevant — links, related issues, screenshots, etc.
+    validations:
+      required: false

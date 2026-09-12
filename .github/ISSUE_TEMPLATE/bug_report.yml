@@ -1,0 +1,97 @@
+name: Bug Report
+description: Report a problem with KubeZap (operator, gateways, http-executor, or CRDs)
+title: "[Bug]: "
+labels: ["bug", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to file a bug report. Please fill out as much of this
+        as you can — it saves a lot of back-and-forth during triage.
+
+        **Security vulnerabilities**: please do not file a public issue — see
+        [SECURITY.md](../../SECURITY.md) for how to report privately instead.
+
+  - type: input
+    id: kubezap-version
+    attributes:
+      label: KubeZap version
+      description: The operator image tag/version (or commit SHA) you're running.
+      placeholder: "e.g. v0.4.2 or commit 1b087bd"
+    validations:
+      required: true
+
+  - type: input
+    id: k8s-version
+    attributes:
+      label: Kubernetes version / distribution
+      description: Output of `kubectl version` and the distribution (vanilla k8s, k3s, OpenShift, EKS, GKE, AKS, etc.)
+      placeholder: "e.g. v1.29.4, k3s"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: install-method
+    attributes:
+      label: Install method
+      options:
+        - OLM / OperatorHub
+        - Helm chart
+        - Raw manifests (kustomize/config)
+        - Other / not sure
+    validations:
+      required: true
+
+  - type: textarea
+    id: crd-yaml
+    attributes:
+      label: Relevant CRD YAML
+      description: >
+        Paste the relevant Trigger / Flow / FlowRun / Integration manifest(s) that
+        reproduce the issue. Please redact any secrets, tokens, or credentials.
+      render: yaml
+      placeholder: |
+        apiVersion: automation.kubezap.io/v1alpha1
+        kind: Flow
+        metadata:
+          name: example
+        spec:
+          ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: controller-logs
+    attributes:
+      label: Controller / gateway logs
+      description: >
+        Relevant logs from the operator (`cmd/main.go`), webhook-gateway,
+        kafka-gateway, or http-executor pods around the time of the issue.
+        Please redact any secrets or credentials.
+      render: shell
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected-behavior
+    attributes:
+      label: Expected behavior
+      description: What did you expect to happen?
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual-behavior
+    attributes:
+      label: Actual behavior
+      description: What actually happened? Include CRD `status` conditions if relevant (`kubectl describe`/`kubectl get -o yaml`).
+    validations:
+      required: true
+
+  - type: textarea
+    id: additional-context
+    attributes:
+      label: Additional context
+      description: Anything else that might help — RBAC/WATCH_NAMESPACES config, network policies, timing/frequency, workarounds tried, etc.
+    validations:
+      required: false

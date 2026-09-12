@@ -145,8 +145,10 @@ type FlowRunReconciler struct {
 	SSRFBlockedCIDRs []*net.IPNet
 
 	// SSRFAllowClusterInternal disables the controller-side SSRF pre-check for
-	// .svc.cluster.local endpoints and RFC1918 CIDRs. For dev/test environments
-	// only. Controlled by --ssrf-allow-in-cluster on the controller binary.
+	// .svc.cluster.local endpoints only (including the RFC1918 ClusterIP a Service
+	// name resolves to) — it does not weaken the CIDR blocklist for any other
+	// target. For dev/test environments only. Controlled by --ssrf-allow-in-cluster
+	// on the controller binary. See the checkSSRF doc comment in ssrf.go.
 	SSRFAllowClusterInternal bool
 
 	// ExecutorBaseURL is the base URL format string for the http-executor Service,
@@ -387,7 +389,7 @@ func (r *FlowRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		failurePolicyContinue := flow.Spec.FailurePolicy == automationv1alpha1.FailurePolicyContinue
 		skippedAny := false
 		for _, step := range flow.Spec.Steps {
-			if !r.dependenciesMet(step, flowRun.Status.Steps, failurePolicyContinue) {
+			if !r.dependenciesMet(step, flowRun.Status.Steps, flow.Spec.Steps, failurePolicyContinue) {
 				continue
 			}
 			existing := findStepStatus(flowRun.Status.Steps, step.Name)
@@ -477,7 +479,7 @@ func (r *FlowRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		}
 		var waveSteps []readyStep
 		for i, step := range flow.Spec.Steps {
-			if !r.dependenciesMet(step, flowRun.Status.Steps, failurePolicyContinue) {
+			if !r.dependenciesMet(step, flowRun.Status.Steps, flow.Spec.Steps, failurePolicyContinue) {
 				continue
 			}
 			existing := findStepStatus(flowRun.Status.Steps, step.Name)
@@ -1513,11 +1515,20 @@ func setFlowRunCondition(flowRun *automationv1alpha1.FlowRun, condition metav1.C
 // dependenciesMet returns true when all runAfter deps for step have reached a
 // terminal state that allows the step to proceed.
 //
-// When failurePolicy is "Continue" at the flow level, a Failed dep is treated
-// as satisfied — downstream steps must still run so the flow can complete.
-// Without failurePolicy:Continue, a Failed dep blocks the step permanently
-// (the step will be cascade-skipped or left pending until the flow terminates).
-func (r *FlowRunReconciler) dependenciesMet(step automationv1alpha1.FlowStep, statuses []automationv1alpha1.StepRunStatus, failurePolicyContinue bool) bool {
+// A Failed dep is treated as satisfied when either the dependency step's own
+// onFailure is "Continue" (a per-step override — see OnFailureAction's doc comment
+// on why it's a distinct type from FailurePolicy) or the flow-level failurePolicy is
+// "Continue". Checking only the flow-wide failurePolicy here (and ignoring the failed
+// dependency's own onFailure) would make onFailure:Continue on an individual step
+// unable to unblock that step's own downstream dependents — leaving them stuck
+// pending indefinitely even though the FlowRun overall may still reach Succeeded via
+// a separate completion check that doesn't require every step to have run. This
+// mirrors the equivalent `step.OnFailure == Continue || flow.Spec.FailurePolicy ==
+// Continue` check used elsewhere in this file, applied to the dependency instead of
+// the current step.
+// Without either flag set, a Failed dep blocks the step permanently (the step will be
+// cascade-skipped or left pending until the flow terminates).
+func (r *FlowRunReconciler) dependenciesMet(step automationv1alpha1.FlowStep, statuses []automationv1alpha1.StepRunStatus, allSteps []automationv1alpha1.FlowStep, failurePolicyContinue bool) bool {
 	for _, dep := range step.RunAfter {
 		s := findStepStatus(statuses, dep)
 		if s == nil {
@@ -1527,8 +1538,15 @@ func (r *FlowRunReconciler) dependenciesMet(step automationv1alpha1.FlowStep, st
 		case automationv1alpha1.StepPhaseSucceeded, automationv1alpha1.StepPhaseSkipped:
 			// always satisfied
 		case automationv1alpha1.StepPhaseFailed:
-			// satisfied only when the flow is configured to continue past failures
-			if !failurePolicyContinue {
+			// satisfied when the flow is configured to continue past failures, or the
+			// failed dependency step itself opted into onFailure: Continue.
+			depContinues := failurePolicyContinue
+			if !depContinues {
+				if depStep := findFlowStep(allSteps, dep); depStep != nil {
+					depContinues = depStep.OnFailure == automationv1alpha1.OnFailureActionContinue
+				}
+			}
+			if !depContinues {
 				return false
 			}
 		default:
@@ -1537,6 +1555,16 @@ func (r *FlowRunReconciler) dependenciesMet(step automationv1alpha1.FlowStep, st
 		}
 	}
 	return true
+}
+
+// findFlowStep returns the FlowStep spec with the given name, or nil if absent.
+func findFlowStep(steps []automationv1alpha1.FlowStep, name string) *automationv1alpha1.FlowStep {
+	for i := range steps {
+		if steps[i].Name == name {
+			return &steps[i]
+		}
+	}
+	return nil
 }
 
 // reconcileGC handles TTL-based deletion and maxFlowRuns enforcement for terminal FlowRuns.

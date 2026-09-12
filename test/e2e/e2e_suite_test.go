@@ -145,6 +145,12 @@ var _ = BeforeSuite(func() {
 	_, err = utils.Run(cmd)
 	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to deploy controller manager")
 
+	By("labeling the kubezap-system namespace to enforce the restricted security policy")
+	cmd = exec.Command("kubectl", "label", "--overwrite", "ns", "kubezap-system",
+		"pod-security.kubernetes.io/enforce=restricted")
+	_, err = utils.Run(cmd)
+	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to label kubezap-system namespace with restricted policy")
+
 	// cmd/main.go unconditionally starts an admission webhook TLS server on boot,
 	// but config/webhook and config/certmanager (the kustomize components that would
 	// wire up cert-manager to provision that cert) are not scaffolded. Without a cert
@@ -174,6 +180,20 @@ var _ = BeforeSuite(func() {
 		"-n", "kubezap-system", "WATCH_NAMESPACES=*")
 	_, err = utils.Run(cmd)
 	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to set WATCH_NAMESPACES on controller")
+
+	// Several functional e2e tests target an in-cluster Mockoon service by
+	// .svc.cluster.local DNS name. checkSSRF (internal/controller/ssrf.go) scopes this
+	// flag to bypass only .svc.cluster.local targets — it does not weaken the CIDR
+	// blocklist for anything else — so enabling it here for the whole suite does not
+	// affect the sibling test that targets the 169.254.169.254 metadata IP literal,
+	// which stays blocked regardless. Mirrors config/dev/manager_dev_patch.yaml.
+	By("enabling --ssrf-allow-in-cluster so in-cluster HTTP step targets are permitted")
+	ssrfArgPatch := `[{"op": "add", "path": "/spec/template/spec/containers/0/args/-", ` +
+		`"value": "--ssrf-allow-in-cluster=true"}]`
+	cmd = exec.Command("kubectl", "patch", "deployment/kubezap-controller-manager",
+		"-n", "kubezap-system", "--type=json", "-p", ssrfArgPatch)
+	_, err = utils.Run(cmd)
+	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to enable --ssrf-allow-in-cluster on controller")
 
 	By("waiting for controller manager to be running")
 	Eventually(func(g Gomega) {

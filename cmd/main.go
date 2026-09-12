@@ -120,8 +120,9 @@ func main() {
 		"Comma-separated list of additional CIDR ranges to block for HTTP step outbound requests "+
 			"(added to the default RFC1918/loopback/link-local blocklist).")
 	flag.BoolVar(&ssrfAllowClusterInternal, "ssrf-allow-in-cluster", false,
-		"Disable SSRF protection for in-cluster service endpoints (.svc.cluster.local) and RFC1918 "+
-			"CIDRs. For dev/test only — NOT safe in production without NetworkPolicy enforcement.")
+		"Disable SSRF protection for in-cluster service endpoints (.svc.cluster.local) only; other "+
+			"targets (including RFC1918 IP literals) remain blocked. For dev/test only — NOT safe in "+
+			"production without NetworkPolicy enforcement.")
 	flag.StringVar(&executorImage, "executor-image", "ghcr.io/kubezap/http-executor:latest",
 		"Container image for the http-executor Deployment managed in each namespace.")
 	var executorRPCBaseURL string

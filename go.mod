@@ -1,6 +1,6 @@
 module github.com/kubezap/kubezap-operator
 
-go 1.26.6
+go 1.27.1
 
 require (
 	github.com/Azure/go-amqp v1.7.0

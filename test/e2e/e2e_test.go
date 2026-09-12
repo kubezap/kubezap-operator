@@ -43,38 +43,71 @@ const metricsServiceName = "kubezap-controller-manager-metrics-service"
 // metricsRoleBindingName is the name of the RBAC that will be created to allow get the metrics data
 const metricsRoleBindingName = "kubezap-metrics-binding"
 
+// metricsTriggerName and metricsFlowName are a minimal Trigger/Flow pair created solely to
+// force at least one controller reconcile before the metrics endpoint is scraped — see the
+// comment at the call site in the metrics test for why this is needed.
+const metricsTriggerName = "e2e-metrics-trigger"
+const metricsFlowName = "e2e-metrics-flow"
+
+var metricsFixtureYAML = fmt.Sprintf(`
+apiVersion: automation.kubezap.io/v1alpha1
+kind: Flow
+metadata:
+  name: %s
+  namespace: %s
+spec:
+  steps:
+    - name: noop
+      action:
+        type: transform
+        transform:
+          mappings:
+            done: "true"
+---
+apiVersion: automation.kubezap.io/v1alpha1
+kind: Trigger
+metadata:
+  name: %s
+  namespace: %s
+spec:
+  type: cron
+  enabled: true
+  cron:
+    schedule: "*/1 * * * *"
+  flowRef:
+    name: %s
+`, metricsFlowName, namespace, metricsTriggerName, namespace, metricsFlowName)
+
+// applyMetricsTriggerFixture creates the minimal Flow/Trigger pair via stdin so it does not
+// depend on the e2eNS-scoped kubectlApply helper defined in kubezap_e2e_test.go.
+func applyMetricsTriggerFixture() {
+	cmd := exec.Command("kubectl", "apply", "-f", "-")
+	cmd.Stdin = strings.NewReader(metricsFixtureYAML)
+	_, err := utils.Run(cmd)
+	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to apply metrics fixture Trigger/Flow")
+}
+
+// deleteMetricsTriggerFixture removes the fixture (best-effort).
+func deleteMetricsTriggerFixture() {
+	cmd := exec.Command("kubectl", "delete", "--ignore-not-found", "-f", "-")
+	cmd.Stdin = strings.NewReader(metricsFixtureYAML)
+	_, _ = utils.Run(cmd)
+}
+
 var _ = Describe("Manager", Ordered, func() {
 	var controllerPodName string
 
-	// Before running the tests, set up the environment by creating the namespace,
-	// enforce the restricted security policy to the namespace, installing CRDs,
-	// and deploying the controller.
-	BeforeAll(func() {
-		By("creating manager namespace")
-		cmd := exec.Command("kubectl", "create", "ns", namespace)
-		_, err := utils.Run(cmd)
-		if err != nil && strings.Contains(err.Error(), "AlreadyExists") {
-			By("manager namespace already exists, skipping creation")
-		} else {
-			Expect(err).NotTo(HaveOccurred(), "Failed to create namespace")
-		}
-
-		By("labeling the namespace to enforce the restricted security policy")
-		cmd = exec.Command("kubectl", "label", "--overwrite", "ns", namespace,
-			"pod-security.kubernetes.io/enforce=restricted")
-		_, err = utils.Run(cmd)
-		Expect(err).NotTo(HaveOccurred(), "Failed to label namespace with restricted policy")
-
-		By("installing CRDs")
-		cmd = exec.Command("make", "install")
-		_, err = utils.Run(cmd)
-		Expect(err).NotTo(HaveOccurred(), "Failed to install CRDs")
-
-		By("deploying the controller-manager")
-		cmd = exec.Command("make", "deploy", fmt.Sprintf("IMG=%s", projectImage))
-		_, err = utils.Run(cmd)
-		Expect(err).NotTo(HaveOccurred(), "Failed to deploy the controller-manager")
-	})
+	// The controller-manager, its namespace, and CRDs are already fully set up by
+	// e2e_suite_test.go's BeforeSuite (which also applies several ad-hoc patches this
+	// suite depends on: the webhook TLS cert mount, WATCH_NAMESPACES=*, and
+	// --ssrf-allow-in-cluster=true). BeforeSuite runs exactly once, before every spec,
+	// regardless of Ginkgo's randomized top-level Describe ordering — unlike a BeforeAll
+	// here, which previously re-ran `make install`/`make deploy` redundantly. That fresh
+	// deploy re-applied the plain kustomize base, silently discarding all three patches,
+	// and since Ginkgo randomizes which Describe runs when, this BeforeAll intermittently
+	// executed before other test files' specs and broke them (e.g. in-cluster Mockoon
+	// calls started failing SSRF checks mid-suite because the flag had been wiped).
+	// Nothing below needs its own setup beyond what BeforeSuite already guarantees.
 
 	// After all manager tests, clean up only the resources created by this test group.
 	// Global cleanup is handled in e2e_suite_test.AfterSuite so other test groups can run sequentially.
@@ -204,6 +237,30 @@ var _ = Describe("Manager", Ordered, func() {
 					"Metrics server not yet started")
 			}
 			Eventually(verifyMetricsServerStarted).Should(Succeed())
+
+			By("creating a minimal Trigger so the controller has reconciled at least once")
+			// controller_runtime_reconcile_total is a CounterVec: Prometheus omits a
+			// CounterVec entirely from /metrics until one of its label combinations has
+			// been incremented at least once. Nothing else in this Describe block creates
+			// a watched resource, so without this the metric may legitimately be absent
+			// from the scrape depending on test ordering. Apply directly here (rather than
+			// relying on incidental reconciles from other test files) so this test is
+			// self-sufficient regardless of execution order. This MUST happen before the
+			// curl-metrics pod below, since that pod performs the actual /metrics scrape —
+			// creating the fixture afterward would have no effect on output already captured.
+			applyMetricsTriggerFixture()
+			DeferCleanup(deleteMetricsTriggerFixture)
+
+			By("waiting for the fixture Trigger to be reconciled")
+			verifyTriggerAccepted := func(g Gomega) {
+				cmd := exec.Command("kubectl", "get", "trigger", metricsTriggerName,
+					"-n", namespace,
+					"-o", "jsonpath={.status.conditions[?(@.type=='Accepted')].status}")
+				output, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(output).To(Equal("True"), "fixture Trigger not yet reconciled")
+			}
+			Eventually(verifyTriggerAccepted).Should(Succeed())
 
 			By("creating the curl-metrics pod to access the metrics endpoint")
 			cmd = exec.Command("kubectl", "run", "curl-metrics", "--restart=Never",

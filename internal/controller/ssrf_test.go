@@ -91,6 +91,27 @@ var _ = Describe("SSRF protection", func() {
 		})
 	})
 
+	Describe("checkSSRF with allowClusterInternal", func() {
+		It("allows .svc.cluster.local hostnames when the flag is set", func() {
+			err := checkSSRF(ctx, "http://my-service.default.svc.cluster.local/api", nil, true)
+			Expect(err).NotTo(HaveOccurred())
+		})
+
+		It("still blocks the cloud metadata IP literal even when the flag is set", func() {
+			// The flag only scopes to .svc.cluster.local targets — it must not become a
+			// blanket SSRF bypass, or it can't simultaneously permit in-cluster test
+			// fixtures while still blocking a metadata-endpoint target.
+			err := checkSSRF(ctx, "http://169.254.169.254/latest/meta-data/", nil, true)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("169.254.169.254"))
+		})
+
+		It("still blocks other RFC1918 IP literals even when the flag is set", func() {
+			err := checkSSRF(ctx, "http://10.0.0.1/path", nil, true)
+			Expect(err).To(HaveOccurred())
+		})
+	})
+
 	Describe("ParseCIDRList", func() {
 		It("returns defaults when empty string provided", func() {
 			cidrs, err := ParseCIDRList("")

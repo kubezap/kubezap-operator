@@ -95,18 +95,21 @@ func ParseCIDRList(extraCIDRs string) ([]*net.IPNet, error) {
 // blockedCIDRs defaults to defaultSSRFBlockedCIDRs when nil. Pass a
 // non-nil slice (constructed via ParseCIDRList) to add operator-configured ranges.
 //
-// allowClusterInternal disables the .svc.cluster.local hostname check and the
-// CIDR blocklist entirely. Intended for dev/test environments. NOT recommended
-// in production.
+// allowClusterInternal disables the .svc.cluster.local hostname rejection *and* the
+// CIDR blocklist, but only for targets recognized as in-cluster services (the
+// ".svc.cluster.local" suffix) — such a Service's ClusterIP legitimately falls inside
+// the RFC1918 ranges this function otherwise blocks, so the CIDR check must be skipped
+// for it too, or the bypass would be a no-op. It does NOT weaken the CIDR check for any
+// other target: an IP literal or external hostname (e.g. the 169.254.169.254 cloud
+// metadata address) is blocked regardless of allowClusterInternal. This keeps the flag
+// scoped to "let Flow steps reach in-cluster services" rather than "disable SSRF
+// protection," so a single dev/test flag can't simultaneously be required to unblock
+// in-cluster test fixtures (like Mockoon) and be relied on to still block the metadata
+// endpoint from a sibling test.
 //
 // DNS resolution uses the provided context for timeout control. Callers should
 // ensure ctx has a reasonable deadline to prevent long DNS waits.
 func checkSSRF(ctx context.Context, rawURL string, blockedCIDRs []*net.IPNet, allowClusterInternal bool) error {
-	// Dev/test bypass: skip all SSRF checks when explicitly enabled.
-	if allowClusterInternal {
-		return nil
-	}
-
 	if blockedCIDRs == nil {
 		blockedCIDRs = defaultSSRFBlockedCIDRs
 	}
@@ -121,9 +124,13 @@ func checkSSRF(ctx context.Context, rawURL string, blockedCIDRs []*net.IPNet, al
 		return fmt.Errorf("SSRF check: URL has no hostname")
 	}
 
-	// Reject in-cluster service DNS names directly — no DNS lookup needed.
-	if strings.HasSuffix(hostname, ".svc.cluster.local") ||
-		strings.HasSuffix(hostname, ".svc.cluster.local.") {
+	isClusterInternal := strings.HasSuffix(hostname, ".svc.cluster.local") ||
+		strings.HasSuffix(hostname, ".svc.cluster.local.")
+
+	if isClusterInternal {
+		if allowClusterInternal {
+			return nil
+		}
 		return fmt.Errorf("SSRF check: requests to in-cluster service endpoints (.svc.cluster.local) are not permitted from HTTP steps; use a plugin Integration instead")
 	}
 

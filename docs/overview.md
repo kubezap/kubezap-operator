@@ -117,8 +117,6 @@ All CRDs are namespaced by default. Cluster-scoped variants are planned for mult
 
 `Integration` stores connection details and credentials for external systems (Kafka clusters, message brokers, community plugins) and is referenced by Triggers (subscriber) and Flow steps (publisher). See [Integration CRD](api/integration.md).
 
-> **Note:** The `MockEndpoint` CRD has been removed. See [Mocking HTTP Endpoints](guides/mocking-http-endpoints.md) for the recommended Mockoon-based approach to mock HTTP servers in development and testing.
-
 ---
 
 ## Trigger Types
@@ -572,6 +570,9 @@ spec:
 **Declarative and Kubernetes-native**
 All configuration is expressed as custom resources. KubeZap integrates naturally with GitOps tooling (Flux, ArgoCD) and standard Kubernetes RBAC.
 
+**Simple by design**
+A workflow is three CRDs — `Trigger`, `Flow`, `FlowRun` — one mental model from event to result. Every execution is a real Kubernetes object: `kubectl get flowrun <name>` shows what fired it, what each step did, and why. No separate subsystems to learn and wire together.
+
 **Idempotent and safe**
 Reconcilers are designed to be re-run safely. Flows track execution state in status subresources. Duplicate trigger firings are handled gracefully via cooldown policies.
 
@@ -580,6 +581,9 @@ The plugin model is based on external webhook calls, making it possible to add i
 
 **Observable from day one**
 Every trigger firing, flow execution, and step result is recorded in CRD status and emitted as Prometheus metrics and OpenTelemetry traces. No black-box execution.
+
+**Secure by construction**
+Credentials are resolved in-memory by the controller and handed to a dedicated, low-privilege HTTP executor with no Kubernetes API access and no secrets RBAC — never written to etcd, never stored in a workflow database. The executor enforces its own SSRF protection independently of the controller, limiting blast radius even if a Flow step is misconfigured.
 
 **Enterprise-ready**
 - mTLS support via cert-manager
@@ -712,7 +716,6 @@ For a full setup walkthrough including namespace configuration and RBAC see [Get
 - [x] `Flow` CRD — DAG steps, HTTP actions, CEL conditions, data passing
 - [x] `FlowRun` CRD — execution history, GC, status conditions
 - [x] `Integration` CRD — Kafka (built-in), plugin protocol
-- [x] `MockEndpoint` CRD — removed; replaced by Mockoon (see [mocking guide](guides/mocking-http-endpoints.md))
 - [x] Webhook auth — HMAC, bearer, OIDC/JWT, API-key, IP allowlist, mTLS
 - [x] Observability — Prometheus metrics, OpenTelemetry traces, structured access logs
 - [x] Multi-namespace — `WATCH_NAMESPACES`, all four OLM install modes

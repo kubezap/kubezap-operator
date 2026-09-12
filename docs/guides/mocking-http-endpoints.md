@@ -1,44 +1,34 @@
 # Mocking HTTP Endpoints
 
-This guide explains how to stand up in-cluster HTTP mock servers for KubeZap development and testing. It covers the replacement for the removed `MockEndpoint` CRD and describes the recommended approach using [Mockoon](https://mockoon.com).
+This guide explains how to stand up in-cluster HTTP mock servers for KubeZap development and testing. It describes the recommended approach using [Mockoon](https://mockoon.com).
 
 ---
 
 ## Contents
 
-- [Why MockEndpoint Was Removed](#why-mockendpoint-was-removed)
-- [Mockoon: The Recommended Replacement](#mockoon-the-recommended-replacement)
-- [In-Cluster Deployment](#in-cluster-deployment)
-  - [Quick Start](#quick-start)
-  - [Reusable Deployment YAML](#reusable-deployment-yaml)
-- [Defining Stub Responses](#defining-stub-responses)
-  - [Environment File Format](#environment-file-format)
-  - [Static Response](#static-response)
-  - [Dynamic Response with Templating](#dynamic-response-with-templating)
-  - [Simulating Failures and Rate Limits](#simulating-failures-and-rate-limits)
-  - [Response Sequences](#response-sequences)
-- [Inspecting Captured Requests](#inspecting-captured-requests)
-  - [Admin API — Request Log](#admin-api--request-log)
-  - [Streaming Logs from the Pod](#streaming-logs-from-the-pod)
-  - [Port-Forwarding the Admin API Locally](#port-forwarding-the-admin-api-locally)
-- [URL Switching with ConfigMaps](#url-switching-with-configmaps)
-- [Examples That Use Mockoon](#examples-that-use-mockoon)
-- [Updating Stub Responses Without Redeploying](#updating-stub-responses-without-redeploying)
-- [Limitations](#limitations)
-
----
-
-## Why MockEndpoint Was Removed
-
-The `MockEndpoint` CRD was a development-only feature that registered stub HTTP endpoints on the same server process as the KubeZap webhook gateway. While convenient for simple cases, it had several fundamental limitations:
-
-- **Multi-replica unsound**: request history was written to CRD status by whichever replica happened to handle the request. In a multi-replica gateway deployment, captured history was scattered across pods.
-- **Coupled to gateway lifecycle**: gateway pod restarts re-registered mocks automatically, but in-flight requests during a restart were silently dropped. Debugging required correlating controller logs with CRD status, which was error-prone.
-- **Limited response fidelity**: the response model supported only a fixed body, static headers, and a linear sequence. Mockoon supports full request matching, dynamic response bodies with Handlebars templating, response rules, latency jitter, proxy mode, and more.
-- **Operator surface area**: the `MockEndpoint` reconciler, RBAC, CRD schema, and status subresource added maintenance burden to the operator itself — code that runs in production but serves no production purpose.
-- **Not needed in production installs**: the `--mock-endpoints=false` flag was required to disable it, meaning operators had to opt-out rather than opt-in.
-
-Mockoon is a purpose-built, actively maintained mock server. Running it as a standard Kubernetes `Deployment` and `Service` means it integrates naturally with existing cluster tooling: readiness probes, resource limits, ConfigMap-driven configuration, and the Kubernetes RBAC model. No operator involvement is required.
+- [Mocking HTTP Endpoints](#mocking-http-endpoints)
+  - [Contents](#contents)
+  - [Mockoon: The Recommended Replacement](#mockoon-the-recommended-replacement)
+  - [In-Cluster Deployment](#in-cluster-deployment)
+    - [Quick Start](#quick-start)
+    - [Reusable Deployment YAML](#reusable-deployment-yaml)
+  - [Defining Stub Responses](#defining-stub-responses)
+    - [Environment File Format](#environment-file-format)
+    - [Static Response](#static-response)
+    - [Dynamic Response with Templating](#dynamic-response-with-templating)
+    - [Simulating Failures and Rate Limits](#simulating-failures-and-rate-limits)
+    - [Response Sequences](#response-sequences)
+  - [Inspecting Captured Requests](#inspecting-captured-requests)
+    - [Admin API — Request Log](#admin-api--request-log)
+    - [Streaming Logs from the Pod](#streaming-logs-from-the-pod)
+    - [Port-Forwarding the Admin API Locally](#port-forwarding-the-admin-api-locally)
+  - [URL Switching with ConfigMaps](#url-switching-with-configmaps)
+  - [Examples That Use Mockoon](#examples-that-use-mockoon)
+    - [order-router](#order-router)
+    - [kafka-enrichment](#kafka-enrichment)
+    - [slack-router](#slack-router)
+  - [Updating Stub Responses Without Redeploying](#updating-stub-responses-without-redeploying)
+  - [Limitations](#limitations)
 
 ---
 
@@ -239,7 +229,7 @@ A 35-second latency will cause a step with `timeoutSeconds: 30` to time out.
 
 ### Response Sequences
 
-Mockoon's [response rules](https://mockoon.com/docs/latest/route-responses/multiple-responses/) and [sequential mode](https://mockoon.com/docs/latest/route-responses/multiple-responses/#sequential-responses) let you cycle through a list of responses in order — equivalent to the `responseSequence` feature of the old `MockEndpoint` CRD.
+Mockoon's [response rules](https://mockoon.com/docs/latest/route-responses/multiple-responses/) and [sequential mode](https://mockoon.com/docs/latest/route-responses/multiple-responses/#sequential-responses) let you cycle through a list of responses in order.
 
 Set `responseMode` to `"SEQUENTIAL"` in the route to cycle through responses:
 
@@ -291,7 +281,7 @@ The first two requests to `POST /payment` return 429; the third and all subseque
 
 ## Inspecting Captured Requests
 
-Unlike the `MockEndpoint` CRD, Mockoon does not write request history to Kubernetes resources. Instead, it exposes a REST admin API and structured logs.
+Mockoon does not write request history to Kubernetes resources. Instead, it exposes a REST admin API and structured logs.
 
 ### Admin API — Request Log
 
@@ -495,7 +485,6 @@ Mockoon reads the environment file once at startup. A pod restart is required wh
 
 ## Limitations
 
-- **No Kubernetes-native request history**: request history is available through the Mockoon admin API and pod logs, not through `kubectl get`. This means you cannot inspect captured requests with `kubectl` the way you could with the old `MockEndpoint` CRD.
 - **Pod restart required for config changes**: Mockoon loads the environment JSON at startup. Updating the ConfigMap requires a pod rollout. For environments where zero downtime is required, run two Mockoon pods behind a Service and use a rolling update strategy.
 - **Admin API is unauthenticated**: the Mockoon admin API has no authentication. Do not expose it outside the cluster. The `mockoon` Service in `docs/guides/mockoon-deployment.yaml` is of type `ClusterIP` for this reason.
 - **Single environment file per pod**: each Mockoon pod serves one environment JSON. If you need logical separation between groups of mock routes, run multiple Mockoon Deployments with different ConfigMaps and Services.

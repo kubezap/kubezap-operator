@@ -318,7 +318,6 @@ http://mockoon.<namespace>.svc.cluster.local:3000/<endpoint>
 ```
 
 Common mistakes:
-- Using the old `/mock/<path>` path (from the removed `MockEndpoint` CRD) — Mockoon uses direct paths without the `/mock/` prefix.
 - Wrong namespace — `mockoon.default.svc.cluster.local` will not resolve from a pod in a different namespace unless cross-namespace networking is allowed.
 
 **Step 6 — If the ConfigMap was recently updated, restart the pod:**

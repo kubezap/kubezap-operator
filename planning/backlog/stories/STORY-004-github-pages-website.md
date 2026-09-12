@@ -1,7 +1,7 @@
 # STORY-004: Product/docs website via GitHub Pages
 
 **Epic:** EPIC-001 — Open Source Release Readiness
-**Status:** Done (PR #184, merged 2026-09-12) — site not live yet; checked `gh api repos/.../pages` post-merge and it 404s, confirming the Pages source hasn't been set to "GitHub Actions" yet. Needs an admin to do that one-time settings step before the workflow's deploy actually publishes anything.
+**Status:** Done (PR #184, merged 2026-09-12) — site intentionally not live yet (owner decision: wait until the repo is actually public, see `planning/backlog/follow-ups.md`); checked `gh api repos/.../pages` post-merge and it 404s, as expected. Set the Pages source to "GitHub Actions" in Settings → Pages as part of the public-launch sequence, not before.
 **Size:** S
 
 ## Description

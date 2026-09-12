@@ -1,7 +1,7 @@
 # STORY-006: Support/community channel decision
 
 **Epic:** EPIC-001 — Open Source Release Readiness
-**Status:** Done (PR #183, merged 2026-09-12) — Discussions not enabled yet; checked `gh api repos/.../` and `has_discussions` is still `false`. Needs an admin to flip that on in Settings → Features before the README link actually leads anywhere useful.
+**Status:** Done (PR #183, merged 2026-09-12) — Discussions intentionally not enabled yet (owner decision: wait until the repo is actually public, see `planning/backlog/follow-ups.md`); checked `gh api repos/.../` and `has_discussions` is `false`, as expected. Enable in Settings → Features as part of the public-launch sequence, not before.
 **Size:** XS
 
 ## Description

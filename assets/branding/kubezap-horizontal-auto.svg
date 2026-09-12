@@ -9,8 +9,9 @@
     .kz-highlight { fill: #FFFFFF; opacity: .92; }
     .kz-text { fill: #243447; }
     @media (prefers-color-scheme: dark) {
-      .kz-face-top, .kz-face-left, .kz-face-right { fill: #FFFFFF; }
-      .kz-highlight { display: none; }
+      .kz-face-top, .kz-face-right { fill: #C7D3DB; }
+      .kz-face-left { fill: #7E93A1; }
+      .kz-highlight { fill: #FFFFFF; opacity: 1; }
       .kz-text { fill: #FFFFFF; }
     }
   </style>

@@ -1,26 +1,31 @@
 # STORY-004: Product/docs website via GitHub Pages
 
 **Epic:** EPIC-001 — Open Source Release Readiness
-**Status:** Backlog — not groomed (see below)
-**Size:** unknown — cannot size until content scope is decided
+**Status:** Groomed
+**Size:** S
 
 ## Description
 
-A public-facing website for the project. **Decided (2026-09-12):** GitHub Pages, no custom domain for now (default `<org>.github.io/<repo>` URL). **Not yet decided:** what content actually goes on it (rendered `docs/`, a landing/product page, or both) — owner said this will be locked down later.
+A public-facing website for the project via GitHub Pages, no custom domain for now (default `<org>.github.io/<repo>` URL). **Content scope decided (2026-09-12, via `/groom-backlog`): rendered `docs/` only** — no separate landing/product page for v1. Smallest footprint, no new content to write/maintain beyond what already exists, matches where the project actually is pre-launch.
 
 ## Acceptance Criteria
 
-Cannot be written yet — depends on the content-scope decision.
+- [ ] `docs/` renders as a browsable static site (via a static-site generator — e.g. mkdocs, Jekyll, or a plain markdown-to-HTML pipeline; pick whichever needs the least new config given `docs/`'s existing structure).
+- [ ] Site builds and deploys automatically on push to `main` via GitHub Actions, publishing to GitHub Pages.
+- [ ] `planning/` is NOT included in the published site (internal PM content, out of scope by definition — same exclusion STORY-001 applies to its own docs pass).
+- [ ] Site is reachable at `<org>.github.io/<repo>` and internal doc links resolve correctly once rendered (not just as raw markdown).
 
 ## File / Module Footprint
 
-Cannot be footprinted yet — per `/groom-backlog`'s own rule, a story without a real footprint isn't groomed, so this stays `Backlog`, not `Groomed`, until that follow-up conversation happens. Likely candidates once scoped: a `.github/workflows/pages.yml` deploy workflow, and either a `docs-site/` source directory (if using Jekyll/mkdocs/Hugo) or direct publication from `docs/`.
+- `.github/workflows/pages.yml` (new — deploy workflow)
+- A site-generator config file (e.g. `mkdocs.yml`), added at repo root or under a new `docs-site/` directory depending on which generator is chosen
+- Does not modify `docs/` content itself — this story publishes what STORY-001/002 leave in place, it doesn't rewrite it
 
 ## Dependencies
 
-- Depends on: a decision on content scope (source generator, whether it publishes from `docs/` directly)
+- Depends on: none (STORY-001's docs polish pass is not a hard blocker, but ordering it first means the published site doesn't need a second pass immediately after launch)
 - Blocks: none
 
 ## Notes
 
-Do not start implementation until the content-scope conversation happens. Also needs to account for `planning/`'s existence (this migration) — whatever publishes the site must not accidentally pull internal PM content in, the same concern originally raised when this item was first scoped.
+Landing/product page content (beyond rendered docs) is explicitly deferred — if wanted later, that's a new story, not scope creep into this one.

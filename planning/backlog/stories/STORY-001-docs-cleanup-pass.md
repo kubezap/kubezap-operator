@@ -1,7 +1,7 @@
 # STORY-001: Final public-facing docs cleanup pass
 
 **Epic:** EPIC-001 — Open Source Release Readiness
-**Status:** Backlog
+**Status:** Groomed
 **Size:** M
 
 ## Description

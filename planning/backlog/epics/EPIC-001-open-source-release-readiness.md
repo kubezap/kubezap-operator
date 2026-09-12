@@ -34,7 +34,7 @@ Open:
 - [ ] [STORY-001](../stories/STORY-001-docs-cleanup-pass.md) — Final public-facing docs cleanup pass
 - [ ] [STORY-002](../stories/STORY-002-contributing-docs-cleanup.md) — Clean up `docs/contributing.md`
 - [ ] [STORY-003](../stories/STORY-003-test-suite-value-review.md) — Test suite value review
-- [ ] [STORY-004](../stories/STORY-004-github-pages-website.md) — Product/docs website via GitHub Pages (blocked on content-scope decision)
+- [ ] [STORY-004](../stories/STORY-004-github-pages-website.md) — Product/docs website via GitHub Pages (content scope decided 2026-09-12: rendered `docs/` only)
 - [ ] [STORY-005](../stories/STORY-005-community-health-files.md) — `CODE_OF_CONDUCT.md` + issue/PR templates
 - [ ] [STORY-006](../stories/STORY-006-support-channel-decision.md) — Support/community channel decision
 - [ ] [STORY-007](../stories/STORY-007-final-release-validation.md) — Final release validation and OperatorHub submission (rollup gate — last)
@@ -46,4 +46,4 @@ Open:
 
 ## Notes
 
-STORY-001/002/003/005/006 are independent of each other (disjoint footprints, see each story) and candidates for `/plan-parallel`. STORY-004 is explicitly not groomable yet (owner: "will need to lock down exactly what goes into the website content later"). STORY-007 must be last — it depends on every other story in this Epic plus the pre-existing OperatorHub gate list.
+All 7 stories are now `Groomed` (2026-09-12 `/groom-backlog` session) — STORY-004's content-scope decision (rendered `docs/` only) and STORY-006's channel decision (GitHub Discussions) were made during that session. STORY-001/002/003/005/006 are independent of each other (disjoint footprints, see each story) and candidates for `/plan-parallel`. STORY-002 and STORY-003 are partially done already (PR #175 and PR #174 respectively — see each story's Description for what's left). STORY-007 must be last — it depends on every other story in this Epic plus the pre-existing OperatorHub gate list.

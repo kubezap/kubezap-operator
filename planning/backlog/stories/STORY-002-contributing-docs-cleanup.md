@@ -1,7 +1,7 @@
 # STORY-002: Clean up `docs/contributing.md`
 
 **Epic:** EPIC-001 — Open Source Release Readiness
-**Status:** Groomed — partially done
+**Status:** Planned, partially done (Batch 1, WP-2 — see `planning/checkpoints/checkpoint-2026-09-12/work-packages.md`)
 **Size:** S
 
 ## Description

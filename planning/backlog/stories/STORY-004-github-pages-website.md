@@ -1,7 +1,7 @@
 # STORY-004: Product/docs website via GitHub Pages
 
 **Epic:** EPIC-001 — Open Source Release Readiness
-**Status:** Groomed
+**Status:** Planned (Batch 2, WP-4 — see `planning/checkpoints/checkpoint-2026-09-12/work-packages.md`)
 **Size:** S
 
 ## Description

@@ -142,6 +142,12 @@ For a full walkthrough see [examples/order-router/](examples/order-router/).
 
 ---
 
+## Getting Help
+
+Have a question, an idea, or want to show off what you built? Use [GitHub Discussions](https://github.com/kubezap/kubezap-operator/discussions) — it's the place for Q&A, feature ideas, and community show-and-tell. Found a bug? Open an [issue](https://github.com/kubezap/kubezap-operator/issues) instead.
+
+---
+
 ## License
 
 Apache 2.0

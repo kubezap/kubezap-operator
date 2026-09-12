@@ -1,7 +1,7 @@
 # STORY-001: Final public-facing docs cleanup pass
 
 **Epic:** EPIC-001 — Open Source Release Readiness
-**Status:** Planned (Batch 1, WP-1 — see `planning/checkpoints/checkpoint-2026-09-12/work-packages.md`)
+**Status:** Done (PR #181, merged 2026-09-12)
 **Size:** M
 
 ## Description
@@ -10,9 +10,9 @@ A pass over `docs/` for public-facing polish — tone, consistency, dead links, 
 
 ## Acceptance Criteria
 
-- [ ] No broken internal links across `docs/*.md` and `docs/{api,guides}/*.md` (a repo-relative link check).
-- [ ] No example or screenshot references infra specific to this project's own dev environment (cluster names, internal hostnames) without being clearly marked as illustrative.
-- [ ] Tone consistency pass — no leftover "TODO"/draft-sounding language in pages meant to read as finished product docs.
+- [x] No broken internal links across `docs/*.md` and `docs/{api,guides}/*.md` — found and fixed 3 (two `../api/integration.md` path escapes in `docs/architecture.md`, one dead link to a nonexistent `kafka-setup.md` in `docs/guides/nats-setup.md`); all other repo-relative links checked, none broken.
+- [x] No example or screenshot references infra specific to this project's own dev environment — checked every in-cluster hostname/CIDR example across the guides; all use generic Kubernetes DNS conventions or RFC 2606 reserved example domains. Nothing to fix.
+- [x] Tone consistency pass — removed one leftover doc-history meta-comment in `docs/api/flow.md`. A stray `TODO` in `docs/guides/plugin-security.md` and `docs/architecture.md`'s "TBD" roadmap markers were checked and correctly left alone (legitimate template placeholder / explicitly-labeled backlog section, not draft prose).
 
 ## File / Module Footprint
 

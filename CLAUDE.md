@@ -173,7 +173,7 @@ test/                 # Unit and E2E test infrastructure
   5. Add sample CR in `config/samples/`
   6. Write Ginkgo tests
 - Tests use Ginkgo BDD style: `Describe`/`Context`/`It` blocks with Gomega matchers
-- **`+kubebuilder:rbac` markers must be free-floating, not attached to a declaration.** They are package-scoped: put them in their own comment block separated by a blank line from the type/func/var below. If they end up inside a declaration's doc comment (e.g. directly above `type FooReconciler struct`), controller-gen **silently ignores them** — no error, `make manifests` just quietly omits those rules and the operator ships missing permissions. This bit us once already:
+- **`+kubebuilder:rbac` and `+kubebuilder:webhook` markers must be free-floating, not attached to a declaration.** They are package-scoped: put them in their own comment block separated by a blank line from the type/func/var below. If they end up inside a declaration's doc comment (e.g. directly above `type FooReconciler struct` or a `SetupFooWebhook` func), controller-gen **silently ignores them** — no error, `make manifests` just quietly omits those rules/manifests and the operator ships missing permissions or a missing `ValidatingWebhookConfiguration`. This bit us twice already — once for RBAC:
 
   ```go
   // +kubebuilder:rbac:groups=networking.k8s.io,resources=networkpolicies,verbs=get;list;watch
@@ -182,7 +182,9 @@ test/                 # Unit and E2E test infrastructure
   type FooReconciler struct {
   ```
 
-  After adding or changing RBAC markers, always confirm the rule actually landed in `config/rbac/role.yaml` — do not assume `make manifests` picked it up.
+  — and once for a webhook marker (found 2026-09-12, while building `WebhookGatewayConfig`'s webhook): `internal/webhook/trigger_webhook.go`'s `+kubebuilder:webhook` marker was attached to `SetupTriggerWebhook`'s doc comment the same way, meaning `config/webhook/` had never been generated for *any* webhook in this repo (Trigger or FlowRun) until this was noticed — the webhook *handlers* still worked (registered directly in `cmd/main.go` at the Go level), only the generated `ValidatingWebhookConfiguration` manifest was silently missing.
+
+  After adding or changing RBAC or webhook markers, always confirm the rule/manifest actually landed in `config/rbac/role.yaml` / `config/webhook/manifests.yaml` — do not assume `make manifests` picked it up.
 
 ## Code Style / Go
 

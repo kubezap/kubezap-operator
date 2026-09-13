@@ -9,7 +9,7 @@ The `PI` column is the source of truth for what's actually committed — an epic
 | ID | Title | Status | PI | File |
 |---|---|---|---|---|
 | EPIC-001 | Open Source Release Readiness | In Progress | PI-1 | [epics/EPIC-001-open-source-release-readiness.md](epics/EPIC-001-open-source-release-readiness.md) |
-| EPIC-002 | Post-Release Hardening & Feature Backlog | Backlog | — | not yet created — see Backlog Candidates below |
+| EPIC-002 | Post-Release Hardening & Feature Backlog | Backlog | — | [epics/EPIC-002-post-release-hardening.md](epics/EPIC-002-post-release-hardening.md) |
 | EPIC-003 | WebhookGatewayConfig CRD | Backlog | PI-1 | [epics/EPIC-003-webhook-gateway-config-crd.md](epics/EPIC-003-webhook-gateway-config-crd.md) |
 | EPIC-004 | Execution Latency Benchmarking (RPC Executor vs. Pod-per-Step) | Backlog | PI-1 | [epics/EPIC-004-execution-latency-benchmarking.md](epics/EPIC-004-execution-latency-benchmarking.md) |
 
@@ -25,13 +25,16 @@ The `PI` column is the source of truth for what's actually committed — an epic
 | STORY-006 | [Support/community channel decision](stories/STORY-006-support-channel-decision.md) | EPIC-001 | Done (PR #183) — Discussions not enabled, needs admin | XS |
 | STORY-007 | [Final release validation and OperatorHub submission](stories/STORY-007-final-release-validation.md) | EPIC-001 | Groomed | M |
 | STORY-008 | [Design record: WebhookGatewayConfig CRD shape & migration path](stories/STORY-008-webhookgatewayconfig-design-record.md) | EPIC-003 | Done (`docs/design/2026-09-12-webhookgatewayconfig-crd.md`, Approved) | S |
-| STORY-009 | [`WebhookGatewayConfig` CRD types + controller (HPA + singleton webhook)](stories/STORY-009-webhookgatewayconfig-crd-hpa-controller.md) | EPIC-003 | PR #190 open | M |
-| STORY-010 | [PodDisruptionBudget reconciliation](stories/STORY-010-webhookgatewayconfig-pdb.md) | EPIC-003 | Groomed | S |
-| STORY-011 | [Cut over webhook TLS annotations (hard cutover)](stories/STORY-011-webhookgatewayconfig-tls-migration.md) | EPIC-003 | Groomed | S |
-| STORY-012 | [Docs for `WebhookGatewayConfig`](stories/STORY-012-webhookgatewayconfig-docs.md) | EPIC-003 | Backlog — blocked on STORY-009/010/011 | S |
-| STORY-013 | [Define benchmark methodology](stories/STORY-013-benchmark-methodology.md) | EPIC-004 | PR #189 open | S |
-| STORY-014 | [Build and run the benchmark harness](stories/STORY-014-benchmark-harness.md) | EPIC-004 | Backlog — blocked on STORY-013 | M |
+| STORY-009 | [`WebhookGatewayConfig` CRD types + controller (HPA + singleton webhook)](stories/STORY-009-webhookgatewayconfig-crd-hpa-controller.md) | EPIC-003 | Done (PR #190) | M |
+| STORY-010 | [PodDisruptionBudget reconciliation](stories/STORY-010-webhookgatewayconfig-pdb.md) | EPIC-003 | Groomed — unblocked (STORY-009 Done) | S |
+| STORY-011 | [Cut over webhook TLS annotations (hard cutover)](stories/STORY-011-webhookgatewayconfig-tls-migration.md) | EPIC-003 | Groomed — unblocked (STORY-009 Done) | S |
+| STORY-012 | [Docs for `WebhookGatewayConfig`](stories/STORY-012-webhookgatewayconfig-docs.md) | EPIC-003 | Backlog — blocked on STORY-010/011 | S |
+| STORY-013 | [Define benchmark methodology](stories/STORY-013-benchmark-methodology.md) | EPIC-004 | Done (PR #189) | S |
+| STORY-014 | [Build and run the benchmark harness](stories/STORY-014-benchmark-harness.md) | EPIC-004 | Groomed — unblocked (STORY-013 Done) | M |
 | STORY-015 | [Write up results and a pursue/don't-pursue recommendation](stories/STORY-015-benchmark-writeup.md) | EPIC-004 | Backlog — blocked on STORY-014 | S |
+| STORY-016 | [Fix broken doc links/anchors surfaced by the MkDocs build](stories/STORY-016-docs-broken-links-cleanup.md) | EPIC-001 | Groomed | XS |
+| STORY-017 | [`goconst` cleanup in production code](stories/STORY-017-goconst-cleanup.md) | EPIC-002 | Groomed | M |
+| STORY-018 | [Fix silently-dropped `+kubebuilder:webhook` markers](stories/STORY-018-webhook-marker-fix.md) | EPIC-002 | Groomed | XS |
 
 ## Backlog Candidates (not yet epics)
 

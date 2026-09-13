@@ -10,7 +10,7 @@ The rollup gate before the actual "open the repo, submit to OperatorHub" moment.
 
 ## Acceptance Criteria
 
-- [ ] STORY-001, 002, 003, 005, 006 all `Done` (STORY-004 may remain open if the owner decides the website isn't launch-blocking — confirm at the time).
+- [ ] STORY-001, 002, 003, 005, 006, 016 all `Done` (STORY-004 may remain open if the owner decides the website isn't launch-blocking — confirm at the time; STORY-016 added 2026-09-12 checkpoint).
 - [ ] A **fresh** full spec-drift check (`planning/process/spec-drift.md` Steps 1–4, all 4 CRD types) — this is a recurring gate by its own design, not satisfied by any past one-time run, however recent.
 - [ ] `make test-e2e` green with no undiagnosed failures (depends on STORY-003's outcome).
 - [ ] `make lint`/`make test`/`make vulncheck` all clean on `main` at submission time.

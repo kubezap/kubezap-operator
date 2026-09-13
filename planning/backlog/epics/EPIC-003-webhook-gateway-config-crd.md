@@ -35,7 +35,7 @@ A namespace-scoped `WebhookGatewayConfig` CRD (one per namespace, singleton-styl
 Groomed 2026-09-12 (`/groom-backlog`); re-groomed same day once STORY-008's design record was approved:
 
 - [x] [STORY-008](../stories/STORY-008-webhookgatewayconfig-design-record.md) — Design record: CRD shape, singleton convention, defaulting behavior, annotation migration path. Done — `docs/design/2026-09-12-webhookgatewayconfig-crd.md`, Approved.
-- [ ] [STORY-009](../stories/STORY-009-webhookgatewayconfig-crd-hpa-controller.md) — `WebhookGatewayConfig` CRD types + controller (HPA reconciliation + singleton admission webhook). Groomed, ready to dispatch.
+- [x] [STORY-009](../stories/STORY-009-webhookgatewayconfig-crd-hpa-controller.md) — `WebhookGatewayConfig` CRD types + controller (HPA reconciliation + singleton admission webhook). Done — PR #190, merged.
 - [ ] [STORY-010](../stories/STORY-010-webhookgatewayconfig-pdb.md) — `PodDisruptionBudget` reconciliation. Groomed, ready to dispatch (depends on STORY-009).
 - [ ] [STORY-011](../stories/STORY-011-webhookgatewayconfig-tls-migration.md) — Hard-cutover TLS annotations onto the CRD. Groomed, ready to dispatch (depends on STORY-009).
 - [ ] [STORY-012](../stories/STORY-012-webhookgatewayconfig-docs.md) — Docs for the new CRD. Still blocked — documents shipped behavior, not the design, so it waits for STORY-009/010/011.

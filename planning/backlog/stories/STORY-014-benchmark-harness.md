@@ -1,7 +1,7 @@
 # STORY-014: Build and run the execution-latency benchmark harness
 
 **Epic:** EPIC-004 — Execution Latency Benchmarking (RPC Executor vs. Pod-per-Step)
-**Status:** Backlog — blocked on STORY-013
+**Status:** Done (PR #195)
 **Size:** M — cannot size precisely until STORY-013 fixes the exact run-count/scenario, but "build two fixture setups + a runner script + a results collector" is a bounded, well-understood shape regardless of those specifics
 
 ## Description

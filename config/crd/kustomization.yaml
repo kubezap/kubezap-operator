@@ -6,6 +6,7 @@ resources:
 - bases/automation.kubezap.io_flows.yaml
 - bases/automation.kubezap.io_integrations.yaml
 - bases/automation.kubezap.io_triggers.yaml
+- bases/automation.kubezap.io_webhookgatewayconfigs.yaml
 # +kubebuilder:scaffold:crdkustomizeresource
 
 patches:

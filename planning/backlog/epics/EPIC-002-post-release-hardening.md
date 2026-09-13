@@ -24,7 +24,7 @@ None yet. Individual stories may need one if their fix touches a design-process.
 Groomed 2026-09-12 (checkpoint triage):
 
 - [ ] [STORY-017](../stories/STORY-017-goconst-cleanup.md) — `goconst` cleanup (59 real production-code findings surfaced by the `golangci-lint` v2.13 bump, tracked since the post-dependabot validation pass). Groomed, ready to dispatch.
-- [ ] [STORY-018](../stories/STORY-018-webhook-marker-fix.md) — Fix the `+kubebuilder:webhook` marker placement bug so the Trigger/FlowRun `ValidatingWebhookConfiguration` manifests actually get generated (found while building `EPIC-003`'s webhook). Groomed, ready to dispatch.
+- [x] [STORY-018](../stories/STORY-018-webhook-marker-fix.md) — Fix the `+kubebuilder:webhook` marker placement bug so the Trigger/FlowRun `ValidatingWebhookConfiguration` manifests actually get generated (found while building `EPIC-003`'s webhook). Done — PR #194, merged.
 
 ## Dependencies
 

@@ -28,3 +28,4 @@ Two stories with overlapping footprints are not parallel-safe, full stop — `/p
 
 - Don't mark a story `Groomed` without a real footprint — a placeholder footprint defeats the entire point of this framework.
 - Don't plan work packages or dispatch agents here — that's `/plan-parallel` and `/dispatch-work`.
+- Don't commit, push, or open a PR for grooming edits on your own initiative — stage them (`git add`) and leave them staged; per `CLAUDE.md`'s planning-PR guidance, they wait for an explicit ask or fold into `/dispatch-work`'s final PR once a later batch's story PRs are merged.

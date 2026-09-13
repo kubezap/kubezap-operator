@@ -368,6 +368,423 @@ func TestHMACAuth(t *testing.T) {
 	}
 }
 
+// decodeErrorMsg decodes a JSON {"error": "..."} response body and returns the message.
+func decodeErrorMsg(t *testing.T, rr *httptest.ResponseRecorder) string {
+	t.Helper()
+	var resp map[string]string
+	if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
+		t.Fatalf("decoding error response body: %v", err)
+	}
+	return resp[errorJSONKey]
+}
+
+func TestBearerAuth(t *testing.T) {
+	const token = "test-bearer-token"
+
+	tests := []struct {
+		name        string
+		authHeader  string // value to send in the Authorization header
+		omitHeader  bool   // explicitly omit the header even if authHeader is non-empty
+		wantStatus  int
+		wantMsg     string
+		wantFlowRun bool
+	}{
+		{
+			name:        "valid bearer token",
+			authHeader:  "Bearer " + token,
+			wantStatus:  http.StatusAccepted,
+			wantFlowRun: true,
+		},
+		{
+			name:        "wrong bearer token",
+			authHeader:  "Bearer wrong-token",
+			wantStatus:  http.StatusUnauthorized,
+			wantMsg:     "invalid bearer token",
+			wantFlowRun: false,
+		},
+		{
+			name:        "missing Authorization header",
+			omitHeader:  true,
+			wantStatus:  http.StatusUnauthorized,
+			wantMsg:     "missing Authorization header",
+			wantFlowRun: false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			h, k8s := newTestHandlerWithBearer(t, token)
+
+			req := httptest.NewRequest(http.MethodPost, "/hooks/bearer-test", bytes.NewBufferString(`{}`))
+			if !tc.omitHeader {
+				req.Header.Set("Authorization", tc.authHeader)
+			}
+
+			rr := httptest.NewRecorder()
+			h.ServeHTTP(rr, req)
+
+			if rr.Code != tc.wantStatus {
+				t.Fatalf("expected status %d, got %d; body: %s", tc.wantStatus, rr.Code, rr.Body.String())
+			}
+			if tc.wantMsg != "" {
+				if msg := decodeErrorMsg(t, rr); msg != tc.wantMsg {
+					t.Errorf("expected error message %q, got %q", tc.wantMsg, msg)
+				}
+			}
+
+			count := flowRunCount(t, k8s)
+			if tc.wantFlowRun && count == 0 {
+				t.Fatal("expected a FlowRun to be created, but none found")
+			}
+			if !tc.wantFlowRun && count != 0 {
+				t.Fatalf("expected no FlowRun to be created, but found %d", count)
+			}
+		})
+	}
+}
+
+// newTestHandlerWithBearer creates a WebhookHandler with a fake k8s client and a
+// registry containing a single route at /hooks/bearer-test with bearer-token auth
+// and POST method.
+func newTestHandlerWithBearer(t *testing.T, token string) (*WebhookHandler, client.Client) {
+	t.Helper()
+	scheme := newWebhookTestScheme()
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).Build()
+	log := zap.New()
+	registry := NewRouteRegistry(log)
+	registry.Register("/hooks/bearer-test", RouteEntry{
+		TriggerName:      "bearer-trigger",
+		TriggerNamespace: "default",
+		FlowRef:          "bearer-flow",
+		AllowedMethod:    "POST",
+		AuthType:         authTypeBearer,
+		BearerToken:      token,
+	})
+	h := NewWebhookHandler(fakeClient, registry, log, nil, 0)
+	return h, fakeClient
+}
+
+func TestAPIKeyAuth(t *testing.T) {
+	const key = "test-api-key"
+
+	tests := []struct {
+		name        string
+		headerName  string // header name configured on the route; "" uses the default X-Api-Key
+		sendHeader  string // header name the request sets
+		sendValue   string
+		omitHeader  bool
+		wantStatus  int
+		wantMsg     string
+		wantFlowRun bool
+	}{
+		{
+			name:        "valid API key, default header",
+			sendHeader:  "X-Api-Key",
+			sendValue:   key,
+			wantStatus:  http.StatusAccepted,
+			wantFlowRun: true,
+		},
+		{
+			name:        "wrong API key",
+			sendHeader:  "X-Api-Key",
+			sendValue:   "wrong-key",
+			wantStatus:  http.StatusUnauthorized,
+			wantMsg:     "invalid API key",
+			wantFlowRun: false,
+		},
+		{
+			name:        "missing API key header",
+			omitHeader:  true,
+			wantStatus:  http.StatusUnauthorized,
+			wantMsg:     "missing API key header",
+			wantFlowRun: false,
+		},
+		{
+			name:        "valid API key via custom header",
+			headerName:  "X-Custom-Key",
+			sendHeader:  "X-Custom-Key",
+			sendValue:   key,
+			wantStatus:  http.StatusAccepted,
+			wantFlowRun: true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			h, k8s := newTestHandlerWithAPIKey(t, key, tc.headerName)
+
+			req := httptest.NewRequest(http.MethodPost, "/hooks/apikey-test", bytes.NewBufferString(`{}`))
+			if !tc.omitHeader {
+				req.Header.Set(tc.sendHeader, tc.sendValue)
+			}
+
+			rr := httptest.NewRecorder()
+			h.ServeHTTP(rr, req)
+
+			if rr.Code != tc.wantStatus {
+				t.Fatalf("expected status %d, got %d; body: %s", tc.wantStatus, rr.Code, rr.Body.String())
+			}
+			if tc.wantMsg != "" {
+				if msg := decodeErrorMsg(t, rr); msg != tc.wantMsg {
+					t.Errorf("expected error message %q, got %q", tc.wantMsg, msg)
+				}
+			}
+
+			count := flowRunCount(t, k8s)
+			if tc.wantFlowRun && count == 0 {
+				t.Fatal("expected a FlowRun to be created, but none found")
+			}
+			if !tc.wantFlowRun && count != 0 {
+				t.Fatalf("expected no FlowRun to be created, but found %d", count)
+			}
+		})
+	}
+}
+
+// newTestHandlerWithAPIKey creates a WebhookHandler with a fake k8s client and a
+// registry containing a single route at /hooks/apikey-test with API-key auth and
+// POST method. headerName configures RouteEntry.APIKeyHeader; "" exercises the
+// production default of "X-Api-Key".
+func newTestHandlerWithAPIKey(t *testing.T, key, headerName string) (*WebhookHandler, client.Client) {
+	t.Helper()
+	scheme := newWebhookTestScheme()
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).Build()
+	log := zap.New()
+	registry := NewRouteRegistry(log)
+	registry.Register("/hooks/apikey-test", RouteEntry{
+		TriggerName:      "apikey-trigger",
+		TriggerNamespace: "default",
+		FlowRef:          "apikey-flow",
+		AllowedMethod:    "POST",
+		AuthType:         authTypeAPIKey,
+		APIKey:           key,
+		APIKeyHeader:     headerName,
+	})
+	h := NewWebhookHandler(fakeClient, registry, log, nil, 0)
+	return h, fakeClient
+}
+
+func TestBasicAuth(t *testing.T) {
+	const username = "testuser"
+	const password = "testpass"
+
+	tests := []struct {
+		name          string
+		setBasicAuth  bool
+		authUsername  string
+		authPassword  string
+		malformedAuth string // raw Authorization header value; used instead of SetBasicAuth when non-empty
+		wantStatus    int
+		wantMsg       string
+		wantFlowRun   bool
+	}{
+		{
+			name:         "valid username and password",
+			setBasicAuth: true,
+			authUsername: username,
+			authPassword: password,
+			wantStatus:   http.StatusAccepted,
+			wantFlowRun:  true,
+		},
+		{
+			name:         "wrong username",
+			setBasicAuth: true,
+			authUsername: "wrong-user",
+			authPassword: password,
+			wantStatus:   http.StatusUnauthorized,
+			wantMsg:      "invalid Basic auth credentials",
+			wantFlowRun:  false,
+		},
+		{
+			name:         "wrong password",
+			setBasicAuth: true,
+			authUsername: username,
+			authPassword: "wrong-pass",
+			wantStatus:   http.StatusUnauthorized,
+			wantMsg:      "invalid Basic auth credentials",
+			wantFlowRun:  false,
+		},
+		{
+			name:        "missing Authorization header",
+			wantStatus:  http.StatusUnauthorized,
+			wantMsg:     "missing or malformed Basic auth credentials",
+			wantFlowRun: false,
+		},
+		{
+			name:          "malformed Authorization header",
+			malformedAuth: "Basic not-valid-base64!!!",
+			wantStatus:    http.StatusUnauthorized,
+			wantMsg:       "missing or malformed Basic auth credentials",
+			wantFlowRun:   false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			h, k8s := newTestHandlerWithBasic(t, username, password)
+
+			req := httptest.NewRequest(http.MethodPost, "/hooks/basic-test", bytes.NewBufferString(`{}`))
+			switch {
+			case tc.setBasicAuth:
+				req.SetBasicAuth(tc.authUsername, tc.authPassword)
+			case tc.malformedAuth != "":
+				req.Header.Set("Authorization", tc.malformedAuth)
+			}
+
+			rr := httptest.NewRecorder()
+			h.ServeHTTP(rr, req)
+
+			if rr.Code != tc.wantStatus {
+				t.Fatalf("expected status %d, got %d; body: %s", tc.wantStatus, rr.Code, rr.Body.String())
+			}
+			if tc.wantMsg != "" {
+				if msg := decodeErrorMsg(t, rr); msg != tc.wantMsg {
+					t.Errorf("expected error message %q, got %q", tc.wantMsg, msg)
+				}
+			}
+
+			count := flowRunCount(t, k8s)
+			if tc.wantFlowRun && count == 0 {
+				t.Fatal("expected a FlowRun to be created, but none found")
+			}
+			if !tc.wantFlowRun && count != 0 {
+				t.Fatalf("expected no FlowRun to be created, but found %d", count)
+			}
+		})
+	}
+}
+
+// newTestHandlerWithBasic creates a WebhookHandler with a fake k8s client and a
+// registry containing a single route at /hooks/basic-test with Basic auth and
+// POST method.
+func newTestHandlerWithBasic(t *testing.T, username, password string) (*WebhookHandler, client.Client) {
+	t.Helper()
+	scheme := newWebhookTestScheme()
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).Build()
+	log := zap.New()
+	registry := NewRouteRegistry(log)
+	registry.Register("/hooks/basic-test", RouteEntry{
+		TriggerName:      "basic-trigger",
+		TriggerNamespace: "default",
+		FlowRef:          "basic-flow",
+		AllowedMethod:    "POST",
+		AuthType:         authTypeBasic,
+		BasicUsername:    username,
+		BasicPassword:    password,
+	})
+	h := NewWebhookHandler(fakeClient, registry, log, nil, 0)
+	return h, fakeClient
+}
+
+func TestHeaderEqualsAuth(t *testing.T) {
+	const headerName = "X-Custom-Auth"
+	const headerValue = "expected-value"
+
+	tests := []struct {
+		name            string
+		routeHeaderName string // header name configured on the route; "" exercises the misconfigured case
+		sendValue       string
+		omitHeader      bool
+		wantStatus      int
+		wantMsg         string
+		wantFlowRun     bool
+	}{
+		{
+			name:            "valid header value",
+			routeHeaderName: headerName,
+			sendValue:       headerValue,
+			wantStatus:      http.StatusAccepted,
+			wantFlowRun:     true,
+		},
+		{
+			name:            "wrong header value",
+			routeHeaderName: headerName,
+			sendValue:       "wrong-value",
+			wantStatus:      http.StatusUnauthorized,
+			wantMsg:         "invalid header value",
+			wantFlowRun:     false,
+		},
+		{
+			name:            "missing required header",
+			routeHeaderName: headerName,
+			omitHeader:      true,
+			wantStatus:      http.StatusUnauthorized,
+			wantMsg:         "missing required header",
+			wantFlowRun:     false,
+		},
+		{
+			name:            "misconfigured: no header name",
+			routeHeaderName: "",
+			sendValue:       headerValue,
+			wantStatus:      http.StatusUnauthorized,
+			wantMsg:         "header-equals auth misconfigured: no header name",
+			wantFlowRun:     false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			h, k8s := newTestHandlerWithHeaderEquals(t, tc.routeHeaderName, headerValue)
+
+			req := httptest.NewRequest(http.MethodPost, "/hooks/headereq-test", bytes.NewBufferString(`{}`))
+			if !tc.omitHeader {
+				// The route's configured header name is what the request must match
+				// against; in the misconfigured case (no header name configured on
+				// the route) the request still sends a header, but the entry has
+				// nothing to compare it to and must fail closed.
+				sendOn := tc.routeHeaderName
+				if sendOn == "" {
+					sendOn = headerName
+				}
+				req.Header.Set(sendOn, tc.sendValue)
+			}
+
+			rr := httptest.NewRecorder()
+			h.ServeHTTP(rr, req)
+
+			if rr.Code != tc.wantStatus {
+				t.Fatalf("expected status %d, got %d; body: %s", tc.wantStatus, rr.Code, rr.Body.String())
+			}
+			if tc.wantMsg != "" {
+				if msg := decodeErrorMsg(t, rr); msg != tc.wantMsg {
+					t.Errorf("expected error message %q, got %q", tc.wantMsg, msg)
+				}
+			}
+
+			count := flowRunCount(t, k8s)
+			if tc.wantFlowRun && count == 0 {
+				t.Fatal("expected a FlowRun to be created, but none found")
+			}
+			if !tc.wantFlowRun && count != 0 {
+				t.Fatalf("expected no FlowRun to be created, but found %d", count)
+			}
+		})
+	}
+}
+
+// newTestHandlerWithHeaderEquals creates a WebhookHandler with a fake k8s client and
+// a registry containing a single route at /hooks/headereq-test with header-equals
+// auth and POST method. An empty headerName reproduces the misconfigured case
+// (AuthType set but no header name to compare against).
+func newTestHandlerWithHeaderEquals(t *testing.T, headerName, headerValue string) (*WebhookHandler, client.Client) {
+	t.Helper()
+	scheme := newWebhookTestScheme()
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).Build()
+	log := zap.New()
+	registry := NewRouteRegistry(log)
+	registry.Register("/hooks/headereq-test", RouteEntry{
+		TriggerName:        "headereq-trigger",
+		TriggerNamespace:   "default",
+		FlowRef:            "headereq-flow",
+		AllowedMethod:      "POST",
+		AuthType:           authTypeHeaderEquals,
+		HeaderEqualsHeader: headerName,
+		HeaderEqualsValue:  headerValue,
+	})
+	h := NewWebhookHandler(fakeClient, registry, log, nil, 0)
+	return h, fakeClient
+}
+
 func TestSlackHMACAuth(t *testing.T) {
 	const secret = "test-slack-signing-secret"
 

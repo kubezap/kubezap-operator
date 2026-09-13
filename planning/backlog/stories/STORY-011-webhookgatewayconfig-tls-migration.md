@@ -1,7 +1,7 @@
 # STORY-011: Cut over webhook TLS annotations to `WebhookGatewayConfig` (hard cutover)
 
 **Epic:** EPIC-003 — WebhookGatewayConfig CRD
-**Status:** In Progress — PR #197 open
+**Status:** Done (PR #197)
 **Size:** S
 
 ## Description

@@ -1,6 +1,6 @@
 # EPIC-003: WebhookGatewayConfig CRD
 
-**Status:** Backlog
+**Status:** In Progress — 4 of 5 stories Done, only STORY-012 (docs) remains
 **PI:** PI-1
 
 ## Problem
@@ -37,8 +37,8 @@ Groomed 2026-09-12 (`/groom-backlog`); re-groomed same day once STORY-008's desi
 - [x] [STORY-008](../stories/STORY-008-webhookgatewayconfig-design-record.md) — Design record: CRD shape, singleton convention, defaulting behavior, annotation migration path. Done — `docs/design/2026-09-12-webhookgatewayconfig-crd.md`, Approved.
 - [x] [STORY-009](../stories/STORY-009-webhookgatewayconfig-crd-hpa-controller.md) — `WebhookGatewayConfig` CRD types + controller (HPA reconciliation + singleton admission webhook). Done — PR #190, merged.
 - [x] [STORY-010](../stories/STORY-010-webhookgatewayconfig-pdb.md) — `PodDisruptionBudget` reconciliation. Done — PR #196, merged.
-- [ ] [STORY-011](../stories/STORY-011-webhookgatewayconfig-tls-migration.md) — Hard-cutover TLS annotations onto the CRD. PR #197 open, awaiting merge.
-- [ ] [STORY-012](../stories/STORY-012-webhookgatewayconfig-docs.md) — Docs for the new CRD. Still blocked — documents shipped behavior, not the design, so it waits for STORY-009/010/011.
+- [x] [STORY-011](../stories/STORY-011-webhookgatewayconfig-tls-migration.md) — Hard-cutover TLS annotations onto the CRD. Done — PR #197, merged.
+- [ ] [STORY-012](../stories/STORY-012-webhookgatewayconfig-docs.md) — Docs for the new CRD. Unblocked (STORY-009/010/011 all Done) — ready to groom/dispatch, last story in this epic.
 
 ## Dependencies
 

@@ -47,9 +47,6 @@ type WebhookGatewayConfigSpec struct {
 	// PodDisruptionBudget configures a PodDisruptionBudget for the webhook
 	// gateway Deployment. When omitted (or MinAvailable is unset), no
 	// PodDisruptionBudget is created — matching today's behavior (none exists).
-	//
-	// Field shape only in this release: reconciliation of the actual
-	// PodDisruptionBudget object is implemented in a follow-up story.
 	// +optional
 	PodDisruptionBudget *WebhookGatewayPDBSpec `json:"podDisruptionBudget,omitempty"`
 }
@@ -99,11 +96,8 @@ type WebhookGatewayHPASpec struct {
 }
 
 // WebhookGatewayPDBSpec configures a PodDisruptionBudget for the webhook
-// gateway Deployment. This is a field-shape placeholder in this release —
-// reconciling an actual PodDisruptionBudget from this spec is implemented in
-// a follow-up story. When MinAvailable is unset, no PodDisruptionBudget is
-// created (today's behavior); setting it is the only way to opt in once that
-// follow-up story ships.
+// gateway Deployment. When MinAvailable is unset, no PodDisruptionBudget is
+// created (today's behavior); setting it is the only way to opt in.
 type WebhookGatewayPDBSpec struct {
 	// MinAvailable is the minimum number (or percentage) of webhook gateway
 	// Pods that must remain available during a voluntary disruption. Unset

@@ -85,9 +85,6 @@ spec:
                   PodDisruptionBudget configures a PodDisruptionBudget for the webhook
                   gateway Deployment. When omitted (or MinAvailable is unset), no
                   PodDisruptionBudget is created — matching today's behavior (none exists).
-
-                  Field shape only in this release: reconciliation of the actual
-                  PodDisruptionBudget object is implemented in a follow-up story.
                 properties:
                   minAvailable:
                     anyOf:

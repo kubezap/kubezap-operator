@@ -170,8 +170,8 @@ func (s *CronScheduler) Register(trigger *automationv1alpha1.Trigger) error {
 				Name:      flowRunName,
 				Namespace: ns,
 				Labels: map[string]string{
-					"kubezap.io/trigger":      name,
-					"kubezap.io/trigger-type": "cron",
+					labelTrigger:              name,
+					"kubezap.io/trigger-type": triggerTypeCron,
 					"kubezap.io/flow":         flowRef,
 				},
 			},
@@ -179,7 +179,7 @@ func (s *CronScheduler) Register(trigger *automationv1alpha1.Trigger) error {
 				FlowRef: automationv1alpha1.FlowReference{Name: flowRef},
 				TriggerRef: &automationv1alpha1.TriggerReference{
 					Name: name,
-					Type: "cron",
+					Type: triggerTypeCron,
 				},
 				TriggerData: &automationv1alpha1.TriggerData{
 					ScheduledTime: &scheduledTime,
@@ -191,13 +191,13 @@ func (s *CronScheduler) Register(trigger *automationv1alpha1.Trigger) error {
 			if !apierrors.IsAlreadyExists(err) {
 				s.log.Error(err, "failed to create FlowRun for cron trigger",
 					"trigger", name, "namespace", ns, "flowRun", flowRunName)
-				metrics.TriggerFirings.WithLabelValues(ns, name, "cron", "error").Inc()
+				metrics.TriggerFirings.WithLabelValues(ns, name, triggerTypeCron, "error").Inc()
 			}
 			return
 		}
 		s.log.Info("created FlowRun for cron trigger",
 			"trigger", name, "namespace", ns, "flowRun", flowRunName)
-		metrics.TriggerFirings.WithLabelValues(ns, name, "cron", "success").Inc()
+		metrics.TriggerFirings.WithLabelValues(ns, name, triggerTypeCron, "success").Inc()
 
 		// Step 4: Update trigger status after successful FlowRun creation.
 		base := trigger.DeepCopy()

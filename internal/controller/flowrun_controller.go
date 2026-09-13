@@ -73,6 +73,10 @@ const executingFinalizer = "kubezap.io/executing"
 // against for the boolean-flag annotations above (annotations are always strings).
 const annotationValueTrue = "true"
 
+// resultKeyStatus is the map key used for the HTTP status code / step phase
+// value in step result and expression-evaluation maps.
+const resultKeyStatus = "status"
+
 // kafkaProducerIdleTTL is the maximum idle time before a cached Kafka producer
 // is closed and recreated on next use.
 const kafkaProducerIdleTTL = 10 * time.Minute
@@ -939,8 +943,8 @@ func (r *FlowRunReconciler) executeHTTPStep(
 
 		if execResp.StatusCode >= 200 && execResp.StatusCode < 300 {
 			results := map[string]string{
-				"body":   execResp.Body,
-				"status": fmt.Sprintf("%d", execResp.StatusCode),
+				"body":          execResp.Body,
+				resultKeyStatus: fmt.Sprintf("%d", execResp.StatusCode),
 			}
 			if len(h.ResultMappings) > 0 {
 				var jsonBody map[string]interface{}
@@ -1577,7 +1581,7 @@ func (r *FlowRunReconciler) reconcileGC(ctx context.Context, flowRun *automation
 	}
 
 	// Enforce per-trigger GC policy if trigger label is present.
-	if triggerName, ok := flowRun.Labels["kubezap.io/trigger"]; ok && triggerName != "" {
+	if triggerName, ok := flowRun.Labels[labelTrigger]; ok && triggerName != "" {
 		var trigger automationv1alpha1.Trigger
 		if err := r.Get(ctx, types.NamespacedName{Name: triggerName, Namespace: flowRun.Namespace}, &trigger); err == nil {
 			if trigger.Spec.FlowRunGC != nil {
@@ -1595,7 +1599,7 @@ func (r *FlowRunReconciler) reconcileGC(ctx context.Context, flowRun *automation
 		ttl = r.TTLFailed
 	}
 	// Apply per-trigger TTL override from FlowRunGC policy.
-	if triggerName, ok := flowRun.Labels["kubezap.io/trigger"]; ok && triggerName != "" {
+	if triggerName, ok := flowRun.Labels[labelTrigger]; ok && triggerName != "" {
 		var trigger automationv1alpha1.Trigger
 		if err := r.Get(ctx, types.NamespacedName{Name: triggerName, Namespace: flowRun.Namespace}, &trigger); err == nil {
 			if gc := trigger.Spec.FlowRunGC; gc != nil {
@@ -1665,8 +1669,8 @@ func (r *FlowRunReconciler) enforceMaxFlowRunsByPhase(ctx context.Context, trigg
 	if err := r.List(ctx, &list,
 		client.InNamespace(namespace),
 		client.MatchingLabels{
-			"kubezap.io/trigger": triggerName,
-			"kubezap.io/phase":   string(phase),
+			labelTrigger:       triggerName,
+			"kubezap.io/phase": string(phase),
 		},
 	); err != nil {
 		return err
@@ -1819,19 +1823,19 @@ func (r *FlowRunReconciler) evaluateWhen(
 			resultsIface[k] = v
 		}
 		stepsMap[underscoreName] = map[string]interface{}{
-			"results": resultsIface,
-			"status":  "",
+			"results":       resultsIface,
+			resultKeyStatus: "",
 		}
 	}
 	for _, ss := range stepStatuses {
 		underscoreName := strings.ReplaceAll(ss.Name, "-", "_")
 		if existing, ok := stepsMap[underscoreName]; ok {
 			existingMap := existing.(map[string]interface{})
-			existingMap["status"] = ss.Phase
+			existingMap[resultKeyStatus] = ss.Phase
 		} else {
 			stepsMap[underscoreName] = map[string]interface{}{
-				"results": map[string]interface{}{},
-				"status":  ss.Phase,
+				"results":       map[string]interface{}{},
+				resultKeyStatus: ss.Phase,
 			}
 		}
 	}

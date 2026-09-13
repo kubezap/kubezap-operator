@@ -66,17 +66,6 @@ linters:
       - linters:
           - goconst
         path: test/e2e/*
-      # TEMPORARY, not a design decision like the rule above: the remaining 59 findings
-      # are real production code (internal/cli, internal/controller,
-      # internal/gateway/{nats,webhook}) -- mostly Kubernetes API/label conventions
-      # (app.kubernetes.io/name, ServiceAccount, Role, create, /healthz, Ready) that
-      # would genuinely benefit from named constants. NOT fixed here (a real cleanup
-      # pass, not a quick fix) -- tracked as an Open item in
-      # planning/backlog/follow-ups.md (2026-09-12). Remove this rule once that
-      # cleanup lands; do not let it become permanent by default.
-      - linters:
-          - goconst
-        path: internal/*
     paths:
       - third_party$
       - builtin$

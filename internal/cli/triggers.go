@@ -78,7 +78,7 @@ func ListTriggers(ctx context.Context, c client.Client, namespace string, format
 }
 
 func printTriggerTable(w io.Writer, items []automationv1alpha1.Trigger, activeCount map[string]int) {
-	headers := []string{"NAME", "TYPE", "STATUS", "LAST FIRED", "ACTIVE", "GC POLICY"}
+	headers := []string{headerName, "TYPE", "STATUS", "LAST FIRED", "ACTIVE", "GC POLICY"}
 	rows := make([][]string, 0, len(items))
 	for _, t := range items {
 		status := triggerStatus(t.Status.Conditions)

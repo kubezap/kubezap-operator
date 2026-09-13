@@ -59,7 +59,7 @@ func ListIntegrations(ctx context.Context, c client.Client, namespace string, fo
 }
 
 func printIntegrationTable(ctx context.Context, w io.Writer, c client.Client, items []automationv1alpha1.Integration, namespace string) {
-	headers := []string{"NAME", "TYPE", "GATEWAY STATUS", "PLUGIN HEALTH"}
+	headers := []string{headerName, "TYPE", "GATEWAY STATUS", "PLUGIN HEALTH"}
 	rows := make([][]string, 0, len(items))
 
 	for _, intg := range items {

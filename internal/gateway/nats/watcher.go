@@ -191,7 +191,7 @@ func (w *Watcher) reconcileTrigger(ctx context.Context, trigger *automationv1alp
 	w.triggersMu.Unlock()
 
 	// Stop subscription if trigger is not a nats trigger or is disabled.
-	if trigger.Spec.Type != "nats" || trigger.Spec.Nats == nil || !trigger.Spec.Enabled {
+	if trigger.Spec.Type != triggerTypeNats || trigger.Spec.Nats == nil || !trigger.Spec.Enabled {
 		w.secretIndex.Remove(key)
 		w.stopSubscription(key)
 		return

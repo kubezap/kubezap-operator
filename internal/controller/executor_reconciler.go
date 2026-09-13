@@ -44,13 +44,25 @@ const (
 	executorMTLSSecretName    = "kubezap-executor-mtls-cert"
 	defaultExecutorImage      = "ghcr.io/kubezap/http-executor:latest"
 	defaultExecutorPort       = int32(8091)
+
+	// labelAppKubernetesIOName / labelAppKubernetesIOComponent are the
+	// app.kubernetes.io/* convention label keys used for both the executor's
+	// full label set (executorLabels) and its selector-only label subsets.
+	labelAppKubernetesIOName      = "app.kubernetes.io/name"
+	labelAppKubernetesIOComponent = "app.kubernetes.io/component"
+
+	// appNameKubezap / componentHTTPExecutor are the values paired with the
+	// two label keys above (and, for componentHTTPExecutor, also used as the
+	// executor container's name).
+	appNameKubezap        = "kubezap"
+	componentHTTPExecutor = "http-executor"
 )
 
 // executorLabels returns the standard label set applied to all executor-managed resources.
 func executorLabels() map[string]string {
 	return map[string]string{
-		"app.kubernetes.io/name":       "kubezap",
-		"app.kubernetes.io/component":  "http-executor",
+		labelAppKubernetesIOName:       appNameKubezap,
+		labelAppKubernetesIOComponent:  componentHTTPExecutor,
 		"app.kubernetes.io/managed-by": "kubezap-operator",
 	}
 }
@@ -228,8 +240,8 @@ func (r *ExecutorReconciler) reconcileExecutorDeployment(ctx context.Context, na
 			Replicas: &replicas,
 			Selector: &metav1.LabelSelector{
 				MatchLabels: map[string]string{
-					"app.kubernetes.io/name":      "kubezap",
-					"app.kubernetes.io/component": "http-executor",
+					labelAppKubernetesIOName:      appNameKubezap,
+					labelAppKubernetesIOComponent: componentHTTPExecutor,
 				},
 			},
 			Template: corev1.PodTemplateSpec{
@@ -246,7 +258,7 @@ func (r *ExecutorReconciler) reconcileExecutorDeployment(ctx context.Context, na
 					Volumes: volumes,
 					Containers: []corev1.Container{
 						{
-							Name:            "http-executor",
+							Name:            componentHTTPExecutor,
 							Image:           r.executorImage(),
 							ImagePullPolicy: corev1.PullIfNotPresent,
 							Args:            containerArgs,
@@ -271,7 +283,7 @@ func (r *ExecutorReconciler) reconcileExecutorDeployment(ctx context.Context, na
 							LivenessProbe: &corev1.Probe{
 								ProbeHandler: corev1.ProbeHandler{
 									HTTPGet: &corev1.HTTPGetAction{
-										Path:   "/healthz",
+										Path:   healthzPath,
 										Port:   intstr.FromInt32(port),
 										Scheme: corev1.URISchemeHTTP,
 									},
@@ -282,7 +294,7 @@ func (r *ExecutorReconciler) reconcileExecutorDeployment(ctx context.Context, na
 							ReadinessProbe: &corev1.Probe{
 								ProbeHandler: corev1.ProbeHandler{
 									HTTPGet: &corev1.HTTPGetAction{
-										Path:   "/healthz",
+										Path:   healthzPath,
 										Port:   intstr.FromInt32(port),
 										Scheme: corev1.URISchemeHTTP,
 									},
@@ -347,8 +359,8 @@ func (r *ExecutorReconciler) reconcileExecutorService(ctx context.Context, names
 		desired.Labels = labels
 		desired.Spec = corev1.ServiceSpec{
 			Selector: map[string]string{
-				"app.kubernetes.io/name":      "kubezap",
-				"app.kubernetes.io/component": "http-executor",
+				labelAppKubernetesIOName:      appNameKubezap,
+				labelAppKubernetesIOComponent: componentHTTPExecutor,
 			},
 			Ports: []corev1.ServicePort{
 				{
@@ -415,8 +427,8 @@ func (r *ExecutorReconciler) reconcileExecutorNetworkPolicy(ctx context.Context,
 		desired.Spec = networkingv1.NetworkPolicySpec{
 			PodSelector: metav1.LabelSelector{
 				MatchLabels: map[string]string{
-					"app.kubernetes.io/name":      "kubezap",
-					"app.kubernetes.io/component": "http-executor",
+					labelAppKubernetesIOName:      appNameKubezap,
+					labelAppKubernetesIOComponent: componentHTTPExecutor,
 				},
 			},
 			Ingress: []networkingv1.NetworkPolicyIngressRule{
@@ -431,7 +443,7 @@ func (r *ExecutorReconciler) reconcileExecutorNetworkPolicy(ctx context.Context,
 							// than this NetworkPolicy (the watched namespace, e.g. "default").
 							PodSelector: &metav1.LabelSelector{
 								MatchLabels: map[string]string{
-									"app.kubernetes.io/name": "kubezap",
+									labelAppKubernetesIOName: appNameKubezap,
 									"control-plane":          "controller-manager",
 								},
 							},

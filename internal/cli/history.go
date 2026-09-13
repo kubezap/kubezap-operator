@@ -31,6 +31,14 @@ import (
 	"github.com/kubezap/kubezap-operator/internal/cli/output"
 )
 
+// headerDuration is the "DURATION" column header shared by the FlowRun and
+// step history table views in this file.
+const headerDuration = "DURATION"
+
+// headerPhase is the "PHASE" column header shared by the FlowRun and step
+// history table views in this file.
+const headerPhase = "PHASE"
+
 // ListFlowRunOpts holds filter options for ListFlowRuns.
 type ListFlowRunOpts struct {
 	TriggerFilter string
@@ -98,7 +106,7 @@ func ListFlowRuns(ctx context.Context, c client.Client, namespace string, opts L
 }
 
 func printFlowRunTable(w io.Writer, items []automationv1alpha1.FlowRun) {
-	headers := []string{"NAME", "TRIGGER", "FLOW", "PHASE", "DURATION", "AGE"}
+	headers := []string{headerName, "TRIGGER", "FLOW", headerPhase, headerDuration, "AGE"}
 	rows := make([][]string, 0, len(items))
 	for i := range items {
 		fr := &items[i]
@@ -179,7 +187,7 @@ func printFlowRunDetail(w io.Writer, fr *automationv1alpha1.FlowRun) {
 	}
 
 	fmt.Fprintln(w)
-	headers := []string{"STEP", "PHASE", "STARTED", "DURATION", "ATTEMPTS", "RESULTS"}
+	headers := []string{"STEP", headerPhase, "STARTED", headerDuration, "ATTEMPTS", "RESULTS"}
 	rows := make([][]string, 0, len(fr.Status.Steps))
 
 	for _, step := range fr.Status.Steps {
@@ -232,7 +240,7 @@ func fmtResults(results []automationv1alpha1.ResultValue) string {
 func WatchFlowRuns(ctx context.Context, c client.Client, namespace string, opts ListFlowRunOpts) error {
 	seen := map[string]automationv1alpha1.FlowRunPhase{} // name -> phase at last check
 
-	headers := []string{"NAME", "TRIGGER", "FLOW", "PHASE", "DURATION", "AGE"}
+	headers := []string{headerName, "TRIGGER", "FLOW", headerPhase, headerDuration, "AGE"}
 	output.PrintTable(os.Stdout, headers, nil)
 
 	ticker := time.NewTicker(2 * time.Second)

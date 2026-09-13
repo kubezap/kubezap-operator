@@ -88,6 +88,9 @@ const defaultMaxStoredBodyBytes = 65536
 // errorJSONKey is the map key used for {"error": "..."} JSON error responses.
 const errorJSONKey = "error"
 
+// triggerTypeWebhook is the TriggerSpec.Type value "webhook".
+const triggerTypeWebhook = "webhook"
+
 type WebhookHandler struct {
 	k8sClient          client.Client
 	registry           *RouteRegistry
@@ -449,7 +452,7 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			Annotations: annotations,
 			Labels: map[string]string{
 				"kubezap.io/trigger":      entry.TriggerName,
-				"kubezap.io/trigger-type": "webhook",
+				"kubezap.io/trigger-type": triggerTypeWebhook,
 				"kubezap.io/flow":         entry.FlowRef,
 			},
 		},
@@ -457,10 +460,10 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			FlowRef: automationv1alpha1.FlowReference{Name: entry.FlowRef},
 			TriggerRef: &automationv1alpha1.TriggerReference{
 				Name: entry.TriggerName,
-				Type: "webhook",
+				Type: triggerTypeWebhook,
 			},
 			TriggerData: &automationv1alpha1.TriggerData{
-				Source:        "webhook",
+				Source:        triggerTypeWebhook,
 				Method:        r.Method,
 				Path:          r.URL.Path,
 				Headers:       redactedHeaders,

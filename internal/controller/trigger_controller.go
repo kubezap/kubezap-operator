@@ -114,7 +114,7 @@ func (r *TriggerReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	}
 
 	// Handle cron triggers
-	if trg.Spec.Type == "cron" && r.CronScheduler != nil {
+	if trg.Spec.Type == triggerTypeCron && r.CronScheduler != nil {
 		if trg.Spec.Enabled && trg.Spec.Cron != nil {
 			// Ensure finalizer is present
 			if !containsString(trg.Finalizers, cronTriggerFinalizer) {
@@ -144,7 +144,7 @@ func (r *TriggerReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	}
 
 	// Handle resource triggers — register/deregister the resource watcher.
-	if trg.Spec.Type == "resource" && r.ResourceWatcher != nil {
+	if trg.Spec.Type == triggerTypeResource && r.ResourceWatcher != nil {
 		if trg.Spec.Enabled && trg.Spec.Resource != nil {
 			// Ensure finalizer is present
 			if !containsString(trg.Finalizers, resourceTriggerFinalizer) {
@@ -185,7 +185,7 @@ func (r *TriggerReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		Message: condMsg,
 	})
 	setTriggerCondition(&trg.Status, metav1.Condition{
-		Type:    "Ready",
+		Type:    conditionTypeReady,
 		Status:  condStatus,
 		Reason:  condReason,
 		Message: condMsg,

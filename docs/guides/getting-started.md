@@ -2,7 +2,7 @@
 
 The getting-started guide has moved to the examples directory:
 
-**[examples/order-router/README.md](../../examples/order-router/README.md)**
+**[examples/order-router/README.md](https://github.com/kubezap/kubezap-operator/tree/main/examples/order-router)**
 
 The order-router example demonstrates the core KubeZap feature set:
 webhook trigger → transform step → conditional branching → Mockoon mock capture.
@@ -19,6 +19,6 @@ curl -X POST http://localhost:8080/hooks/order-placed \
   -d '{"event":"order.placed","orderId":"ord-001"}'
 ```
 
-See [examples/](../../examples/) for all available examples.
+See [examples/](https://github.com/kubezap/kubezap-operator/tree/main/examples) for all available examples.
 
 For production exposure (Ingress, Gateway API HTTPRoute, OpenShift Route, TLS, cert-manager), see [Exposing the Webhook Gateway](exposing-the-webhook-gateway.md).

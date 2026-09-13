@@ -11,27 +11,6 @@ No version of KubeZap has been released yet — everything below is unreleased. 
 
 ## [Unreleased]
 
-### Breaking
-- **Webhook gateway TLS/mTLS is no longer configured via Namespace annotations.** The `kubezap.io/webhook-tls-secret` and `kubezap.io/webhook-mtls-ca-secret` Namespace annotations are no longer read by the controller — this is a hard cutover with no dual-read or deprecation window (see `docs/design/2026-09-12-webhookgatewayconfig-crd.md`).
-
-  **Action required before upgrading:** if any namespace's `Namespace` object currently carries either annotation, create a `WebhookGatewayConfig` object in that namespace with the equivalent `spec.tls` fields **before** upgrading the operator:
-
-  ```yaml
-  apiVersion: automation.kubezap.io/v1alpha1
-  kind: WebhookGatewayConfig
-  metadata:
-    name: default
-    namespace: <namespace>
-  spec:
-    tls:
-      serverSecretRef:
-        name: <value of kubezap.io/webhook-tls-secret>
-      clientCASecretRef:
-        name: <value of kubezap.io/webhook-mtls-ca-secret>   # omit if not set
-  ```
-
-  If you skip this step, the annotations are silently ignored post-upgrade and the webhook gateway in that namespace **reverts to plain HTTP with no client-certificate verification** — no error, no warning, just a loss of TLS/mTLS termination. See `docs/guides/webhook-security.md` and `docs/overview.md` for the full `WebhookGatewayConfig` reference.
-
 ### Added
 
 **Core CRDs and execution**
@@ -39,7 +18,7 @@ No version of KubeZap has been released yet — everything below is unreleased. 
 - `Flow` CRD — ordered DAG steps with `runAfter` dependencies, conditional (`when`, CEL) execution, and data transforms
 - `FlowRun` CRD — execution history, per-step status, phase lifecycle (`Pending` → `Running` → `Succeeded`/`Failed`)
 - `Integration` CRD — Kafka/AMQP/NATS built-in integrations, `type: http` (centralized HTTP credentials/base URL/TLS config), and a plugin protocol for custom integrations
-- `WebhookGatewayConfig` CRD — per-namespace webhook gateway TLS/mTLS, HPA, and PodDisruptionBudget configuration (see Breaking, above)
+- `WebhookGatewayConfig` CRD — per-namespace webhook gateway TLS/mTLS (`spec.tls.{serverSecretRef,clientCASecretRef}`), HPA, and PodDisruptionBudget configuration
 - Step types: `http`, `transform` (JSONPath/CEL), `publish` (Kafka topic or plugin `/publish` endpoint), `wait` (restart-safe `ResumeAfter`)
 - CEL `when` expression evaluation for per-step conditional execution, with a compiled-program cache (`--disable-cel-cache` escape hatch) and full dot-path variable resolution (`$(trigger.body.nested.field)`)
 - Skipped step phase with downstream cascade (a skipped step skips all of its dependents)

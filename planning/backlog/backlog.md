@@ -35,6 +35,9 @@ The `PI` column is the source of truth for what's actually committed — an epic
 | STORY-016 | [Fix broken doc links/anchors surfaced by the MkDocs build](stories/STORY-016-docs-broken-links-cleanup.md) | EPIC-001 | Done (PR #193) | XS |
 | STORY-017 | [`goconst` cleanup in production code](stories/STORY-017-goconst-cleanup.md) | EPIC-002 | Done (PR #198) | M |
 | STORY-018 | [Fix silently-dropped `+kubebuilder:webhook` markers](stories/STORY-018-webhook-marker-fix.md) | EPIC-002 | Done (PR #194) | XS |
+| STORY-019 | [Add missing `+kubebuilder:webhook` marker for FlowRun](stories/STORY-019-flowrun-webhook-marker.md) | EPIC-002 | Groomed, ready to dispatch | XS |
+| STORY-020 | [Design record: sub-second FlowRun step-timing visibility](stories/STORY-020-flowrun-step-timing-precision-design.md) | EPIC-002 | Groomed, ready to dispatch | XS |
+| STORY-021 | [Implement sub-second FlowRun step-timing visibility](stories/STORY-021-flowrun-step-timing-precision-impl.md) | EPIC-002 | Backlog — blocked on STORY-020 | S |
 
 ## Backlog Candidates (not yet epics)
 

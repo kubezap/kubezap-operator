@@ -58,12 +58,12 @@ func (h *TriggerAuthAdmission) Handle(_ context.Context, req admission.Request) 
 	return admission.Allowed("")
 }
 
+// +kubebuilder:webhook:path=/validate-automation-kubezap-io-v1alpha1-trigger,mutating=false,failurePolicy=ignore,sideEffects=None,groups=automation.kubezap.io,resources=triggers,verbs=create;update,versions=v1alpha1,name=vtrigger.kb.io,admissionReviewVersions=v1
+
 // SetupTriggerWebhook registers the TriggerAuthAdmission handler with the controller-runtime
 // manager. The handler is mounted at the standard kubebuilder validating webhook path for the
 // Trigger resource. The caller (cmd/main.go wiring step) is responsible for registering the
 // corresponding ValidatingWebhookConfiguration via make manifests.
-//
-// +kubebuilder:webhook:path=/validate-automation-kubezap-io-v1alpha1-trigger,mutating=false,failurePolicy=ignore,sideEffects=None,groups=automation.kubezap.io,resources=triggers,verbs=create;update,versions=v1alpha1,name=vtrigger.kb.io,admissionReviewVersions=v1
 func SetupTriggerWebhook(mgr ctrl.Manager) error {
 	decoder := admission.NewDecoder(mgr.GetScheme())
 	mgr.GetWebhookServer().Register(

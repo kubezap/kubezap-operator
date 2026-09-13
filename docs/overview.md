@@ -288,30 +288,12 @@ Flow steps reference credentials using the same `$(secrets.name.key)` and `$(con
 
 ## TLS and mTLS
 
-### Custom Certificate Authorities
+TLS covers two independent paths: **outbound** connections KubeZap makes to other systems, and **inbound** TLS for calls arriving at the webhook gateway. Neither is configured via annotations — outbound TLS is configured on the relevant `Integration`, and inbound TLS is configured on the namespace's `WebhookGatewayConfig`.
 
-When calling services that use a private or self-signed CA, annotate the resource with the name of a Kubernetes Secret containing the CA bundle (`ca.crt`):
+### Outbound TLS
 
-```yaml
-metadata:
-  annotations:
-    kubezap.io/tls-ca-secret: "my-internal-ca"
-```
-
-The referenced Secret must contain a `ca.crt` key with a PEM-encoded certificate bundle. The operator uses this CA when making outbound HTTPS connections on behalf of that resource.
-
-### Mutual TLS (mTLS)
-
-For outbound connections requiring client certificate authentication, annotate with both the CA and a client certificate secret:
-
-```yaml
-metadata:
-  annotations:
-    kubezap.io/tls-ca-secret: "my-internal-ca"
-    kubezap.io/tls-client-cert-secret: "my-client-cert"
-```
-
-The client certificate secret must contain `tls.crt` and `tls.key` keys (standard Kubernetes TLS secret format). Use [cert-manager](https://cert-manager.io) to issue and rotate client certificates.
+- **Broker connections (Kafka, AMQP, NATS)**: a custom CA and/or client certificate for mTLS are configured on the `Integration` resource, via `spec.kafka.tls`, `spec.amqp.tls`, or `spec.nats.tls` — each accepts `caSecretRef` (a Secret containing `ca.crt`) and `clientCertSecretRef` (a Secret containing `tls.crt` + `tls.key`). See [Integration CRD → TLS configuration](api/integration.md) for full field details and worked examples.
+- **HTTP steps**: there is **no CA-bundle or client-certificate override for HTTP steps today**. Outbound HTTP calls are always verified against the executor pod's system trust store. The only related knob is a boolean `tlsSkipVerify` on the internal controller-to-executor request, honored only when the `http-executor` is started with the dev-only `--allow-tls-skip-verify` flag (off by default) — this is not exposed through any `Trigger` or `Flow` field, so in practice an HTTP step cannot skip or otherwise customize outbound TLS verification. Trusting a private CA for an HTTP-step call is a known, currently-unaddressed gap.
 
 ### Server-Side TLS for the Webhook Gateway
 
@@ -390,16 +372,6 @@ kubectl create secret generic webhook-client-ca \
 > **mTLS requires server TLS.** `spec.tls.clientCASecretRef` has no effect if `spec.tls.serverSecretRef` is not also set.
 
 > **Ingress passthrough.** If you front the webhook gateway with an Ingress or OpenShift Route, use TLS passthrough mode so client certificates reach the gateway pod. Re-encrypt termination at the Ingress proxy will strip client certs.
-
-### TLS for Development (skip verification)
-
-```yaml
-metadata:
-  annotations:
-    kubezap.io/tls-insecure-skip-verify: "true"
-```
-
-> `tls-insecure-skip-verify` is intended for local development only. It disables certificate validation entirely and **must not** be used in production.
 
 ---
 

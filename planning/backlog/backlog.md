@@ -28,16 +28,16 @@ The `PI` column is the source of truth for what's actually committed — an epic
 | STORY-009 | [`WebhookGatewayConfig` CRD types + controller (HPA + singleton webhook)](stories/STORY-009-webhookgatewayconfig-crd-hpa-controller.md) | EPIC-003 | Done (PR #190) | M |
 | STORY-010 | [PodDisruptionBudget reconciliation](stories/STORY-010-webhookgatewayconfig-pdb.md) | EPIC-003 | Done (PR #196) | S |
 | STORY-011 | [Cut over webhook TLS annotations (hard cutover)](stories/STORY-011-webhookgatewayconfig-tls-migration.md) | EPIC-003 | Done (PR #197) | S |
-| STORY-012 | [Docs for `WebhookGatewayConfig`](stories/STORY-012-webhookgatewayconfig-docs.md) | EPIC-003 | Backlog — unblocked (STORY-010/011 both Done), ready to groom/dispatch | S |
+| STORY-012 | [Docs for `WebhookGatewayConfig`](stories/STORY-012-webhookgatewayconfig-docs.md) | EPIC-003 | Done (PR #202) | S |
 | STORY-013 | [Define benchmark methodology](stories/STORY-013-benchmark-methodology.md) | EPIC-004 | Done (PR #189) | S |
 | STORY-014 | [Build and run the benchmark harness](stories/STORY-014-benchmark-harness.md) | EPIC-004 | Done (PR #195) | M |
 | STORY-015 | [Write up results and a pursue/don't-pursue recommendation](stories/STORY-015-benchmark-writeup.md) | EPIC-004 | Done (PR #199) | S |
 | STORY-016 | [Fix broken doc links/anchors surfaced by the MkDocs build](stories/STORY-016-docs-broken-links-cleanup.md) | EPIC-001 | Done (PR #193) | XS |
 | STORY-017 | [`goconst` cleanup in production code](stories/STORY-017-goconst-cleanup.md) | EPIC-002 | Done (PR #198) | M |
 | STORY-018 | [Fix silently-dropped `+kubebuilder:webhook` markers](stories/STORY-018-webhook-marker-fix.md) | EPIC-002 | Done (PR #194) | XS |
-| STORY-019 | [Add missing `+kubebuilder:webhook` marker for FlowRun](stories/STORY-019-flowrun-webhook-marker.md) | EPIC-002 | Groomed, ready to dispatch | XS |
-| STORY-020 | [Design record: sub-second FlowRun step-timing visibility](stories/STORY-020-flowrun-step-timing-precision-design.md) | EPIC-002 | Groomed, ready to dispatch | XS |
-| STORY-021 | [Implement sub-second FlowRun step-timing visibility](stories/STORY-021-flowrun-step-timing-precision-impl.md) | EPIC-002 | Backlog — blocked on STORY-020 | S |
+| STORY-019 | [Add missing `+kubebuilder:webhook` marker for FlowRun](stories/STORY-019-flowrun-webhook-marker.md) | EPIC-002 | Done (PR #203) | XS |
+| STORY-020 | [Design record: sub-second FlowRun step-timing visibility](stories/STORY-020-flowrun-step-timing-precision-design.md) | EPIC-002 | Done (PR #204) | XS |
+| STORY-021 | [Implement sub-second FlowRun step-timing visibility](stories/STORY-021-flowrun-step-timing-precision-impl.md) | EPIC-002 | Backlog — unblocked (STORY-020 Done), ready to groom | S |
 
 ## Backlog Candidates (not yet epics)
 

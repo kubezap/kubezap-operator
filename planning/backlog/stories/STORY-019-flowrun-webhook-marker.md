@@ -1,7 +1,7 @@
 # STORY-019: Add the missing `+kubebuilder:webhook` marker for FlowRun
 
 **Epic:** EPIC-002 — Post-Release Hardening & Feature Backlog
-**Status:** Groomed
+**Status:** Done (PR #203)
 **Size:** XS
 
 ## Description

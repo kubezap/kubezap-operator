@@ -1,0 +1,17 @@
+# Webhook Trigger firing bench-http-flow. One POST here creates one FlowRun,
+# per METHODOLOGY.md §1.2.
+apiVersion: automation.kubezap.io/v1alpha1
+kind: Trigger
+metadata:
+  name: bench-webhook
+  namespace: kubezap-bench
+  labels:
+    app.kubernetes.io/part-of: execution-latency-benchmark
+spec:
+  type: webhook
+  enabled: true
+  webhook:
+    path: /hooks/bench-webhook
+    method: POST
+  flowRef:
+    name: bench-http-flow

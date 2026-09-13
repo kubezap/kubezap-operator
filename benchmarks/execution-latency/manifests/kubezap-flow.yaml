@@ -1,0 +1,39 @@
+# The KubeZap arm's scenario Flow, per METHODOLOGY.md §1.2: three HTTP steps
+# chained via runAfter so they execute strictly sequentially (not the default
+# parallel-unless-declared graph), each a plain GET against the shared Mockoon
+# target with no auth (isolating pure dispatch overhead from Integration/
+# credential resolution, which is a separately-tested concern).
+apiVersion: automation.kubezap.io/v1alpha1
+kind: Flow
+metadata:
+  name: bench-http-flow
+  namespace: kubezap-bench
+  labels:
+    app.kubernetes.io/part-of: execution-latency-benchmark
+spec:
+  timeout: 60s
+  steps:
+    - name: step1
+      runAfter: []
+      action:
+        type: http
+        http:
+          url: "http://bench-mockoon.kubezap-bench.svc.cluster.local:3000/ok"
+          method: GET
+          timeoutSeconds: 15
+    - name: step2
+      runAfter: ["step1"]
+      action:
+        type: http
+        http:
+          url: "http://bench-mockoon.kubezap-bench.svc.cluster.local:3000/ok"
+          method: GET
+          timeoutSeconds: 15
+    - name: step3
+      runAfter: ["step2"]
+      action:
+        type: http
+        http:
+          url: "http://bench-mockoon.kubezap-bench.svc.cluster.local:3000/ok"
+          method: GET
+          timeoutSeconds: 15

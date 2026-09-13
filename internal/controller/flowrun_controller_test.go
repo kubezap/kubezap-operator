@@ -1710,6 +1710,190 @@ var _ = Describe("FlowRunReconciler", func() {
 		})
 	})
 
+	Describe("applyHTTPIntegration — TLS resolution (STORY-026)", func() {
+		const caBundlePEM = "-----BEGIN CERTIFICATE-----\ntest-ca-bundle-content\n-----END CERTIFICATE-----\n"
+		const clientCertPEM = "-----BEGIN CERTIFICATE-----\ntest-client-cert-content\n-----END CERTIFICATE-----\n"
+		const clientKeyPEM = "-----BEGIN RSA PRIVATE KEY-----\ntest-client-key-content\n-----END RSA PRIVATE KEY-----\n"
+
+		var (
+			r            *FlowRunReconciler
+			configMap    *corev1.ConfigMap
+			certSecret   *corev1.Secret
+			integration  *automationv1alpha1.Integration
+			seed         int64
+			cmName       string
+			secretName   string
+			integrations string
+		)
+
+		BeforeEach(func() {
+			r = newReconciler()
+			seed = GinkgoRandomSeed()
+			cmName = fmt.Sprintf("test-ca-bundle-%d", seed)
+			secretName = fmt.Sprintf("test-client-cert-%d", seed)
+			integrations = fmt.Sprintf("test-http-tls-integ-%d", seed)
+
+			configMap = &corev1.ConfigMap{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      cmName,
+					Namespace: testNamespace,
+				},
+				Data: map[string]string{
+					"ca.crt": caBundlePEM,
+				},
+			}
+			Expect(k8sClient.Create(ctx, configMap)).To(Succeed())
+
+			certSecret = &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      secretName,
+					Namespace: testNamespace,
+				},
+				Data: map[string][]byte{
+					corev1.TLSCertKey:       []byte(clientCertPEM),
+					corev1.TLSPrivateKeyKey: []byte(clientKeyPEM),
+				},
+			}
+			Expect(k8sClient.Create(ctx, certSecret)).To(Succeed())
+
+			DeferCleanup(func() {
+				_ = k8sClient.Delete(context.Background(), configMap)
+				_ = k8sClient.Delete(context.Background(), certSecret)
+				if integration != nil {
+					_ = k8sClient.Delete(context.Background(), integration)
+				}
+			})
+		})
+
+		Context("when the Integration configures both CA bundle and client cert", func() {
+			BeforeEach(func() {
+				integration = &automationv1alpha1.Integration{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      integrations,
+						Namespace: testNamespace,
+					},
+					Spec: automationv1alpha1.IntegrationSpec{
+						Type: "http",
+						HTTP: &automationv1alpha1.HttpIntegrationSpec{
+							TLS: &automationv1alpha1.HttpTLSSpec{
+								CABundleConfigMapRef: &corev1.ConfigMapKeySelector{
+									LocalObjectReference: corev1.LocalObjectReference{Name: cmName},
+									Key:                  "ca.crt",
+								},
+								ClientCertSecretRef: &corev1.LocalObjectReference{Name: secretName},
+							},
+						},
+					},
+				}
+				Expect(k8sClient.Create(ctx, integration)).To(Succeed())
+			})
+
+			It("resolves the CA bundle and client cert/key into inline PEM content", func() {
+				headers := map[string]string{}
+				resolvedURL, tlsMaterial, err := r.applyHTTPIntegration(
+					ctx, integrations, testNamespace, "https://backend.example/api", headers, nil, nil, nil)
+
+				Expect(err).NotTo(HaveOccurred())
+				Expect(resolvedURL).To(Equal("https://backend.example/api"))
+				Expect(tlsMaterial.CABundle).To(Equal(caBundlePEM))
+				Expect(tlsMaterial.ClientCert).To(Equal(clientCertPEM))
+				Expect(tlsMaterial.ClientKey).To(Equal(clientKeyPEM))
+			})
+		})
+
+		Context("when the Integration configures only the CA bundle", func() {
+			BeforeEach(func() {
+				integration = &automationv1alpha1.Integration{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      integrations,
+						Namespace: testNamespace,
+					},
+					Spec: automationv1alpha1.IntegrationSpec{
+						Type: "http",
+						HTTP: &automationv1alpha1.HttpIntegrationSpec{
+							TLS: &automationv1alpha1.HttpTLSSpec{
+								CABundleConfigMapRef: &corev1.ConfigMapKeySelector{
+									LocalObjectReference: corev1.LocalObjectReference{Name: cmName},
+									Key:                  "ca.crt",
+								},
+							},
+						},
+					},
+				}
+				Expect(k8sClient.Create(ctx, integration)).To(Succeed())
+			})
+
+			It("resolves only the CA bundle, leaving client cert/key empty", func() {
+				resolvedURL, tlsMaterial, err := r.applyHTTPIntegration(
+					ctx, integrations, testNamespace, "https://backend.example/api", map[string]string{}, nil, nil, nil)
+
+				Expect(err).NotTo(HaveOccurred())
+				Expect(resolvedURL).To(Equal("https://backend.example/api"))
+				Expect(tlsMaterial.CABundle).To(Equal(caBundlePEM))
+				Expect(tlsMaterial.ClientCert).To(BeEmpty())
+				Expect(tlsMaterial.ClientKey).To(BeEmpty())
+			})
+		})
+
+		Context("when the Integration does not configure TLS at all", func() {
+			BeforeEach(func() {
+				integration = &automationv1alpha1.Integration{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      integrations,
+						Namespace: testNamespace,
+					},
+					Spec: automationv1alpha1.IntegrationSpec{
+						Type: "http",
+						HTTP: &automationv1alpha1.HttpIntegrationSpec{
+							BaseURL: "https://backend.example",
+						},
+					},
+				}
+				Expect(k8sClient.Create(ctx, integration)).To(Succeed())
+			})
+
+			It("is a no-op for TLS — behaves exactly as it did before this field existed", func() {
+				resolvedURL, tlsMaterial, err := r.applyHTTPIntegration(
+					ctx, integrations, testNamespace, "/api", map[string]string{}, nil, nil, nil)
+
+				Expect(err).NotTo(HaveOccurred())
+				Expect(resolvedURL).To(Equal("https://backend.example/api"))
+				Expect(tlsMaterial).To(Equal(httpTLSMaterial{}))
+			})
+		})
+
+		Context("when the referenced ConfigMap key does not exist", func() {
+			BeforeEach(func() {
+				integration = &automationv1alpha1.Integration{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      integrations,
+						Namespace: testNamespace,
+					},
+					Spec: automationv1alpha1.IntegrationSpec{
+						Type: "http",
+						HTTP: &automationv1alpha1.HttpIntegrationSpec{
+							TLS: &automationv1alpha1.HttpTLSSpec{
+								CABundleConfigMapRef: &corev1.ConfigMapKeySelector{
+									LocalObjectReference: corev1.LocalObjectReference{Name: cmName},
+									Key:                  "does-not-exist.crt",
+								},
+							},
+						},
+					},
+				}
+				Expect(k8sClient.Create(ctx, integration)).To(Succeed())
+			})
+
+			It("returns an error rather than silently proceeding without a CA bundle", func() {
+				_, _, err := r.applyHTTPIntegration(
+					ctx, integrations, testNamespace, "https://backend.example/api", map[string]string{}, nil, nil, nil)
+
+				Expect(err).To(HaveOccurred())
+				Expect(err.Error()).To(ContainSubstring("does-not-exist.crt"))
+			})
+		})
+	})
+
 	Describe("substituteVars dot-path body access", func() {
 		It("resolves a top-level field", func() {
 			td := &automationv1alpha1.TriggerData{Body: `{"name":"alice"}`}

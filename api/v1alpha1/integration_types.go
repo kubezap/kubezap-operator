@@ -242,6 +242,31 @@ type HttpAuthSpec struct {
 	SecretURL *HttpSecretURLAuth `json:"secretUrl,omitempty"`
 }
 
+// HttpTLSSpec configures outbound TLS trust and client authentication for HTTP
+// steps that reference this Integration. Both fields are independently
+// optional and purely additive: an Integration with no TLS field set behaves
+// exactly as it does today (system root CA pool, no client certificate).
+//
+// The CA bundle is sourced from a ConfigMap rather than a Secret — a CA bundle
+// is public trust material, not a credential — unlike the Secret-sourced
+// CASecretRef convention used by KafkaTLSConfig/AmqpTLSConfig/NatsTLSConfig.
+// A configured CA bundle is added to the system root pool, not a replacement
+// for it, so an Integration with a private CA configured can still reach a
+// public-CA-signed endpoint.
+type HttpTLSSpec struct {
+	// ConfigMap key containing a PEM-encoded CA bundle (one or more concatenated
+	// certificates, e.g. a private root plus intermediates) to trust in addition
+	// to the system root CA pool for outbound calls using this Integration.
+	// +optional
+	CABundleConfigMapRef *corev1.ConfigMapKeySelector `json:"caBundleConfigMapRef,omitempty"`
+
+	// Secret containing a client certificate for mTLS. The Secret must contain
+	// standard "tls.crt" and "tls.key" keys, matching the kubernetes.io/tls
+	// Secret shape.
+	// +optional
+	ClientCertSecretRef *corev1.LocalObjectReference `json:"clientCertSecretRef,omitempty"`
+}
+
 // HttpIntegrationSpec contains configuration for HTTP-based integrations.
 type HttpIntegrationSpec struct {
 	// Base URL prepended to step URLs when this Integration is referenced.
@@ -258,6 +283,11 @@ type HttpIntegrationSpec struct {
 	// Step-level headers override these defaults.
 	// +optional
 	DefaultHeaders map[string]string `json:"defaultHeaders,omitempty"`
+
+	// TLS configures a private CA bundle to trust and/or a client certificate
+	// to present for outbound HTTP steps that reference this Integration.
+	// +optional
+	TLS *HttpTLSSpec `json:"tls,omitempty"`
 }
 
 // IntegrationSpec defines desired state for Integration.

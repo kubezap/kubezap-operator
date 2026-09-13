@@ -18,13 +18,21 @@ package executorhttp_test
 
 import (
 	"bytes"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/tls"
+	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/json"
+	"encoding/pem"
 	"fmt"
+	"math/big"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -57,6 +65,60 @@ func newPassthroughHandler() *executorhttp.Handler {
 		BodyLimitBytes:     4096,
 		AllowTLSSkipVerify: false,
 	}
+}
+
+// generateTestCA creates a self-signed CA certificate/key pair, PEM-encoded,
+// for use as a private root of trust in outbound-TLS tests.
+func generateTestCA() (certPEM []byte, cert *x509.Certificate, key *rsa.PrivateKey) {
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	Expect(err).NotTo(HaveOccurred())
+
+	template := &x509.Certificate{
+		SerialNumber:          big.NewInt(1),
+		Subject:               pkix.Name{CommonName: "kubezap-test-ca"},
+		NotBefore:             time.Now().Add(-time.Hour),
+		NotAfter:              time.Now().Add(time.Hour),
+		KeyUsage:              x509.KeyUsageCertSign | x509.KeyUsageDigitalSignature,
+		BasicConstraintsValid: true,
+		IsCA:                  true,
+	}
+
+	der, err := x509.CreateCertificate(rand.Reader, template, template, &key.PublicKey, key)
+	Expect(err).NotTo(HaveOccurred())
+
+	cert, err = x509.ParseCertificate(der)
+	Expect(err).NotTo(HaveOccurred())
+
+	certPEM = pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
+	return certPEM, cert, key
+}
+
+// generateSignedCert issues a leaf certificate/key pair signed by the given CA,
+// PEM-encoded, suitable for either a TLS server certificate (with ips set) or
+// a client certificate (ips nil).
+func generateSignedCert(caCert *x509.Certificate, caKey *rsa.PrivateKey, cn string, ips []net.IP) (certPEM, keyPEM []byte) {
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	Expect(err).NotTo(HaveOccurred())
+
+	serial, err := rand.Int(rand.Reader, big.NewInt(1<<62))
+	Expect(err).NotTo(HaveOccurred())
+
+	template := &x509.Certificate{
+		SerialNumber: serial,
+		Subject:      pkix.Name{CommonName: cn},
+		NotBefore:    time.Now().Add(-time.Hour),
+		NotAfter:     time.Now().Add(time.Hour),
+		KeyUsage:     x509.KeyUsageDigitalSignature | x509.KeyUsageKeyEncipherment,
+		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth},
+		IPAddresses:  ips,
+	}
+
+	der, err := x509.CreateCertificate(rand.Reader, template, caCert, &key.PublicKey, caKey)
+	Expect(err).NotTo(HaveOccurred())
+
+	certPEM = pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
+	keyPEM = pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)})
+	return certPEM, keyPEM
 }
 
 // doExecute posts an ExecuteRequest to the handler and returns the ExecuteResponse.
@@ -267,6 +329,198 @@ var _ = Describe("Handler", func() {
 
 			Expect(w.Code).To(Equal(http.StatusOK))
 			Expect(w.Body.String()).To(Equal("ok"))
+		})
+	})
+
+	Describe("POST /execute — outbound TLS (CA bundle / client certificate)", func() {
+		Context("when the request configures a CA bundle matching the server's certificate", func() {
+			It("trusts the private CA and succeeds", func() {
+				caCertPEM, caCert, caKey := generateTestCA()
+				serverCertPEM, serverKeyPEM := generateSignedCert(caCert, caKey, "127.0.0.1", []net.IP{net.ParseIP("127.0.0.1")})
+				serverCert, err := tls.X509KeyPair(serverCertPEM, serverKeyPEM)
+				Expect(err).NotTo(HaveOccurred())
+
+				upstream := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					w.WriteHeader(http.StatusOK)
+					_, _ = fmt.Fprint(w, "trusted-ca")
+				}))
+				upstream.TLS = &tls.Config{Certificates: []tls.Certificate{serverCert}}
+				upstream.StartTLS()
+				defer upstream.Close()
+
+				h := newPassthroughHandler()
+				resp, outerStatus := doExecute(h, executorhttp.ExecuteRequest{
+					Method:      "GET",
+					URL:         upstream.URL,
+					TLSCABundle: string(caCertPEM),
+				})
+
+				Expect(outerStatus).To(Equal(http.StatusOK))
+				Expect(resp.Error).To(BeEmpty())
+				Expect(resp.StatusCode).To(Equal(http.StatusOK))
+				Expect(resp.Body).To(Equal("trusted-ca"))
+			})
+		})
+
+		Context("when the CA bundle is not configured", func() {
+			It("fails TLS verification against a server signed by an untrusted private CA", func() {
+				_, caCert, caKey := generateTestCA()
+				serverCertPEM, serverKeyPEM := generateSignedCert(caCert, caKey, "127.0.0.1", []net.IP{net.ParseIP("127.0.0.1")})
+				serverCert, err := tls.X509KeyPair(serverCertPEM, serverKeyPEM)
+				Expect(err).NotTo(HaveOccurred())
+
+				upstream := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					w.WriteHeader(http.StatusOK)
+					_, _ = fmt.Fprint(w, "should-not-be-reached")
+				}))
+				upstream.TLS = &tls.Config{Certificates: []tls.Certificate{serverCert}}
+				upstream.StartTLS()
+				defer upstream.Close()
+
+				h := newPassthroughHandler()
+				resp, outerStatus := doExecute(h, executorhttp.ExecuteRequest{
+					Method: "GET",
+					URL:    upstream.URL,
+					// No TLSCABundle set — the private CA is not trusted.
+				})
+
+				Expect(outerStatus).To(Equal(http.StatusOK))
+				Expect(resp.StatusCode).To(Equal(0))
+				Expect(resp.Error).To(HavePrefix("tls_error:"))
+			})
+		})
+
+		Context("when the request configures a client certificate", func() {
+			It("succeeds against a server requiring mTLS", func() {
+				caCertPEM, caCert, caKey := generateTestCA()
+				serverCertPEM, serverKeyPEM := generateSignedCert(caCert, caKey, "127.0.0.1", []net.IP{net.ParseIP("127.0.0.1")})
+				serverCert, err := tls.X509KeyPair(serverCertPEM, serverKeyPEM)
+				Expect(err).NotTo(HaveOccurred())
+
+				clientCertPEM, clientKeyPEM := generateSignedCert(caCert, caKey, "kubezap-test-client", nil)
+
+				clientCAPool := x509.NewCertPool()
+				Expect(clientCAPool.AppendCertsFromPEM(caCertPEM)).To(BeTrue())
+
+				upstream := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					w.WriteHeader(http.StatusOK)
+					_, _ = fmt.Fprint(w, "mtls-ok")
+				}))
+				upstream.TLS = &tls.Config{
+					Certificates: []tls.Certificate{serverCert},
+					ClientCAs:    clientCAPool,
+					ClientAuth:   tls.RequireAndVerifyClientCert,
+				}
+				upstream.StartTLS()
+				defer upstream.Close()
+
+				h := newPassthroughHandler()
+				resp, outerStatus := doExecute(h, executorhttp.ExecuteRequest{
+					Method:        "GET",
+					URL:           upstream.URL,
+					TLSCABundle:   string(caCertPEM),
+					TLSClientCert: string(clientCertPEM),
+					TLSClientKey:  string(clientKeyPEM),
+				})
+
+				Expect(outerStatus).To(Equal(http.StatusOK))
+				Expect(resp.Error).To(BeEmpty())
+				Expect(resp.StatusCode).To(Equal(http.StatusOK))
+				Expect(resp.Body).To(Equal("mtls-ok"))
+			})
+
+			It("rejects a request against an mTLS server when no client certificate is configured", func() {
+				caCertPEM, caCert, caKey := generateTestCA()
+				serverCertPEM, serverKeyPEM := generateSignedCert(caCert, caKey, "127.0.0.1", []net.IP{net.ParseIP("127.0.0.1")})
+				serverCert, err := tls.X509KeyPair(serverCertPEM, serverKeyPEM)
+				Expect(err).NotTo(HaveOccurred())
+
+				clientCAPool := x509.NewCertPool()
+				Expect(clientCAPool.AppendCertsFromPEM(caCertPEM)).To(BeTrue())
+
+				upstream := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					w.WriteHeader(http.StatusOK)
+					_, _ = fmt.Fprint(w, "should-not-be-reached")
+				}))
+				upstream.TLS = &tls.Config{
+					Certificates: []tls.Certificate{serverCert},
+					ClientCAs:    clientCAPool,
+					ClientAuth:   tls.RequireAndVerifyClientCert,
+				}
+				upstream.StartTLS()
+				defer upstream.Close()
+
+				h := newPassthroughHandler()
+				resp, outerStatus := doExecute(h, executorhttp.ExecuteRequest{
+					Method:      "GET",
+					URL:         upstream.URL,
+					TLSCABundle: string(caCertPEM),
+					// No client cert configured.
+				})
+
+				Expect(outerStatus).To(Equal(http.StatusOK))
+				Expect(resp.StatusCode).To(Equal(0))
+				Expect(resp.Error).NotTo(BeEmpty())
+			})
+		})
+
+		Context("when the CA bundle content is malformed", func() {
+			It("returns an invalid_request error rather than silently falling back to system trust only", func() {
+				h := newPassthroughHandler()
+				resp, outerStatus := doExecute(h, executorhttp.ExecuteRequest{
+					Method:      "GET",
+					URL:         "https://127.0.0.1:1/",
+					TLSCABundle: "not a real PEM certificate",
+				})
+
+				Expect(outerStatus).To(Equal(http.StatusOK))
+				Expect(resp.Error).To(HavePrefix("invalid_request:"))
+			})
+		})
+
+		Context("when only one of client cert / client key is set", func() {
+			It("returns an invalid_request error", func() {
+				h := newPassthroughHandler()
+				resp, outerStatus := doExecute(h, executorhttp.ExecuteRequest{
+					Method:        "GET",
+					URL:           "https://127.0.0.1:1/",
+					TLSClientCert: "some cert content",
+					// TLSClientKey deliberately omitted.
+				})
+
+				Expect(outerStatus).To(Equal(http.StatusOK))
+				Expect(resp.Error).To(HavePrefix("invalid_request:"))
+			})
+		})
+
+		Context("existing InsecureSkipVerify behaviour", func() {
+			It("remains unaffected by TLS CA bundle fields being absent", func() {
+				// AllowTLSSkipVerify=false at the handler level, tlsSkipVerify=true at the
+				// request level — verification must still be enforced (handler flag wins),
+				// exactly as before this change; unrelated to the new CA/cert fields.
+				caCertPEM, caCert, caKey := generateTestCA()
+				serverCertPEM, serverKeyPEM := generateSignedCert(caCert, caKey, "127.0.0.1", []net.IP{net.ParseIP("127.0.0.1")})
+				serverCert, err := tls.X509KeyPair(serverCertPEM, serverKeyPEM)
+				Expect(err).NotTo(HaveOccurred())
+				_ = caCertPEM // not trusted by this handler; only skip-verify semantics under test
+
+				upstream := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					w.WriteHeader(http.StatusOK)
+				}))
+				upstream.TLS = &tls.Config{Certificates: []tls.Certificate{serverCert}}
+				upstream.StartTLS()
+				defer upstream.Close()
+
+				h := newPassthroughHandler() // AllowTLSSkipVerify: false
+				resp, outerStatus := doExecute(h, executorhttp.ExecuteRequest{
+					Method:        "GET",
+					URL:           upstream.URL,
+					TLSSkipVerify: true,
+				})
+
+				Expect(outerStatus).To(Equal(http.StatusOK))
+				Expect(resp.Error).To(HavePrefix("tls_error:"))
+			})
 		})
 	})
 

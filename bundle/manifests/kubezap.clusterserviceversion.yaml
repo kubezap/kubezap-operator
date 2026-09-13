@@ -178,7 +178,7 @@ metadata:
     capabilities: Basic Install
     categories: Integration & Delivery
     containerImage: ghcr.io/kubezap/controller:latest
-    createdAt: "2026-09-13T13:53:14Z"
+    createdAt: "2026-09-13T20:33:36Z"
     description: Declarative workflow automation for Kubernetes
     operatorframework.io/suggested-namespace: kubezap-system
     operators.operatorframework.io/builder: operator-sdk-v1.42.0
@@ -193,7 +193,7 @@ spec:
     owned:
     - description: FlowRun is an execution instance of a Flow, created by a gateway
         when a trigger fires.
-      displayName: FlowRun
+      displayName: Flow Run
       kind: FlowRun
       name: flowruns.automation.kubezap.io
       resources:
@@ -201,16 +201,18 @@ spec:
         name: ""
         version: v1alpha1
       specDescriptors:
-      - description: Reference to the Flow this FlowRun executes.
+      - description: |-
+          Reference to the Flow to execute. The Flow must be in the same namespace as the FlowRun.
+          Cross-namespace FlowRefs are not supported in v1alpha1 and are deferred to v1beta1 with a FlowGrant CRD.
         displayName: Flow Reference
         path: flowRef
-      - description: Reference to the Trigger that created this FlowRun.
-        displayName: Trigger Reference
-        path: triggerRef
-      - description: Input parameters for the Flow execution.
+      - description: Optional runtime parameters.
         displayName: Parameters
         path: params
-      - description: Time-to-live after the FlowRun finishes before automatic deletion.
+      - description: Originating trigger reference.
+        displayName: Trigger Reference
+        path: triggerRef
+      - description: TTL for cleanup after completion.
         displayName: TTL After Finished
         path: ttlAfterFinished
       version: v1alpha1
@@ -224,12 +226,12 @@ spec:
         name: ""
         version: v1alpha1
       specDescriptors:
-      - description: Ordered list of steps to execute in this workflow.
-        displayName: Steps
-        path: steps
-      - description: Input parameters accepted by this Flow.
+      - description: Parameters that can be passed into the Flow.
         displayName: Parameters
         path: params
+      - description: Ordered list of steps in the Flow.
+        displayName: Steps
+        path: steps
       version: v1alpha1
     - description: Integration connects KubeZap to an external system (Kafka, plugin,
         etc.).
@@ -240,33 +242,119 @@ spec:
       - kind: Deployment
         name: ""
         version: v1
-      - kind: Service
-        name: ""
-        version: v1
-      - kind: ServiceAccount
-        name: ""
-        version: v1
       - kind: Role
         name: ""
         version: v1
       - kind: RoleBinding
         name: ""
         version: v1
+      - kind: Service
+        name: ""
+        version: v1
+      - kind: ServiceAccount
+        name: ""
+        version: v1
       specDescriptors:
-      - description: Integration type (kafka, amqp, nats, http, plugin).
-        displayName: Type
-        path: type
-      - description: Kafka integration configuration (bootstrap servers, SASL, TLS).
+      - description: AMQP specific configuration. Required when type=amqp.
+        displayName: AMQP
+        path: amqp
+      - description: HTTP specific configuration. Required when type=http.
+        displayName: HTTP
+        path: http
+      - description: Kafka specific configuration. Required when type=kafka.
         displayName: Kafka
         path: kafka
+      - description: NATS specific configuration. Required when type=nats.
+        displayName: NATS
+        path: nats
+      - description: Plugin specific configuration. Required when type=plugin.
+        displayName: Plugin
+        path: plugin
+      - description: |-
+          Integration type.
+          kafka: first-party Kafka gateway (IBM/sarama).
+          amqp: first-party AMQP gateway; covers RabbitMQ, ActiveMQ, Solace, Azure Service Bus.
+            Use spec.amqp.version to select 0-9-1 or 1.0 wire protocol.
+          nats: first-party NATS gateway; supports Core and JetStream.
+          plugin: community or custom image implementing the KubeZap plugin contract.
+            See docs/api/plugin-contract.md.
+          http: lightweight HTTP endpoint with base URL, auth, and default headers.
+        displayName: Type
+        path: type
       version: v1alpha1
-    - description: Trigger is the Schema for the triggers API.
+    - description: |-
+        Trigger connects an event source (webhook, cron, Kafka, AMQP, NATS, or a
+        Kubernetes resource event) to a Flow, creating a FlowRun each time it fires.
       displayName: Trigger
       kind: Trigger
       name: triggers.automation.kubezap.io
+      resources:
+      - kind: Deployment
+        name: ""
+        version: v1
+      - kind: HorizontalPodAutoscaler
+        name: ""
+        version: v2
+      - kind: Role
+        name: ""
+        version: v1
+      - kind: RoleBinding
+        name: ""
+        version: v1
+      - kind: Service
+        name: ""
+        version: v1
+      - kind: ServiceAccount
+        name: ""
+        version: v1
+      specDescriptors:
+      - description: Type of trigger (webhook, cron, kafka, amqp, nats, resource)
+        displayName: Type
+        path: type
+      - description: Webhook configuration (only for type=webhook)
+        displayName: Webhook
+        path: webhook
+      - description: |-
+          Reference to the flow this trigger invokes. FlowRef is the primary
+          action target for the MVP. If omitted, the optional inline Action can
+          be used to perform a quick action (e.g., call an external webhook).
+        displayName: Flow Reference
+        path: flowRef
       version: v1alpha1
-    - kind: WebhookGatewayConfig
+    - description: |-
+        WebhookGatewayConfig is the Schema for the webhookgatewayconfigs API.
+
+        At most one WebhookGatewayConfig may exist per namespace — a validating
+        admission webhook rejects a create when another one (any name) already
+        exists in the same namespace.
+      displayName: Webhook Gateway Config
+      kind: WebhookGatewayConfig
       name: webhookgatewayconfigs.automation.kubezap.io
+      resources:
+      - kind: HorizontalPodAutoscaler
+        name: ""
+        version: v2
+      - kind: PodDisruptionBudget
+        name: ""
+        version: v1
+      specDescriptors:
+      - description: |-
+          HPA overrides the webhook gateway's HorizontalPodAutoscaler behavior.
+          Any field left unset keeps today's operator default for that field
+          (minReplicas=1, maxReplicas=10, targetCPUUtilization=70).
+        displayName: HPA
+        path: hpa
+      - description: |-
+          PodDisruptionBudget configures a PodDisruptionBudget for the webhook
+          gateway Deployment. When omitted (or MinAvailable is unset), no
+          PodDisruptionBudget is created — matching today's behavior (none exists).
+        displayName: Pod Disruption Budget
+        path: podDisruptionBudget
+      - description: |-
+          TLS configures inbound TLS/mTLS termination for the webhook gateway.
+          When omitted, the gateway serves plain HTTP.
+        displayName: TLS
+        path: tls
       version: v1alpha1
   description: |
     KubeZap is an enterprise-grade Kubernetes operator providing declarative

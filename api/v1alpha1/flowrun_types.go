@@ -61,18 +61,22 @@ type TriggerData struct {
 type FlowRunSpec struct {
 	// Reference to the Flow to execute. The Flow must be in the same namespace as the FlowRun.
 	// Cross-namespace FlowRefs are not supported in v1alpha1 and are deferred to v1beta1 with a FlowGrant CRD.
+	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="Flow Reference"
 	FlowRef FlowReference `json:"flowRef"`
 
 	// Optional runtime parameters.
+	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="Parameters"
 	Params []ParamValue `json:"params,omitempty"`
 
 	// Originating trigger reference.
+	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="Trigger Reference"
 	TriggerRef *TriggerReference `json:"triggerRef,omitempty"`
 
 	// Originating trigger data.
 	TriggerData *TriggerData `json:"triggerData,omitempty"`
 
 	// TTL for cleanup after completion.
+	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="TTL After Finished"
 	TTLAfterFinished *metav1.Duration `json:"ttlAfterFinished,omitempty"`
 }
 
@@ -152,6 +156,8 @@ type FlowRunStatus struct {
 // +kubebuilder:printcolumn:name="AGE",type=date,JSONPath=`.metadata.creationTimestamp`
 // +kubebuilder:printcolumn:name="DURATION",type=string,JSONPath=`.status.completionTime`,description="Completion timestamp"
 
+// FlowRun is an execution instance of a Flow, created by a gateway when a trigger fires.
+// +operator-sdk:csv:customresourcedefinitions:resources={{FlowRun,v1alpha1,""}}
 type FlowRun struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`

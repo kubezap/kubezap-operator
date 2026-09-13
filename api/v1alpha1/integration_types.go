@@ -271,21 +271,27 @@ type IntegrationSpec struct {
 	//   See docs/api/plugin-contract.md.
 	// http: lightweight HTTP endpoint with base URL, auth, and default headers.
 	// +kubebuilder:validation:Enum=kafka;amqp;nats;plugin;http
+	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="Type"
 	Type string `json:"type"`
 
 	// Kafka specific configuration. Required when type=kafka.
+	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="Kafka"
 	Kafka *KafkaIntegrationSpec `json:"kafka,omitempty"`
 
 	// AMQP specific configuration. Required when type=amqp.
+	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="AMQP"
 	Amqp *AmqpIntegrationSpec `json:"amqp,omitempty"`
 
 	// NATS specific configuration. Required when type=nats.
+	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="NATS"
 	Nats *NatsIntegrationSpec `json:"nats,omitempty"`
 
 	// Plugin specific configuration. Required when type=plugin.
+	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="Plugin"
 	Plugin *PluginIntegrationSpec `json:"plugin,omitempty"`
 
 	// HTTP specific configuration. Required when type=http.
+	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="HTTP"
 	HTTP *HttpIntegrationSpec `json:"http,omitempty"`
 }
 
@@ -310,6 +316,8 @@ type IntegrationStatus struct {
 // +kubebuilder:printcolumn:name="TYPE",type=string,JSONPath=`.spec.type`,description="Integration type"
 // +kubebuilder:printcolumn:name="PHASE",type=string,JSONPath=`.status.phase`,description="Current phase"
 
+// Integration connects KubeZap to an external system (Kafka, plugin, etc.).
+// +operator-sdk:csv:customresourcedefinitions:resources={{Deployment,v1,""},{Service,v1,""},{ServiceAccount,v1,""},{Role,v1,""},{RoleBinding,v1,""}}
 type Integration struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`

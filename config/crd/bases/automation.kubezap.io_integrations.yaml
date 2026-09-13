@@ -26,6 +26,8 @@ spec:
     name: v1alpha1
     schema:
       openAPIV3Schema:
+        description: Integration connects KubeZap to an external system (Kafka, plugin,
+          etc.).
         properties:
           apiVersion:
             description: |-

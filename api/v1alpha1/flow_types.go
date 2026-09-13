@@ -44,12 +44,14 @@ type FlowSpec struct {
 	FailurePolicy FailurePolicy `json:"failurePolicy,omitempty"`
 
 	// Parameters that can be passed into the Flow.
+	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="Parameters"
 	Params []ParamDeclaration `json:"params,omitempty"`
 
 	// Ordered list of steps in the Flow.
 	// +kubebuilder:validation:MinItems=1
 	// +listType=map
 	// +listMapKey=name
+	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="Steps"
 	Steps []FlowStep `json:"steps"`
 }
 
@@ -262,6 +264,8 @@ type FlowStatus struct {
 // +kubebuilder:printcolumn:name="Phase",type=string,JSONPath=`.status.conditions[?(@.type==\"Ready\")].status`,description="Current phase"
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
 
+// Flow defines an ordered workflow of steps with conditional logic and data transforms.
+// +operator-sdk:csv:customresourcedefinitions:resources={{Flow,v1alpha1,""}}
 type Flow struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`

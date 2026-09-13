@@ -17,7 +17,43 @@ resources:
   controller: true
   domain: kubezap.io
   group: automation
+  kind: Flow
+  path: github.com/kubezap/kubezap-operator/api/v1alpha1
+  version: v1alpha1
+- api:
+    crdVersion: v1
+    namespaced: true
+  controller: true
+  domain: kubezap.io
+  group: automation
+  kind: FlowRun
+  path: github.com/kubezap/kubezap-operator/api/v1alpha1
+  version: v1alpha1
+- api:
+    crdVersion: v1
+    namespaced: true
+  controller: true
+  domain: kubezap.io
+  group: automation
+  kind: Integration
+  path: github.com/kubezap/kubezap-operator/api/v1alpha1
+  version: v1alpha1
+- api:
+    crdVersion: v1
+    namespaced: true
+  controller: true
+  domain: kubezap.io
+  group: automation
   kind: Trigger
+  path: github.com/kubezap/kubezap-operator/api/v1alpha1
+  version: v1alpha1
+- api:
+    crdVersion: v1
+    namespaced: true
+  controller: true
+  domain: kubezap.io
+  group: automation
+  kind: WebhookGatewayConfig
   path: github.com/kubezap/kubezap-operator/api/v1alpha1
   version: v1alpha1
 version: "3"

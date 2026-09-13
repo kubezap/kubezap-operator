@@ -1,7 +1,7 @@
 # STORY-020: Design record — sub-second step-timing visibility on FlowRun
 
 **Epic:** EPIC-002 — Post-Release Hardening & Feature Backlog
-**Status:** Groomed
+**Status:** Done (PR #204)
 **Size:** XS — design record only, no implementation
 
 ## Description

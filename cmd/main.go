@@ -454,6 +454,10 @@ func main() {
 		setupLog.Error(err, "unable to set up Trigger validating webhook")
 		os.Exit(1)
 	}
+	if err := kubezapwebhook.SetupWebhookGatewayConfigWebhook(mgr); err != nil {
+		setupLog.Error(err, "unable to set up WebhookGatewayConfig validating webhook")
+		os.Exit(1)
+	}
 
 	if metricsCertWatcher != nil {
 		setupLog.Info("Adding metrics certificate watcher to manager")

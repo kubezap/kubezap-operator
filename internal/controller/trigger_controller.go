@@ -289,7 +289,11 @@ func ensureWebhookGateway(ctx context.Context, c client.Client, namespace string
 		log.Info("reconciled webhook gateway deployment", "namespace", namespace, "result", op)
 	}
 
-	hpaDesired := desiredWebhookGatewayHPA(namespace)
+	webhookGatewayCfg, err := getWebhookGatewayConfig(ctx, c, namespace)
+	if err != nil {
+		return err
+	}
+	hpaDesired := desiredWebhookGatewayHPAFromConfig(namespace, webhookGatewayCfg)
 	hpaExisting := &autoscalingv2.HorizontalPodAutoscaler{}
 	err = c.Get(ctx, client.ObjectKeyFromObject(hpaDesired), hpaExisting)
 	if err != nil {

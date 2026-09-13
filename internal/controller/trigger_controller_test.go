@@ -23,8 +23,10 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	appsv1 "k8s.io/api/apps/v1"
+	autoscalingv2 "k8s.io/api/autoscaling/v2"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -455,6 +457,66 @@ var _ = Describe("TriggerReconciler", func() {
 			}
 			_, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
 			Expect(err).NotTo(HaveOccurred())
+		})
+	})
+
+	// -------------------------------------------------------------------------
+	// WebhookGatewayConfig — the real reconcile path picks up per-namespace HPA settings
+	// -------------------------------------------------------------------------
+
+	Context("when a WebhookGatewayConfig exists in the namespace", func() {
+		var trigger *automationv1alpha1.Trigger
+		var cfg *automationv1alpha1.WebhookGatewayConfig
+
+		BeforeEach(func() {
+			cfg = &automationv1alpha1.WebhookGatewayConfig{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "gw-cfg-reconcile-test",
+					Namespace: testNamespace,
+				},
+				Spec: automationv1alpha1.WebhookGatewayConfigSpec{
+					HPA: &automationv1alpha1.WebhookGatewayHPASpec{
+						MinReplicas: ptr.To(int32(3)),
+						MaxReplicas: ptr.To(int32(15)),
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, cfg)).To(Succeed())
+
+			trigger = makeTrigger(
+				fmt.Sprintf("trg-gwcfg-%d", GinkgoRandomSeed()),
+				automationv1alpha1.TriggerSpec{
+					Type:    "webhook",
+					Enabled: true,
+					Webhook: &automationv1alpha1.WebhookTrigger{
+						Path:   "/hook/gwcfg",
+						Method: "POST",
+					},
+					FlowRef: &automationv1alpha1.FlowReference{Name: "example-flow"},
+				},
+			)
+			Expect(k8sClient.Create(ctx, trigger)).To(Succeed())
+			DeferCleanup(func() {
+				_ = k8sClient.Delete(context.Background(), trigger)
+				_ = k8sClient.Delete(context.Background(), cfg)
+			})
+		})
+
+		It("reconciles the webhook gateway HPA using the config's HPA fields, not the hardcoded defaults", func() {
+			r := newReconciler()
+			nn := types.NamespacedName{Name: trigger.Name, Namespace: testNamespace}
+			_, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
+			Expect(err).NotTo(HaveOccurred())
+
+			var hpa autoscalingv2.HorizontalPodAutoscaler
+			hpaKey := types.NamespacedName{Name: webhookGatewayDeploymentName, Namespace: testNamespace}
+			Expect(k8sClient.Get(ctx, hpaKey, &hpa)).To(Succeed())
+
+			Expect(hpa.Spec.MinReplicas).NotTo(BeNil())
+			Expect(*hpa.Spec.MinReplicas).To(Equal(int32(3)), "MinReplicas should come from the WebhookGatewayConfig, not the hardcoded default of 1")
+			Expect(hpa.Spec.MaxReplicas).To(Equal(int32(15)), "MaxReplicas should come from the WebhookGatewayConfig, not the hardcoded default of 10")
+			// TargetCPUUtilization was left unset on the config — should still fall back to the default.
+			Expect(*hpa.Spec.Metrics[0].Resource.Target.AverageUtilization).To(Equal(int32(70)))
 		})
 	})
 })

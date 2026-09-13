@@ -23,6 +23,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	autoscalingv2 "k8s.io/api/autoscaling/v2"
 	corev1 "k8s.io/api/core/v1"
+	policyv1 "k8s.io/api/policy/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -56,6 +57,7 @@ type TriggerReconciler struct {
 // +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=roles,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=rolebindings,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=autoscaling,resources=horizontalpodautoscalers,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=policy,resources=poddisruptionbudgets,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups="",resources=namespaces,verbs=get;list;watch
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
@@ -312,13 +314,45 @@ func ensureWebhookGateway(ctx context.Context, c client.Client, namespace string
 	if err := c.Update(ctx, hpaExisting); err != nil {
 		return err
 	}
+
+	pdbDesired := desiredWebhookGatewayPDB(namespace, webhookGatewayCfg)
+	pdbKey := client.ObjectKey{Name: webhookGatewayDeploymentName, Namespace: namespace}
+	if pdbDesired == nil {
+		// No PodDisruptionBudget should exist for this namespace — delete one left over
+		// from a previous reconcile if the config was since removed/cleared. Idempotent:
+		// no-op if already absent.
+		existing := &policyv1.PodDisruptionBudget{}
+		if err := c.Get(ctx, pdbKey, existing); err == nil {
+			if err := c.Delete(ctx, existing); err != nil && !apierrors.IsNotFound(err) {
+				return fmt.Errorf("deleting webhook gateway PodDisruptionBudget: %w", err)
+			}
+		} else if !apierrors.IsNotFound(err) {
+			return fmt.Errorf("getting webhook gateway PodDisruptionBudget: %w", err)
+		}
+		return nil
+	}
+
+	pdb := &policyv1.PodDisruptionBudget{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      pdbDesired.Name,
+			Namespace: pdbDesired.Namespace,
+		},
+	}
+	if _, err := controllerutil.CreateOrUpdate(ctx, c, pdb, func() error {
+		pdb.Labels = pdbDesired.Labels
+		pdb.Spec = pdbDesired.Spec
+		return nil
+	}); err != nil {
+		return fmt.Errorf("failed to create/update gateway PodDisruptionBudget: %w", err)
+	}
+
 	return nil
 }
 
 // cleanupWebhookGatewayIfUnused deletes the webhook gateway resources (Deployment,
-// Service, ServiceAccount, Role, RoleBinding, HPA) from the given namespace if no
-// enabled, non-terminating webhook Triggers remain. It is safe to call repeatedly —
-// NotFound errors on each delete are silently ignored.
+// Service, ServiceAccount, Role, RoleBinding, HPA, PodDisruptionBudget) from the given
+// namespace if no enabled, non-terminating webhook Triggers remain. It is safe to call
+// repeatedly — NotFound errors on each delete are silently ignored.
 func cleanupWebhookGatewayIfUnused(ctx context.Context, c client.Client, namespace string) error {
 	log := logf.FromContext(ctx)
 
@@ -337,65 +371,49 @@ func cleanupWebhookGatewayIfUnused(ctx context.Context, c client.Client, namespa
 
 	log.Info("no active webhook Triggers remain; cleaning up webhook gateway resources", "namespace", namespace)
 
-	// All six resource types share the same name: webhookGatewayDeploymentName
+	// All seven resource types share the same name: webhookGatewayDeploymentName
 	// ("kubezap-webhook-gateway"). ServiceAccount uses the same name.
 	key := client.ObjectKey{Name: webhookGatewayDeploymentName, Namespace: namespace}
 
-	deploy := &appsv1.Deployment{}
-	if err := c.Get(ctx, key, deploy); err == nil {
-		if err := c.Delete(ctx, deploy); err != nil && !apierrors.IsNotFound(err) {
-			return fmt.Errorf("deleting webhook gateway Deployment: %w", err)
-		}
-	} else if !apierrors.IsNotFound(err) {
-		return fmt.Errorf("getting webhook gateway Deployment: %w", err)
+	if err := deleteWebhookGatewayResourceIfExists(ctx, c, key, &appsv1.Deployment{}, "Deployment"); err != nil {
+		return err
 	}
-
-	svc := &corev1.Service{}
-	if err := c.Get(ctx, key, svc); err == nil {
-		if err := c.Delete(ctx, svc); err != nil && !apierrors.IsNotFound(err) {
-			return fmt.Errorf("deleting webhook gateway Service: %w", err)
-		}
-	} else if !apierrors.IsNotFound(err) {
-		return fmt.Errorf("getting webhook gateway Service: %w", err)
+	if err := deleteWebhookGatewayResourceIfExists(ctx, c, key, &corev1.Service{}, "Service"); err != nil {
+		return err
 	}
-
-	sa := &corev1.ServiceAccount{}
-	if err := c.Get(ctx, key, sa); err == nil {
-		if err := c.Delete(ctx, sa); err != nil && !apierrors.IsNotFound(err) {
-			return fmt.Errorf("deleting webhook gateway ServiceAccount: %w", err)
-		}
-	} else if !apierrors.IsNotFound(err) {
-		return fmt.Errorf("getting webhook gateway ServiceAccount: %w", err)
+	if err := deleteWebhookGatewayResourceIfExists(ctx, c, key, &corev1.ServiceAccount{}, "ServiceAccount"); err != nil {
+		return err
 	}
-
-	role := &rbacv1.Role{}
-	if err := c.Get(ctx, key, role); err == nil {
-		if err := c.Delete(ctx, role); err != nil && !apierrors.IsNotFound(err) {
-			return fmt.Errorf("deleting webhook gateway Role: %w", err)
-		}
-	} else if !apierrors.IsNotFound(err) {
-		return fmt.Errorf("getting webhook gateway Role: %w", err)
+	if err := deleteWebhookGatewayResourceIfExists(ctx, c, key, &rbacv1.Role{}, "Role"); err != nil {
+		return err
 	}
-
-	rb := &rbacv1.RoleBinding{}
-	if err := c.Get(ctx, key, rb); err == nil {
-		if err := c.Delete(ctx, rb); err != nil && !apierrors.IsNotFound(err) {
-			return fmt.Errorf("deleting webhook gateway RoleBinding: %w", err)
-		}
-	} else if !apierrors.IsNotFound(err) {
-		return fmt.Errorf("getting webhook gateway RoleBinding: %w", err)
+	if err := deleteWebhookGatewayResourceIfExists(ctx, c, key, &rbacv1.RoleBinding{}, "RoleBinding"); err != nil {
+		return err
 	}
-
-	hpa := &autoscalingv2.HorizontalPodAutoscaler{}
-	if err := c.Get(ctx, key, hpa); err == nil {
-		if err := c.Delete(ctx, hpa); err != nil && !apierrors.IsNotFound(err) {
-			return fmt.Errorf("deleting webhook gateway HPA: %w", err)
-		}
-	} else if !apierrors.IsNotFound(err) {
-		return fmt.Errorf("getting webhook gateway HPA: %w", err)
+	if err := deleteWebhookGatewayResourceIfExists(ctx, c, key, &autoscalingv2.HorizontalPodAutoscaler{}, "HPA"); err != nil {
+		return err
+	}
+	if err := deleteWebhookGatewayResourceIfExists(ctx, c, key, &policyv1.PodDisruptionBudget{}, "PodDisruptionBudget"); err != nil {
+		return err
 	}
 
 	log.Info("webhook gateway resources cleaned up", "namespace", namespace)
+	return nil
+}
+
+// deleteWebhookGatewayResourceIfExists deletes the given object at key if it exists,
+// no-op'ing on NotFound at either the Get or the Delete (idempotent, safe to call
+// repeatedly). kind is used only for error messages.
+func deleteWebhookGatewayResourceIfExists(ctx context.Context, c client.Client, key client.ObjectKey, obj client.Object, kind string) error {
+	if err := c.Get(ctx, key, obj); err != nil {
+		if apierrors.IsNotFound(err) {
+			return nil
+		}
+		return fmt.Errorf("getting webhook gateway %s: %w", kind, err)
+	}
+	if err := c.Delete(ctx, obj); err != nil && !apierrors.IsNotFound(err) {
+		return fmt.Errorf("deleting webhook gateway %s: %w", kind, err)
+	}
 	return nil
 }
 

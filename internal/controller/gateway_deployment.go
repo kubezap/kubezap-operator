@@ -24,6 +24,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	autoscalingv2 "k8s.io/api/autoscaling/v2"
 	corev1 "k8s.io/api/core/v1"
+	policyv1 "k8s.io/api/policy/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
@@ -201,15 +202,49 @@ func desiredWebhookGatewayHPAFromConfig(namespace string, cfg *automationv1alpha
 	}
 }
 
+// desiredWebhookGatewayPDB returns the desired PodDisruptionBudget for the webhook gateway
+// Deployment in the given namespace, or nil when no PodDisruptionBudget should exist.
+//
+// A nil cfg, a cfg with a nil Spec.PodDisruptionBudget, or a Spec.PodDisruptionBudget with a
+// nil MinAvailable all return nil — matching today's actual behavior of no PodDisruptionBudget
+// existing at all. Only a non-nil MinAvailable opts a namespace in, per
+// docs/design/2026-09-12-webhookgatewayconfig-crd.md.
+//
+// The returned PodDisruptionBudget targets the same pod selector as the webhook gateway
+// Deployment's pod template (see desiredWebhookGatewayDeployment).
+func desiredWebhookGatewayPDB(namespace string, cfg *automationv1alpha1.WebhookGatewayConfig) *policyv1.PodDisruptionBudget {
+	if cfg == nil || cfg.Spec.PodDisruptionBudget == nil || cfg.Spec.PodDisruptionBudget.MinAvailable == nil {
+		return nil
+	}
+
+	labels := map[string]string{
+		"kubezap.io/component": "webhook-gateway",
+		"kubezap.io/namespace": namespace,
+	}
+
+	return &policyv1.PodDisruptionBudget{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      webhookGatewayDeploymentName,
+			Namespace: namespace,
+			Labels:    labels,
+		},
+		Spec: policyv1.PodDisruptionBudgetSpec{
+			MinAvailable: cfg.Spec.PodDisruptionBudget.MinAvailable,
+			Selector: &metav1.LabelSelector{
+				MatchLabels: labels,
+			},
+		},
+	}
+}
+
 // getWebhookGatewayConfig returns the namespace's WebhookGatewayConfig object, or nil if
 // none exists. The singleton-per-namespace invariant (at most one object, any name) is
 // enforced at admission time by the WebhookGatewayConfig validating webhook — this helper
 // simply returns the first (and, per that invariant, only) item found.
 //
-// Not yet called from the Trigger reconcile loop: wiring desiredWebhookGatewayHPAFromConfig
-// into ensureWebhookGateway (internal/controller/trigger_controller.go) is left to a
-// follow-up integration pass — see this story's final report for the exact call-site change
-// needed.
+// Called once per reconcile from ensureWebhookGateway (internal/controller/trigger_controller.go),
+// which feeds the result into both desiredWebhookGatewayHPAFromConfig and
+// desiredWebhookGatewayPDB.
 func getWebhookGatewayConfig(ctx context.Context, c client.Client, namespace string) (*automationv1alpha1.WebhookGatewayConfig, error) {
 	var list automationv1alpha1.WebhookGatewayConfigList
 	if err := c.List(ctx, &list, client.InNamespace(namespace)); err != nil {

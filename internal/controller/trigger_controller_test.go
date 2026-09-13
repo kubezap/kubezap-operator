@@ -24,8 +24,11 @@ import (
 	. "github.com/onsi/gomega"
 	appsv1 "k8s.io/api/apps/v1"
 	autoscalingv2 "k8s.io/api/autoscaling/v2"
+	policyv1 "k8s.io/api/policy/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
@@ -517,6 +520,94 @@ var _ = Describe("TriggerReconciler", func() {
 			Expect(hpa.Spec.MaxReplicas).To(Equal(int32(15)), "MaxReplicas should come from the WebhookGatewayConfig, not the hardcoded default of 10")
 			// TargetCPUUtilization was left unset on the config — should still fall back to the default.
 			Expect(*hpa.Spec.Metrics[0].Resource.Target.AverageUtilization).To(Equal(int32(70)))
+		})
+
+		It("does not create a PodDisruptionBudget when podDisruptionBudget is unset on the config", func() {
+			r := newReconciler()
+			nn := types.NamespacedName{Name: trigger.Name, Namespace: testNamespace}
+			_, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
+			Expect(err).NotTo(HaveOccurred())
+
+			var pdb policyv1.PodDisruptionBudget
+			pdbKey := types.NamespacedName{Name: webhookGatewayDeploymentName, Namespace: testNamespace}
+			err = k8sClient.Get(ctx, pdbKey, &pdb)
+			Expect(apierrors.IsNotFound(err)).To(BeTrue(), "no PodDisruptionBudget should be created when the config leaves podDisruptionBudget unset — matches today's behavior")
+		})
+	})
+
+	// -------------------------------------------------------------------------
+	// WebhookGatewayConfig — podDisruptionBudget wiring
+	// -------------------------------------------------------------------------
+
+	Context("when a WebhookGatewayConfig with podDisruptionBudget.minAvailable exists in the namespace", func() {
+		var trigger *automationv1alpha1.Trigger
+		var cfg *automationv1alpha1.WebhookGatewayConfig
+
+		BeforeEach(func() {
+			minAvailable := intstr.FromInt32(2)
+			cfg = &automationv1alpha1.WebhookGatewayConfig{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "gw-cfg-pdb-test",
+					Namespace: testNamespace,
+				},
+				Spec: automationv1alpha1.WebhookGatewayConfigSpec{
+					PodDisruptionBudget: &automationv1alpha1.WebhookGatewayPDBSpec{
+						MinAvailable: &minAvailable,
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, cfg)).To(Succeed())
+
+			trigger = makeTrigger(
+				fmt.Sprintf("trg-gwcfg-pdb-%d", GinkgoRandomSeed()),
+				automationv1alpha1.TriggerSpec{
+					Type:    "webhook",
+					Enabled: true,
+					Webhook: &automationv1alpha1.WebhookTrigger{
+						Path:   "/hook/gwcfg-pdb",
+						Method: "POST",
+					},
+					FlowRef: &automationv1alpha1.FlowReference{Name: "example-flow"},
+				},
+			)
+			Expect(k8sClient.Create(ctx, trigger)).To(Succeed())
+			DeferCleanup(func() {
+				_ = k8sClient.Delete(context.Background(), trigger)
+				_ = k8sClient.Delete(context.Background(), cfg)
+			})
+		})
+
+		It("reconciles a real PodDisruptionBudget targeting the gateway Deployment's pod selector", func() {
+			r := newReconciler()
+			nn := types.NamespacedName{Name: trigger.Name, Namespace: testNamespace}
+			_, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
+			Expect(err).NotTo(HaveOccurred())
+
+			var pdb policyv1.PodDisruptionBudget
+			pdbKey := types.NamespacedName{Name: webhookGatewayDeploymentName, Namespace: testNamespace}
+			Expect(k8sClient.Get(ctx, pdbKey, &pdb)).To(Succeed())
+
+			Expect(pdb.Spec.MinAvailable).NotTo(BeNil())
+			Expect(*pdb.Spec.MinAvailable).To(Equal(intstr.FromInt32(2)))
+			Expect(pdb.Spec.Selector).NotTo(BeNil())
+			Expect(pdb.Spec.Selector.MatchLabels).To(Equal(map[string]string{
+				"kubezap.io/component": "webhook-gateway",
+				"kubezap.io/namespace": testNamespace,
+			}))
+		})
+
+		It("is idempotent across repeated reconciles", func() {
+			r := newReconciler()
+			nn := types.NamespacedName{Name: trigger.Name, Namespace: testNamespace}
+			_, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
+			Expect(err).NotTo(HaveOccurred())
+			_, err = r.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
+			Expect(err).NotTo(HaveOccurred())
+
+			var pdb policyv1.PodDisruptionBudget
+			pdbKey := types.NamespacedName{Name: webhookGatewayDeploymentName, Namespace: testNamespace}
+			Expect(k8sClient.Get(ctx, pdbKey, &pdb)).To(Succeed())
+			Expect(*pdb.Spec.MinAvailable).To(Equal(intstr.FromInt32(2)))
 		})
 	})
 })

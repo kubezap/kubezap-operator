@@ -96,17 +96,28 @@ stop_sampler_and_finalize() {
   local samples="${prefix}.samples.jsonl"
   local created="${prefix}.created.txt"
   local captured="${prefix}.captured.txt"
-  local samples_arr="[]"
-  [ -s "${samples}" ] && samples_arr="$(jq -s '.' "${samples}")"
-  local created_list="[]" captured_list="[]"
-  [ -f "${created}" ] && created_list="$(jq -R -s -c 'split("\n") | map(select(length>0))' "${created}")"
-  [ -f "${captured}" ] && captured_list="$(jq -R -s -c 'split("\n") | map(select(length>0))' "${captured}")"
+  # Ensure all three files exist (possibly empty) so --slurpfile/--rawfile
+  # below never fail on a missing path.
+  [ -f "${samples}" ] || : > "${samples}"
+  [ -f "${created}" ] || : > "${created}"
+  [ -f "${captured}" ] || : > "${captured}"
+  # NOTE (STORY-015): previously this built the samples/created/captured
+  # JSON arrays into shell variables and passed them to the final `jq -n`
+  # via --argjson. At full 200-run scale (~1300+ 5s-interval samples over a
+  # ~100min Argo arm) the serialized samples array exceeds Linux's
+  # per-argument MAX_ARG_STRLEN (128KiB), and `jq` fails with "Argument list
+  # too long" — silently losing the entire resource-overhead file. Reading
+  # directly from the files via --slurpfile/--rawfile avoids putting large
+  # data on the exec argv at all, regardless of run count/duration.
   jq -n \
     --arg system "${system}" \
-    --argjson samples "${samples_arr}" \
-    --argjson pods_created "${created_list}" \
-    --argjson pods_captured "${captured_list}" \
-    '{
+    --slurpfile samples "${samples}" \
+    --rawfile created_raw "${created}" \
+    --rawfile captured_raw "${captured}" \
+    '
+     ($created_raw | split("\n") | map(select(length>0))) as $pods_created
+     | ($captured_raw | split("\n") | map(select(length>0))) as $pods_captured
+     | {
        system: $system,
        polling_interval_seconds: 5,
        metrics_server_resolution_seconds: 15,

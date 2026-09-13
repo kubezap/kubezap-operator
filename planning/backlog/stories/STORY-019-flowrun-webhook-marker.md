@@ -1,7 +1,7 @@
 # STORY-019: Add the missing `+kubebuilder:webhook` marker for FlowRun
 
 **Epic:** EPIC-002 — Post-Release Hardening & Feature Backlog
-**Status:** Groomed
+**Status:** In Progress — [PR #203](https://github.com/kubezap/kubezap-operator/pull/203) open
 **Size:** XS
 
 ## Description

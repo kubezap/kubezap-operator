@@ -1,7 +1,7 @@
 # STORY-012: Docs for `WebhookGatewayConfig`
 
 **Epic:** EPIC-003 — WebhookGatewayConfig CRD
-**Status:** Backlog — unblocked (STORY-009/010/011 all Done), ready to groom/dispatch
+**Status:** In Progress — [PR #202](https://github.com/kubezap/kubezap-operator/pull/202) open
 **Size:** S
 
 ## Description

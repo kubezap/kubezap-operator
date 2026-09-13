@@ -1,7 +1,7 @@
 # STORY-020: Design record — sub-second step-timing visibility on FlowRun
 
 **Epic:** EPIC-002 — Post-Release Hardening & Feature Backlog
-**Status:** Groomed
+**Status:** In Progress — [PR #204](https://github.com/kubezap/kubezap-operator/pull/204) open
 **Size:** XS — design record only, no implementation
 
 ## Description

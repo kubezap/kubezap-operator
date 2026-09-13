@@ -103,19 +103,22 @@ See [Architecture](architecture.md) for the full design including scaling, names
 
 ## CRD Overview
 
-| CRD           | API Group                        | Scope      | Status    |
-| ------------- | -------------------------------- | ---------- | --------- |
-| `Trigger`     | `automation.kubezap.io/v1alpha1` | Namespaced | Available |
-| `Flow`        | `automation.kubezap.io/v1alpha1` | Namespaced | Available |
-| `FlowRun`     | `automation.kubezap.io/v1alpha1` | Namespaced | Available |
-| `Integration` | `automation.kubezap.io/v1alpha1` | Namespaced | Available |
-| `Step`        | `automation.kubezap.io/v1alpha1` | Namespaced | Planned   |
+| CRD                     | API Group                        | Scope      | Status    |
+| ----------------------- | --------------------------------- | ---------- | --------- |
+| `Trigger`               | `automation.kubezap.io/v1alpha1` | Namespaced | Available |
+| `Flow`                  | `automation.kubezap.io/v1alpha1` | Namespaced | Available |
+| `FlowRun`               | `automation.kubezap.io/v1alpha1` | Namespaced | Available |
+| `Integration`           | `automation.kubezap.io/v1alpha1` | Namespaced | Available |
+| `WebhookGatewayConfig`  | `automation.kubezap.io/v1alpha1` | Namespaced | Available |
+| `Step`                  | `automation.kubezap.io/v1alpha1` | Namespaced | Planned   |
 
 All CRDs are namespaced by default. Cluster-scoped variants are planned for multi-tenant deployments.
 
 `FlowRun` is an execution instance created automatically each time a trigger fires. It persists in etcd with full trigger metadata, step results, and timing — every execution is a Kubernetes resource you can inspect with `kubectl`. See [FlowRun CRD](api/flowrun.md).
 
 `Integration` stores connection details and credentials for external systems (Kafka clusters, message brokers, community plugins) and is referenced by Triggers (subscriber) and Flow steps (publisher). See [Integration CRD](api/integration.md).
+
+`WebhookGatewayConfig` configures the shared per-namespace webhook gateway Deployment — inbound TLS/mTLS, `HorizontalPodAutoscaler` range, and `PodDisruptionBudget`. At most one may exist per namespace. See [WebhookGatewayConfig CRD](api/webhookgatewayconfig.md).
 
 ---
 
@@ -326,7 +329,7 @@ spec:
       name: kubezap-webhook-tls
 ```
 
-At most one `WebhookGatewayConfig` object may exist per namespace — the operator's admission webhook rejects a second `create`, regardless of name.
+At most one `WebhookGatewayConfig` object may exist per namespace — the operator's admission webhook rejects a second `create`, regardless of name. See the [WebhookGatewayConfig CRD reference](api/webhookgatewayconfig.md) for the full spec/status field reference, the exact singleton-rejection error text, and a worked example combining TLS, a custom HPA range, and a `PodDisruptionBudget`.
 
 > **Migrated from a Namespace annotation.** Prior to this release, this was configured via the `kubezap.io/webhook-tls-secret` Namespace annotation. That annotation is no longer read anywhere in the operator — see the `CHANGELOG.md` entry under `## [Unreleased]` for the required migration step if you were relying on it.
 

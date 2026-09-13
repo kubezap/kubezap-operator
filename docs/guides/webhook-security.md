@@ -263,7 +263,7 @@ spec:
       name: webhook-client-ca      # client CA (ca.crt)
 ```
 
-At most one `WebhookGatewayConfig` object may exist per namespace — the operator's admission webhook rejects a second `create`.
+At most one `WebhookGatewayConfig` object may exist per namespace — the operator's admission webhook rejects a second `create`. See the [WebhookGatewayConfig CRD reference](../api/webhookgatewayconfig.md) for the full spec/status field reference, the exact singleton-rejection error text, and a worked example.
 
 Create the CA secret containing the certificate authority that issued the client certificates:
 

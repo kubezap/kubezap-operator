@@ -1,0 +1,6 @@
+# Benchmark output is machine-generated per run (raw FlowRun/Workflow JSON,
+# resource-sample JSON, and a per-cluster kubeconfig) and is not meant to be
+# committed — see ../run-benchmark.sh and ../METHODOLOGY.md §4.3.
+*
+!.gitignore
+!.gitkeep

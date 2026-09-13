@@ -1,0 +1,56 @@
+# Argo arm's scenario Workflow, per METHODOLOGY.md §1.3.
+#
+# Uses the classic `container` template (NOT the native `http` template) —
+# see METHODOLOGY.md §1.3 for why the `http` template (a shared per-workflow
+# Agent process, not per-step pods) would invalidate the comparison.
+#
+# Three sequential stages via three separate `- - name: stepN` entries in the
+# `steps` DAG shorthand (a new outer-list entry per stage forces sequential
+# execution; entries within one inner list would run in parallel — not what
+# we want here). All three stages reference the same `curl-ok` template, so
+# `status.nodes[].templateName` will be "curl-ok" for all three step pods;
+# the per-position identity comes from `status.nodes[].displayName`
+# (step1/step2/step3), matching METHODOLOGY.md §3.1's step-position join key.
+#
+# __RUN_NAME__ is substituted by scripts/run_argo.sh per firing. Namespace is
+# fixed to argo-bench (the dedicated Argo namespace this benchmark installs
+# a namespace-scoped workflow-controller into) rather than templated, since
+# every run in a given benchmark invocation targets the same namespace.
+#
+# serviceAccountName: argo — required because namespace-install.yaml (the
+# pinned Argo release manifest, see scripts/setup.sh) only binds the
+# "argo-role" RBAC Role to the "argo" ServiceAccount, not "default".
+apiVersion: argoproj.io/v1alpha1
+kind: Workflow
+metadata:
+  name: __RUN_NAME__
+  namespace: argo-bench
+  labels:
+    app.kubernetes.io/part-of: execution-latency-benchmark
+spec:
+  serviceAccountName: argo
+  entrypoint: main
+  # Default pod layout (Emissary executor, init container + wait sidecar) is
+  # used deliberately — no podSpecPatch / workflow-controller-configmap
+  # override enabling Argo 4.1's opt-in leaner layout. Per METHODOLOGY.md
+  # §1.3, that's the layout the overwhelming majority of current Argo
+  # installs run today, and what KubeZap's "lighter than Pod-per-step" claim
+  # is implicitly being compared against.
+  templates:
+    - name: main
+      steps:
+        - - name: step1
+            template: curl-ok
+        - - name: step2
+            template: curl-ok
+        - - name: step3
+            template: curl-ok
+    - name: curl-ok
+      container:
+        image: curlimages/curl:8.10.1
+        command: ["curl"]
+        args:
+          - "-sf"
+          - "-o"
+          - "/dev/null"
+          - "http://bench-mockoon.kubezap-bench.svc.cluster.local:3000/ok"

@@ -1,0 +1,55 @@
+# Same shape as test/e2e/feature_matrix_test.go's fmMockoonDeploymentYAML
+# (mockoon/cli image, single replica, restricted-compatible securityContext),
+# per METHODOLOGY.md §1.1.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: bench-mockoon
+  namespace: kubezap-bench
+  labels:
+    app.kubernetes.io/part-of: execution-latency-benchmark
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: bench-mockoon
+  template:
+    metadata:
+      labels:
+        app: bench-mockoon
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: mockoon
+          image: mockoon/cli:latest
+          args:
+            - --data
+            - /config/environment.json
+            - --port
+            - "3000"
+          ports:
+            - containerPort: 3000
+              name: mock
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            readOnlyRootFilesystem: true
+          volumeMounts:
+            - name: config
+              mountPath: /config
+              readOnly: true
+          readinessProbe:
+            tcpSocket:
+              port: 3000
+            initialDelaySeconds: 5
+            periodSeconds: 5
+      volumes:
+        - name: config
+          configMap:
+            name: bench-mockoon-config

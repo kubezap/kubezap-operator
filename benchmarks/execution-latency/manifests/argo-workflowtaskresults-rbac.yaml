@@ -1,0 +1,45 @@
+# Workaround for a known, documented gap in Argo Workflows' own
+# namespace-install.yaml release manifest (pinned per METHODOLOGY.md §2):
+# https://github.com/argoproj/argo-workflows/issues/8068 — the "argo-role"
+# Role that ships in that manifest grants only list/watch/deletecollection on
+# workflowtaskresults.argoproj.io, not create/patch. Since Argo 3.4+, the
+# `wait` sidecar in every step pod needs to *create* its own WorkflowTaskResult
+# to report step output back to the workflow-controller (the newer,
+# less-Workflow-object-churn alternative to directly patching the Workflow
+# CR). Without this, every single-step Workflow fails immediately with
+# "workflowtaskresults.argoproj.io is forbidden ... cannot create resource".
+#
+# This is a real upstream gap, not something introduced by this harness or by
+# KubeZap — confirmed live while validating this benchmark (2026-09-13) and
+# matches the fix the linked issue and Argo's own workflow-aggregate-roles
+# docs describe. Applied as an additive Role/RoleBinding (not a patch to the
+# vendored argo-role from namespace-install.yaml) so it survives an idempotent
+# re-apply of that upstream manifest on a harness re-run.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: argo-workflowtaskresults-workaround
+  namespace: argo-bench
+rules:
+  - apiGroups:
+      - argoproj.io
+    resources:
+      - workflowtaskresults
+    verbs:
+      - create
+      - patch
+      - get
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: argo-workflowtaskresults-workaround
+  namespace: argo-bench
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: argo-workflowtaskresults-workaround
+subjects:
+  - kind: ServiceAccount
+    name: argo
+    namespace: argo-bench

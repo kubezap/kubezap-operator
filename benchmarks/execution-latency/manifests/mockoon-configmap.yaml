@@ -1,0 +1,54 @@
+# Dedicated Mockoon fixture for the execution-latency benchmark.
+#
+# Mirrors fmMockoonConfigMapYAML's shape in test/e2e/feature_matrix_test.go
+# (one environment.json route, "latency": 0, single replica) per
+# METHODOLOGY.md §1.1, but lives in this benchmark's own namespace so runs
+# never contend with the e2e suite's shared Mockoon instance.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: bench-mockoon-config
+  namespace: kubezap-bench
+  labels:
+    app.kubernetes.io/part-of: execution-latency-benchmark
+data:
+  environment.json: |
+    {
+      "uuid": "bench-mockoon",
+      "lastMigration": 32,
+      "name": "Execution Latency Benchmark Mock",
+      "port": 3000,
+      "hostname": "0.0.0.0",
+      "endpointPrefix": "",
+      "latency": 0,
+      "routes": [
+        {
+          "uuid": "route-ok",
+          "type": "http",
+          "documentation": "Always-200 route; the shared HTTP target for both benchmark arms",
+          "method": "get",
+          "endpoint": "ok",
+          "responses": [
+            {
+              "uuid": "resp-ok",
+              "body": "{\"ok\":true}",
+              "latency": 0,
+              "statusCode": 200,
+              "headers": [
+                { "key": "Content-Type", "value": "application/json" }
+              ],
+              "label": "success",
+              "default": true
+            }
+          ],
+          "responseMode": null
+        }
+      ],
+      "rootChildren": [
+        { "type": "route", "uuid": "route-ok" }
+      ],
+      "proxyMode": false,
+      "logging": true,
+      "cors": true,
+      "tlsOptions": { "enabled": false }
+    }

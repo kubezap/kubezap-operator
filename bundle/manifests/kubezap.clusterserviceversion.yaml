@@ -150,19 +150,42 @@ metadata:
               "path": "/hooks/example"
             }
           }
+        },
+        {
+          "apiVersion": "automation.kubezap.io/v1alpha1",
+          "kind": "WebhookGatewayConfig",
+          "metadata": {
+            "name": "webhook-gateway-config",
+            "namespace": "default"
+          },
+          "spec": {
+            "hpa": {
+              "maxReplicas": 20,
+              "minReplicas": 2,
+              "targetCPUUtilization": 60
+            },
+            "tls": {
+              "clientCASecretRef": {
+                "name": "webhook-gateway-mtls-ca"
+              },
+              "serverSecretRef": {
+                "name": "webhook-gateway-tls"
+              }
+            }
+          }
         }
       ]
     capabilities: Basic Install
     categories: Integration & Delivery
     containerImage: ghcr.io/kubezap/controller:latest
-    createdAt: "2026-09-11T14:30:59Z"
+    createdAt: "2026-09-13T13:53:14Z"
     description: Declarative workflow automation for Kubernetes
     operatorframework.io/suggested-namespace: kubezap-system
     operators.operatorframework.io/builder: operator-sdk-v1.42.0
     operators.operatorframework.io/project_layout: go.kubebuilder.io/v4
     repository: https://github.com/kubezap/kubezap-operator
     support: KubeZap Community
-  name: kubezap.v0.3.0
+  name: kubezap.v0.0.1
   namespace: placeholder
 spec:
   apiservicedefinitions: {}
@@ -241,6 +264,9 @@ spec:
       displayName: Trigger
       kind: Trigger
       name: triggers.automation.kubezap.io
+      version: v1alpha1
+    - kind: WebhookGatewayConfig
+      name: webhookgatewayconfigs.automation.kubezap.io
       version: v1alpha1
   description: |
     KubeZap is an enterprise-grade Kubernetes operator providing declarative
@@ -369,6 +395,14 @@ spec:
           - update
           - watch
         - apiGroups:
+          - automation.kubezap.io
+          resources:
+          - webhookgatewayconfigs
+          verbs:
+          - get
+          - list
+          - watch
+        - apiGroups:
           - autoscaling
           resources:
           - horizontalpodautoscalers
@@ -396,6 +430,18 @@ spec:
           - networking.k8s.io
           resources:
           - networkpolicies
+          verbs:
+          - create
+          - delete
+          - get
+          - list
+          - patch
+          - update
+          - watch
+        - apiGroups:
+          - policy
+          resources:
+          - poddisruptionbudgets
           verbs:
           - create
           - delete
@@ -565,4 +611,4 @@ spec:
   provider:
     name: KubeZap Community
     url: https://github.com/kubezap/kubezap-operator
-  version: 0.3.0
+  version: 0.0.1

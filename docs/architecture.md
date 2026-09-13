@@ -12,7 +12,7 @@ This document describes the runtime architecture of KubeZap — specifically how
 - [Kafka Gateway](#kafka-gateway)
 - [Gateway Configuration: CRD-Watching](#gateway-configuration-crd-watching)
 - [Gateway ServiceAccount and RBAC](#gateway-serviceaccount-and-rbac)
-- [Trigger → Flow Invocation](#trigger--flow-invocation)
+- [Trigger → Flow Invocation](#trigger-flow-invocation)
 - [Scaling](#scaling)
 - [Namespace Isolation](#namespace-isolation)
 - [Multi-Tenancy](#multi-tenancy)
@@ -269,7 +269,7 @@ The gateway returns `202 Accepted` to the caller as soon as the FlowRun is creat
 
 ### Scale Limitations
 
-KubeZap is designed for **workflow orchestration** — multi-step flows with HTTP calls, retries, conditional branching, and wait steps. It is not designed for high-throughput stream processing (see [scale-limitations.md](design/scale-limitations.md)).
+KubeZap is designed for **workflow orchestration** — multi-step flows with HTTP calls, retries, conditional branching, and wait steps. It is not designed for high-throughput stream processing (see [scale-limitations.md](https://github.com/kubezap/kubezap-operator/blob/main/docs/design/scale-limitations.md), a design record in the repository — not part of this published docs site).
 
 FlowRun history is managed entirely via TTL and count-based GC policies. At high ingest rates, tuning these policies aggressively (short TTLs, low `maxSucceeded`/`maxFailed` counts) is required to avoid etcd storage pressure.
 

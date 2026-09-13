@@ -36,12 +36,9 @@ A `Trigger` defines an event source that starts a `Flow`. It listens for an even
     - [Kubernetes Ingress](#kubernetes-ingress)
     - [Kubernetes Gateway API (recommended for Kubernetes 1.28+)](#kubernetes-gateway-api-recommended-for-kubernetes-128)
     - [OpenShift Route](#openshift-route)
-  - [TLS and mTLS Annotations](#tls-and-mtls-annotations)
-    - [Custom Certificate Authority](#custom-certificate-authority)
-    - [Mutual TLS (mTLS) for Outbound Connections](#mutual-tls-mtls-for-outbound-connections)
+  - [TLS and mTLS](#tls-and-mtls)
+    - [Outbound TLS](#outbound-tls)
     - [Inbound Webhook mTLS](#inbound-webhook-mtls)
-    - [Skip TLS Verification (development only)](#skip-tls-verification-development-only)
-    - [Annotation Reference](#annotation-reference)
   - [Examples](#examples)
     - [Example 1: Webhook Trigger](#example-1-webhook-trigger)
     - [Example 2: Cron Trigger](#example-2-cron-trigger)
@@ -132,7 +129,7 @@ Configures authentication for a webhook trigger endpoint. If omitted, the endpoi
 | `ipAllowlist`  | IPAllowlistConfig  | Conditional | IP allowlist config. Required when `type: ipAllowlist`.                                        |
 | `headerEquals` | HeaderEqualsConfig | Conditional | Exact header match config. Required when `type: header-equals`.                                |
 
-> **Note — mTLS**: Client-certificate authentication is not configured via `WebhookAuth`. It is enforced at the TLS termination layer using the namespace's `WebhookGatewayConfig` object (`spec.tls.clientCASecretRef`). See [TLS and mTLS Annotations](#tls-and-mtls-annotations) for details.
+> **Note — mTLS**: Client-certificate authentication is not configured via `WebhookAuth`. It is enforced at the TLS termination layer using the namespace's `WebhookGatewayConfig` object (`spec.tls.clientCASecretRef`). See [TLS and mTLS](#tls-and-mtls) for details.
 
 ### HMACConfig
 
@@ -509,34 +506,14 @@ spec:
 
 ---
 
-## TLS and mTLS Annotations
+## TLS and mTLS
 
-TLS behavior is configured via annotations rather than spec fields, keeping the CRD schema focused on functional configuration.
+TLS covers two independent paths: **outbound** connections KubeZap makes to other systems, and **inbound** TLS for calls arriving at the webhook gateway. Neither is configured via Trigger-level annotations — outbound TLS is configured on the relevant `Integration`, and inbound TLS is configured on the namespace's `WebhookGatewayConfig`.
 
-### Custom Certificate Authority
+### Outbound TLS
 
-When the operator needs to call services that use a private or internal CA (for outbound connections from inline actions or when accepting webhook calls from clients using an internal CA):
-
-```yaml
-metadata:
-  annotations:
-    kubezap.io/tls-ca-secret: "my-internal-ca"
-```
-
-The referenced Secret must exist in the same namespace as the Trigger and contain a `ca.crt` key with a PEM-encoded certificate bundle.
-
-### Mutual TLS (mTLS) for Outbound Connections
-
-Provide a client certificate for outbound connections requiring mTLS:
-
-```yaml
-metadata:
-  annotations:
-    kubezap.io/tls-ca-secret: "my-internal-ca"
-    kubezap.io/tls-client-cert-secret: "my-client-cert"
-```
-
-The client certificate Secret must contain `tls.crt` and `tls.key` keys (standard Kubernetes TLS secret format). Use [cert-manager](https://cert-manager.io) to issue and rotate client certificates automatically.
+- **Broker connections (Kafka, AMQP, NATS)**: a custom CA and/or client certificate for mTLS are configured on the `Integration` resource, via `spec.kafka.tls`, `spec.amqp.tls`, or `spec.nats.tls` — each accepts `caSecretRef` (a Secret containing `ca.crt`) and `clientCertSecretRef` (a Secret containing `tls.crt` + `tls.key`). See the [Integration CRD reference](integration.md) (`KafkaTLSSpec`, `AmqpTLSConfig`, `NatsTLSConfig`) for full field details and worked examples.
+- **HTTP steps**: there is **no CA-bundle or client-certificate override for HTTP steps today**. Outbound HTTP calls are always verified against the executor pod's system trust store. The only related knob is a boolean `tlsSkipVerify` on the internal controller-to-executor `/execute` request, and the `http-executor` only honors it when started with the dev-only `--allow-tls-skip-verify` flag (off by default) — this is not exposed through any `Trigger` or `Flow` field, so in practice an HTTP step cannot skip or otherwise customize outbound TLS verification. See `docs/dev/http-executor.md` for the internal RPC contract. Trusting a private CA for an HTTP-step call is a known, currently-unaddressed gap.
 
 ### Inbound Webhook mTLS
 
@@ -559,26 +536,6 @@ spec:
 The operator will verify that the client certificate is signed by the CA in the specified Secret. Requests without a valid client certificate are rejected with HTTP 401. Note: inbound mTLS requires TLS passthrough at the Ingress/Route layer. See `docs/guides/webhook-security.md` for the full reference.
 
 > **Migration note**: the `kubezap.io/webhook-tls-secret` / `kubezap.io/webhook-mtls-ca-secret` Namespace annotations formerly used for this are no longer read (hard cutover, see `CHANGELOG.md`) — use `WebhookGatewayConfig` as shown above.
-
-### Skip TLS Verification (development only)
-
-```yaml
-metadata:
-  annotations:
-    kubezap.io/tls-insecure-skip-verify: "true"
-```
-
-> Disables certificate validation for outbound connections. **Never use in production.**
-
-### Annotation Reference
-
-| Annotation                            | Value       | Description                                                 |
-| ------------------------------------- | ----------- | ----------------------------------------------------------- |
-| `kubezap.io/tls-ca-secret`            | Secret name | PEM CA bundle (`ca.crt`) for outbound TLS verification      |
-| `kubezap.io/tls-client-cert-secret`   | Secret name | Client certificate (`tls.crt`, `tls.key`) for outbound mTLS |
-| `kubezap.io/tls-insecure-skip-verify` | `"true"`    | Skip outbound TLS verification (dev only)                   |
-
-Inbound webhook TLS/mTLS (server cert + client-CA verification) is **not** an annotation — it's namespace-scoped via `WebhookGatewayConfig.spec.tls`. See [Inbound Webhook mTLS](#inbound-webhook-mtls) above.
 
 ---
 

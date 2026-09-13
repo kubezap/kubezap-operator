@@ -19,6 +19,7 @@ package executorhttp
 import (
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -128,7 +129,14 @@ func (h *Handler) ServeExecute(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Build or reuse HTTP client.
-	client := h.httpClient(req.TLSSkipVerify)
+	client, err := h.httpClient(req)
+	if err != nil {
+		resp := ExecuteResponse{
+			Error: fmt.Sprintf("invalid_request: %v", err),
+		}
+		h.writeJSON(w, resp)
+		return
+	}
 
 	// Execute request.
 	upstream, err := client.Do(outReq)
@@ -183,18 +191,53 @@ func (h *Handler) ServeHealthz(w http.ResponseWriter, _ *http.Request) {
 }
 
 // httpClient returns the handler's HTTPClient or builds a one-shot client
-// with the appropriate TLS configuration.
-func (h *Handler) httpClient(tlsSkipVerify bool) *http.Client {
+// with the appropriate TLS configuration. When req carries a resolved CA
+// bundle and/or client certificate (populated controller-side; this handler
+// never resolves a reference itself), the returned client's transport trusts
+// that bundle in addition to the system root pool and/or presents that client
+// certificate. This logic is independent of, and does not affect,
+// InsecureSkipVerify handling.
+func (h *Handler) httpClient(req ExecuteRequest) (*http.Client, error) {
 	if h.HTTPClient != nil {
-		return h.HTTPClient
+		return h.HTTPClient, nil
 	}
 
-	skipVerify := h.AllowTLSSkipVerify && tlsSkipVerify
+	skipVerify := h.AllowTLSSkipVerify && req.TLSSkipVerify
+
+	tlsConfig := &tls.Config{
+		InsecureSkipVerify: skipVerify, //nolint:gosec // controlled by operator flag + explicit request field
+	}
+
+	if req.TLSCABundle != "" {
+		// Start from a clone of the system root pool (x509.SystemCertPool()
+		// already returns a fresh clone, safe to mutate here) and append the
+		// configured bundle — additive to system trust, never a replacement.
+		pool, err := x509.SystemCertPool()
+		if err != nil {
+			return nil, fmt.Errorf("loading system CA pool: %w", err)
+		}
+		if pool == nil {
+			pool = x509.NewCertPool()
+		}
+		if !pool.AppendCertsFromPEM([]byte(req.TLSCABundle)) {
+			return nil, fmt.Errorf("failed to parse TLS CA bundle: no valid PEM certificates found")
+		}
+		tlsConfig.RootCAs = pool
+	}
+
+	switch {
+	case req.TLSClientCert != "" && req.TLSClientKey != "":
+		cert, err := tls.X509KeyPair([]byte(req.TLSClientCert), []byte(req.TLSClientKey))
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse TLS client certificate/key: %w", err)
+		}
+		tlsConfig.Certificates = []tls.Certificate{cert}
+	case req.TLSClientCert != "" || req.TLSClientKey != "":
+		return nil, fmt.Errorf("tlsClientCert and tlsClientKey must both be set for client certificate authentication")
+	}
 
 	transport := &http.Transport{
-		TLSClientConfig: &tls.Config{
-			InsecureSkipVerify: skipVerify, //nolint:gosec // controlled by operator flag + explicit request field
-		},
+		TLSClientConfig: tlsConfig,
 		// Use sensible connection timeouts to avoid goroutine leaks.
 		DialContext: (&net.Dialer{
 			Timeout:   30 * time.Second,
@@ -202,7 +245,7 @@ func (h *Handler) httpClient(tlsSkipVerify bool) *http.Client {
 		}).DialContext,
 		TLSHandshakeTimeout: 10 * time.Second,
 	}
-	return &http.Client{Transport: transport}
+	return &http.Client{Transport: transport}, nil
 }
 
 // classifyTransportError maps a net/http transport error to an error-prefix string.

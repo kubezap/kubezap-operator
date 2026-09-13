@@ -114,6 +114,7 @@ var integrationCacheKey = integrationCacheKeyType{}
 // +kubebuilder:rbac:groups=automation.kubezap.io,resources=triggers,verbs=get;list;watch
 // +kubebuilder:rbac:groups=automation.kubezap.io,resources=integrations,verbs=get
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch
+// +kubebuilder:rbac:groups="",resources=configmaps,verbs=get;list;watch
 
 // FlowRunReconciler reconciles a FlowRun object.
 type FlowRunReconciler struct {
@@ -841,10 +842,12 @@ func (r *FlowRunReconciler) executeHTTPStep(
 		headers[k] = actual
 	}
 
-	// If an HTTP Integration is referenced, merge its base URL, auth headers, and default headers.
+	// If an HTTP Integration is referenced, merge its base URL, auth headers, default
+	// headers, and any configured TLS trust material (CA bundle / client cert).
+	var tlsMaterial httpTLSMaterial
 	if h.IntegrationRef != nil && h.IntegrationRef.Name != "" {
 		var err error
-		resolvedURL, err = r.applyHTTPIntegration(ctx, h.IntegrationRef.Name, namespace, resolvedURL, headers, stepResults, triggerData, params)
+		resolvedURL, tlsMaterial, err = r.applyHTTPIntegration(ctx, h.IntegrationRef.Name, namespace, resolvedURL, headers, stepResults, triggerData, params)
 		if err != nil {
 			return nil, "", 0, err
 		}
@@ -890,6 +893,9 @@ func (r *FlowRunReconciler) executeHTTPStep(
 		Headers:        headers,
 		Body:           body,
 		TimeoutSeconds: int(timeoutSec),
+		TLSCABundle:    tlsMaterial.CABundle,
+		TLSClientCert:  tlsMaterial.ClientCert,
+		TLSClientKey:   tlsMaterial.ClientKey,
 	}
 
 	var lastErr error
@@ -1274,9 +1280,24 @@ func (r *FlowRunReconciler) fetchSecretValue(ctx context.Context, namespace stri
 	return string(val), nil
 }
 
+// httpTLSMaterial holds resolved, inline TLS trust material for an HTTP
+// step's outbound call: a PEM CA bundle and/or a PEM client certificate/key
+// pair. The zero value means no TLS customization applies — the executor
+// falls back to the system root pool with no client certificate, exactly as
+// it does for an Integration with no TLS configured. This material is
+// forwarded to the executor via ExecuteRequest only; it is never written to
+// FlowRun.Status and never logged.
+type httpTLSMaterial struct {
+	CABundle   string
+	ClientCert string
+	ClientKey  string
+}
+
 // applyHTTPIntegration fetches the named HTTP Integration and merges its base URL,
 // default headers, and auth into the provided url and headers. Step-level headers
-// take precedence over integration defaults.
+// take precedence over integration defaults. It also resolves any configured TLS
+// trust material (CA bundle / client certificate), returned separately since it
+// does not belong in the URL or headers.
 func (r *FlowRunReconciler) applyHTTPIntegration(
 	ctx context.Context,
 	integrationName string,
@@ -1286,7 +1307,7 @@ func (r *FlowRunReconciler) applyHTTPIntegration(
 	stepResults map[string]map[string]string,
 	triggerData *automationv1alpha1.TriggerData,
 	params map[string]string,
-) (string, error) {
+) (string, httpTLSMaterial, error) {
 	// Use the per-reconcile Integration cache when available to avoid repeated
 	// API server calls when multiple HTTP steps reference the same Integration.
 	cacheKey := namespace + "/" + integrationName
@@ -1300,7 +1321,7 @@ func (r *FlowRunReconciler) applyHTTPIntegration(
 			Name:      integrationName,
 			Namespace: namespace,
 		}, &fetched); err != nil {
-			return "", fmt.Errorf("fetching http integration %q: %w", integrationName, err)
+			return "", httpTLSMaterial{}, fmt.Errorf("fetching http integration %q: %w", integrationName, err)
 		}
 		integration = &fetched
 		if cache, _ := ctx.Value(integrationCacheKey).(map[string]*automationv1alpha1.Integration); cache != nil {
@@ -1308,7 +1329,7 @@ func (r *FlowRunReconciler) applyHTTPIntegration(
 		}
 	}
 	if integration.Spec.HTTP == nil {
-		return resolvedURL, nil
+		return resolvedURL, httpTLSMaterial{}, nil
 	}
 	httpInteg := integration.Spec.HTTP
 
@@ -1329,11 +1350,102 @@ func (r *FlowRunReconciler) applyHTTPIntegration(
 		var err error
 		resolvedURL, err = r.applyHTTPAuth(ctx, httpInteg.Auth, integrationName, namespace, resolvedURL, headers)
 		if err != nil {
-			return "", err
+			return "", httpTLSMaterial{}, err
 		}
 	}
 
-	return resolvedURL, nil
+	// Resolve TLS trust material (CA bundle / client cert), if configured.
+	var tlsMaterial httpTLSMaterial
+	if httpInteg.TLS != nil {
+		var err error
+		tlsMaterial, err = r.resolveHTTPTLS(ctx, httpInteg.TLS, integrationName, namespace)
+		if err != nil {
+			return "", httpTLSMaterial{}, err
+		}
+	}
+
+	return resolvedURL, tlsMaterial, nil
+}
+
+// resolveHTTPTLS resolves an HTTP Integration's TLS configuration into inline
+// PEM content for forwarding to the executor via ExecuteRequest. The CA bundle
+// is read from a ConfigMap key (public trust material, not a secret); the
+// client certificate is read from a Secret's standard "tls.crt"/"tls.key" keys
+// (matching the kubernetes.io/tls Secret shape, and the existing
+// Kafka/AMQP/NATS ClientCertSecretRef convention). The executor never resolves
+// these references itself — only the resolved PEM content ever leaves this
+// controller, over the internal executor RPC, never persisted to FlowRun.Status
+// or logged.
+func (r *FlowRunReconciler) resolveHTTPTLS(
+	ctx context.Context,
+	tlsSpec *automationv1alpha1.HttpTLSSpec,
+	integrationName string,
+	namespace string,
+) (httpTLSMaterial, error) {
+	var material httpTLSMaterial
+
+	if tlsSpec.CABundleConfigMapRef != nil {
+		bundle, err := r.fetchConfigMapValue(ctx, namespace, *tlsSpec.CABundleConfigMapRef)
+		if err != nil {
+			return httpTLSMaterial{}, fmt.Errorf("fetching CA bundle for integration %q: %w", integrationName, err)
+		}
+		material.CABundle = bundle
+	}
+
+	if tlsSpec.ClientCertSecretRef != nil {
+		var secret corev1.Secret
+		if err := r.Get(ctx, types.NamespacedName{
+			Name:      tlsSpec.ClientCertSecretRef.Name,
+			Namespace: namespace,
+		}, &secret); err != nil {
+			return httpTLSMaterial{}, fmt.Errorf("fetching client cert secret %q for integration %q: %w",
+				tlsSpec.ClientCertSecretRef.Name, integrationName, err)
+		}
+		cert, ok := secret.Data[corev1.TLSCertKey]
+		if !ok {
+			return httpTLSMaterial{}, fmt.Errorf("key %q not found in client cert secret %q for integration %q",
+				corev1.TLSCertKey, tlsSpec.ClientCertSecretRef.Name, integrationName)
+		}
+		key, ok := secret.Data[corev1.TLSPrivateKeyKey]
+		if !ok {
+			return httpTLSMaterial{}, fmt.Errorf("key %q not found in client cert secret %q for integration %q",
+				corev1.TLSPrivateKeyKey, tlsSpec.ClientCertSecretRef.Name, integrationName)
+		}
+		material.ClientCert = string(cert)
+		material.ClientKey = string(key)
+
+		// Audit: emit structured log + Prometheus counter for every secret read,
+		// same as fetchSecretValue — but never the private key value itself.
+		ctrl.LoggerFrom(ctx).V(1).Info("secret accessed",
+			"namespace", namespace,
+			"secretName", tlsSpec.ClientCertSecretRef.Name,
+			"secretKey", corev1.TLSCertKey+","+corev1.TLSPrivateKeyKey,
+		)
+		metrics.SecretAccesses.WithLabelValues(namespace, tlsSpec.ClientCertSecretRef.Name).Inc()
+	}
+
+	return material, nil
+}
+
+// fetchConfigMapValue reads a single key's value from a ConfigMap. Mirrors
+// fetchSecretValue's audit-logging pattern (name + key only, never the value).
+// ConfigMap content is not treated as a secret (see HttpTLSSpec's CA bundle
+// field), so no SecretAccesses metric is emitted here.
+func (r *FlowRunReconciler) fetchConfigMapValue(ctx context.Context, namespace string, ref corev1.ConfigMapKeySelector) (string, error) {
+	var cm corev1.ConfigMap
+	if err := r.Get(ctx, types.NamespacedName{Name: ref.Name, Namespace: namespace}, &cm); err != nil {
+		return "", fmt.Errorf("configmap %q not found: %w", ref.Name, err)
+	}
+	val, ok := cm.Data[ref.Key]
+	if !ok {
+		return "", fmt.Errorf("key %q not found in configmap %q", ref.Key, ref.Name)
+	}
+	ctrl.LoggerFrom(ctx).V(1).Info("configmap accessed",
+		"namespace", namespace,
+		"configMapName", ref.Name,
+		"configMapKey", ref.Key,
+	)
+	return val, nil
 }
 
 // applyHTTPAuth resolves the auth configuration from an HTTP Integration and

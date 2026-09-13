@@ -353,6 +353,57 @@ spec:
                       Default headers merged into every request using this Integration.
                       Step-level headers override these defaults.
                     type: object
+                  tls:
+                    description: |-
+                      TLS configures a private CA bundle to trust and/or a client certificate
+                      to present for outbound HTTP steps that reference this Integration.
+                    properties:
+                      caBundleConfigMapRef:
+                        description: |-
+                          ConfigMap key containing a PEM-encoded CA bundle (one or more concatenated
+                          certificates, e.g. a private root plus intermediates) to trust in addition
+                          to the system root CA pool for outbound calls using this Integration.
+                        properties:
+                          key:
+                            description: |-
+                              The key to select from the ConfigMap's Data field.
+                              Keys in the BinaryData field are not currently propagated to container env vars.
+                            type: string
+                          name:
+                            default: ""
+                            description: |-
+                              Name of the referent.
+                              This field is effectively required, but due to backwards compatibility is
+                              allowed to be empty. Instances of this type with an empty value here are
+                              almost certainly wrong.
+                              More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                            type: string
+                          optional:
+                            description: Specify whether the ConfigMap or its key
+                              must be defined
+                            type: boolean
+                        required:
+                        - key
+                        type: object
+                        x-kubernetes-map-type: atomic
+                      clientCertSecretRef:
+                        description: |-
+                          Secret containing a client certificate for mTLS. The Secret must contain
+                          standard "tls.crt" and "tls.key" keys, matching the kubernetes.io/tls
+                          Secret shape.
+                        properties:
+                          name:
+                            default: ""
+                            description: |-
+                              Name of the referent.
+                              This field is effectively required, but due to backwards compatibility is
+                              allowed to be empty. Instances of this type with an empty value here are
+                              almost certainly wrong.
+                              More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                            type: string
+                        type: object
+                        x-kubernetes-map-type: atomic
+                    type: object
                 type: object
               kafka:
                 description: Kafka specific configuration. Required when type=kafka.

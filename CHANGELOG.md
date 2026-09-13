@@ -9,6 +9,27 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Breaking
+- **Webhook gateway TLS/mTLS is no longer configured via Namespace annotations.** The `kubezap.io/webhook-tls-secret` and `kubezap.io/webhook-mtls-ca-secret` Namespace annotations are no longer read by the controller — this is a hard cutover with no dual-read or deprecation window (see `docs/design/2026-09-12-webhookgatewayconfig-crd.md`).
+
+  **Action required before upgrading:** if any namespace's `Namespace` object currently carries either annotation, create a `WebhookGatewayConfig` object in that namespace with the equivalent `spec.tls` fields **before** upgrading the operator:
+
+  ```yaml
+  apiVersion: automation.kubezap.io/v1alpha1
+  kind: WebhookGatewayConfig
+  metadata:
+    name: default
+    namespace: <namespace>
+  spec:
+    tls:
+      serverSecretRef:
+        name: <value of kubezap.io/webhook-tls-secret>
+      clientCASecretRef:
+        name: <value of kubezap.io/webhook-mtls-ca-secret>   # omit if not set
+  ```
+
+  If you skip this step, the annotations are silently ignored post-upgrade and the webhook gateway in that namespace **reverts to plain HTTP with no client-certificate verification** — no error, no warning, just a loss of TLS/mTLS termination. See `docs/guides/webhook-security.md` and `docs/overview.md` for the full `WebhookGatewayConfig` reference.
+
 ### Added
 - GitHub Actions CI workflow: unified lint, test, build, docker-build on every push and PR
 - GitHub Actions release workflow: GoReleaser CLI binaries + container image push to GHCR on tag

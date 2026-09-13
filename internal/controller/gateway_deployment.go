@@ -243,8 +243,8 @@ func desiredWebhookGatewayPDB(namespace string, cfg *automationv1alpha1.WebhookG
 // simply returns the first (and, per that invariant, only) item found.
 //
 // Called once per reconcile from ensureWebhookGateway (internal/controller/trigger_controller.go),
-// which feeds the result into both desiredWebhookGatewayHPAFromConfig and
-// desiredWebhookGatewayPDB.
+// which feeds the result into desiredWebhookGatewayHPAFromConfig, desiredWebhookGatewayPDB,
+// and the gateway's TLS configuration (spec.tls) — see that function's doc comment.
 func getWebhookGatewayConfig(ctx context.Context, c client.Client, namespace string) (*automationv1alpha1.WebhookGatewayConfig, error) {
 	var list automationv1alpha1.WebhookGatewayConfigList
 	if err := c.List(ctx, &list, client.InNamespace(namespace)); err != nil {

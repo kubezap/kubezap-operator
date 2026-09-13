@@ -54,8 +54,7 @@ No version of KubeZap has been released yet — everything below is unreleased. 
 - Multi-namespace support: all four OLM install modes (AllNamespaces, SingleNamespace, MultiNamespace, OwnNamespace); `WATCH_NAMESPACES` env var controls scope, with Role vs. ClusterRole chosen per mode
 - `config/samples/` example CRs for every CRD type; Kubebuilder-scaffolded project on distroless/static:nonroot base images
 - GitHub Actions CI workflow — unified lint, test, build, docker-build on every push and PR
-- GitHub Actions release workflow — GoReleaser CLI binaries + container image push to GHCR on tag
-- GitHub Actions publish-latest workflow — `:latest` image push on merge to `main`
+- GitHub Actions release workflow — GoReleaser CLI binaries + versioned container image push (including `:latest`) to GHCR on tag
 - Helm chart published to an OCI registry (`ghcr.io/kubezap/charts/kubezap-operator`)
 - `docs/releasing.md` — internal release runbook
 

@@ -1,6 +1,6 @@
 # EPIC-002: Post-Release Hardening & Feature Backlog
 
-**Status:** In Progress — STORY-017/018/019/020/022 done, STORY-021 unblocked but not yet groomed
+**Status:** In Progress — STORY-017/018/019/020/022 done, STORY-021 unblocked but not yet groomed, STORY-028 new (not yet footprinted)
 **PI:** —
 
 ## Problem
@@ -29,6 +29,10 @@ Groomed 2026-09-12 (checkpoint triage):
 - [x] [STORY-020](../stories/STORY-020-flowrun-step-timing-precision-design.md) — Design record: sub-second step-timing visibility on `FlowRun` (real per-step latency is currently only visible via a Prometheus scrape, not `kubectl get flowrun`). Done — PR #204, merged.
 - [ ] [STORY-021](../stories/STORY-021-flowrun-step-timing-precision-impl.md) — Implementation of STORY-020's decisions. Unblocked (STORY-020 Done); not yet groomed/footprinted.
 - [x] [STORY-022](../stories/STORY-022-webhook-auth-test-coverage.md) — Add missing functional test coverage for `bearer`/`apiKey`/`basic`/`headerEquals` webhook auth types (found during STORY-003's test-suite spot-check — only 3 of 7 auth types had real accept/reject tests). Done — PR #210, merged.
+
+Groomed 2026-09-13 (readiness-review triage):
+
+- [ ] [STORY-028](../stories/STORY-028-container-image-and-sast-scanning.md) — Container image CVE scanning (Trivy) + static analysis (CodeQL) — closes the gap between Dependabot/`govulncheck` (declared dependencies only) and the actual built images/source. Backlog, not yet footprinted.
 
 ## Dependencies
 

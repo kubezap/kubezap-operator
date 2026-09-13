@@ -12,7 +12,7 @@ The `PI` column is the source of truth for what's actually committed — an epic
 | EPIC-002 | Post-Release Hardening & Feature Backlog | Backlog | — | [epics/EPIC-002-post-release-hardening.md](epics/EPIC-002-post-release-hardening.md) |
 | EPIC-003 | WebhookGatewayConfig CRD | Done | PI-1 | [epics/EPIC-003-webhook-gateway-config-crd.md](epics/EPIC-003-webhook-gateway-config-crd.md) |
 | EPIC-004 | Execution Latency Benchmarking (RPC Executor vs. Pod-per-Step) | Done | PI-1 | [epics/EPIC-004-execution-latency-benchmarking.md](epics/EPIC-004-execution-latency-benchmarking.md) |
-| EPIC-005 | HTTP Step Outbound TLS/CA Support | In Progress | PI-1 | [epics/EPIC-005-http-step-outbound-tls.md](epics/EPIC-005-http-step-outbound-tls.md) |
+| EPIC-005 | HTTP Step Outbound TLS/CA Support | Done | PI-1 | [epics/EPIC-005-http-step-outbound-tls.md](epics/EPIC-005-http-step-outbound-tls.md) |
 
 ## Stories
 
@@ -44,7 +44,7 @@ The `PI` column is the source of truth for what's actually committed — an epic
 | STORY-024 | [Fix OLM scorecard descriptor/resource gaps in the CSV](stories/STORY-024-olm-csv-descriptors.md) | EPIC-001 | Done (PR #209) | S |
 | STORY-025 | [Design record: HTTP-step outbound CA-bundle/client-cert support](stories/STORY-025-http-outbound-tls-design-record.md) | EPIC-005 | Done (PR #213) | S |
 | STORY-026 | [Implement HTTP-step outbound TLS/CA support](stories/STORY-026-http-outbound-tls-impl.md) | EPIC-005 | Done (PR #214) | M |
-| STORY-027 | [Docs for HTTP-step outbound TLS/CA support](stories/STORY-027-http-outbound-tls-docs.md) | EPIC-005 | In Progress — [PR #216](https://github.com/kubezap/kubezap-operator/pull/216) open | S |
+| STORY-027 | [Docs for HTTP-step outbound TLS/CA support](stories/STORY-027-http-outbound-tls-docs.md) | EPIC-005 | Done (PR #216) | S |
 | STORY-028 | [Container image CVE scanning + static analysis (CodeQL)](stories/STORY-028-container-image-and-sast-scanning.md) | EPIC-002 | Backlog — not yet footprinted | M |
 
 ## Backlog Candidates (not yet epics)

@@ -132,7 +132,7 @@ Configures authentication for a webhook trigger endpoint. If omitted, the endpoi
 | `ipAllowlist`  | IPAllowlistConfig  | Conditional | IP allowlist config. Required when `type: ipAllowlist`.                                        |
 | `headerEquals` | HeaderEqualsConfig | Conditional | Exact header match config. Required when `type: header-equals`.                                |
 
-> **Note — mTLS**: Client-certificate authentication is not configured via `WebhookAuth`. It is enforced at the TLS termination layer using the `kubezap.io/webhook-mtls-ca-secret` annotation. See [TLS and mTLS Annotations](#tls-and-mtls-annotations) for details.
+> **Note — mTLS**: Client-certificate authentication is not configured via `WebhookAuth`. It is enforced at the TLS termination layer using the namespace's `WebhookGatewayConfig` object (`spec.tls.clientCASecretRef`). See [TLS and mTLS Annotations](#tls-and-mtls-annotations) for details.
 
 ### HMACConfig
 
@@ -540,15 +540,25 @@ The client certificate Secret must contain `tls.crt` and `tls.key` keys (standar
 
 ### Inbound Webhook mTLS
 
-Require callers to present a valid client certificate when calling this trigger's webhook endpoint:
+Require callers to present a valid client certificate when calling this trigger's webhook endpoint. This is configured per-namespace, not per-Trigger, via a `WebhookGatewayConfig` object (the webhook gateway is one shared Deployment per namespace):
 
 ```yaml
+apiVersion: automation.kubezap.io/v1alpha1
+kind: WebhookGatewayConfig
 metadata:
-  annotations:
-    kubezap.io/webhook-mtls-ca-secret: "webhook-client-ca"
+  name: default
+  namespace: <namespace>
+spec:
+  tls:
+    serverSecretRef:
+      name: kubezap-webhook-tls
+    clientCASecretRef:
+      name: webhook-client-ca
 ```
 
-The operator will verify that the client certificate is signed by the CA in the specified Secret. Requests without a valid client certificate are rejected with HTTP 401. Note: inbound mTLS requires TLS passthrough at the Ingress/Route layer.
+The operator will verify that the client certificate is signed by the CA in the specified Secret. Requests without a valid client certificate are rejected with HTTP 401. Note: inbound mTLS requires TLS passthrough at the Ingress/Route layer. See `docs/guides/webhook-security.md` for the full reference.
+
+> **Migration note**: the `kubezap.io/webhook-tls-secret` / `kubezap.io/webhook-mtls-ca-secret` Namespace annotations formerly used for this are no longer read (hard cutover, see `CHANGELOG.md`) — use `WebhookGatewayConfig` as shown above.
 
 ### Skip TLS Verification (development only)
 
@@ -566,8 +576,9 @@ metadata:
 | ------------------------------------- | ----------- | ----------------------------------------------------------- |
 | `kubezap.io/tls-ca-secret`            | Secret name | PEM CA bundle (`ca.crt`) for outbound TLS verification      |
 | `kubezap.io/tls-client-cert-secret`   | Secret name | Client certificate (`tls.crt`, `tls.key`) for outbound mTLS |
-| `kubezap.io/webhook-mtls-ca-secret`   | Secret name | CA to verify inbound webhook client certificates            |
 | `kubezap.io/tls-insecure-skip-verify` | `"true"`    | Skip outbound TLS verification (dev only)                   |
+
+Inbound webhook TLS/mTLS (server cert + client-CA verification) is **not** an annotation — it's namespace-scoped via `WebhookGatewayConfig.spec.tls`. See [Inbound Webhook mTLS](#inbound-webhook-mtls) above.
 
 ---
 

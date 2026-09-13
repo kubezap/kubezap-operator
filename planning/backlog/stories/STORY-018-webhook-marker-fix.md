@@ -1,7 +1,7 @@
 # STORY-018: Fix silently-dropped `+kubebuilder:webhook` markers (Trigger, FlowRun)
 
 **Epic:** EPIC-002 — Post-Release Hardening & Feature Backlog
-**Status:** Groomed
+**Status:** Done (PR #194)
 **Size:** XS
 
 ## Description

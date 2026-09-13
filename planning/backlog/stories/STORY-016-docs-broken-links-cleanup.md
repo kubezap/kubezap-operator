@@ -1,7 +1,7 @@
 # STORY-016: Fix broken doc links/anchors surfaced by the MkDocs build
 
 **Epic:** EPIC-001 — Open Source Release Readiness
-**Status:** Groomed
+**Status:** Done (PR #193)
 **Size:** XS
 
 ## Description

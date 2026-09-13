@@ -1,7 +1,7 @@
 # STORY-010: PodDisruptionBudget reconciliation for the webhook gateway
 
 **Epic:** EPIC-003 — WebhookGatewayConfig CRD
-**Status:** Groomed
+**Status:** Done (PR #196)
 **Size:** S
 
 ## Description

@@ -1,7 +1,7 @@
 # STORY-012: Docs for `WebhookGatewayConfig`
 
 **Epic:** EPIC-003 — WebhookGatewayConfig CRD
-**Status:** Backlog — blocked on STORY-009/010/011 (design is now settled via STORY-008, but this documents shipped behavior, not the design)
+**Status:** Backlog — unblocked (STORY-009/010/011 all Done), ready to groom/dispatch
 **Size:** S
 
 ## Description

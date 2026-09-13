@@ -1,7 +1,7 @@
 # STORY-017: `goconst` cleanup in production code
 
 **Epic:** EPIC-002 — Post-Release Hardening & Feature Backlog
-**Status:** Groomed
+**Status:** Done (merged, PR #198)
 **Size:** M
 
 ## Description

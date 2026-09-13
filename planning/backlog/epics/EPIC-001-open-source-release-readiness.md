@@ -38,7 +38,7 @@ Open:
 - [x] [STORY-005](../stories/STORY-005-community-health-files.md) — `CODE_OF_CONDUCT.md` + issue/PR templates
 - [x] [STORY-006](../stories/STORY-006-support-channel-decision.md) — Support/community channel decision
 - [ ] [STORY-007](../stories/STORY-007-final-release-validation.md) — Final release validation and OperatorHub submission (rollup gate — last)
-- [ ] [STORY-016](../stories/STORY-016-docs-broken-links-cleanup.md) — Fix broken doc links/anchors surfaced by the MkDocs build (added 2026-09-12 checkpoint, from follow-ups)
+- [x] [STORY-016](../stories/STORY-016-docs-broken-links-cleanup.md) — Fix broken doc links/anchors surfaced by the MkDocs build. Done — PR #193, merged.
 
 ## Dependencies
 

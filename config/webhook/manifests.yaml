@@ -10,6 +10,26 @@ webhooks:
     service:
       name: webhook-service
       namespace: system
+      path: /validate-automation-kubezap-io-v1alpha1-flowrun
+  failurePolicy: Ignore
+  name: vflowrun.kb.io
+  rules:
+  - apiGroups:
+    - automation.kubezap.io
+    apiVersions:
+    - v1alpha1
+    operations:
+    - CREATE
+    - UPDATE
+    resources:
+    - flowruns
+  sideEffects: None
+- admissionReviewVersions:
+  - v1
+  clientConfig:
+    service:
+      name: webhook-service
+      namespace: system
       path: /validate-automation-kubezap-io-v1alpha1-trigger
   failurePolicy: Ignore
   name: vtrigger.kb.io

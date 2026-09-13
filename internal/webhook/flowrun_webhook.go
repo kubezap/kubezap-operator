@@ -87,6 +87,8 @@ func extractFlowRefNamespace(raw map[string]interface{}) string {
 	return ns
 }
 
+// +kubebuilder:webhook:path=/validate-automation-kubezap-io-v1alpha1-flowrun,mutating=false,failurePolicy=ignore,sideEffects=None,groups=automation.kubezap.io,resources=flowruns,verbs=create;update,versions=v1alpha1,name=vflowrun.kb.io,admissionReviewVersions=v1
+
 // SetupFlowRunWebhook registers the FlowRun validating webhook with the
 // controller-manager's webhook server.
 //

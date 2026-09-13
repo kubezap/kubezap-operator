@@ -24,6 +24,7 @@ import (
 	. "github.com/onsi/gomega"
 	appsv1 "k8s.io/api/apps/v1"
 	autoscalingv2 "k8s.io/api/autoscaling/v2"
+	corev1 "k8s.io/api/core/v1"
 	policyv1 "k8s.io/api/policy/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -608,6 +609,120 @@ var _ = Describe("TriggerReconciler", func() {
 			pdbKey := types.NamespacedName{Name: webhookGatewayDeploymentName, Namespace: testNamespace}
 			Expect(k8sClient.Get(ctx, pdbKey, &pdb)).To(Succeed())
 			Expect(*pdb.Spec.MinAvailable).To(Equal(intstr.FromInt32(2)))
+		})
+	})
+
+	// -------------------------------------------------------------------------
+	// WebhookGatewayConfig.spec.tls — STORY-011 hard cutover from Namespace
+	// annotations (kubezap.io/webhook-tls-secret, kubezap.io/webhook-mtls-ca-secret)
+	// to the CRD. The annotations are no longer read at all; see CHANGELOG.md.
+	// -------------------------------------------------------------------------
+
+	Context("when a WebhookGatewayConfig with spec.tls exists in the namespace", func() {
+		var trigger *automationv1alpha1.Trigger
+		var cfg *automationv1alpha1.WebhookGatewayConfig
+
+		BeforeEach(func() {
+			cfg = &automationv1alpha1.WebhookGatewayConfig{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "gw-cfg-tls-test",
+					Namespace: testNamespace,
+				},
+				Spec: automationv1alpha1.WebhookGatewayConfigSpec{
+					TLS: &automationv1alpha1.WebhookGatewayTLSSpec{
+						ServerSecretRef:   &corev1.LocalObjectReference{Name: "kubezap-webhook-tls"},
+						ClientCASecretRef: &corev1.LocalObjectReference{Name: "webhook-client-ca"},
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, cfg)).To(Succeed())
+
+			trigger = makeTrigger(
+				fmt.Sprintf("trg-gwtls-%d", GinkgoRandomSeed()),
+				automationv1alpha1.TriggerSpec{
+					Type:    "webhook",
+					Enabled: true,
+					Webhook: &automationv1alpha1.WebhookTrigger{
+						Path:   "/hook/gwtls",
+						Method: "POST",
+					},
+					FlowRef: &automationv1alpha1.FlowReference{Name: "example-flow"},
+				},
+			)
+			Expect(k8sClient.Create(ctx, trigger)).To(Succeed())
+			DeferCleanup(func() {
+				_ = k8sClient.Delete(context.Background(), trigger)
+				_ = k8sClient.Delete(context.Background(), cfg)
+			})
+		})
+
+		It("mounts the TLS and mTLS CA secrets named in spec.tls onto the gateway Deployment", func() {
+			r := newReconciler()
+			nn := types.NamespacedName{Name: trigger.Name, Namespace: testNamespace}
+			_, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
+			Expect(err).NotTo(HaveOccurred())
+
+			var deploy appsv1.Deployment
+			deployKey := types.NamespacedName{Name: webhookGatewayDeploymentName, Namespace: testNamespace}
+			Expect(k8sClient.Get(ctx, deployKey, &deploy)).To(Succeed())
+
+			var tlsVol, caVol *corev1.Volume
+			for i := range deploy.Spec.Template.Spec.Volumes {
+				v := &deploy.Spec.Template.Spec.Volumes[i]
+				switch v.Name {
+				case "webhook-tls":
+					tlsVol = v
+				case "webhook-mtls-ca":
+					caVol = v
+				}
+			}
+			Expect(tlsVol).NotTo(BeNil(), "expected a webhook-tls volume sourced from spec.tls.serverSecretRef")
+			Expect(tlsVol.Secret.SecretName).To(Equal("kubezap-webhook-tls"))
+			Expect(caVol).NotTo(BeNil(), "expected a webhook-mtls-ca volume sourced from spec.tls.clientCASecretRef")
+			Expect(caVol.Secret.SecretName).To(Equal("webhook-client-ca"))
+
+			var svc corev1.Service
+			Expect(k8sClient.Get(ctx, deployKey, &svc)).To(Succeed())
+			Expect(svc.Spec.Ports[0].Name).To(Equal("https"), "Service port should switch to https once TLS is configured")
+		})
+	})
+
+	Context("when no WebhookGatewayConfig exists in the namespace", func() {
+		var trigger *automationv1alpha1.Trigger
+
+		BeforeEach(func() {
+			trigger = makeTrigger(
+				fmt.Sprintf("trg-notls-%d", GinkgoRandomSeed()),
+				automationv1alpha1.TriggerSpec{
+					Type:    "webhook",
+					Enabled: true,
+					Webhook: &automationv1alpha1.WebhookTrigger{
+						Path:   "/hook/notls",
+						Method: "POST",
+					},
+					FlowRef: &automationv1alpha1.FlowReference{Name: "example-flow"},
+				},
+			)
+			Expect(k8sClient.Create(ctx, trigger)).To(Succeed())
+			DeferCleanup(func() {
+				_ = k8sClient.Delete(context.Background(), trigger)
+			})
+		})
+
+		It("serves plain HTTP with no TLS volumes mounted (absent-config default, not a fallback to Namespace annotations)", func() {
+			r := newReconciler()
+			nn := types.NamespacedName{Name: trigger.Name, Namespace: testNamespace}
+			_, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
+			Expect(err).NotTo(HaveOccurred())
+
+			var deploy appsv1.Deployment
+			deployKey := types.NamespacedName{Name: webhookGatewayDeploymentName, Namespace: testNamespace}
+			Expect(k8sClient.Get(ctx, deployKey, &deploy)).To(Succeed())
+			Expect(deploy.Spec.Template.Spec.Volumes).To(BeEmpty())
+
+			var svc corev1.Service
+			Expect(k8sClient.Get(ctx, deployKey, &svc)).To(Succeed())
+			Expect(svc.Spec.Ports[0].Name).To(Equal("http"))
 		})
 	})
 })

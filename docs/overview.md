@@ -312,16 +312,23 @@ The client certificate secret must contain `tls.crt` and `tls.key` keys (standar
 
 ### Server-Side TLS for the Webhook Gateway
 
-The webhook gateway serves plain HTTP by default. To enable HTTPS (required for mTLS, re-encrypt routes, and end-to-end encryption), annotate the **Namespace** with the name of a TLS Secret:
+The webhook gateway serves plain HTTP by default. To enable HTTPS (required for mTLS, re-encrypt routes, and end-to-end encryption), create a **`WebhookGatewayConfig`** object in the namespace referencing a TLS Secret:
 
 ```yaml
-apiVersion: v1
-kind: Namespace
+apiVersion: automation.kubezap.io/v1alpha1
+kind: WebhookGatewayConfig
 metadata:
-  name: my-namespace
-  annotations:
-    kubezap.io/webhook-tls-secret: "kubezap-webhook-tls"
+  name: default
+  namespace: my-namespace
+spec:
+  tls:
+    serverSecretRef:
+      name: kubezap-webhook-tls
 ```
+
+At most one `WebhookGatewayConfig` object may exist per namespace — the operator's admission webhook rejects a second `create`, regardless of name.
+
+> **Migrated from a Namespace annotation.** Prior to this release, this was configured via the `kubezap.io/webhook-tls-secret` Namespace annotation. That annotation is no longer read anywhere in the operator — see the `CHANGELOG.md` entry under `## [Unreleased]` for the required migration step if you were relying on it.
 
 The Secret must contain `tls.crt` and `tls.key` in standard Kubernetes TLS Secret format, compatible with [cert-manager](https://cert-manager.io) `Certificate` resources:
 
@@ -342,26 +349,30 @@ spec:
 EOF
 ```
 
-When the annotation is present, the controller:
+When `spec.tls.serverSecretRef` is set, the controller:
 - Mounts the Secret as a read-only volume at `/etc/webhook-tls` in the gateway pod
 - Starts the gateway with `--tls-cert-file=/etc/webhook-tls/tls.crt --tls-key-file=/etc/webhook-tls/tls.key`
 - Switches liveness/readiness probes to HTTPS scheme
 - Renames the Service port from `http` to `https`
 
-> **Annotation is read on every reconcile.** Adding or removing the annotation will update the gateway Deployment on the next Trigger reconcile.
+> **`WebhookGatewayConfig` is read on every reconcile.** Creating, updating, or deleting the object will update the gateway Deployment on the next Trigger reconcile.
 
 ### Inbound mTLS (Mutual TLS)
 
-For zero-trust environments where webhook callers must present a client certificate, enable mTLS by adding a second annotation to the **Namespace**:
+For zero-trust environments where webhook callers must present a client certificate, enable mTLS by also setting `clientCASecretRef` on the same `WebhookGatewayConfig` object:
 
 ```yaml
-apiVersion: v1
-kind: Namespace
+apiVersion: automation.kubezap.io/v1alpha1
+kind: WebhookGatewayConfig
 metadata:
-  name: my-namespace
-  annotations:
-    kubezap.io/webhook-tls-secret: "kubezap-webhook-tls"       # required: server TLS first
-    kubezap.io/webhook-mtls-ca-secret: "webhook-client-ca"     # enables mTLS
+  name: default
+  namespace: my-namespace
+spec:
+  tls:
+    serverSecretRef:
+      name: kubezap-webhook-tls    # required: server TLS first
+    clientCASecretRef:
+      name: webhook-client-ca      # enables mTLS
 ```
 
 The CA Secret must contain `ca.crt` with the PEM-encoded CA certificate used to issue client certificates. The gateway sets `tls.Config.ClientAuth = RequireAndVerifyClientCert` — all connections without a valid client cert are rejected at the TLS handshake.
@@ -373,7 +384,7 @@ kubectl create secret generic webhook-client-ca \
   -n my-namespace
 ```
 
-> **mTLS requires server TLS.** The `kubezap.io/webhook-mtls-ca-secret` annotation is silently ignored if `kubezap.io/webhook-tls-secret` is not set.
+> **mTLS requires server TLS.** `spec.tls.clientCASecretRef` has no effect if `spec.tls.serverSecretRef` is not also set.
 
 > **Ingress passthrough.** If you front the webhook gateway with an Ingress or OpenShift Route, use TLS passthrough mode so client certificates reach the gateway pod. Re-encrypt termination at the Ingress proxy will strip client certs.
 

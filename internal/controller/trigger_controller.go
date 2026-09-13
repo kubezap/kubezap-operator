@@ -216,23 +216,34 @@ func (r *TriggerReconciler) SetupWithManager(mgr ctrl.Manager) error {
 // exist in the given namespace. It is called by the Trigger reconciler
 // so that the gateway is present whenever webhook routes are needed.
 //
-// TLS configuration is read from the Namespace annotations:
-//
-//	kubezap.io/webhook-tls-secret     — Secret name with tls.crt / tls.key (cert-manager compatible)
-//	kubezap.io/webhook-mtls-ca-secret — Secret name with ca.crt (requires webhook-tls-secret)
+// TLS configuration is read from the namespace's WebhookGatewayConfig object
+// (spec.tls.{serverSecretRef,clientCASecretRef}). A namespace with no
+// WebhookGatewayConfig object, or one with no spec.tls set, gets no TLS cert
+// mounted — the gateway serves plain HTTP. This is a hard cutover from the
+// Namespace annotations (kubezap.io/webhook-tls-secret,
+// kubezap.io/webhook-mtls-ca-secret) formerly read here; see
+// docs/design/2026-09-12-webhookgatewayconfig-crd.md and the CHANGELOG.
 func ensureWebhookGateway(ctx context.Context, c client.Client, namespace string) error {
 	log := logf.FromContext(ctx)
 
-	// Read TLS configuration from Namespace annotations.
+	webhookGatewayCfg, err := getWebhookGatewayConfig(ctx, c, namespace)
+	if err != nil {
+		return err
+	}
+
+	// Build TLS configuration from the namespace's WebhookGatewayConfig (if any).
+	// A namespace with no WebhookGatewayConfig object, or one with no spec.tls
+	// set, gets the zero value (no TLS cert mounted) — matching today's
+	// behavior for a namespace with neither annotation set.
 	tlsCfg := WebhookGatewayTLSConfig{}
-	var ns corev1.Namespace
-	if err := c.Get(ctx, client.ObjectKey{Name: namespace}, &ns); err == nil {
-		tlsCfg.TLSSecretName = ns.Annotations["kubezap.io/webhook-tls-secret"]
-		if tlsCfg.TLSSecretName != "" {
-			tlsCfg.MTLSCASecretName = ns.Annotations["kubezap.io/webhook-mtls-ca-secret"]
+	if webhookGatewayCfg != nil && webhookGatewayCfg.Spec.TLS != nil {
+		tlsSpec := webhookGatewayCfg.Spec.TLS
+		if tlsSpec.ServerSecretRef != nil {
+			tlsCfg.TLSSecretName = tlsSpec.ServerSecretRef.Name
+			if tlsSpec.ClientCASecretRef != nil {
+				tlsCfg.MTLSCASecretName = tlsSpec.ClientCASecretRef.Name
+			}
 		}
-	} else if !apierrors.IsNotFound(err) {
-		return fmt.Errorf("failed to get namespace %s for TLS config: %w", namespace, err)
 	}
 
 	sa := desiredWebhookGatewayServiceAccount(namespace)
@@ -291,10 +302,6 @@ func ensureWebhookGateway(ctx context.Context, c client.Client, namespace string
 		log.Info("reconciled webhook gateway deployment", "namespace", namespace, "result", op)
 	}
 
-	webhookGatewayCfg, err := getWebhookGatewayConfig(ctx, c, namespace)
-	if err != nil {
-		return err
-	}
 	hpaDesired := desiredWebhookGatewayHPAFromConfig(namespace, webhookGatewayCfg)
 	hpaExisting := &autoscalingv2.HorizontalPodAutoscaler{}
 	err = c.Get(ctx, client.ObjectKeyFromObject(hpaDesired), hpaExisting)

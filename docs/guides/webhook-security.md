@@ -241,21 +241,29 @@ For zero-trust environments or service meshes where the calling service must aut
 
 ### Prerequisites
 
-mTLS requires server-side TLS to be enabled first. Both settings are configured via **Namespace annotations** — they apply to the shared webhook gateway Deployment for that namespace.
+mTLS requires server-side TLS to be enabled first. Both settings are configured via a namespaced **`WebhookGatewayConfig`** object — they apply to the shared webhook gateway Deployment for that namespace.
+
+> **Migrated from Namespace annotations.** Prior to this release, these settings were configured via the `kubezap.io/webhook-tls-secret` / `kubezap.io/webhook-mtls-ca-secret` Namespace annotations. Those annotations are no longer read anywhere in the operator — see the `CHANGELOG.md` entry under `## [Unreleased]` for the required migration step if you were relying on them.
 
 ### Configuration
 
-Annotate the Namespace with the TLS server cert Secret and the CA Secret for client verification:
+Create a `WebhookGatewayConfig` object in the namespace referencing the TLS server cert Secret and the CA Secret for client verification:
 
 ```yaml
-apiVersion: v1
-kind: Namespace
+apiVersion: automation.kubezap.io/v1alpha1
+kind: WebhookGatewayConfig
 metadata:
-  name: my-namespace
-  annotations:
-    kubezap.io/webhook-tls-secret: "kubezap-webhook-tls"       # server cert (tls.crt + tls.key)
-    kubezap.io/webhook-mtls-ca-secret: "webhook-client-ca"     # client CA (ca.crt)
+  name: default
+  namespace: my-namespace
+spec:
+  tls:
+    serverSecretRef:
+      name: kubezap-webhook-tls    # server cert (tls.crt + tls.key)
+    clientCASecretRef:
+      name: webhook-client-ca      # client CA (ca.crt)
 ```
+
+At most one `WebhookGatewayConfig` object may exist per namespace — the operator's admission webhook rejects a second `create`.
 
 Create the CA secret containing the certificate authority that issued the client certificates:
 
@@ -267,7 +275,7 @@ kubectl create secret generic webhook-client-ca \
 
 ### What the operator does
 
-When both annotations are present, the controller:
+When `spec.tls.serverSecretRef` (and, for mTLS, `spec.tls.clientCASecretRef`) are set, the controller:
 1. Mounts `kubezap-webhook-tls` as a read-only volume at `/etc/webhook-tls`
 2. Mounts `webhook-client-ca` as a read-only volume at `/etc/webhook-mtls-ca`
 3. Starts the gateway with `--tls-cert-file`, `--tls-key-file`, and `--mtls-ca-file` flags

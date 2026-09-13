@@ -25,6 +25,8 @@ spec:
     name: v1alpha1
     schema:
       openAPIV3Schema:
+        description: Flow defines an ordered workflow of steps with conditional logic
+          and data transforms.
         properties:
           apiVersion:
             description: |-

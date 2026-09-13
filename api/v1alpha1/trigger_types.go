@@ -28,6 +28,7 @@ import (
 type TriggerSpec struct {
 	// Type of trigger (webhook, cron, kafka, amqp, nats, resource)
 	// +kubebuilder:validation:Enum=webhook;cron;kafka;amqp;nats;resource
+	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="Type",order=1
 	Type string `json:"type"`
 
 	// Whether this trigger is active
@@ -35,6 +36,7 @@ type TriggerSpec struct {
 	Enabled bool `json:"enabled,omitempty"`
 
 	// Webhook configuration (only for type=webhook)
+	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="Webhook",order=2
 	Webhook *WebhookTrigger `json:"webhook,omitempty"`
 
 	// Cron configuration (only for type=cron)
@@ -57,6 +59,7 @@ type TriggerSpec struct {
 	// Reference to the flow this trigger invokes. FlowRef is the primary
 	// action target for the MVP. If omitted, the optional inline Action can
 	// be used to perform a quick action (e.g., call an external webhook).
+	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="Flow Reference",order=3
 	FlowRef *FlowReference `json:"flowRef,omitempty"`
 
 	// Inline action definition (optional). Starts with webhook action type.
@@ -440,7 +443,9 @@ type TriggerStatus struct {
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
 
-// Trigger is the Schema for the triggers API.
+// Trigger connects an event source (webhook, cron, Kafka, AMQP, NATS, or a
+// Kubernetes resource event) to a Flow, creating a FlowRun each time it fires.
+// +operator-sdk:csv:customresourcedefinitions:resources={{Deployment,v1,""},{Service,v1,""},{ServiceAccount,v1,""},{Role,v1,""},{RoleBinding,v1,""},{HorizontalPodAutoscaler,v2,""}}
 type Trigger struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`

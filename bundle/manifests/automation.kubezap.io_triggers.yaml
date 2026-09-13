@@ -17,7 +17,9 @@ spec:
   - name: v1alpha1
     schema:
       openAPIV3Schema:
-        description: Trigger is the Schema for the triggers API.
+        description: |-
+          Trigger connects an event source (webhook, cron, Kafka, AMQP, NATS, or a
+          Kubernetes resource event) to a Flow, creating a FlowRun each time it fires.
         properties:
           apiVersion:
             description: |-

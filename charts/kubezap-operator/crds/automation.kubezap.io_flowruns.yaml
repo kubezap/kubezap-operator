@@ -33,6 +33,8 @@ spec:
     name: v1alpha1
     schema:
       openAPIV3Schema:
+        description: FlowRun is an execution instance of a Flow, created by a gateway
+          when a trigger fires.
         properties:
           apiVersion:
             description: |-

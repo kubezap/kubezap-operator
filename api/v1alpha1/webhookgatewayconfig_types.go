@@ -36,18 +36,21 @@ type WebhookGatewayConfigSpec struct {
 	// TLS configures inbound TLS/mTLS termination for the webhook gateway.
 	// When omitted, the gateway serves plain HTTP.
 	// +optional
+	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="TLS"
 	TLS *WebhookGatewayTLSSpec `json:"tls,omitempty"`
 
 	// HPA overrides the webhook gateway's HorizontalPodAutoscaler behavior.
 	// Any field left unset keeps today's operator default for that field
 	// (minReplicas=1, maxReplicas=10, targetCPUUtilization=70).
 	// +optional
+	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="HPA"
 	HPA *WebhookGatewayHPASpec `json:"hpa,omitempty"`
 
 	// PodDisruptionBudget configures a PodDisruptionBudget for the webhook
 	// gateway Deployment. When omitted (or MinAvailable is unset), no
 	// PodDisruptionBudget is created — matching today's behavior (none exists).
 	// +optional
+	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="Pod Disruption Budget"
 	PodDisruptionBudget *WebhookGatewayPDBSpec `json:"podDisruptionBudget,omitempty"`
 }
 
@@ -122,6 +125,7 @@ type WebhookGatewayConfigStatus struct {
 // At most one WebhookGatewayConfig may exist per namespace — a validating
 // admission webhook rejects a create when another one (any name) already
 // exists in the same namespace.
+// +operator-sdk:csv:customresourcedefinitions:resources={{HorizontalPodAutoscaler,v2,""},{PodDisruptionBudget,v1,""}}
 type WebhookGatewayConfig struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`

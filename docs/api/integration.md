@@ -38,6 +38,7 @@ An `Integration` stores the connection details and credentials for an external s
     - [PluginIntegrationSpec](#pluginintegrationspec)
     - [PluginSecretRef](#pluginsecretref)
     - [HttpIntegrationSpec](#httpintegrationspec)
+    - [HttpTLSSpec](#httptlsspec)
     - [HttpAuthSpec](#httpauthspec)
     - [HttpBearerAuth](#httpbearerauth)
     - [HttpBasicAuth](#httpbasicauth)
@@ -58,7 +59,8 @@ An `Integration` stores the connection details and credentials for an external s
     - [Example 8: Using an Integration in a Trigger](#example-8-using-an-integration-in-a-trigger)
     - [Example 9: Using an Integration as a Publisher in a Flow](#example-9-using-an-integration-as-a-publisher-in-a-flow)
     - [Example 10: HTTP Integration (GitHub API)](#example-10-http-integration-github-api)
-    - [Example 11: HTTP Integration (Slack Webhook — secretUrl)](#example-11-http-integration-slack-webhook--secreturl)
+    - [Example 11: HTTP Integration with a private CA](#example-11-http-integration-with-a-private-ca)
+    - [Example 12: HTTP Integration (Slack Webhook — secretUrl)](#example-12-http-integration-slack-webhook--secreturl)
   - [Community Plugin Graduation](#community-plugin-graduation)
     - [Graduation criteria](#graduation-criteria)
     - [What graduation changes](#what-graduation-changes)
@@ -478,6 +480,16 @@ There is no plain-text `username` field — the username must always come from a
 | `baseUrl`        | string            | No       | —       | Base URL prepended to step URLs. Ignored if the step URL is already absolute. |
 | `auth`           | HttpAuthSpec      | No       | —       | Authentication configuration                                                  |
 | `defaultHeaders` | map[string]string | No       | —       | Default headers merged into every request. Step-level headers override these. |
+| `tls`            | HttpTLSSpec       | No       | —       | Outbound TLS configuration: a private CA bundle to trust and/or a client certificate for mTLS. |
+
+### HttpTLSSpec
+
+| Field                  | Type                 | Required | Default | Description                                                                                                   |
+| ---------------------- | -------------------- | -------- | ------- | --------------------------------------------------------------------------------------------------------------- |
+| `caBundleConfigMapRef` | ConfigMapKeySelector | No       | —       | ConfigMap key containing a PEM-encoded CA bundle — one or more concatenated certificates (e.g. a private root plus intermediates). Added to the system root CA pool for this Integration's outbound calls, not a replacement for it. **`ConfigMap`-sourced, not `Secret`** — a CA bundle is public data, unlike the client certificate below. |
+| `clientCertSecretRef`  | LocalObjectReference | No       | —       | Secret containing a client certificate for mTLS. Must contain standard `tls.crt` and `tls.key` keys (`kubernetes.io/tls` Secret shape). |
+
+> **Note:** this is deliberately different from `KafkaTLSSpec`/`AmqpTLSConfig`/`NatsTLSConfig` below, which source their CA from a `Secret` (`caSecretRef`) and *replace* system trust entirely when configured. HTTP steps can target arbitrary, per-call URLs — the same Integration may legitimately need to reach both a private-CA backend and a public-CA one — so the CA bundle here is additive instead. See [`docs/design/2026-09-13-http-step-outbound-tls.md`](../design/2026-09-13-http-step-outbound-tls.md) for the full rationale.
 
 ### HttpAuthSpec
 
@@ -865,7 +877,52 @@ spec:
 
 ---
 
-### Example 11: HTTP Integration (Slack Webhook — secretUrl)
+### Example 11: HTTP Integration with a private CA
+
+An internal service signs its TLS certificate with a private CA — the step needs to trust that CA without disabling verification. The `ca.crt` key in the `ConfigMap` below may contain more than one certificate (e.g. a root plus an intermediate); it's added to the system root pool, so this same Integration can still reach public-CA-signed endpoints too:
+
+```yaml
+# ConfigMap holding the CA bundle (public data — not a Secret)
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: internal-ca-bundle
+  namespace: automation
+data:
+  ca.crt: |
+    -----BEGIN CERTIFICATE-----
+    MIIC... (private root CA) ...
+    -----END CERTIFICATE-----
+---
+# Integration
+apiVersion: automation.kubezap.io/v1alpha1
+kind: Integration
+metadata:
+  name: internal-inventory-api
+  namespace: automation
+spec:
+  type: http
+  http:
+    baseUrl: "https://inventory.internal.example.com"
+    tls:
+      caBundleConfigMapRef:
+        name: internal-ca-bundle
+        key: ca.crt
+---
+# Flow step using the integration
+- name: check-stock
+  action:
+    type: http
+    http:
+      integrationRef:
+        name: internal-inventory-api
+      url: "/skus/$(params.sku)/stock"
+      method: GET
+```
+
+---
+
+### Example 12: HTTP Integration (Slack Webhook — secretUrl)
 
 For services where the URL itself is the credential (e.g. Slack incoming webhooks), use `type: secretUrl`. The controller replaces the step URL entirely with the secret value:
 

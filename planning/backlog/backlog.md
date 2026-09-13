@@ -12,7 +12,7 @@ The `PI` column is the source of truth for what's actually committed — an epic
 | EPIC-002 | Post-Release Hardening & Feature Backlog | Backlog | — | [epics/EPIC-002-post-release-hardening.md](epics/EPIC-002-post-release-hardening.md) |
 | EPIC-003 | WebhookGatewayConfig CRD | Done | PI-1 | [epics/EPIC-003-webhook-gateway-config-crd.md](epics/EPIC-003-webhook-gateway-config-crd.md) |
 | EPIC-004 | Execution Latency Benchmarking (RPC Executor vs. Pod-per-Step) | Done | PI-1 | [epics/EPIC-004-execution-latency-benchmarking.md](epics/EPIC-004-execution-latency-benchmarking.md) |
-| EPIC-005 | HTTP Step Outbound TLS/CA Support | Backlog | PI-1 | [epics/EPIC-005-http-step-outbound-tls.md](epics/EPIC-005-http-step-outbound-tls.md) |
+| EPIC-005 | HTTP Step Outbound TLS/CA Support | In Progress | PI-1 | [epics/EPIC-005-http-step-outbound-tls.md](epics/EPIC-005-http-step-outbound-tls.md) |
 
 ## Stories
 
@@ -21,7 +21,7 @@ The `PI` column is the source of truth for what's actually committed — an epic
 | STORY-001 | [Final public-facing docs cleanup pass](stories/STORY-001-docs-cleanup-pass.md) | EPIC-001 | Done (PR #181) | M |
 | STORY-002 | [Clean up `docs/contributing.md`](stories/STORY-002-contributing-docs-cleanup.md) | EPIC-001 | Done (PR #179) | S |
 | STORY-003 | [Test suite value review](stories/STORY-003-test-suite-value-review.md) | EPIC-001 | Done (2026-09-13, all 3 AC complete) | L |
-| STORY-004 | [Product/docs website via GitHub Pages](stories/STORY-004-github-pages-website.md) | EPIC-001 | Done (PR #184) — site not live, needs admin | S |
+| STORY-004 | [Product/docs website via GitHub Pages](stories/STORY-004-github-pages-website.md) | EPIC-001 | Reverted (2026-09-13) — not publishing Pages, workflow removed | S |
 | STORY-005 | [`CODE_OF_CONDUCT.md` + issue/PR templates](stories/STORY-005-community-health-files.md) | EPIC-001 | Done (PR #180) | S |
 | STORY-006 | [Support/community channel decision](stories/STORY-006-support-channel-decision.md) | EPIC-001 | Done (PR #183) — Discussions not enabled, needs admin | XS |
 | STORY-007 | [Final release validation and OperatorHub submission](stories/STORY-007-final-release-validation.md) | EPIC-001 | In Progress — blocker (STORY-024) merged; scorecard re-check to close this out not yet re-run | M |
@@ -42,6 +42,10 @@ The `PI` column is the source of truth for what's actually committed — an epic
 | STORY-022 | [Functional test coverage for bearer/apiKey/basic/headerEquals webhook auth](stories/STORY-022-webhook-auth-test-coverage.md) | EPIC-002 | Done (PR #210) | S |
 | STORY-023 | [Fix fictional outbound-TLS-annotation docs](stories/STORY-023-outbound-tls-annotation-docs-fix.md) | EPIC-001 | Done (PR #211) | S |
 | STORY-024 | [Fix OLM scorecard descriptor/resource gaps in the CSV](stories/STORY-024-olm-csv-descriptors.md) | EPIC-001 | Done (PR #209) | S |
+| STORY-025 | [Design record: HTTP-step outbound CA-bundle/client-cert support](stories/STORY-025-http-outbound-tls-design-record.md) | EPIC-005 | Done (PR #213) | S |
+| STORY-026 | [Implement HTTP-step outbound TLS/CA support](stories/STORY-026-http-outbound-tls-impl.md) | EPIC-005 | Done (PR #214) | M |
+| STORY-027 | [Docs for HTTP-step outbound TLS/CA support](stories/STORY-027-http-outbound-tls-docs.md) | EPIC-005 | In Progress — [PR #216](https://github.com/kubezap/kubezap-operator/pull/216) open | S |
+| STORY-028 | [Container image CVE scanning + static analysis (CodeQL)](stories/STORY-028-container-image-and-sast-scanning.md) | EPIC-002 | Backlog — not yet footprinted | M |
 
 ## Backlog Candidates (not yet epics)
 

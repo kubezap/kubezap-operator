@@ -1,7 +1,7 @@
 # STORY-004: Product/docs website via GitHub Pages
 
 **Epic:** EPIC-001 — Open Source Release Readiness
-**Status:** Done (PR #184, merged 2026-09-12) — site intentionally not live yet (owner decision: wait until the repo is actually public, see `planning/backlog/follow-ups.md`); checked `gh api repos/.../pages` post-merge and it 404s, as expected. Set the Pages source to "GitHub Actions" in Settings → Pages as part of the public-launch sequence, not before.
+**Status:** Reverted (2026-09-13) — owner decision: not publishing a GitHub Pages docs site. `.github/workflows/pages.yml` removed. `mkdocs.yml`/docs-site config left in place (harmless, no cost) in case this is revisited later, but nothing builds or deploys it. Originally Done via PR #184 (merged 2026-09-12), deliberately not live pending public launch — superseded by this reversal before that admin step was ever taken.
 **Size:** S
 
 ## Description

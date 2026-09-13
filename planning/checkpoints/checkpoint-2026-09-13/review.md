@@ -1,38 +1,37 @@
 # Checkpoint 2026-09-13 — Review
 
-## Shipped this checkpoint
+## Shipped this checkpoint (full day)
 
-- STORY-010 — merged (PR #196): `PodDisruptionBudget` reconciliation for the webhook gateway, closing the "no real HA by default" gap.
-- STORY-011 — merged (PR #197): hard-cutover of the webhook TLS/mTLS Namespace annotations onto `WebhookGatewayConfig.spec.tls`. `CHANGELOG.md` documents the required migration action.
-- STORY-014 — merged (PR #195): execution-latency benchmark harness (KubeZap vs. Argo Workflows), validated live end-to-end on a real Kind cluster.
-- STORY-015 — merged (PR #199): benchmark results write-up. **Go/no-go: pursue** "faster/lighter than Pod-per-step" as a differentiator — real numbers now exist (KubeZap ~5-10ms/step via the controller's own Prometheus histogram vs. Argo ~3-4s pod-lifecycle/~23s total per 3-step run, ~57% of which is Argo's own reconciliation cadence, not pod cost).
-- STORY-016 — merged (PR #193): broken doc links/anchors from the MkDocs build.
-- STORY-017 — merged (PR #198): `goconst` cleanup, 59 real findings fixed, temporary lint exclusion removed.
-- STORY-018 — merged (PR #194): fixed the silently-dropped `+kubebuilder:webhook` marker on Trigger's webhook.
-- Also: `config/crd/kustomization.yaml` fixed directly (was silently missing the WebhookGatewayConfig CRD from `make install` since STORY-009 merged); `docs/api/trigger.md`'s inbound-mTLS section updated (left stale by STORY-011's footprint).
-- This closes **EPIC-004** entirely and brings **EPIC-003** to 4/5 stories done.
+- STORY-010 — merged (PR #196): `PodDisruptionBudget` reconciliation for the webhook gateway.
+- STORY-011 — merged (PR #197): hard-cutover of webhook TLS/mTLS Namespace annotations onto `WebhookGatewayConfig.spec.tls`.
+- STORY-012 — merged (PR #202): `docs/api/webhookgatewayconfig.md` reference page, verified against shipped code (not just the design record) — exact singleton-rejection error text, `clientCASecretRef` no-op-without-`serverSecretRef` gotcha, unpopulated `status.conditions` limitation, all documented. **Closes EPIC-003.**
+- STORY-014 — merged (PR #195): execution-latency benchmark harness.
+- STORY-015 — merged (PR #199): benchmark results write-up. Go/no-go: **pursue**. **Closes EPIC-004.**
+- STORY-016 — merged (PR #193): broken doc links/anchors.
+- STORY-017 — merged (PR #198): `goconst` cleanup.
+- STORY-018 — merged (PR #194): Trigger webhook marker fix.
+- STORY-019 — merged (PR #203): FlowRun `+kubebuilder:webhook` marker added, `failurePolicy: Ignore`.
+- STORY-020 — merged (PR #204): design record for sub-second FlowRun step-timing — decided on an additive `DurationMillis` field (option b) over higher-precision timestamps, applied to both per-step and top-level `FlowRunStatus`, no `v1alpha2` bump needed. Unblocks STORY-021.
+- STORY-003 — closed (no PR, pure investigation): all 30 `internal/*/*_test.go` files spot-checked. `internal/controller/` clean, no brittle/tautological tests. One real gap found in `internal/gateway/webhook/`: 4 of 7 auth types (`bearer`/`apiKey`/`basic`/`headerEquals`) have zero functional accept/reject test coverage. Routed to STORY-022. Unblocks STORY-007.
 
 ## Still open
 
-- STORY-003 — partially done (e2e-failures AC satisfied via PR #174); brittle-test review + write-up remain. **Owner priority for next stretch.**
-- STORY-007 — blocked on STORY-003.
-- STORY-012 — unblocked (all 3 dependencies Done). **Owner priority for next stretch.**
-- STORY-019 — groomed, ready to dispatch (FlowRun webhook marker, `failurePolicy: Ignore`).
-- STORY-020 — groomed, ready to dispatch (design record for FlowRun step-timing precision).
-- STORY-021 — blocked on STORY-020, not yet real-footprinted.
-- A Backlog Candidate item still needs picking for this stretch's third focus area (owner chose "groom something from Backlog Candidates" without specifying which yet — likely the outbound-TLS-annotation doc/code mismatch or the observability-guide validation gap).
-- STORY-004/006's admin-only follow-ups (Pages source, Discussions) — still intentionally deferred to public launch, no change.
-- Community-profile `issue_template` gap — still `Open`, still deliberately deferred, no change.
+- STORY-007 — unblocked (STORY-003 Done), ready to dispatch. **Owner priority for next stretch.**
+- STORY-021 — unblocked (STORY-020 Done) but not yet groomed/footprinted.
+- STORY-022 — groomed, ready to dispatch (webhook auth test coverage). **Owner priority for next stretch.**
+- Outbound-TLS-annotation doc/code mismatch — chosen as next stretch's Backlog Candidate to groom. **Owner priority for next stretch.**
+- STORY-004/006's admin-only follow-ups (Pages source, Discussions) — still intentionally deferred to public launch, re-confirmed this checkpoint.
+- Community-profile `issue_template` gap — still `Open`, still deliberately deferred, re-confirmed this checkpoint.
 
 ## What worked / what to change
 
-- **Rebase-before-merge became a recurring necessity this checkpoint, not an edge case.** Three separate branches (STORY-011, STORY-015, the final status-sync PR) each needed a rebase onto a `main` that had moved since their worktree was created, because dispatched agents and my own review/merge passes happen asynchronously against a fast-moving `main`. All three rebases were clean or had trivial (same-content) conflicts once resolved — worth treating "rebase onto current main immediately before merging, not just before dispatching" as a standing step, not something to notice only when GitHub flags a conflict.
-- **A PR can show "conflicting" for reasons that have nothing to do with real content conflicts.** PR #198 showed a stale conflict because a GitHub-side error during merge left the PR's own record out of sync with `main` even though the content had landed — confirmed via `gh api .../commits/{sha}/pulls` returning no PR association for the merge commit. Diagnosing this (empty `git diff` against main) before assuming a real conflict avoided redoing already-landed work.
-- **Dispatched agents continue to independently catch real bugs outside their own footprint** (STORY-014 found the CRD-kustomization gap and an Argo upstream RBAC issue; STORY-015 found and fixed a `jq` argument-length bug in the harness) — the "flag it, don't silently fix it unless it blocks a valid result" instruction from the dispatch brief is working as intended.
-- **A benchmark's raw data needs a sanity check against the underlying mechanism before trusting it.** The owner's two follow-up questions this session (sub-second KubeZap timing, Argo's 30s/run) each surfaced a real methodological issue — `metav1.Time` quantization, and Argo's reconciliation-cadence lag — neither of which the harness's own output made obvious on its own. Worth treating "does this number make architectural sense" as a standing check before reporting benchmark data, not just after being asked.
+- **`/dispatch-work`'s own written instructions said to merge each worktree branch directly into `main` — a real process bug, not a one-off mistake.** Caught live after dispatching STORY-012/019/020 that way; every prior story in this repo's history (PR #179–#201) had gone through a GitHub PR instead. Root cause: the skill file itself never said "open a PR," and "no intermediate PR" in the triggering request was misread as covering the story branches too, not just the planning-phase gate. Fixed via PR #206: `/dispatch-work` now pushes + opens a PR per story, never merges directly; `/groom-backlog`/`/plan-parallel` edits stay staged until an explicit ask or a dispatch batch's PRs all merge. Worth double-checking any skill file that says "merge... yourself" against this repo's actual PR-only convention before trusting it verbatim.
+- **Forking for read-only investigation work paid off cleanly on STORY-003.** Splitting the 30-file `internal/*/*_test.go` spot-check into two parallel forks (controller vs. everything else) kept ~570K tokens of raw file-reading out of the main session's context while still producing a genuinely useful, non-superficial finding (the webhook auth coverage gap) — worth defaulting to this pattern for any "read N files, synthesize findings" task, not just controller-hot-file work.
+- **A completion notification is not the same as an approval.** After the STORY-019 fork's `blockReadsOutsideWorkingDirectories`-driven prompt storm, `/fewer-permission-prompts` correctly found nothing new to allowlist (the project's Bash allowlist was already complete) — the real fix was a `Read`/`Edit` allow pattern for worktree-sibling directories in `settings.local.json`, not `settings.json` (user's own catch: absolute local-filesystem paths don't belong in the shared project file).
 
 ## Backlog re-groom notes
 
-- STORY-019 (FlowRun webhook marker) and STORY-020/021 (FlowRun step-timing precision, design + implementation split like STORY-008/009) added to `EPIC-002` from `follow-ups.md` entries, both resolved with a quick owner decision rather than left open.
-- `EPIC-002`'s Status flipped back to `In Progress` (was briefly `Done` between STORY-017/018 landing and this checkpoint's 3 new stories).
-- `EPIC-003`/`EPIC-004` Status headers updated: EPIC-004 fully closed, EPIC-003 at 4/5.
+- STORY-022 (webhook auth test coverage) added to `EPIC-002` from a `follow-ups.md` entry generated by STORY-003 itself, same checkpoint — no design record needed (test-only addition to already-correct, already-read auth logic).
+- `EPIC-003`'s Status flipped to fully closed (all 5 stories done).
+- `EPIC-002`'s Status updated: 4 done (STORY-017/018/019/020), STORY-021 unblocked-but-ungroomed, STORY-022 groomed-and-ready.
+- All 3 previously-`Open` `follow-ups.md` entries triaged: 2 re-confirmed deferred (no change), 1 routed to STORY-022.

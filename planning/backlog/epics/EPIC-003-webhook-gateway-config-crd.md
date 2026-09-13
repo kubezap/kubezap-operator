@@ -1,6 +1,6 @@
 # EPIC-003: WebhookGatewayConfig CRD
 
-**Status:** In Progress — 4 of 5 stories Done, only STORY-012 (docs) remains
+**Status:** Done — all 5 stories merged (STORY-012, PR #202, closed the epic 2026-09-13)
 **PI:** PI-1
 
 ## Problem

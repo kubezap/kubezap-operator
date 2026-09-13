@@ -2,25 +2,30 @@
 
 ## Since last checkpoint
 
-Everything dispatched at the 2026-09-12 checkpoint shipped:
+Everything dispatched at the 2026-09-12 checkpoint shipped, plus a full round dispatched and shipped today:
 
-- **EPIC-003 (WebhookGatewayConfig CRD)**: STORY-010 (PDB reconciliation, PR #196), STORY-011 (hard-cutover TLS annotation migration, PR #197) both merged. Only STORY-012 (docs for the shipped CRD) remains — unblocked, ready to groom/dispatch.
-- **EPIC-004 (Execution Latency Benchmarking)**: STORY-014 (harness, PR #195) and STORY-015 (results write-up, PR #199) both merged — epic fully closed. Go/no-go: **pursue "faster/lighter than Pod-per-step engines"** as an engineering focus and stated differentiator, backed by real numbers (KubeZap ~5-10ms/step vs. Argo ~3-4s pod-lifecycle/~23s total per 3-step run).
-- **EPIC-002 (Post-Release Hardening)**: STORY-017 (goconst cleanup, PR #198) and STORY-018 (webhook marker fix, PR #194) both merged.
-- **EPIC-001**: STORY-016 (broken doc links, PR #193) merged.
-- Plus 2 small bugs found and fixed directly during dispatch (not their own stories): `config/crd/kustomization.yaml` was silently missing the WebhookGatewayConfig CRD from `make install`; `docs/api/trigger.md`'s inbound-mTLS section was left stale by STORY-011's cutover.
+- **EPIC-003 (WebhookGatewayConfig CRD)**: STORY-010 (PDB reconciliation, PR #196), STORY-011 (hard-cutover TLS annotation migration, PR #197), and now **STORY-012** (docs, PR #202) all merged. **Epic fully closed.**
+- **EPIC-004 (Execution Latency Benchmarking)**: fully closed as of last checkpoint (STORY-014/015).
+- **EPIC-002 (Post-Release Hardening)**: STORY-017/018 merged last checkpoint; **STORY-019** (FlowRun webhook marker, PR #203) and **STORY-020** (step-timing design record, PR #204) merged today. **STORY-022** (webhook auth test coverage, found during STORY-003) newly groomed, ready to dispatch.
+- **EPIC-001**: **STORY-003** (test suite value review) closed today — all 3 ACs done, no brittle/tautological tests found in `internal/controller/`, one real security-relevant gap found in webhook auth test coverage (routed to STORY-022). This unblocks **STORY-007** (final release validation), now genuinely ready.
+- **Process fix (PR #206)**: `/dispatch-work` was instructing a direct merge to `main` instead of opening a PR per story — caught live after dispatching today's first batch that way, corrected (reset + redone as PRs #202/#203/#204), and the skill files + `CLAUDE.md` rewritten so this doesn't recur. Also codified: `/groom-backlog`/`/plan-parallel` edits stay staged (not committed/PR'd) until an explicit ask or until a later `/dispatch-work` batch's story PRs all merge — final planning-only PR #207 closes that loop for today's batch.
 
 ## This checkpoint's focus
 
-Per owner decision (2026-09-13): **STORY-012** (close out EPIC-003), **STORY-003** (finish the brittle-test write-up — the one thing still blocking STORY-007's final release rollup), and **groom something from Backlog Candidates** (specific item TBD — the outbound-TLS-annotation doc/code mismatch and the observability-guide real-world validation gap are both flagged as real, undecided candidates).
+Per owner decision (2026-09-13 afternoon checkpoint), next stretch prioritizes:
+- **STORY-007** — final release validation and OperatorHub submission rollup gate (now unblocked).
+- **STORY-022** — webhook auth test coverage (`bearer`/`apiKey`/`basic`/`headerEquals` have zero functional coverage today).
+- **Groom a Backlog Candidate**: the outbound-TLS-annotation doc/code mismatch — `docs/api/trigger.md` documents 3 annotations (`kubezap.io/tls-ca-secret`, `tls-client-cert-secret`, `tls-insecure-skip-verify`) that don't exist anywhere in the Go code. Needs a decision (implement for real, security-facing, design record required — vs. delete the fictional docs and point at the real `Integration`-field mechanism) before it can be scoped into a story.
 
-Two new follow-ups triaged into concrete stories this checkpoint (both in EPIC-002):
-- STORY-019 — add the missing FlowRun webhook marker, `failurePolicy: Ignore` (owner-decided).
-- STORY-020/021 — design record + implementation for sub-second FlowRun step-timing visibility (currently only visible via a Prometheus scrape, not `kubectl get flowrun`), motivated directly by STORY-015's benchmark findings.
+All three `Open` `follow-ups.md` entries triaged this checkpoint:
+- STORY-005's `issue_template: null` gap — re-confirmed deferred, no change.
+- STORY-004/006's admin-only actions (Pages source, Discussions) — re-confirmed deferred to public launch, no change.
+- Webhook auth test coverage gap (new, from STORY-003) — routed to **STORY-022**.
 
 ## Backlog changes
 
-- STORY-010/011/014/015/016/017/018 all flipped to `Done` with merged PR numbers.
-- STORY-012 unblocked (all 3 dependencies now Done).
-- STORY-019/020/021 added to EPIC-002.
-- EPIC-002/003/004 Status headers updated to reflect current state (EPIC-004 fully closed; EPIC-003 4/5 done; EPIC-002 back to In Progress with 3 new stories).
+- STORY-003/012/019/020 flipped to `Done` with merged PR numbers (STORY-003 has no PR — pure investigation/write-up).
+- STORY-007 unblocked (STORY-003 Done) — status updated to reflect it's ready to dispatch.
+- STORY-021 unblocked (STORY-020 Done) but still needs `/groom-backlog` before it's dispatchable — not yet real-footprinted.
+- STORY-022 added to EPIC-002, Groomed, ready to dispatch — no design record needed (test-only addition to already-correct auth logic).
+- EPIC-002/003 Status headers updated (EPIC-003 now fully closed; EPIC-002 at 4 done + 2 open).

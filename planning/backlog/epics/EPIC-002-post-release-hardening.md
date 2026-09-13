@@ -1,6 +1,6 @@
 # EPIC-002: Post-Release Hardening & Feature Backlog
 
-**Status:** Backlog
+**Status:** Done — both current stories merged (open to future additions since this epic is a running backlog, not a bounded scope)
 **PI:** —
 
 ## Problem
@@ -23,7 +23,7 @@ None yet. Individual stories may need one if their fix touches a design-process.
 
 Groomed 2026-09-12 (checkpoint triage):
 
-- [x] [STORY-017](../stories/STORY-017-goconst-cleanup.md) — `goconst` cleanup (59 real production-code findings surfaced by the `golangci-lint` v2.13 bump, tracked since the post-dependabot validation pass). Done — landed directly on `main`; see Notes below on PR #198.
+- [x] [STORY-017](../stories/STORY-017-goconst-cleanup.md) — `goconst` cleanup (59 real production-code findings surfaced by the `golangci-lint` v2.13 bump, tracked since the post-dependabot validation pass). Done — PR #198, merged.
 - [x] [STORY-018](../stories/STORY-018-webhook-marker-fix.md) — Fix the `+kubebuilder:webhook` marker placement bug so the Trigger/FlowRun `ValidatingWebhookConfiguration` manifests actually get generated (found while building `EPIC-003`'s webhook). Done — PR #194, merged.
 
 ## Dependencies
@@ -34,5 +34,3 @@ Groomed 2026-09-12 (checkpoint triage):
 ## Notes
 
 This epic's name/scope was reserved in `backlog.md` since the 2026-09-12 PI-1 planning session but never populated until this checkpoint. Not committed to any PI yet (`PI: —`) — both current stories are small enough to dispatch opportunistically without a formal `/plan-pi` slot, but flag to the user if this epic accumulates enough scope to need one.
-
-STORY-017's PR #198 was opened normally after the dispatched agent's work passed review, but its content reached `main` via a direct `git merge`+push rather than through GitHub's own merge button/API — confirmed via `gh api repos/.../commits/{sha}/pulls` returning no associated PR for the merge commit. GitHub's PR record itself never flipped to merged/closed as a result, and its own mergeable-check then reported a stale "conflicting" state (nothing actually left to merge — `git diff main <pr-branch>` was empty). Closed PR #198 without merging and deleted its branch once this was confirmed; the code itself was never in question.

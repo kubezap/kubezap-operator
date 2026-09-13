@@ -1,6 +1,6 @@
 # EPIC-004: Execution Latency Benchmarking (RPC Executor vs. Pod-per-Step)
 
-**Status:** In Progress — all 3 stories through review; closes once PR #199 merges
+**Status:** Done — all 3 stories merged
 **PI:** PI-1
 
 ## Problem
@@ -26,7 +26,7 @@ Groomed 2026-09-12 (`/groom-backlog`) — all three fully groomed, no blocking d
 
 - [x] [STORY-013](../stories/STORY-013-benchmark-methodology.md) — Define benchmark methodology (scenario, baseline version, metrics, run parameters). Done — PR #189, merged.
 - [x] [STORY-014](../stories/STORY-014-benchmark-harness.md) — Build and run the harness against both systems. Done — PR #195, merged.
-- [ ] [STORY-015](../stories/STORY-015-benchmark-writeup.md) — Write up results and a pursue/don't-pursue recommendation. PR #199 open, awaiting merge — go/no-go: **pursue** (see `benchmarks/execution-latency/RESULTS.md`).
+- [x] [STORY-015](../stories/STORY-015-benchmark-writeup.md) — Write up results and a pursue/don't-pursue recommendation. Done — PR #199, merged. Go/no-go: **pursue** (see `benchmarks/execution-latency/RESULTS.md`).
 
 ## Dependencies
 

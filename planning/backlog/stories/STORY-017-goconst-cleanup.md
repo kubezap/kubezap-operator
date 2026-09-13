@@ -1,7 +1,7 @@
 # STORY-017: `goconst` cleanup in production code
 
 **Epic:** EPIC-002 — Post-Release Hardening & Feature Backlog
-**Status:** Done (landed directly on `main` — tracked historically as PR #198, which was closed unmerged since its content was already present; see EPIC-002's Notes)
+**Status:** Done (merged, PR #198)
 **Size:** M
 
 ## Description

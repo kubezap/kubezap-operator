@@ -1,7 +1,7 @@
 # STORY-015: Write up benchmark results and a pursue/don't-pursue recommendation
 
 **Epic:** EPIC-004 — Execution Latency Benchmarking (RPC Executor vs. Pod-per-Step)
-**Status:** Backlog — blocked on STORY-014
+**Status:** Done (PR #199)
 **Size:** S
 
 ## Description

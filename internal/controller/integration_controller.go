@@ -52,6 +52,32 @@ const integrationTypeHTTP = "http"
 // triggerTypeWebhook is the TriggerSpec.Type value "webhook".
 const triggerTypeWebhook = "webhook"
 
+// integrationTypePlugin is the IntegrationSpec.Type value "plugin".
+const integrationTypePlugin = "plugin"
+
+// sharedGatewayServiceAccountName is the name of the ServiceAccount (and
+// matching Role/RoleBinding) shared by the kafka, amqp, and nats gateway
+// Deployments in a namespace.
+const sharedGatewayServiceAccountName = "kubezap-gateway"
+
+// resourceIntegrations is the RBAC resource name for the Integration CRD,
+// granted read-only to the kafka/amqp/nats gateway Roles so they can resolve
+// their own Integration's config.
+const resourceIntegrations = "integrations"
+
+// Env var names injected into plugin/gateway Deployments.
+const (
+	envVarKubezapNamespace       = "KUBEZAP_NAMESPACE"
+	envVarKubezapIntegrationName = "KUBEZAP_INTEGRATION_NAME"
+	envVarWatchNamespaces        = "WATCH_NAMESPACES"
+	envVarLogLevel               = "LOG_LEVEL"
+	defaultLogLevel              = "info"
+)
+
+// scaledObjectKind is the KEDA ScaledObject Kind, used both in the
+// unstructured object's "kind" field and its GroupVersionKind.
+const scaledObjectKind = "ScaledObject"
+
 // +kubebuilder:rbac:groups=automation.kubezap.io,resources=integrations,verbs=get;list;watch;update;patch
 // +kubebuilder:rbac:groups=automation.kubezap.io,resources=integrations/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch;create;update;patch;delete
@@ -77,7 +103,7 @@ func (r *IntegrationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	if err := validateIntegrationSpec(integration.Spec); err != nil {
 		log.Info("Integration spec validation failed", "integration", req.NamespacedName, "error", err)
 		cond := metav1.Condition{
-			Type:               "Ready",
+			Type:               conditionTypeReady,
 			Status:             metav1.ConditionFalse,
 			Reason:             "InvalidSpec",
 			Message:            err.Error(),
@@ -92,7 +118,7 @@ func (r *IntegrationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 
 	// Type-specific reconciliation.
 	switch integration.Spec.Type {
-	case "plugin":
+	case integrationTypePlugin:
 		deploymentName := "kubezap-plugin-" + integration.Name
 		if err := r.reconcilePluginRBAC(ctx, &integration); err != nil {
 			return ctrl.Result{}, fmt.Errorf("reconciling plugin RBAC: %w", err)
@@ -133,7 +159,7 @@ func (r *IntegrationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	// Set Ready=True after successful reconcile.
 	now := metav1.Now()
 	cond := metav1.Condition{
-		Type:               "Ready",
+		Type:               conditionTypeReady,
 		Status:             metav1.ConditionTrue,
 		Reason:             "IntegrationReady",
 		Message:            "Integration is configured and ready",
@@ -205,7 +231,7 @@ func validateIntegrationSpec(spec automationv1alpha1.IntegrationSpec) error {
 		if spec.HTTP == nil {
 			return fmt.Errorf("spec.http must be set when type=http")
 		}
-	case "plugin":
+	case integrationTypePlugin:
 		if spec.Plugin == nil {
 			return fmt.Errorf("spec.plugin must be set when type=plugin")
 		}
@@ -227,24 +253,24 @@ func (r *IntegrationReconciler) reconcilePluginRBAC(ctx context.Context, integra
 
 	desiredRules := []rbacv1.PolicyRule{
 		{
-			APIGroups: []string{"automation.kubezap.io"},
-			Resources: []string{"triggers"},
-			Verbs:     []string{"get", "list", "watch"},
+			APIGroups: []string{apiGroupAutomation},
+			Resources: []string{resourceTriggers},
+			Verbs:     []string{verbGet, verbList, verbWatch},
 		},
 		{
-			APIGroups: []string{"automation.kubezap.io"},
-			Resources: []string{"flowruns"},
-			Verbs:     []string{"get", "list", "create", "update", "patch"},
+			APIGroups: []string{apiGroupAutomation},
+			Resources: []string{resourceFlowRuns},
+			Verbs:     []string{verbGet, verbList, "create", "update", "patch"},
 		},
 	}
 	desiredRoleRef := rbacv1.RoleRef{
-		APIGroup: "rbac.authorization.k8s.io",
-		Kind:     "Role",
+		APIGroup: apiGroupRBAC,
+		Kind:     kindRole,
 		Name:     resourceName,
 	}
 	desiredSubjects := []rbacv1.Subject{
 		{
-			Kind:      "ServiceAccount",
+			Kind:      kindServiceAccount,
 			Name:      resourceName,
 			Namespace: integration.Namespace,
 		},
@@ -396,15 +422,15 @@ func desiredPluginDeployment(integration *automationv1alpha1.Integration) *appsv
 
 	deploymentName := "kubezap-plugin-" + integration.Name
 	labels := map[string]string{
-		"app": deploymentName,
+		labelApp: deploymentName,
 	}
 	replicas := int32(1)
 
 	envVars := []corev1.EnvVar{
-		{Name: "KUBEZAP_NAMESPACE", Value: integration.Namespace},
-		{Name: "KUBEZAP_INTEGRATION_NAME", Value: integration.Name},
+		{Name: envVarKubezapNamespace, Value: integration.Namespace},
+		{Name: envVarKubezapIntegrationName, Value: integration.Name},
 		{Name: "KUBEZAP_PUBLISHER_PORT", Value: fmt.Sprintf("%d", publisherPort)},
-		{Name: "KUBEZAP_LOG_LEVEL", Value: "info"},
+		{Name: "KUBEZAP_LOG_LEVEL", Value: defaultLogLevel},
 	}
 	// Append any user-specified env vars.
 	envVars = append(envVars, plugin.Env...)
@@ -460,7 +486,7 @@ func desiredPluginDeployment(integration *automationv1alpha1.Integration) *appsv
 							ReadinessProbe: &corev1.Probe{
 								ProbeHandler: corev1.ProbeHandler{
 									HTTPGet: &corev1.HTTPGetAction{
-										Path: "/healthz",
+										Path: healthzPath,
 										Port: intstr.FromInt32(publisherPort),
 									},
 								},
@@ -486,7 +512,7 @@ func (r *IntegrationReconciler) reconcileKafkaGateway(ctx context.Context, integ
 	// No owner reference: shared across all broker-type integrations in the namespace.
 	// Setting an owner ref to this Integration would GC the SA when this Integration
 	// is deleted, even if amqp or nats integrations still exist and need the SA.
-	sa := &corev1.ServiceAccount{ObjectMeta: metav1.ObjectMeta{Name: "kubezap-gateway", Namespace: ns}}
+	sa := &corev1.ServiceAccount{ObjectMeta: metav1.ObjectMeta{Name: sharedGatewayServiceAccountName, Namespace: ns}}
 	saResult, err := controllerutil.CreateOrUpdate(ctx, r.Client, sa, func() error {
 		return nil
 	})
@@ -499,15 +525,15 @@ func (r *IntegrationReconciler) reconcileKafkaGateway(ctx context.Context, integ
 
 	// Ensure Role (shared kubezap-gateway Role).
 	kafkaGatewayRules := []rbacv1.PolicyRule{
-		{APIGroups: []string{"automation.kubezap.io"}, Resources: []string{"triggers"}, Verbs: []string{"get", "list", "watch"}},
-		{APIGroups: []string{"automation.kubezap.io"}, Resources: []string{"integrations"}, Verbs: []string{"get"}},
-		{APIGroups: []string{"automation.kubezap.io"}, Resources: []string{"flowruns"}, Verbs: []string{"create"}},
+		{APIGroups: []string{apiGroupAutomation}, Resources: []string{resourceTriggers}, Verbs: []string{verbGet, verbList, verbWatch}},
+		{APIGroups: []string{apiGroupAutomation}, Resources: []string{resourceIntegrations}, Verbs: []string{verbGet}},
+		{APIGroups: []string{apiGroupAutomation}, Resources: []string{resourceFlowRuns}, Verbs: []string{verbCreate}},
 		// Required to resolve Integration SASL/TLS secrets, and to watch them so a
 		// rotated credential is picked up without waiting for the Trigger or
 		// Integration to be reconciled again for an unrelated reason.
-		{APIGroups: []string{""}, Resources: []string{"secrets"}, Verbs: []string{"get", "list", "watch"}},
+		{APIGroups: []string{""}, Resources: []string{resourceSecrets}, Verbs: []string{verbGet, verbList, verbWatch}},
 	}
-	role := &rbacv1.Role{ObjectMeta: metav1.ObjectMeta{Name: "kubezap-gateway", Namespace: ns}}
+	role := &rbacv1.Role{ObjectMeta: metav1.ObjectMeta{Name: sharedGatewayServiceAccountName, Namespace: ns}}
 	roleResult, err := controllerutil.CreateOrUpdate(ctx, r.Client, role, func() error {
 		role.Rules = kafkaGatewayRules
 		return nil
@@ -521,9 +547,9 @@ func (r *IntegrationReconciler) reconcileKafkaGateway(ctx context.Context, integ
 
 	// Ensure RoleBinding (shared kubezap-gateway RoleBinding).
 	// RoleRef is immutable — if it has changed the binding must be deleted and recreated.
-	kafkaDesiredRoleRef := rbacv1.RoleRef{APIGroup: "rbac.authorization.k8s.io", Kind: "Role", Name: "kubezap-gateway"}
-	kafkaDesiredSubjects := []rbacv1.Subject{{Kind: "ServiceAccount", Name: "kubezap-gateway", Namespace: ns}}
-	rb := &rbacv1.RoleBinding{ObjectMeta: metav1.ObjectMeta{Name: "kubezap-gateway", Namespace: ns}}
+	kafkaDesiredRoleRef := rbacv1.RoleRef{APIGroup: apiGroupRBAC, Kind: kindRole, Name: sharedGatewayServiceAccountName}
+	kafkaDesiredSubjects := []rbacv1.Subject{{Kind: kindServiceAccount, Name: sharedGatewayServiceAccountName, Namespace: ns}}
+	rb := &rbacv1.RoleBinding{ObjectMeta: metav1.ObjectMeta{Name: sharedGatewayServiceAccountName, Namespace: ns}}
 	rbResult, rbErr := controllerutil.CreateOrUpdate(ctx, r.Client, rb, func() error {
 		if rb.ResourceVersion != "" && rb.RoleRef != kafkaDesiredRoleRef {
 			return errRoleRefChanged
@@ -538,7 +564,7 @@ func (r *IntegrationReconciler) reconcileKafkaGateway(ctx context.Context, integ
 				return "", fmt.Errorf("deleting stale kafka gateway RoleBinding: %w", delErr)
 			}
 			rb = &rbacv1.RoleBinding{
-				ObjectMeta: metav1.ObjectMeta{Name: "kubezap-gateway", Namespace: ns},
+				ObjectMeta: metav1.ObjectMeta{Name: sharedGatewayServiceAccountName, Namespace: ns},
 				RoleRef:    kafkaDesiredRoleRef,
 				Subjects:   kafkaDesiredSubjects,
 			}
@@ -585,15 +611,15 @@ func desiredKafkaGatewayDeployment(integration *automationv1alpha1.Integration) 
 
 	deploymentName := "kubezap-kafka-gateway-" + integration.Name
 	labels := map[string]string{
-		"app":                  deploymentName,
-		"kubezap.io/component": "kafka-gateway",
+		labelApp:       deploymentName,
+		labelComponent: "kafka-gateway",
 	}
 
 	envVars := []corev1.EnvVar{
-		{Name: "WATCH_NAMESPACES", Value: os.Getenv("WATCH_NAMESPACES")},
-		{Name: "KUBEZAP_NAMESPACE", Value: integration.Namespace},
-		{Name: "KUBEZAP_INTEGRATION_NAME", Value: integration.Name},
-		{Name: "LOG_LEVEL", Value: "info"},
+		{Name: envVarWatchNamespaces, Value: os.Getenv(envVarWatchNamespaces)},
+		{Name: envVarKubezapNamespace, Value: integration.Namespace},
+		{Name: envVarKubezapIntegrationName, Value: integration.Name},
+		{Name: envVarLogLevel, Value: defaultLogLevel},
 	}
 
 	return &appsv1.Deployment{
@@ -608,7 +634,7 @@ func desiredKafkaGatewayDeployment(integration *automationv1alpha1.Integration) 
 			Template: corev1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{Labels: labels},
 				Spec: corev1.PodSpec{
-					ServiceAccountName: "kubezap-gateway",
+					ServiceAccountName: sharedGatewayServiceAccountName,
 					SecurityContext: &corev1.PodSecurityContext{
 						RunAsNonRoot: ptr.To(true),
 					},
@@ -637,7 +663,7 @@ func desiredKafkaGatewayDeployment(integration *automationv1alpha1.Integration) 
 							LivenessProbe: &corev1.Probe{
 								ProbeHandler: corev1.ProbeHandler{
 									HTTPGet: &corev1.HTTPGetAction{
-										Path: "/healthz",
+										Path: healthzPath,
 										Port: intstr.FromInt32(8090),
 									},
 								},
@@ -648,7 +674,7 @@ func desiredKafkaGatewayDeployment(integration *automationv1alpha1.Integration) 
 							ReadinessProbe: &corev1.Probe{
 								ProbeHandler: corev1.ProbeHandler{
 									HTTPGet: &corev1.HTTPGetAction{
-										Path: "/healthz",
+										Path: healthzPath,
 										Port: intstr.FromInt32(8090),
 									},
 								},
@@ -712,7 +738,7 @@ func (r *IntegrationReconciler) reconcileKafkaScaledObject(ctx context.Context, 
 	scaledObj := &unstructured.Unstructured{
 		Object: map[string]interface{}{
 			"apiVersion": "keda.sh/v1alpha1",
-			"kind":       "ScaledObject",
+			"kind":       scaledObjectKind,
 			"metadata": map[string]interface{}{
 				"name":      scaledObjName,
 				"namespace": integration.Namespace,
@@ -730,7 +756,7 @@ func (r *IntegrationReconciler) reconcileKafkaScaledObject(ctx context.Context, 
 	scaledObj.SetGroupVersionKind(schema.GroupVersionKind{
 		Group:   "keda.sh",
 		Version: "v1alpha1",
-		Kind:    "ScaledObject",
+		Kind:    scaledObjectKind,
 	})
 
 	if err := ctrl.SetControllerReference(integration, scaledObj, r.Scheme); err != nil {
@@ -741,7 +767,7 @@ func (r *IntegrationReconciler) reconcileKafkaScaledObject(ctx context.Context, 
 	existing.SetGroupVersionKind(schema.GroupVersionKind{
 		Group:   "keda.sh",
 		Version: "v1alpha1",
-		Kind:    "ScaledObject",
+		Kind:    scaledObjectKind,
 	})
 
 	err := r.Get(ctx, client.ObjectKey{Name: scaledObjName, Namespace: integration.Namespace}, existing)
@@ -807,7 +833,7 @@ func (r *IntegrationReconciler) reconcileAmqpGateway(ctx context.Context, integr
 	// No owner reference: this SA is shared across all broker-type integrations in the
 	// namespace. Setting an owner ref to a single Integration would GC the SA when that
 	// Integration is deleted, even if other broker integrations still exist.
-	sa := &corev1.ServiceAccount{ObjectMeta: metav1.ObjectMeta{Name: "kubezap-gateway", Namespace: ns}}
+	sa := &corev1.ServiceAccount{ObjectMeta: metav1.ObjectMeta{Name: sharedGatewayServiceAccountName, Namespace: ns}}
 	saResult, err := controllerutil.CreateOrUpdate(ctx, r.Client, sa, func() error {
 		return nil
 	})
@@ -820,15 +846,15 @@ func (r *IntegrationReconciler) reconcileAmqpGateway(ctx context.Context, integr
 
 	// Ensure Role (shared kubezap-gateway Role).
 	amqpGatewayRules := []rbacv1.PolicyRule{
-		{APIGroups: []string{"automation.kubezap.io"}, Resources: []string{"triggers"}, Verbs: []string{"get", "list", "watch"}},
-		{APIGroups: []string{"automation.kubezap.io"}, Resources: []string{"integrations"}, Verbs: []string{"get"}},
-		{APIGroups: []string{"automation.kubezap.io"}, Resources: []string{"flowruns"}, Verbs: []string{"create"}},
+		{APIGroups: []string{apiGroupAutomation}, Resources: []string{resourceTriggers}, Verbs: []string{verbGet, verbList, verbWatch}},
+		{APIGroups: []string{apiGroupAutomation}, Resources: []string{resourceIntegrations}, Verbs: []string{verbGet}},
+		{APIGroups: []string{apiGroupAutomation}, Resources: []string{resourceFlowRuns}, Verbs: []string{verbCreate}},
 		// Required to resolve Integration SASL/TLS secrets, and to watch them so a
 		// rotated credential is picked up without waiting for the Trigger or
 		// Integration to be reconciled again for an unrelated reason.
-		{APIGroups: []string{""}, Resources: []string{"secrets"}, Verbs: []string{"get", "list", "watch"}},
+		{APIGroups: []string{""}, Resources: []string{resourceSecrets}, Verbs: []string{verbGet, verbList, verbWatch}},
 	}
-	role := &rbacv1.Role{ObjectMeta: metav1.ObjectMeta{Name: "kubezap-gateway", Namespace: ns}}
+	role := &rbacv1.Role{ObjectMeta: metav1.ObjectMeta{Name: sharedGatewayServiceAccountName, Namespace: ns}}
 	roleResult, err := controllerutil.CreateOrUpdate(ctx, r.Client, role, func() error {
 		role.Rules = amqpGatewayRules
 		return nil
@@ -841,9 +867,9 @@ func (r *IntegrationReconciler) reconcileAmqpGateway(ctx context.Context, integr
 	}
 
 	// Ensure RoleBinding (shared kubezap-gateway RoleBinding).
-	amqpDesiredRoleRef := rbacv1.RoleRef{APIGroup: "rbac.authorization.k8s.io", Kind: "Role", Name: "kubezap-gateway"}
-	amqpDesiredSubjects := []rbacv1.Subject{{Kind: "ServiceAccount", Name: "kubezap-gateway", Namespace: ns}}
-	rb := &rbacv1.RoleBinding{ObjectMeta: metav1.ObjectMeta{Name: "kubezap-gateway", Namespace: ns}}
+	amqpDesiredRoleRef := rbacv1.RoleRef{APIGroup: apiGroupRBAC, Kind: kindRole, Name: sharedGatewayServiceAccountName}
+	amqpDesiredSubjects := []rbacv1.Subject{{Kind: kindServiceAccount, Name: sharedGatewayServiceAccountName, Namespace: ns}}
+	rb := &rbacv1.RoleBinding{ObjectMeta: metav1.ObjectMeta{Name: sharedGatewayServiceAccountName, Namespace: ns}}
 	rbResult, rbErr := controllerutil.CreateOrUpdate(ctx, r.Client, rb, func() error {
 		if rb.ResourceVersion != "" && rb.RoleRef != amqpDesiredRoleRef {
 			return errRoleRefChanged
@@ -858,7 +884,7 @@ func (r *IntegrationReconciler) reconcileAmqpGateway(ctx context.Context, integr
 				return "", fmt.Errorf("deleting stale amqp gateway RoleBinding: %w", delErr)
 			}
 			rb = &rbacv1.RoleBinding{
-				ObjectMeta: metav1.ObjectMeta{Name: "kubezap-gateway", Namespace: ns},
+				ObjectMeta: metav1.ObjectMeta{Name: sharedGatewayServiceAccountName, Namespace: ns},
 				RoleRef:    amqpDesiredRoleRef,
 				Subjects:   amqpDesiredSubjects,
 			}
@@ -905,15 +931,15 @@ func desiredAmqpGatewayDeployment(integration *automationv1alpha1.Integration) *
 
 	deploymentName := "kubezap-amqp-gateway-" + integration.Name
 	labels := map[string]string{
-		"app":                  deploymentName,
-		"kubezap.io/component": "amqp-gateway",
+		labelApp:       deploymentName,
+		labelComponent: "amqp-gateway",
 	}
 
 	envVars := []corev1.EnvVar{
-		{Name: "WATCH_NAMESPACES", Value: os.Getenv("WATCH_NAMESPACES")},
-		{Name: "KUBEZAP_NAMESPACE", Value: integration.Namespace},
-		{Name: "KUBEZAP_INTEGRATION_NAME", Value: integration.Name},
-		{Name: "LOG_LEVEL", Value: "info"},
+		{Name: envVarWatchNamespaces, Value: os.Getenv(envVarWatchNamespaces)},
+		{Name: envVarKubezapNamespace, Value: integration.Namespace},
+		{Name: envVarKubezapIntegrationName, Value: integration.Name},
+		{Name: envVarLogLevel, Value: defaultLogLevel},
 	}
 
 	return &appsv1.Deployment{
@@ -928,7 +954,7 @@ func desiredAmqpGatewayDeployment(integration *automationv1alpha1.Integration) *
 			Template: corev1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{Labels: labels},
 				Spec: corev1.PodSpec{
-					ServiceAccountName: "kubezap-gateway",
+					ServiceAccountName: sharedGatewayServiceAccountName,
 					SecurityContext: &corev1.PodSecurityContext{
 						RunAsNonRoot: ptr.To(true),
 					},
@@ -957,7 +983,7 @@ func desiredAmqpGatewayDeployment(integration *automationv1alpha1.Integration) *
 							LivenessProbe: &corev1.Probe{
 								ProbeHandler: corev1.ProbeHandler{
 									HTTPGet: &corev1.HTTPGetAction{
-										Path: "/healthz",
+										Path: healthzPath,
 										Port: intstr.FromInt32(8090),
 									},
 								},
@@ -968,7 +994,7 @@ func desiredAmqpGatewayDeployment(integration *automationv1alpha1.Integration) *
 							ReadinessProbe: &corev1.Probe{
 								ProbeHandler: corev1.ProbeHandler{
 									HTTPGet: &corev1.HTTPGetAction{
-										Path: "/healthz",
+										Path: healthzPath,
 										Port: intstr.FromInt32(8090),
 									},
 								},
@@ -1001,7 +1027,7 @@ func (r *IntegrationReconciler) reconcileNatsGateway(ctx context.Context, integr
 
 	// Ensure ServiceAccount (shared kubezap-gateway SA with kafka/amqp gateways).
 	// No owner reference: shared across all broker-type integrations in the namespace.
-	sa := &corev1.ServiceAccount{ObjectMeta: metav1.ObjectMeta{Name: "kubezap-gateway", Namespace: ns}}
+	sa := &corev1.ServiceAccount{ObjectMeta: metav1.ObjectMeta{Name: sharedGatewayServiceAccountName, Namespace: ns}}
 	saResult, err := controllerutil.CreateOrUpdate(ctx, r.Client, sa, func() error {
 		return nil
 	})
@@ -1014,15 +1040,15 @@ func (r *IntegrationReconciler) reconcileNatsGateway(ctx context.Context, integr
 
 	// Ensure Role (shared kubezap-gateway Role).
 	natsGatewayRules := []rbacv1.PolicyRule{
-		{APIGroups: []string{"automation.kubezap.io"}, Resources: []string{"triggers"}, Verbs: []string{"get", "list", "watch"}},
-		{APIGroups: []string{"automation.kubezap.io"}, Resources: []string{"integrations"}, Verbs: []string{"get"}},
-		{APIGroups: []string{"automation.kubezap.io"}, Resources: []string{"flowruns"}, Verbs: []string{"create"}},
+		{APIGroups: []string{apiGroupAutomation}, Resources: []string{resourceTriggers}, Verbs: []string{verbGet, verbList, verbWatch}},
+		{APIGroups: []string{apiGroupAutomation}, Resources: []string{resourceIntegrations}, Verbs: []string{verbGet}},
+		{APIGroups: []string{apiGroupAutomation}, Resources: []string{resourceFlowRuns}, Verbs: []string{verbCreate}},
 		// Required to resolve Integration SASL/TLS secrets, and to watch them so a
 		// rotated credential is picked up without waiting for the Trigger or
 		// Integration to be reconciled again for an unrelated reason.
-		{APIGroups: []string{""}, Resources: []string{"secrets"}, Verbs: []string{"get", "list", "watch"}},
+		{APIGroups: []string{""}, Resources: []string{resourceSecrets}, Verbs: []string{verbGet, verbList, verbWatch}},
 	}
-	role := &rbacv1.Role{ObjectMeta: metav1.ObjectMeta{Name: "kubezap-gateway", Namespace: ns}}
+	role := &rbacv1.Role{ObjectMeta: metav1.ObjectMeta{Name: sharedGatewayServiceAccountName, Namespace: ns}}
 	roleResult, err := controllerutil.CreateOrUpdate(ctx, r.Client, role, func() error {
 		role.Rules = natsGatewayRules
 		return nil
@@ -1035,9 +1061,9 @@ func (r *IntegrationReconciler) reconcileNatsGateway(ctx context.Context, integr
 	}
 
 	// Ensure RoleBinding (shared kubezap-gateway RoleBinding).
-	natsDesiredRoleRef := rbacv1.RoleRef{APIGroup: "rbac.authorization.k8s.io", Kind: "Role", Name: "kubezap-gateway"}
-	natsDesiredSubjects := []rbacv1.Subject{{Kind: "ServiceAccount", Name: "kubezap-gateway", Namespace: ns}}
-	rb := &rbacv1.RoleBinding{ObjectMeta: metav1.ObjectMeta{Name: "kubezap-gateway", Namespace: ns}}
+	natsDesiredRoleRef := rbacv1.RoleRef{APIGroup: apiGroupRBAC, Kind: kindRole, Name: sharedGatewayServiceAccountName}
+	natsDesiredSubjects := []rbacv1.Subject{{Kind: kindServiceAccount, Name: sharedGatewayServiceAccountName, Namespace: ns}}
+	rb := &rbacv1.RoleBinding{ObjectMeta: metav1.ObjectMeta{Name: sharedGatewayServiceAccountName, Namespace: ns}}
 	rbResult, rbErr := controllerutil.CreateOrUpdate(ctx, r.Client, rb, func() error {
 		if rb.ResourceVersion != "" && rb.RoleRef != natsDesiredRoleRef {
 			return errRoleRefChanged
@@ -1052,7 +1078,7 @@ func (r *IntegrationReconciler) reconcileNatsGateway(ctx context.Context, integr
 				return "", fmt.Errorf("deleting stale nats gateway RoleBinding: %w", delErr)
 			}
 			rb = &rbacv1.RoleBinding{
-				ObjectMeta: metav1.ObjectMeta{Name: "kubezap-gateway", Namespace: ns},
+				ObjectMeta: metav1.ObjectMeta{Name: sharedGatewayServiceAccountName, Namespace: ns},
 				RoleRef:    natsDesiredRoleRef,
 				Subjects:   natsDesiredSubjects,
 			}
@@ -1099,15 +1125,15 @@ func desiredNatsGatewayDeployment(integration *automationv1alpha1.Integration) *
 
 	deploymentName := "kubezap-nats-gateway-" + integration.Name
 	labels := map[string]string{
-		"app":                  deploymentName,
-		"kubezap.io/component": "nats-gateway",
+		labelApp:       deploymentName,
+		labelComponent: "nats-gateway",
 	}
 
 	envVars := []corev1.EnvVar{
-		{Name: "WATCH_NAMESPACES", Value: os.Getenv("WATCH_NAMESPACES")},
-		{Name: "KUBEZAP_NAMESPACE", Value: integration.Namespace},
-		{Name: "KUBEZAP_INTEGRATION_NAME", Value: integration.Name},
-		{Name: "LOG_LEVEL", Value: "info"},
+		{Name: envVarWatchNamespaces, Value: os.Getenv(envVarWatchNamespaces)},
+		{Name: envVarKubezapNamespace, Value: integration.Namespace},
+		{Name: envVarKubezapIntegrationName, Value: integration.Name},
+		{Name: envVarLogLevel, Value: defaultLogLevel},
 	}
 
 	return &appsv1.Deployment{
@@ -1122,7 +1148,7 @@ func desiredNatsGatewayDeployment(integration *automationv1alpha1.Integration) *
 			Template: corev1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{Labels: labels},
 				Spec: corev1.PodSpec{
-					ServiceAccountName: "kubezap-gateway",
+					ServiceAccountName: sharedGatewayServiceAccountName,
 					SecurityContext: &corev1.PodSecurityContext{
 						RunAsNonRoot: ptr.To(true),
 					},
@@ -1151,7 +1177,7 @@ func desiredNatsGatewayDeployment(integration *automationv1alpha1.Integration) *
 							LivenessProbe: &corev1.Probe{
 								ProbeHandler: corev1.ProbeHandler{
 									HTTPGet: &corev1.HTTPGetAction{
-										Path: "/healthz",
+										Path: healthzPath,
 										Port: intstr.FromInt32(8090),
 									},
 								},
@@ -1162,7 +1188,7 @@ func desiredNatsGatewayDeployment(integration *automationv1alpha1.Integration) *
 							ReadinessProbe: &corev1.Probe{
 								ProbeHandler: corev1.ProbeHandler{
 									HTTPGet: &corev1.HTTPGetAction{
-										Path: "/healthz",
+										Path: healthzPath,
 										Port: intstr.FromInt32(8090),
 									},
 								},

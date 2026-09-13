@@ -17,6 +17,9 @@ import (
 	automationv1alpha1 "github.com/kubezap/kubezap-operator/api/v1alpha1"
 )
 
+// triggerTypeNats is the TriggerSpec.Type value "nats".
+const triggerTypeNats = "nats"
+
 // nonAlphaNumDash matches any character that is not a lowercase letter, digit, or dash.
 var nonAlphaNumDash = regexp.MustCompile(`[^a-z0-9-]`)
 
@@ -78,7 +81,7 @@ func (h *MessageHandler) handleMessage(msg *natsio.Msg) error {
 			Namespace: h.triggerNamespace,
 			Labels: map[string]string{
 				"kubezap.io/trigger":      h.triggerName,
-				"kubezap.io/trigger-type": "nats",
+				"kubezap.io/trigger-type": triggerTypeNats,
 				"kubezap.io/flow":         h.flowRefName,
 			},
 		},
@@ -86,10 +89,10 @@ func (h *MessageHandler) handleMessage(msg *natsio.Msg) error {
 			FlowRef: automationv1alpha1.FlowReference{Name: h.flowRefName},
 			TriggerRef: &automationv1alpha1.TriggerReference{
 				Name: h.triggerName,
-				Type: "nats",
+				Type: triggerTypeNats,
 			},
 			TriggerData: &automationv1alpha1.TriggerData{
-				Source: "nats",
+				Source: triggerTypeNats,
 				Body:   string(msg.Data),
 				Topic:  msg.Subject,
 			},

@@ -376,8 +376,8 @@ func (rw *ResourceWatcher) handleEvent(
 			Name:      flowRunName,
 			Namespace: trigger.Namespace,
 			Labels: map[string]string{
-				"kubezap.io/trigger":      trigger.Name,
-				"kubezap.io/trigger-type": "resource",
+				labelTrigger:              trigger.Name,
+				"kubezap.io/trigger-type": triggerTypeResource,
 				"kubezap.io/flow":         flowRef,
 			},
 		},
@@ -387,7 +387,7 @@ func (rw *ResourceWatcher) handleEvent(
 			},
 			TriggerRef: &automationv1alpha1.TriggerReference{
 				Name: trigger.Name,
-				Type: "resource",
+				Type: triggerTypeResource,
 			},
 			TriggerData: &automationv1alpha1.TriggerData{
 				EventType:          string(eventType),
@@ -432,7 +432,7 @@ func parseAPIVersion(apiVersion string) (group, version string) {
 // Defaults to {"create"} if empty.
 func allowedEventSet(events []string) map[string]bool {
 	if len(events) == 0 {
-		return map[string]bool{"create": true}
+		return map[string]bool{verbCreate: true}
 	}
 	set := make(map[string]bool, len(events))
 	for _, e := range events {

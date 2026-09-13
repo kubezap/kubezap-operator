@@ -73,7 +73,7 @@ func ListFlows(ctx context.Context, c client.Client, namespace string, format ou
 }
 
 func printFlowTable(w io.Writer, items []automationv1alpha1.Flow, lastUsed map[string]metav1.Time) {
-	headers := []string{"NAME", "STEPS", "READY", "LAST USED"}
+	headers := []string{headerName, "STEPS", "READY", "LAST USED"}
 	rows := make([][]string, 0, len(items))
 	for _, f := range items {
 		steps := fmt.Sprintf("%d", len(f.Spec.Steps))

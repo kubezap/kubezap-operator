@@ -148,7 +148,7 @@ func (w *TriggerWatcher) handleTrigger(obj interface{}) {
 	w.triggersMu.Unlock()
 	w.secretIndex.Update(key, secretRefsForTrigger(trigger))
 
-	if trigger.Spec.Type == "webhook" && trigger.Spec.Enabled && trigger.Spec.Webhook != nil {
+	if trigger.Spec.Type == triggerTypeWebhook && trigger.Spec.Enabled && trigger.Spec.Webhook != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		entry, err := w.buildRouteEntry(ctx, trigger)
@@ -168,7 +168,7 @@ func (w *TriggerWatcher) handleTrigger(obj interface{}) {
 // still gets reprocessed once that secret is created — see
 // docs/design/2026-09-11-secret-rotation-watches.md.
 func secretRefsForTrigger(trigger *automationv1alpha1.Trigger) []types.NamespacedName {
-	if trigger.Spec.Type != "webhook" || trigger.Spec.Webhook == nil || trigger.Spec.Webhook.Auth == nil {
+	if trigger.Spec.Type != triggerTypeWebhook || trigger.Spec.Webhook == nil || trigger.Spec.Webhook.Auth == nil {
 		return nil
 	}
 	auth := trigger.Spec.Webhook.Auth

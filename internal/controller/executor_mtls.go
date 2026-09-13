@@ -29,6 +29,10 @@ import (
 	"time"
 )
 
+// pemBlockTypeCertificate is the pem.Block.Type value for a DER-encoded X.509
+// certificate, per RFC 7468.
+const pemBlockTypeCertificate = "CERTIFICATE"
+
 // MTLSBundle holds an in-memory CA and the derived cert pair for the executor channel.
 // The bundle is generated once at startup (or on rotation) and is never persisted to etcd.
 // The server cert is mounted into the executor Deployment via a Secret; the client cert
@@ -148,7 +152,7 @@ func issueLeafCert(
 		return tls.Certificate{}, err
 	}
 
-	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certDER})
+	certPEM := pem.EncodeToMemory(&pem.Block{Type: pemBlockTypeCertificate, Bytes: certDER})
 	keyDER, err := x509.MarshalECPrivateKey(leafKey)
 	if err != nil {
 		return tls.Certificate{}, err
@@ -183,7 +187,7 @@ func (b *MTLSBundle) ServerKeyPEM() []byte {
 
 // CACertPEM returns the PEM-encoded CA certificate.
 func (b *MTLSBundle) CACertPEM() []byte {
-	return pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: b.CACert.Raw})
+	return pem.EncodeToMemory(&pem.Block{Type: pemBlockTypeCertificate, Bytes: b.CACert.Raw})
 }
 
 // NeedsRotation returns true when the bundle will expire within 1 hour.
@@ -196,7 +200,7 @@ func (b *MTLSBundle) NeedsRotation() bool {
 func certChainPEM(cert tls.Certificate) []byte {
 	buf := make([]byte, 0, len(cert.Certificate))
 	for _, der := range cert.Certificate {
-		buf = append(buf, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})...)
+		buf = append(buf, pem.EncodeToMemory(&pem.Block{Type: pemBlockTypeCertificate, Bytes: der})...)
 	}
 	return buf
 }

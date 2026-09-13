@@ -41,6 +41,14 @@ const (
 	webhookGatewayPort           = int32(8080)
 )
 
+// componentWebhookGateway is the "webhook-gateway" value used for both the
+// labelComponent label and the gateway container/ServiceAccount name suffix.
+const componentWebhookGateway = "webhook-gateway"
+
+// labelNamespace is the kubezap.io/namespace label key recording which
+// namespace a webhook gateway resource belongs to.
+const labelNamespace = "kubezap.io/namespace"
+
 // portNameHTTP/portNameHTTPS name the single container/service port exposed by
 // the webhook gateway and http-executor Deployments/Services, and the URL
 // scheme returned by executorScheme — all mean "plain HTTP" vs "TLS-terminated".
@@ -72,9 +80,9 @@ func webhookGatewayImage() string {
 func desiredWebhookGatewayServiceAccount(namespace string) *corev1.ServiceAccount {
 	return &corev1.ServiceAccount{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      "kubezap-webhook-gateway",
+			Name:      webhookGatewayDeploymentName,
 			Namespace: namespace,
-			Labels:    map[string]string{"app": "kubezap-webhook-gateway"},
+			Labels:    map[string]string{labelApp: webhookGatewayDeploymentName},
 		},
 	}
 }
@@ -83,19 +91,19 @@ func desiredWebhookGatewayServiceAccount(namespace string) *corev1.ServiceAccoun
 func desiredWebhookGatewayRole(namespace string) *rbacv1.Role {
 	return &rbacv1.Role{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      "kubezap-webhook-gateway",
+			Name:      webhookGatewayDeploymentName,
 			Namespace: namespace,
 		},
 		Rules: []rbacv1.PolicyRule{
 			{
-				APIGroups: []string{"automation.kubezap.io"},
-				Resources: []string{"triggers"},
-				Verbs:     []string{"get", "list", "watch"},
+				APIGroups: []string{apiGroupAutomation},
+				Resources: []string{resourceTriggers},
+				Verbs:     []string{verbGet, verbList, verbWatch},
 			},
 			{
-				APIGroups: []string{"automation.kubezap.io"},
-				Resources: []string{"flowruns"},
-				Verbs:     []string{"create"},
+				APIGroups: []string{apiGroupAutomation},
+				Resources: []string{resourceFlowRuns},
+				Verbs:     []string{verbCreate},
 			},
 			{
 				// Required to resolve Trigger webhook auth secrets (HMAC, bearer,
@@ -103,8 +111,8 @@ func desiredWebhookGatewayRole(namespace string) *rbacv1.Role {
 				// watch them so a rotated secret's new value is picked up without
 				// waiting for the referencing Trigger to be reconciled again.
 				APIGroups: []string{""},
-				Resources: []string{"secrets"},
-				Verbs:     []string{"get", "list", "watch"},
+				Resources: []string{resourceSecrets},
+				Verbs:     []string{verbGet, verbList, verbWatch},
 			},
 		},
 	}
@@ -114,18 +122,18 @@ func desiredWebhookGatewayRole(namespace string) *rbacv1.Role {
 func desiredWebhookGatewayRoleBinding(namespace string) *rbacv1.RoleBinding {
 	return &rbacv1.RoleBinding{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      "kubezap-webhook-gateway",
+			Name:      webhookGatewayDeploymentName,
 			Namespace: namespace,
 		},
 		RoleRef: rbacv1.RoleRef{
-			APIGroup: "rbac.authorization.k8s.io",
-			Kind:     "Role",
-			Name:     "kubezap-webhook-gateway",
+			APIGroup: apiGroupRBAC,
+			Kind:     kindRole,
+			Name:     webhookGatewayDeploymentName,
 		},
 		Subjects: []rbacv1.Subject{
 			{
-				Kind:      "ServiceAccount",
-				Name:      "kubezap-webhook-gateway",
+				Kind:      kindServiceAccount,
+				Name:      webhookGatewayDeploymentName,
 				Namespace: namespace,
 			},
 		},
@@ -174,8 +182,8 @@ func desiredWebhookGatewayHPAFromConfig(namespace string, cfg *automationv1alpha
 			Name:      webhookGatewayDeploymentName,
 			Namespace: namespace,
 			Labels: map[string]string{
-				"kubezap.io/component": "webhook-gateway",
-				"kubezap.io/namespace": namespace,
+				labelComponent: componentWebhookGateway,
+				labelNamespace: namespace,
 			},
 		},
 		Spec: autoscalingv2.HorizontalPodAutoscalerSpec{
@@ -218,8 +226,8 @@ func desiredWebhookGatewayPDB(namespace string, cfg *automationv1alpha1.WebhookG
 	}
 
 	labels := map[string]string{
-		"kubezap.io/component": "webhook-gateway",
-		"kubezap.io/namespace": namespace,
+		labelComponent: componentWebhookGateway,
+		labelNamespace: namespace,
 	}
 
 	return &policyv1.PodDisruptionBudget{
@@ -259,8 +267,8 @@ func getWebhookGatewayConfig(ctx context.Context, c client.Client, namespace str
 // desiredWebhookGatewayService returns the desired ClusterIP service for the webhook gateway.
 func desiredWebhookGatewayService(namespace string, tlsCfg WebhookGatewayTLSConfig) *corev1.Service {
 	labels := map[string]string{
-		"kubezap.io/component": "webhook-gateway",
-		"kubezap.io/namespace": namespace,
+		labelComponent: componentWebhookGateway,
+		labelNamespace: namespace,
 	}
 
 	portName := portNameHTTP
@@ -293,8 +301,8 @@ func desiredWebhookGatewayService(namespace string, tlsCfg WebhookGatewayTLSConf
 // references and calling CreateOrUpdate.
 func desiredWebhookGatewayDeployment(namespace string, tlsCfg WebhookGatewayTLSConfig) *appsv1.Deployment {
 	labels := map[string]string{
-		"kubezap.io/component": "webhook-gateway",
-		"kubezap.io/namespace": namespace,
+		labelComponent: componentWebhookGateway,
+		labelNamespace: namespace,
 	}
 	replicas := int32(1)
 
@@ -363,7 +371,7 @@ func desiredWebhookGatewayDeployment(namespace string, tlsCfg WebhookGatewayTLSC
 			Template: corev1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{Labels: labels},
 				Spec: corev1.PodSpec{
-					ServiceAccountName: "kubezap-webhook-gateway",
+					ServiceAccountName: webhookGatewayDeploymentName,
 					SecurityContext: &corev1.PodSecurityContext{
 						RunAsNonRoot:   ptr.To(true),
 						SeccompProfile: &corev1.SeccompProfile{Type: corev1.SeccompProfileTypeRuntimeDefault},
@@ -371,7 +379,7 @@ func desiredWebhookGatewayDeployment(namespace string, tlsCfg WebhookGatewayTLSC
 					Volumes: volumes,
 					Containers: []corev1.Container{
 						{
-							Name:            "webhook-gateway",
+							Name:            componentWebhookGateway,
 							Image:           webhookGatewayImage(),
 							ImagePullPolicy: corev1.PullIfNotPresent,
 							Args:            args,
@@ -391,7 +399,7 @@ func desiredWebhookGatewayDeployment(namespace string, tlsCfg WebhookGatewayTLSC
 							LivenessProbe: &corev1.Probe{
 								ProbeHandler: corev1.ProbeHandler{
 									HTTPGet: &corev1.HTTPGetAction{
-										Path:   "/healthz",
+										Path:   healthzPath,
 										Port:   intstr.FromInt32(webhookGatewayPort),
 										Scheme: probeScheme,
 									},

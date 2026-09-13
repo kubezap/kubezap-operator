@@ -33,6 +33,9 @@ import (
 // defaultNamespace is the fallback namespace used when none is configured or resolvable.
 const defaultNamespace = "default"
 
+// headerName is the "NAME" column header shared by every table-formatted list command.
+const headerName = "NAME"
+
 var scheme = runtime.NewScheme()
 
 func init() {

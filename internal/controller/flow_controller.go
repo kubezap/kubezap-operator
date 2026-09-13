@@ -61,7 +61,7 @@ func (r *FlowReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 	if err := validateFlowSpec(flow.Spec); err != nil {
 		log.Info("Flow spec validation failed", "flow", req.NamespacedName, "error", err)
 		cond := metav1.Condition{
-			Type:               "Ready",
+			Type:               conditionTypeReady,
 			Status:             metav1.ConditionFalse,
 			Reason:             "InvalidSpec",
 			Message:            err.Error(),
@@ -76,7 +76,7 @@ func (r *FlowReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 
 	// Validation passed — set Ready=True.
 	cond := metav1.Condition{
-		Type:               "Ready",
+		Type:               conditionTypeReady,
 		Status:             metav1.ConditionTrue,
 		Reason:             "FlowReady",
 		Message:            "Flow is valid and ready",

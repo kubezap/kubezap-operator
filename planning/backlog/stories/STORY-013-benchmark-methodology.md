@@ -1,19 +1,21 @@
 # STORY-013: Define execution-latency benchmark methodology
 
 **Epic:** EPIC-004 — Execution Latency Benchmarking (RPC Executor vs. Pod-per-Step)
-**Status:** Planned (WP-2 — see `planning/checkpoints/checkpoint-2026-09-12/work-packages-2.md`)
+**Status:** Implemented, PR #189 open (not yet merged)
 **Size:** S
 
 ## Description
 
 Define exactly what's being measured and how, before building anything. This is a methodology document, not a design record per `planning/process/design-process.md` — it doesn't change KubeZap's CRDs, controllers, security posture, or introduce a shipped dependency; Argo Workflows here is a one-off comparison baseline for a local measurement, not something KubeZap depends on.
 
+**Delivered** (`benchmarks/execution-latency/METHODOLOGY.md`): correctly identified that Argo's native `http` template runs via a shared per-workflow Agent process, not per-step pods — using it would have invalidated the whole Pod-per-step comparison premise. Picked the classic `container` template instead.
+
 ## Acceptance Criteria
 
-- [ ] **Scenario defined**: a representative lightweight automation — webhook trigger → 3 sequential HTTP calls to an in-cluster Mockoon-style echo target (reuses the same pattern as `test/e2e/feature_matrix_test.go`'s Mockoon fixtures) — implemented once as a KubeZap `Trigger`+`Flow` and once as an equivalent Argo `Workflow`.
-- [ ] **Baseline pinned**: exact Argo Workflows version to install (pick current stable at benchmark time, record the exact version in the methodology doc — don't leave it floating).
-- [ ] **Metrics defined**: p50/p95 per-step latency (wall-clock from step start to step completion, read from each system's own status fields — `FlowRun.status.steps[].startTime/completionTime` vs. Argo's per-node `startedAt`/`finishedAt`), per-step resource overhead (peak pod memory/CPU during the run, sampled via `kubectl top pod` polling — document the polling interval), and cold-start cost (time from trigger fired to first step starting, isolating executor-pod/Argo-pod scheduling+startup latency from step execution time itself).
-- [ ] **Run parameters defined**: number of trigger firings per system to get a stable p50/p95 (propose a number, e.g. 50, and justify it), sequential vs. concurrent firing (propose starting sequential — the epic's Goal doesn't require concurrency data for a first go/no-go call), and how results are collected (raw JSON per run, not just a summary, so STORY-015 can recompute if a stat is wrong).
+- [x] **Scenario defined**: webhook → 3 sequential HTTP calls (`runAfter`-chained) against a dedicated Mockoon fixture, mirroring `test/e2e/feature_matrix_test.go`'s pattern.
+- [x] **Baseline pinned**: Argo Workflows v4.1.3 (flagged as needing re-verification at harness-build time).
+- [x] **Metrics defined**: latency from each system's own status fields (verified `StepRunStatus.StartTime`/`CompletionTime` field names against `api/v1alpha1/flowrun_types.go`), resource overhead via `kubectl top pod` (flagged metrics-server's default 60s resolution as too coarse for this use, proposed 15s), two-part cold-start definition.
+- [x] **Run parameters defined**: 200 sequential firings per system, justified via the standard `n(1-p) ≥ 10` threshold for p95 stability; raw per-run JSON output.
 
 ## File / Module Footprint
 

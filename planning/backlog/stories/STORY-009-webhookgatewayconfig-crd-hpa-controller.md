@@ -1,7 +1,7 @@
 # STORY-009: `WebhookGatewayConfig` CRD types + controller (HPA reconciliation + singleton webhook)
 
 **Epic:** EPIC-003 — WebhookGatewayConfig CRD
-**Status:** Planned (WP-1 — see `planning/checkpoints/checkpoint-2026-09-12/work-packages-2.md`)
+**Status:** Implemented, PR #190 open (not yet merged) — includes a wiring-pass commit (`cmd/main.go` webhook registration + the real `ensureWebhookGateway` call site) on top of the dispatched agent's own commit, plus the reconcile-level test proving the two are actually connected
 **Size:** M
 
 ## Description
@@ -10,11 +10,11 @@ Define the `WebhookGatewayConfig` CRD (per `docs/design/2026-09-12-webhookgatewa
 
 ## Acceptance Criteria
 
-- [ ] `WebhookGatewayConfigSpec` with `TLS *WebhookGatewayTLSSpec`, `HPA *WebhookGatewayHPASpec`, `PodDisruptionBudget *WebhookGatewayPDBSpec` sub-structs (PDB struct itself can be a stub in this story — STORY-010 fills in its behavior). `HPA` has `MinReplicas`, `MaxReplicas`, `TargetCPUUtilization` (all `*int32`, `+optional`).
-- [ ] `MinReplicas` rejects `<= 0` via kubebuilder validation marker (`+kubebuilder:validation:Minimum=1`) — no HA-minimum enforcement, per the design record.
-- [ ] `desiredWebhookGatewayHPA` (or its replacement) reads from the namespace's `WebhookGatewayConfig` when present, falling back to today's exact hardcoded values (min=1, max=10, target=70%) when absent — verify via a reconcile-level test that an absent config produces byte-identical HPA spec to today's code.
-- [ ] New validating webhook (mirroring `internal/webhook/trigger_webhook.go`'s registration pattern) rejects a `create` when the namespace already has a `WebhookGatewayConfig` (any name).
-- [ ] `make generate && make manifests` run once, after all other changes in this story land — not per-edit.
+- [x] `WebhookGatewayConfigSpec` with `TLS`/`HPA`/`PodDisruptionBudget` sub-structs — done (PDB is a field-shape stub, STORY-010 fills in its reconciliation behavior).
+- [x] `MinReplicas` rejects `<= 0` via `+kubebuilder:validation:Minimum=1` — no HA-minimum enforcement, per the design record.
+- [x] `desiredWebhookGatewayHPAFromConfig` reads from the namespace's `WebhookGatewayConfig` when present, falling back per-field to today's hardcoded values when absent — proven both by unit tests (`gateway_deployment_test.go`) and, after the wiring-pass commit, by a reconcile-level envtest that the real `Reconcile` path actually applies a config's HPA fields to the live `HorizontalPodAutoscaler` (`trigger_controller_test.go`).
+- [x] Singleton-enforcement validating webhook (mirroring `flowrun_webhook.go`'s rejecting-webhook pattern, not `trigger_webhook.go`'s warn-only one, which was the wrong template) rejects a second `create` in the same namespace — registered in `cmd/main.go` by the wiring-pass commit.
+- [x] `make generate && make manifests` run once; RBAC landing confirmed by grep in both `role.yaml` and (hand-verified as not actually auto-regenerated) `namespaced_role.yaml`.
 
 ## File / Module Footprint
 

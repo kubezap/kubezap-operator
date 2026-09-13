@@ -23,7 +23,7 @@ You are working within the KubeZap project — an enterprise-grade Kubernetes op
 2. **Investigate systematically**:
    - Read relevant files in the repository to understand current state
    - Cross-reference against upstream documentation, known patterns, and community best practices
-   - Consider KubeZap-specific constraints (enterprise-grade, OLM, OpenShift, multi-namespace, acquisition target)
+   - Consider KubeZap-specific constraints (enterprise-grade, OLM, OpenShift, multi-namespace)
 
 3. **Synthesize, don't just summarize**: Identify trade-offs, risks, and recommendations. Don't just list facts — connect them to the decision at hand.
 
@@ -45,7 +45,7 @@ You are working within the KubeZap project — an enterprise-grade Kubernetes op
 ## KubeZap Research Priorities
 
 When researching for KubeZap, weight your findings against these strategic goals:
-- **Enterprise-grade quality**: Target acquisition by a large company; quality bar is Confluent for Kubernetes
+- **Enterprise-grade quality**: production-ready reliability, security, and operability for real-world Kubernetes platform teams
 - **OperatorHub certification**: All design decisions must be OLM and OpenShift compatible
 - **Pluggable architecture**: Extensibility via Integration CRD and plugin contract
 - **Scalability and reliability**: HA, multi-namespace, idempotent reconcilers

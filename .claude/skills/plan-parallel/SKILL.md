@@ -21,10 +21,11 @@ Check the resulting work-package count against `CLAUDE.md`'s Rate Limit Guardrai
 3. Group non-overlapping stories into parallel Work Packages (one or more stories each, but a single package's own stories must also not overlap with each other). Overlapping stories become sequential: package B is ordered after package A rather than run alongside it.
 4. Determine today's checkpoint directory: `planning/checkpoints/checkpoint-YYYY-MM-DD/` (create it if it doesn't exist yet — use today's actual date). Copy `.claude/templates/work-packages.md` there and fill in the candidate list, the conflict-analysis table, and the resulting work package groupings.
 5. If any story touches a hot file, note in the plan that a sequential wiring pass (owned by whoever runs `/dispatch-work`, not a parallel worker) is needed after the other packages merge.
-6. Update each planned story's Status to `Planned` in `backlog.md` and its own file.
+6. Update each planned story's Status to `Planned` in `backlog.md` and its own file. Stage these edits (`git add`) along with the new `work-packages.md`, but do not commit, push, or open a PR for them — per `CLAUDE.md`'s planning-PR guidance, planning-only edits wait for an explicit ask or fold into `/dispatch-work`'s final PR once that batch's story PRs are merged.
 7. Present the plan to the user before anyone runs `/dispatch-work` — this is a good moment for them to catch a footprint they disagree with, since dispatch is harder to interrupt cleanly once running.
 
 ## Don't
 
 - Don't dispatch agents from this skill — that's `/dispatch-work`, and it should only ever execute a work-packages.md this skill already produced.
+- Don't commit, push, or open a PR for this plan on your own initiative — leave the edits staged (see step 6).
 - Don't parallelize stories whose footprints you're not confident about. When uncertain, serialize — a false "safe" call here is exactly the merge-conflict risk this whole framework exists to prevent.

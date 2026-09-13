@@ -24,7 +24,7 @@ A written benchmark report exists (methodology, scenario definition, p50/p95 ste
 
 Groomed 2026-09-12 (`/groom-backlog`) — all three fully groomed, no blocking design record needed (this is a research spike: no CRD/controller/security-posture change, and the Argo Workflows comparison baseline is a one-off local measurement tool, not a shipped KubeZap dependency):
 
-- [ ] [STORY-013](../stories/STORY-013-benchmark-methodology.md) — Define benchmark methodology (scenario, baseline version, metrics, run parameters). Groomed, ready to dispatch.
+- [x] [STORY-013](../stories/STORY-013-benchmark-methodology.md) — Define benchmark methodology (scenario, baseline version, metrics, run parameters). Done — PR #189, merged.
 - [ ] [STORY-014](../stories/STORY-014-benchmark-harness.md) — Build and run the harness against both systems. Groomed; blocked on STORY-013.
 - [ ] [STORY-015](../stories/STORY-015-benchmark-writeup.md) — Write up results and a pursue/don't-pursue recommendation. Groomed; blocked on STORY-014.
 

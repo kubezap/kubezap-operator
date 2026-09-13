@@ -33,12 +33,14 @@ Already done (pre-dates this Epic file — see `git log` for PRs #155/#157, not 
 Open:
 - [x] [STORY-001](../stories/STORY-001-docs-cleanup-pass.md) — Final public-facing docs cleanup pass
 - [x] [STORY-002](../stories/STORY-002-contributing-docs-cleanup.md) — Clean up `docs/contributing.md`
-- [ ] [STORY-003](../stories/STORY-003-test-suite-value-review.md) — Test suite value review
+- [x] [STORY-003](../stories/STORY-003-test-suite-value-review.md) — Test suite value review. Done — no PR (investigation/write-up), closed 2026-09-13. Unblocks STORY-007.
 - [x] [STORY-004](../stories/STORY-004-github-pages-website.md) — Product/docs website via GitHub Pages (content scope decided 2026-09-12: rendered `docs/` only)
 - [x] [STORY-005](../stories/STORY-005-community-health-files.md) — `CODE_OF_CONDUCT.md` + issue/PR templates
 - [x] [STORY-006](../stories/STORY-006-support-channel-decision.md) — Support/community channel decision
-- [ ] [STORY-007](../stories/STORY-007-final-release-validation.md) — Final release validation and OperatorHub submission (rollup gate — last)
+- [ ] [STORY-007](../stories/STORY-007-final-release-validation.md) — Final release validation and OperatorHub submission (rollup gate — last). Blocker (STORY-024) merged; final scorecard re-check not yet re-run.
 - [x] [STORY-016](../stories/STORY-016-docs-broken-links-cleanup.md) — Fix broken doc links/anchors surfaced by the MkDocs build. Done — PR #193, merged.
+- [x] [STORY-023](../stories/STORY-023-outbound-tls-annotation-docs-fix.md) — Fix fictional outbound-TLS-annotation docs (3 documented Trigger annotations don't exist in code). Done — PR #211, merged.
+- [x] [STORY-024](../stories/STORY-024-olm-csv-descriptors.md) — Fix OLM scorecard descriptor/resource gaps in the CSV, all 5 CRDs (found during STORY-007's validation pass; root cause was `PROJECT`-registration-gated CSV regeneration, not a bug). Done — PR #209, merged. Unblocks STORY-007.
 
 ## Dependencies
 

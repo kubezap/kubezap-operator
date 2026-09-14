@@ -157,7 +157,7 @@ cmd/main.go           # Operator entry point, manager setup
 internal/controller/  # Reconciler implementations
 config/               # Kustomize manifests (CRDs, RBAC, deploy config)
 config/samples/       # Example CRs for manual testing
-docs/                 # Project documentation (aim for Confluent-for-K8s quality)
+docs/                 # Project documentation
 hack/                 # Build and codegen scripts
 test/                 # Unit and E2E test infrastructure
 ```
@@ -216,7 +216,6 @@ test/                 # Unit and E2E test infrastructure
 
 ## Documentation Standards
 
-- Target quality: Confluent for Kubernetes operator docs
 - All new CRDs get a dedicated doc page covering: purpose, spec fields, status fields, examples, limitations
 - API changes documented before implementation (doc-driven development)
 - Keep `docs/overview.md` up to date as the project evolves

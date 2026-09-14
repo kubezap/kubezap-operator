@@ -330,10 +330,6 @@ type IntegrationStatus struct {
 	// Standard conditions.
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
 
-	// Current phase of this integration.
-	// +kubebuilder:validation:Enum=Ready;Degraded;Pending
-	Phase string `json:"phase,omitempty"`
-
 	// Managed gateway deployment name.
 	GatewayDeploymentName string `json:"gatewayDeploymentName,omitempty"`
 
@@ -344,7 +340,6 @@ type IntegrationStatus struct {
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
 // +kubebuilder:printcolumn:name="TYPE",type=string,JSONPath=`.spec.type`,description="Integration type"
-// +kubebuilder:printcolumn:name="PHASE",type=string,JSONPath=`.status.phase`,description="Current phase"
 
 // Integration connects KubeZap to an external system (Kafka, plugin, etc.).
 // +operator-sdk:csv:customresourcedefinitions:resources={{Deployment,v1,""},{Service,v1,""},{ServiceAccount,v1,""},{Role,v1,""},{RoleBinding,v1,""}}

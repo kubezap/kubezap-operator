@@ -151,7 +151,7 @@ kubectl apply -f artemis-integration.yaml
 
 ### Verifying the Integration
 
-Check that the Integration reaches the `Ready` phase:
+Check that the Integration's `Ready` condition is `True`:
 
 ```bash
 kubectl get integration -n default
@@ -160,11 +160,11 @@ kubectl get integration -n default
 Expected output:
 
 ```
-NAME       TYPE   PHASE   TRIGGERS   AGE
-rabbitmq   amqp   Ready   0          30s
+NAME       TYPE   AGE
+rabbitmq   amqp   30s
 ```
 
-If the phase shows `Failed` or `Degraded`, inspect the conditions:
+Integration has no `phase` printer column — inspect the conditions directly:
 
 ```bash
 kubectl describe integration rabbitmq -n default

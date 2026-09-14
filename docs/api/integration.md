@@ -536,7 +536,6 @@ There is no plain-text `username` field — the username must always come from a
 | Field                     | Type        | Description                                                                     |
 | ------------------------- | ----------- | ------------------------------------------------------------------------------- |
 | `conditions`              | []Condition | Standard `Ready` condition                                                      |
-| `phase`                   | string      | `Ready`, `Degraded`, or `Pending`                                               |
 | `gatewayDeploymentName`   | string      | Name of the gateway Deployment managed for this Integration in this namespace   |
 | `lastReconciledTime`      | Time        | Timestamp of the most recent reconciliation pass                                |
 
@@ -556,10 +555,12 @@ kubectl get integrations -n automation
 ```
 
 ```
-NAME            TYPE     PHASE   AGE
-kafka-cluster   kafka    Ready   2d
-rabbitmq        plugin   Ready   6h
+NAME            TYPE     AGE
+kafka-cluster   kafka    2d
+rabbitmq        plugin   6h
 ```
+
+Integration has no `phase` field — check the `Ready` condition (`kubectl describe integration <name>`) for status, matching every other CRD in this repo (Trigger, Flow, WebhookGatewayConfig are all Conditions-only).
 
 ---
 
@@ -1006,7 +1007,7 @@ The community plugin catalog lives at `docs/plugins/` (forthcoming). Each catalo
 
 | Command                                          | Description                                                             |
 | ------------------------------------------------ | ----------------------------------------------------------------------- |
-| `kubectl get integrations -n <ns>`               | List all Integrations with phase and trigger count                      |
+| `kubectl get integrations -n <ns>`               | List all Integrations with their type                                   |
 | `kubectl get integration <name> -n <ns> -o yaml` | Full spec and status                                                    |
 | `kubectl describe integration <name> -n <ns>`    | Human-readable summary including conditions                             |
 | `kubectl delete integration <name> -n <ns>`      | Remove the Integration (gateways are deleted; Triggers become degraded) |

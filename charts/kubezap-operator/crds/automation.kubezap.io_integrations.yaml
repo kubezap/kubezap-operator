@@ -19,10 +19,6 @@ spec:
       jsonPath: .spec.type
       name: TYPE
       type: string
-    - description: Current phase
-      jsonPath: .status.phase
-      name: PHASE
-      type: string
     name: v1alpha1
     schema:
       openAPIV3Schema:
@@ -954,13 +950,6 @@ spec:
               lastReconciledTime:
                 description: Last time reconciliation happened.
                 format: date-time
-                type: string
-              phase:
-                description: Current phase of this integration.
-                enum:
-                - Ready
-                - Degraded
-                - Pending
                 type: string
             type: object
         type: object

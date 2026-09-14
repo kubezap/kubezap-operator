@@ -287,10 +287,25 @@ func fmWaitFlowRunSucceeded(frName string, timeout time.Duration) {
 // ---------------------------------------------------------------------------
 
 var _ = Describe("Feature Matrix", Ordered, func() {
-	// The namespace e2eNS (kubezap-e2e) is created by kubezap_e2e_test.go's
-	// BeforeAll and deleted by its AfterAll.  We do not create or delete it here.
+	// e2eNS (kubezap-e2e) is shared with kubezap_e2e_test.go's suite, but Ginkgo
+	// randomizes top-level container order by default, so we cannot assume that
+	// suite's BeforeAll has run (or that its AfterAll hasn't already torn the
+	// namespace down) by the time this one starts. Ensure it exists ourselves,
+	// idempotently, rather than relying on cross-file execution order. We do not
+	// delete it here — whichever suite's AfterAll runs last does that.
 
 	BeforeAll(func() {
+		By("ensuring e2e test namespace exists")
+		cmd := exec.Command("kubectl", "create", "ns", e2eNS)
+		// Ignore error — namespace may already exist (created by the other suite).
+		_, _ = utils.Run(cmd)
+
+		By("labelling namespace with restricted pod security policy")
+		cmd = exec.Command("kubectl", "label", "--overwrite", "ns", e2eNS,
+			"pod-security.kubernetes.io/enforce=restricted")
+		_, err := utils.Run(cmd)
+		Expect(err).NotTo(HaveOccurred())
+
 		By("deploying shared Mockoon fixture in e2eNS")
 		fmApplyInline(fmMockoonConfigMapYAML)
 		fmApplyInline(fmMockoonDeploymentYAML)

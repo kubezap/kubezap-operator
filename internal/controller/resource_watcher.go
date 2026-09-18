@@ -357,10 +357,7 @@ func (rw *ResourceWatcher) handleEvent(
 	bodyJSON, _ := json.Marshal(u.Object)
 
 	// FlowRef.Namespace was removed in v1alpha1; Flow is always in the same namespace as the Trigger.
-	flowRef := ""
-	if trigger.Spec.FlowRef != nil {
-		flowRef = trigger.Spec.FlowRef.Name
-	}
+	flowRef := trigger.Spec.FlowRef.Name
 	if flowRef == "" {
 		return
 	}

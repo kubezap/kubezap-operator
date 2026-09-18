@@ -52,7 +52,7 @@ type Watcher struct {
 	subscriptions sync.Map // key: types.NamespacedName, value: *subscription
 
 	// secretIndex and triggers together let a Secret change (see
-	// docs/design/2026-09-11-secret-rotation-watches.md) reprocess exactly the
+	// docs/design/secret-rotation-watches.md) reprocess exactly the
 	// Triggers whose Integration references it, without an extra API call:
 	// triggers holds the most recently seen object for each Trigger key, and
 	// secretIndex maps a Secret key to the set of Trigger keys that currently
@@ -327,10 +327,7 @@ func (w *Watcher) startSubscription(ctx context.Context, trigger *automationv1al
 	key := types.NamespacedName{Name: trigger.Name, Namespace: trigger.Namespace}
 	w.subscriptions.Store(key, sub)
 
-	flowRefName := ""
-	if trigger.Spec.FlowRef != nil {
-		flowRefName = trigger.Spec.FlowRef.Name
-	}
+	flowRefName := trigger.Spec.FlowRef.Name
 
 	version := amqpSpec.Version
 	if version == "" {

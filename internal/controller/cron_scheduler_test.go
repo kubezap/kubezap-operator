@@ -64,7 +64,7 @@ func createCronTrigger(name, schedule string, cooldown *automationv1alpha1.Coold
 			Cron: &automationv1alpha1.CronTrigger{
 				Schedule: schedule,
 			},
-			FlowRef: &automationv1alpha1.FlowReference{
+			FlowRef: automationv1alpha1.FlowReference{
 				Name: "some-flow",
 			},
 			Cooldown: cooldown,
@@ -218,7 +218,7 @@ var _ = Describe("CronScheduler", func() {
 					Cron: &automationv1alpha1.CronTrigger{
 						Schedule: "not-a-valid-cron",
 					},
-					FlowRef: &automationv1alpha1.FlowReference{Name: "flow"},
+					FlowRef: automationv1alpha1.FlowReference{Name: "flow"},
 				},
 			}
 			log := logf.Log.WithName("test-cron")

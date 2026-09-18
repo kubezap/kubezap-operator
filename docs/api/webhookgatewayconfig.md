@@ -2,28 +2,25 @@
 
 A `WebhookGatewayConfig` configures the shared webhook gateway Deployment for a single
 namespace — its inbound TLS/mTLS termination, `HorizontalPodAutoscaler` behavior, and
-`PodDisruptionBudget`. At most one `WebhookGatewayConfig` may exist per namespace; the
-operator's admission webhook rejects a second `create`.
+`PodDisruptionBudget`. At most one `WebhookGatewayConfig` may exist per namespace; the object
+must be named `default`, and Kubernetes' own name-uniqueness rejects a second one.
 
 ---
 
 ## Contents
 
-- [WebhookGatewayConfig CRD](#webhookgatewayconfig-crd)
-  - [Contents](#contents)
-  - [Overview](#overview)
-  - [Spec Reference](#spec-reference)
-    - [WebhookGatewayConfigSpec](#webhookgatewayconfigspec)
-    - [WebhookGatewayTLSSpec](#webhookgatewaytlsspec)
-    - [WebhookGatewayHPASpec](#webhookgatewayhpaspec)
-    - [WebhookGatewayPDBSpec](#webhookgatewaypdbspec)
-  - [Status Reference](#status-reference)
-    - [WebhookGatewayConfigStatus](#webhookgatewayconfigstatus)
-  - [Singleton Enforcement](#singleton-enforcement)
-  - [When Changes Take Effect](#when-changes-take-effect)
-  - [Migration from Namespace Annotations](#migration-from-namespace-annotations)
-  - [Example: Custom TLS, Wider HPA Range, and a PodDisruptionBudget](#example-custom-tls-wider-hpa-range-and-a-poddisruptionbudget)
-  - [Limitations](#limitations)
+- [Overview](#overview)
+- [Spec Reference](#spec-reference)
+  - [WebhookGatewayConfigSpec](#webhookgatewayconfigspec)
+  - [WebhookGatewayTLSSpec](#webhookgatewaytlsspec)
+  - [WebhookGatewayHPASpec](#webhookgatewayhpaspec)
+  - [WebhookGatewayPDBSpec](#webhookgatewaypdbspec)
+- [Status Reference](#status-reference)
+  - [WebhookGatewayConfigStatus](#webhookgatewayconfigstatus)
+- [Singleton Enforcement](#singleton-enforcement)
+- [When Changes Take Effect](#when-changes-take-effect)
+- [Example: Custom TLS, Wider HPA Range, and a PodDisruptionBudget](#example-custom-tls-wider-hpa-range-and-a-poddisruptionbudget)
+- [Limitations](#limitations)
 
 ---
 
@@ -113,38 +110,56 @@ not leave an orphaned object behind.
 | ------------- | ------------- | ----------------------------------------------------- |
 | `conditions`  | `[]Condition` | Standard Kubernetes conditions.                        |
 
-> **Currently unpopulated.** `status.conditions` is defined on the type but no controller
-> writes to it today — the operator's RBAC for `webhookgatewayconfigs` grants only
-> `get`/`list`/`watch` (no `update`/`patch`, and no status subresource access; see
-> `config/rbac/role.yaml`). There is no dedicated `WebhookGatewayConfig` reconciler: the
-> object is read synchronously, as plain configuration, from inside the Trigger reconciler's
-> `ensureWebhookGateway` step (`internal/controller/trigger_controller.go`). A misconfigured
-> or rejected field (e.g. a `serverSecretRef` pointing at a Secret that doesn't exist) does
-> **not** surface as a `False` condition on this object — see [Limitations](#limitations).
+There is no dedicated `WebhookGatewayConfig` reconciler: the object is read synchronously,
+as plain configuration, from inside the Trigger reconciler's `ensureWebhookGateway` step
+(`internal/controller/trigger_controller.go`). That step also writes a single `Ready`
+condition on every reconcile, validating that `spec.tls.serverSecretRef`/`clientCASecretRef`
+(if set) resolve to Secrets containing the expected keys (`tls.crt`/`tls.key`/`ca.crt`):
+
+| Reason                     | Status  | Meaning                                                          |
+| -------------------------- | ------- | ----------------------------------------------------------------- |
+| `NoTLSConfigured`          | `True`  | `spec.tls` is not set; the gateway serves plain HTTP.             |
+| `WebhookGatewayConfigReady`| `True`  | `spec.tls` Secret references resolved successfully.               |
+| `ServerSecretNotFound`     | `False` | `spec.tls.serverSecretRef` names a Secret that doesn't exist.     |
+| `ServerSecretMissingKeys`  | `False` | The server Secret is missing `tls.crt` and/or `tls.key`.          |
+| `ClientCASecretNotFound`   | `False` | `spec.tls.clientCASecretRef` names a Secret that doesn't exist.   |
+| `ClientCASecretMissingKey` | `False` | The CA Secret is missing `ca.crt`.                                |
+
+This condition is only refreshed when a Trigger in the namespace reconciles (see
+[When Changes Take Effect](#when-changes-take-effect)) and is best-effort — a failed status
+update is logged, not retried or surfaced as a reconcile error, so it does not block
+`ensureWebhookGateway`'s Deployment/Service/HPA work. It does not flag
+`clientCASecretRef` set without `serverSecretRef` — that combination is a documented no-op,
+not an error (see [Limitations](#limitations)).
 
 ---
 
 ## Singleton Enforcement
 
-A validating admission webhook (`internal/webhook/webhookgatewayconfig_webhook.go`) rejects
-any `create` of a second `WebhookGatewayConfig` in a namespace that already has one,
-regardless of the new object's name. `update` and `delete` requests are always allowed — the
-rule only guards the moment a second object would come into existence.
+The object must be named `default` — a CRD-level CEL validation rule
+(`+kubebuilder:validation:XValidation` on the `WebhookGatewayConfig` type) rejects any other
+name. Combined with Kubernetes' own per-`(namespace, name)` uniqueness, this makes "at most
+one `WebhookGatewayConfig` per namespace" hold unconditionally, enforced by the API server
+itself rather than by an admission webhook.
 
-The rejection is a normal admission-webhook denial, so it surfaces to `kubectl apply`/`create`
-as a standard API error. The exact message includes the namespace and the name of the
-existing object:
+A wrong name is rejected at the schema-validation level:
 
 ```
-$ kubectl apply -f second-webhookgatewayconfig.yaml
-Error from server (Forbidden): error when creating "second-webhookgatewayconfig.yaml":
-admission webhook "vwebhookgatewayconfig.kb.io" denied the request: namespace "team-a"
-already has a WebhookGatewayConfig named "webhook-gateway-config" — at most one
-WebhookGatewayConfig is allowed per namespace
+$ kubectl apply -f webhookgatewayconfig.yaml
+WebhookGatewayConfig.automation.kubezap.io "webhook-gateway-config" is invalid: <nil>:
+Invalid value: the only valid name for a WebhookGatewayConfig is 'default'
 ```
 
-To change configuration, edit the existing object (`kubectl edit webhookgatewayconfig
-<name> -n <namespace>`) rather than creating a new one.
+A second object literally named `default` in a namespace that already has one is rejected by
+etcd's native name-uniqueness, the same as any other Kubernetes object:
+
+```
+$ kubectl create -f webhookgatewayconfig.yaml
+webhookgatewayconfigs.automation.kubezap.io "default" already exists
+```
+
+To change configuration, edit the existing object (`kubectl edit webhookgatewayconfig default
+-n <namespace>`) rather than creating a new one.
 
 ---
 
@@ -165,10 +180,6 @@ remove a harmless annotation) to force a reconcile.
 
 ---
 
-There is no hardcoded requirement that the object be named `default` — any name is valid, as
-long as it's the only `WebhookGatewayConfig` in the namespace. `default` is used above only
-because it matches the samples in `docs/overview.md` and `docs/guides/webhook-security.md`.
-
 ---
 
 ## Example: Custom TLS, Wider HPA Range, and a PodDisruptionBudget
@@ -181,7 +192,7 @@ during a voluntary disruption (e.g. a node drain or rolling upgrade):
 apiVersion: automation.kubezap.io/v1alpha1
 kind: WebhookGatewayConfig
 metadata:
-  name: webhook-gateway-config
+  name: default
   namespace: payments
 spec:
   tls:
@@ -216,7 +227,7 @@ defaults — every unset field keeps the operator's built-in default:
 apiVersion: automation.kubezap.io/v1alpha1
 kind: WebhookGatewayConfig
 metadata:
-  name: webhook-gateway-config
+  name: default
   namespace: default
 spec:
   hpa:
@@ -232,11 +243,11 @@ spec:
   `minReplicas` higher than `maxReplicas` is accepted by the API server (both are validated
   independently) and produces whatever the underlying `HorizontalPodAutoscaler` does with an
   inverted range — validate your values before applying.
-- **`status.conditions` is not populated.** There is no dedicated `WebhookGatewayConfig`
-  reconciler; a bad reference (e.g. `serverSecretRef` naming a Secret that doesn't exist)
-  does not surface as a condition on this object. Check `kubectl describe deployment
-  kubezap-webhook-gateway -n <namespace>` and the gateway pod's logs/events to diagnose a
-  TLS Secret that can't be mounted.
+- **`status.conditions` only reflects Secret-reference validity, not deployment health.**
+  A `Ready: True` condition means `spec.tls`'s Secret references resolved — it does not mean
+  the gateway Deployment is actually up or that the mounted cert is valid PEM. Check
+  `kubectl describe deployment kubezap-webhook-gateway -n <namespace>` and the gateway pod's
+  logs/events for deployment-level or cert-content problems.
 - **Not watched directly.** Changes take effect on the next Trigger reconcile in the
   namespace, not immediately — see [When Changes Take Effect](#when-changes-take-effect).
 - **One config per namespace, not per Trigger.** All webhook Triggers in a namespace share

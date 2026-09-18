@@ -463,7 +463,7 @@ var _ = Describe("IntegrationReconciler", func() {
 		})
 	})
 
-	// See docs/design/2026-09-11-secret-rotation-watches.md: the kafka/amqp/nats
+	// See docs/design/secret-rotation-watches.md: the kafka/amqp/nats
 	// gateways previously had no secrets RBAC at all, so readSecretKey's Get
 	// call must already have been failing with Forbidden in any real cluster.
 	Context("broker gateway RBAC — secrets permission", func() {

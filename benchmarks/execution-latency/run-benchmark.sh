@@ -25,8 +25,8 @@
 #
 # What this does NOT do: compute summary statistics (p50/p95, etc.) from the
 # raw per-run files. METHODOLOGY.md §4.3 deliberately scopes this harness to
-# producing raw per-run JSON so a later story can recompute every statistic
-# independently; see METHODOLOGY.md §5.
+# producing raw per-run JSON so every statistic can be recomputed
+# independently.
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=./scripts/common.sh

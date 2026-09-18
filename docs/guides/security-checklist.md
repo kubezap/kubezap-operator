@@ -31,7 +31,7 @@ This page is a runnable checklist for operators preparing to deploy KubeZap in a
 
 - [ ] **Understand that the software blocklist alone has a DNS-rebinding gap, and confirm the NetworkPolicy defense-in-depth is active (see [§4](#4-networkpolicy)).** The blocklist validates a hostname's resolved address, then the HTTP client resolves the same hostname again to actually connect — an attacker who controls the target's authoritative DNS (realistic whenever a Flow interpolates external/attacker-influenced data into a step URL) can return a safe address for the first lookup and an internal one for the second, bypassing the blocklist. The operator auto-creates a `NetworkPolicy` restricting the executor's egress to the same ranges, which DNS tricks cannot bypass — but only on a `NetworkPolicy`-enforcing CNI (Calico, Cilium, most managed-Kubernetes defaults; **not** plain Flannel). If your CNI doesn't enforce it, add the equivalent restriction via cloud security groups/NACLs on the node subnet instead.
 
-  Guide: [docs/dev/http-executor.md](../dev/http-executor.md)
+  Guide: [docs/architecture/http-executor.md](../architecture/http-executor.md)
 
 ### 3. RBAC: OwnNamespace default
 
@@ -57,7 +57,7 @@ This page is a runnable checklist for operators preparing to deploy KubeZap in a
 
 - [ ] **Enable `--executor-mtls=true` if the cluster does not have a service mesh.** By default, the controller-to-executor RPC channel (`POST /execute`) is plain HTTP over the pod network. On clusters without Istio or Linkerd providing automatic mTLS, pass `--executor-mtls=true` to the controller to enable mutual TLS on this channel.
 
-  Guide: [docs/dev/http-executor.md](../dev/http-executor.md)
+  Guide: [docs/architecture/http-executor.md](../architecture/http-executor.md)
 
 ### 6. Plugin image digest pinning
 

@@ -8,32 +8,30 @@ Authentication is configured per `Trigger`, so different triggers can use differ
 
 ## Contents
 
-- [Securing Webhook Triggers](#securing-webhook-triggers)
-  - [Contents](#contents)
-  - [Authentication Methods](#authentication-methods)
-  - [HMAC Signature Verification](#hmac-signature-verification)
-  - [Bearer Token](#bearer-token)
-  - [OIDC / OAuth2 JWT](#oidc--oauth2-jwt)
-  - [Basic Auth](#basic-auth)
-  - [mTLS (Client Certificate)](#mtls-client-certificate)
-    - [Prerequisites](#prerequisites)
-    - [Configuration](#configuration)
-    - [What the operator does](#what-the-operator-does)
-    - [Calling the webhook with a client certificate](#calling-the-webhook-with-a-client-certificate)
-    - [Ingress / Route passthrough](#ingress--route-passthrough)
-  - [API Key Header](#api-key-header)
-  - [IP Allowlist](#ip-allowlist)
-  - [Body Size Limits](#body-size-limits)
-  - [Auth Spec Reference](#auth-spec-reference)
-    - [WebhookAuth](#webhookauth)
-    - [HMACConfig](#hmacconfig)
-    - [BearerConfig](#bearerconfig)
-    - [OIDCConfig](#oidcconfig)
-    - [WebhookBasicAuth](#webhookbasicauth)
-    - [APIKeyConfig](#apikeyconfig)
-    - [HeaderEqualsConfig](#headerequalsconfig)
-    - [IPAllowlistConfig](#ipallowlistconfig)
-  - [Limitations](#limitations)
+- [Authentication Methods](#authentication-methods)
+- [HMAC Signature Verification](#hmac-signature-verification)
+- [Bearer Token](#bearer-token)
+- [OIDC / OAuth2 JWT](#oidc--oauth2-jwt)
+- [Basic Auth](#basic-auth)
+- [mTLS (Client Certificate)](#mtls-client-certificate)
+  - [Prerequisites](#prerequisites)
+  - [Configuration](#configuration)
+  - [What the operator does](#what-the-operator-does)
+  - [Calling the webhook with a client certificate](#calling-the-webhook-with-a-client-certificate)
+  - [Ingress / Route passthrough](#ingress--route-passthrough)
+- [API Key Header](#api-key-header)
+- [IP Allowlist](#ip-allowlist)
+- [Body Size Limits](#body-size-limits)
+- [Auth Spec Reference](#auth-spec-reference)
+  - [WebhookAuth](#webhookauth)
+  - [HMACConfig](#hmacconfig)
+  - [BearerConfig](#bearerconfig)
+  - [OIDCConfig](#oidcconfig)
+  - [WebhookBasicAuth](#webhookbasicauth)
+  - [APIKeyConfig](#apikeyconfig)
+  - [HeaderEqualsConfig](#headerequalsconfig)
+  - [IPAllowlistConfig](#ipallowlistconfig)
+- [Limitations](#limitations)
 
 ---
 
@@ -261,7 +259,7 @@ spec:
       name: webhook-client-ca      # client CA (ca.crt)
 ```
 
-At most one `WebhookGatewayConfig` object may exist per namespace — the operator's admission webhook rejects a second `create`. See the [WebhookGatewayConfig CRD reference](../api/webhookgatewayconfig.md) for the full spec/status field reference, the exact singleton-rejection error text, and a worked example.
+At most one `WebhookGatewayConfig` object may exist per namespace — the object must be named `default`, and Kubernetes' own name-uniqueness rejects a second one. See the [WebhookGatewayConfig CRD reference](../api/webhookgatewayconfig.md) for the full spec/status field reference, the exact rejection error text, and a worked example.
 
 Create the CA secret containing the certificate authority that issued the client certificates:
 

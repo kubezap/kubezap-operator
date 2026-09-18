@@ -24,7 +24,6 @@ import (
 // NOTE: json tags are required. Any new fields you add must have json tags for the fields to be serialized.
 
 // TriggerSpec defines the desired state of Trigger.
-// +kubebuilder:validation:XValidation:rule="has(self.flowRef) != has(self.action)",message="exactly one of flowRef or action must be set"
 type TriggerSpec struct {
 	// Type of trigger (webhook, cron, kafka, amqp, nats, resource)
 	// +kubebuilder:validation:Enum=webhook;cron;kafka;amqp;nats;resource
@@ -56,14 +55,9 @@ type TriggerSpec struct {
 	// and fires the trigger when a matching event occurs.
 	Resource *ResourceTrigger `json:"resource,omitempty"`
 
-	// Reference to the flow this trigger invokes. FlowRef is the primary
-	// action target for the MVP. If omitted, the optional inline Action can
-	// be used to perform a quick action (e.g., call an external webhook).
+	// Reference to the flow this trigger invokes.
 	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="Flow Reference",order=3
-	FlowRef *FlowReference `json:"flowRef,omitempty"`
-
-	// Inline action definition (optional). Starts with webhook action type.
-	Action *ActionDefinition `json:"action,omitempty"`
+	FlowRef FlowReference `json:"flowRef"`
 
 	// Event or condition type for resource triggers (create/update/delete).
 	// For external triggers (webhook/cron/kafka/amqp/nats) this is typically empty.
@@ -182,33 +176,6 @@ type FlowReference struct {
 	// Name of the Flow CR to execute. The Flow must be in the same namespace as the referencing resource.
 	// Cross-namespace FlowRefs are not supported in v1alpha1 and are deferred to v1beta1 with a FlowGrant CRD.
 	Name string `json:"name"`
-}
-
-// ActionDefinition defines a simple inline action for quick responses.
-// Start with a webhook action for MVP; later it can include Job/Kubernetes actions.
-type ActionDefinition struct {
-	// Type of action (webhook)
-	// +kubebuilder:validation:Enum=webhook
-	Type string `json:"type"`
-
-	// Webhook action details
-	Webhook *WebhookAction `json:"webhook,omitempty"`
-}
-
-type WebhookAction struct {
-	// URL to call when the trigger fires
-	URL string `json:"url"`
-
-	// HTTP method to use (default POST)
-	// +kubebuilder:validation:Enum=POST;PUT;PATCH;GET
-	// +kubebuilder:default=POST
-	Method string `json:"method,omitempty"`
-
-	// Optional headers to include in the call
-	Headers map[string]string `json:"headers,omitempty"`
-
-	// Optional body template (raw string or templating placeholder)
-	Body string `json:"body,omitempty"`
 }
 
 // CooldownPolicy prevents trigger storms by limiting invocations in a time window.

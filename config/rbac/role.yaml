@@ -84,6 +84,7 @@ rules:
   - flows/status
   - integrations/status
   - triggers/status
+  - webhookgatewayconfigs/status
   verbs:
   - get
   - patch

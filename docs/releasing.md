@@ -10,7 +10,7 @@ This document describes the end-to-end process for cutting a KubeZap release. Al
 - `operator-sdk` installed and on `$PATH`
 - Docker logged in to GHCR (`docker login ghcr.io -u <github-user> --password-stdin`)
 - `GITHUB_TOKEN` environment variable set with `repo` + `write:packages` scopes
-- Clean `main` branch (all §16 pre-public items resolved)
+- Clean `main` branch (all pre-public-release items resolved)
 
 ---
 
@@ -18,11 +18,11 @@ This document describes the end-to-end process for cutting a KubeZap release. Al
 
 KubeZap follows [Semantic Versioning](https://semver.org/). Determine the next version:
 
-| Change type | Bump |
-|---|---|
-| Breaking CRD or API change | MAJOR |
+| Change type                                      | Bump  |
+| ------------------------------------------------ | ----- |
+| Breaking CRD or API change                       | MAJOR |
 | New trigger type, new step action, new CRD field | MINOR |
-| Bug fix, doc fix, security patch | PATCH |
+| Bug fix, doc fix, security patch                 | PATCH |
 
 > **Pre-1.0:** Use `v0.MINOR.PATCH`. Breaking changes increment MINOR.
 
@@ -30,10 +30,11 @@ KubeZap follows [Semantic Versioning](https://semver.org/). Determine the next v
 
 ## 2. Update version strings
 
-Replace `<NEW>` with the target version (e.g. `0.4.0`):
+Replace `<NEW>` with the target version (e.g. `0.4.0`) and `<PREVIOUS>` with the version being replaced (e.g. `0.3.0`):
 
 ```bash
 VERSION=<NEW>
+PREV=<PREVIOUS>
 
 # Makefile default version
 sed -i "s/^VERSION ?= .*/VERSION ?= $VERSION/" Makefile
@@ -46,7 +47,7 @@ sed -i "s/^appVersion: .*/appVersion: \"$VERSION\"/" charts/kubezap-operator/Cha
 sed -i "s/name: kubezap.v.*/name: kubezap.v$VERSION/" bundle/manifests/kubezap.clusterserviceversion.yaml
 sed -i "s/version: .*/version: $VERSION/" bundle/manifests/kubezap.clusterserviceversion.yaml
 # Update spec.replaces to point to the previous version:
-sed -i "s/replaces: kubezap.v.*/replaces: kubezap.v<PREV>/" bundle/manifests/kubezap.clusterserviceversion.yaml
+sed -i "s/replaces: kubezap.v.*/replaces: kubezap.v$PREV/" bundle/manifests/kubezap.clusterserviceversion.yaml
 ```
 
 ---
@@ -82,41 +83,11 @@ git push origin main
 
 ```bash
 make bundle
+
 git add bundle/
 git commit -m "chore: regenerate OLM bundle for v$VERSION"
 git push origin main
 ```
-
-Verify the bundle still passes validation:
-
-```bash
-operator-sdk bundle validate ./bundle
-```
-
-**Known operator-sdk quirk**: `operator-sdk generate kustomize manifests` (part of `make bundle`) deterministically drops the `Trigger` CRD's `resources`/`specDescriptors` from `config/manifests/bases/kubezap.clusterserviceversion.yaml` every time it runs — `Flow`/`FlowRun`/`Integration`'s survive correctly, only `Trigger`'s doesn't, for reasons not fully root-caused against operator-sdk v1.42.0. After every `make bundle`, manually re-add this block to `bundle/manifests/kubezap.clusterserviceversion.yaml`'s `Trigger` entry under `customresourcedefinitions.owned` before committing:
-
-```yaml
-      resources:
-      - kind: Deployment
-        version: v1
-      - kind: Service
-        version: v1
-      specDescriptors:
-      - description: Trigger type (webhook, cron, kafka, amqp, nats, resource).
-        displayName: Type
-        path: type
-      - description: Reference to the Flow this Trigger executes when it fires.
-        displayName: Flow Reference
-        path: flowRef
-      - description: Webhook trigger configuration (endpoint path, auth, rate limits).
-        displayName: Webhook
-        path: webhook
-      - description: Kafka trigger configuration (topic, consumer group, integration ref).
-        displayName: Kafka
-        path: kafka
-```
-
-Re-run `operator-sdk bundle validate ./bundle` after the manual edit to confirm it's still valid.
 
 ---
 
@@ -156,20 +127,13 @@ grep appVersion charts/kubezap-operator/Chart.yaml
 
 ---
 
-## 7. Publish Helm chart (manual until CI is wired)
+## 7. Verify the published Helm chart
 
-Until the Helm chart publish step is automated in CI:
+`.github/workflows/release.yml`'s `release-helm` job packages and pushes the chart to `oci://ghcr.io/kubezap/charts` on the tag push from step 5. Verify it landed:
 
 ```bash
-# OCI push (recommended)
-helm package charts/kubezap-operator
-helm push kubezap-operator-$VERSION.tgz oci://ghcr.io/kubezap/charts
-
-# Verify
 helm show chart oci://ghcr.io/kubezap/charts/kubezap-operator --version $VERSION
 ```
-
-> **Note:** The first time, create the OCI package as public in the `kubezap` GitHub org package settings.
 
 ---
 
@@ -188,4 +152,3 @@ helm show chart oci://ghcr.io/kubezap/charts/kubezap-operator --version $VERSION
 - [ ] Helm chart installable (`helm install kubezap oci://ghcr.io/kubezap/charts/kubezap-operator --version $VERSION`)
 - [ ] `kubezap version` reports `v$VERSION`
 - [ ] OperatorHub PR opened (if CSV changed)
-- [ ] Announce in project channels (if applicable)

@@ -26,8 +26,10 @@ import (
 
 // WebhookGatewayConfigSpec defines per-namespace configuration for the webhook
 // gateway Deployment. At most one WebhookGatewayConfig may exist per namespace
-// (enforced by an admission webhook, not a fixed required name — see
-// docs/design/2026-09-12-webhookgatewayconfig-crd.md).
+// — enforced by requiring the object be named "default" (see the
+// WebhookGatewayConfig type's XValidation rule), so Kubernetes' own
+// per-(namespace, name) uniqueness guarantees the singleton with no admission
+// webhook involved. See docs/design/webhookgatewayconfig-singleton-name.md.
 //
 // A namespace with no WebhookGatewayConfig object — and any field left unset on
 // one that does exist — behaves exactly as it did before this CRD existed:
@@ -119,12 +121,16 @@ type WebhookGatewayConfigStatus struct {
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
 // +kubebuilder:resource:scope=Namespaced
+// +kubebuilder:validation:XValidation:rule="self.metadata.name == 'default'",message="the only valid name for a WebhookGatewayConfig is 'default'"
 
 // WebhookGatewayConfig is the Schema for the webhookgatewayconfigs API.
 //
-// At most one WebhookGatewayConfig may exist per namespace — a validating
-// admission webhook rejects a create when another one (any name) already
-// exists in the same namespace.
+// At most one WebhookGatewayConfig may exist per namespace. This is enforced
+// by requiring the object be named "default" (see the XValidation rule
+// above) rather than by an admission webhook — Kubernetes' own
+// per-(namespace, name) uniqueness in etcd then makes "at most one" hold
+// unconditionally, with no dependency on webhook/cert infrastructure being
+// deployed or healthy. See docs/design/webhookgatewayconfig-singleton-name.md.
 // +operator-sdk:csv:customresourcedefinitions:resources={{HorizontalPodAutoscaler,v2,""},{PodDisruptionBudget,v1,""}}
 type WebhookGatewayConfig struct {
 	metav1.TypeMeta   `json:",inline"`

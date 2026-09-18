@@ -19,7 +19,7 @@ limitations under the License.
 // serving cert are generated on first run, stored in a Secret in the
 // operator's own namespace, written to disk for certwatcher.CertWatcher to
 // serve, and the CA is kept patched into the ValidatingWebhookConfiguration's
-// caBundle fields. See docs/design/2026-09-18-self-managed-webhook-certs.md.
+// caBundle fields. See docs/design/self-managed-webhook-certs.md.
 package webhookcerts
 
 import (

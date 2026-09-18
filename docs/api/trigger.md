@@ -6,57 +6,50 @@ A `Trigger` defines an event source that starts a `Flow`. It listens for an even
 
 ## Contents
 
-- [Trigger CRD](#trigger-crd)
-  - [Contents](#contents)
-  - [Overview](#overview)
-  - [Spec Reference](#spec-reference)
-    - [TriggerSpec](#triggerspec)
-    - [WebhookTrigger](#webhooktrigger)
-    - [WebhookAuth](#webhookauth)
-    - [WebhookBasicAuth](#webhookbasicauth)
-    - [CronTrigger](#crontrigger)
-    - [KafkaTrigger](#kafkatrigger)
-    - [AmqpTrigger](#amqptrigger)
-    - [NatsTrigger](#natstrigger)
-    - [FlowReference](#flowreference)
-    - [ActionDefinition](#actiondefinition)
-    - [WebhookAction](#webhookaction)
-    - [CooldownPolicy](#cooldownpolicy)
-    - [ResourceTrigger](#resourcetrigger)
-  - [Status Reference](#status-reference)
-    - [TriggerStatus](#triggerstatus)
-    - [`lastResult` Values](#lastresult-values)
-    - [Condition Types](#condition-types)
-  - [Trigger Types](#trigger-types)
-    - [Webhook](#webhook)
-    - [Cron](#cron)
-    - [Kafka, AMQP, NATS (Broker Triggers)](#kafka-amqp-nats-broker-triggers)
-    - [Kubernetes Resource Events](#kubernetes-resource-events)
-  - [Exposing Webhook Triggers](#exposing-webhook-triggers)
-    - [Kubernetes Ingress](#kubernetes-ingress)
-    - [Kubernetes Gateway API (recommended for Kubernetes 1.28+)](#kubernetes-gateway-api-recommended-for-kubernetes-128)
-    - [OpenShift Route](#openshift-route)
-  - [TLS and mTLS](#tls-and-mtls)
-    - [Outbound TLS](#outbound-tls)
-    - [Inbound Webhook mTLS](#inbound-webhook-mtls)
-  - [Examples](#examples)
-    - [Example 1: Webhook Trigger](#example-1-webhook-trigger)
-    - [Example 2: Cron Trigger](#example-2-cron-trigger)
-    - [Example 3: Kafka Trigger](#example-3-kafka-trigger)
-    - [Example 4: With Cooldown Policy](#example-4-with-cooldown-policy)
-    - [Example 5: Inline Action (No Flow)](#example-5-inline-action-no-flow)
-    - [Example 6: Resource Trigger (Pod Failure Watcher)](#example-6-resource-trigger-pod-failure-watcher)
-  - [Rate Limiting](#rate-limiting)
-  - [Status Conditions](#status-conditions)
-  - [Limitations](#limitations)
+- [Overview](#overview)
+- [Spec Reference](#spec-reference)
+  - [TriggerSpec](#triggerspec)
+  - [WebhookTrigger](#webhooktrigger)
+  - [WebhookAuth](#webhookauth)
+  - [WebhookBasicAuth](#webhookbasicauth)
+  - [CronTrigger](#crontrigger)
+  - [KafkaTrigger](#kafkatrigger)
+  - [AmqpTrigger](#amqptrigger)
+  - [NatsTrigger](#natstrigger)
+  - [FlowReference](#flowreference)
+  - [CooldownPolicy](#cooldownpolicy)
+  - [ResourceTrigger](#resourcetrigger)
+- [Status Reference](#status-reference)
+  - [TriggerStatus](#triggerstatus)
+  - [`lastResult` Values](#lastresult-values)
+  - [Condition Types](#condition-types)
+- [Trigger Types](#trigger-types)
+  - [Webhook](#webhook)
+  - [Cron](#cron)
+  - [Kafka, AMQP, NATS (Broker Triggers)](#kafka-amqp-nats-broker-triggers)
+  - [Kubernetes Resource Events](#kubernetes-resource-events)
+- [Exposing Webhook Triggers](#exposing-webhook-triggers)
+  - [Kubernetes Ingress](#kubernetes-ingress)
+  - [Kubernetes Gateway API (recommended for Kubernetes 1.28+)](#kubernetes-gateway-api-recommended-for-kubernetes-128)
+  - [OpenShift Route](#openshift-route)
+- [TLS and mTLS](#tls-and-mtls)
+  - [Outbound TLS](#outbound-tls)
+  - [Inbound Webhook mTLS](#inbound-webhook-mtls)
+- [Examples](#examples)
+  - [Example 1: Webhook Trigger](#example-1-webhook-trigger)
+  - [Example 2: Cron Trigger](#example-2-cron-trigger)
+  - [Example 3: Kafka Trigger](#example-3-kafka-trigger)
+  - [Example 4: With Cooldown Policy](#example-4-with-cooldown-policy)
+  - [Example 5: Resource Trigger (Pod Failure Watcher)](#example-5-resource-trigger-pod-failure-watcher)
+- [Rate Limiting](#rate-limiting)
+- [Status Conditions](#status-conditions)
+- [Limitations](#limitations)
 
 ---
 
 ## Overview
 
 Each `Trigger` has a `type` (webhook, cron, kafka, amqp, nats, or resource) and a `flowRef` pointing to the `Flow` to execute. When the event fires, the operator resolves the Flow, populates its parameters from the event payload, and executes the steps.
-
-A `Trigger` can also define an inline `action` instead of a `flowRef` for simple one-step use cases such as forwarding a webhook to another URL.
 
 ---
 
@@ -74,8 +67,7 @@ A `Trigger` can also define an inline `action` instead of a `flowRef` for simple
 | `amqp`     | AmqpTrigger      | Conditional | —       | Required when `type: amqp`                                                       |
 | `nats`     | NatsTrigger      | Conditional | —       | Required when `type: nats`                                                       |
 | `resource` | ResourceTrigger  | Conditional | —       | Required when `type: resource`                                                   |
-| `flowRef`  | FlowReference    | Conditional | —       | Reference to the Flow to execute. Required unless `action` is set.               |
-| `action`   | ActionDefinition | Conditional | —       | Inline action. Used instead of `flowRef` for simple single-step responses.       |
+| `flowRef`  | FlowReference    | **Yes**     | —       | Reference to the Flow to execute                                                 |
 | `cooldown` | CooldownPolicy   | No          | —       | Rate limiting policy to prevent trigger storms                                   |
 | `flowRunGC`| FlowRunGCPolicy  | No          | —       | Per-trigger GC policy for completed FlowRuns. See [FlowRun GC](flowrun.md#garbage-collection). |
 | `event`    | string           | No          | —       | Resource event type for resource-based triggers: `create`, `update`, or `delete` |
@@ -225,27 +217,9 @@ Configures authentication for a webhook trigger endpoint. If omitted, the endpoi
 | ------ | ------ | -------- | ------------------------------ |
 | `name` | string | **Yes**  | Name of the Flow CR to execute |
 
-> **v1alpha1 restriction:** Cross-namespace FlowRefs are not supported. The Flow must be in the same namespace as the Trigger. A `flowRef.namespace` field was present in earlier pre-release builds but has been removed; an admission webhook rejects any FlowRun with a non-empty `flowRef.namespace`. Cross-namespace flows are deferred to v1beta1 via a `FlowGrant` CRD (analogous to Gateway API `ReferenceGrant`).
+> **v1alpha1 restriction:** Cross-namespace FlowRefs are not supported. The Flow must be in the same namespace as the Trigger; an admission webhook rejects any FlowRun with a non-empty `flowRef.namespace`. Cross-namespace flows are deferred to v1beta1 via a `FlowGrant` CRD (analogous to Gateway API `ReferenceGrant`).
 
 See [Flow CRD](flow.md) for the full specification of what a Flow contains and how it processes the trigger payload.
-
-### ActionDefinition
-
-An inline action for simple use cases that do not require a full Flow. Currently supports `webhook` actions only.
-
-| Field     | Type          | Required    | Description                   |
-| --------- | ------------- | ----------- | ----------------------------- |
-| `type`    | enum          | **Yes**     | Action type: `webhook`        |
-| `webhook` | WebhookAction | Conditional | Required when `type: webhook` |
-
-### WebhookAction
-
-| Field     | Type              | Required | Default | Description                                |
-| --------- | ----------------- | -------- | ------- | ------------------------------------------ |
-| `url`     | string            | **Yes**  | —       | URL to call when the trigger fires         |
-| `method`  | enum              | No       | `POST`  | HTTP method: `POST`, `PUT`, `PATCH`, `GET` |
-| `headers` | map[string]string | No       | —       | HTTP headers to include                    |
-| `body`    | string            | No       | —       | Request body (supports Go template syntax) |
 
 ### CooldownPolicy
 
@@ -333,7 +307,7 @@ For cross-namespace watches (when `spec.resource.namespace` differs from the Tri
 | Value         | Meaning                                                       |
 | ------------- | ------------------------------------------------------------- |
 | `Succeeded`   | The trigger fired and the flow completed successfully         |
-| `Failed`      | The trigger fired but the flow or inline action failed        |
+| `Failed`      | The trigger fired but the flow failed                         |
 | `Skipped`     | The trigger fired but was skipped (e.g., trigger is disabled) |
 | `RateLimited` | The trigger fired but was suppressed by the cooldown policy   |
 
@@ -376,8 +350,9 @@ The Flow receives the message contents via the same `$(trigger.*)` placeholders 
 - `$(trigger.topic)` — the topic/queue name
 - `$(trigger.partition)` — the partition number (Kafka only; empty for AMQP/NATS)
 - `$(trigger.offset)` — the message offset (Kafka only; empty for AMQP/NATS)
+- `$(trigger.headers.<name>)` — Kafka record headers and AMQP message headers (case-insensitive lookup), via the same placeholder used for webhook HTTP headers. NATS message headers are not captured today, so this is always empty for `nats` triggers.
 
-> **Not accessible from step interpolation**: the Kafka message key and any broker-specific message headers (Kafka record headers, AMQP/NATS message headers) are not exposed via `$(...)` syntax today — `$(trigger.headers.<name>)` only resolves HTTP headers from webhook-sourced triggers. If a Flow needs the message key or broker headers, there is currently no supported way to read them.
+> **Not accessible from step interpolation**: the Kafka message key is not captured anywhere on the FlowRun object and is not exposed via `$(...)` syntax today. If a Flow needs the message key, there is currently no supported way to read it.
 
 ### Kubernetes Resource Events
 
@@ -513,7 +488,7 @@ TLS covers two independent paths: **outbound** connections KubeZap makes to othe
 ### Outbound TLS
 
 - **Broker connections (Kafka, AMQP, NATS)**: a custom CA and/or client certificate for mTLS are configured on the `Integration` resource, via `spec.kafka.tls`, `spec.amqp.tls`, or `spec.nats.tls` — each accepts `caSecretRef` (a Secret containing `ca.crt`) and `clientCertSecretRef` (a Secret containing `tls.crt` + `tls.key`). See the [Integration CRD reference](integration.md) (`KafkaTLSSpec`, `AmqpTLSConfig`, `NatsTLSConfig`) for full field details and worked examples.
-- **HTTP steps**: a `type: http` `Integration` can configure `spec.http.tls.caBundleConfigMapRef` (a `ConfigMap` holding a PEM CA bundle — one or more concatenated certificates, added to the system root pool rather than replacing it) and/or `spec.http.tls.clientCertSecretRef` (a `Secret` with `tls.crt`/`tls.key`, for mTLS). The CA bundle is `ConfigMap`-sourced rather than `Secret`-sourced, unlike the broker types above — it's public data, not a credential. See the [Integration CRD reference](integration.md#httptlsspec) (`HttpTLSSpec`) for full field details and a worked example. Separately, a boolean `tlsSkipVerify` exists on the internal controller-to-executor `/execute` request, honored only when the `http-executor` is started with the dev-only `--allow-tls-skip-verify` flag (off by default) — that flag is not exposed through any `Trigger`/`Flow` field and is unrelated to the CA-bundle mechanism above. See `docs/dev/http-executor.md` for the internal RPC contract.
+- **HTTP steps**: a `type: http` `Integration` can configure `spec.http.tls.caBundleConfigMapRef` (a `ConfigMap` holding a PEM CA bundle — one or more concatenated certificates, added to the system root pool rather than replacing it) and/or `spec.http.tls.clientCertSecretRef` (a `Secret` with `tls.crt`/`tls.key`, for mTLS). The CA bundle is `ConfigMap`-sourced rather than `Secret`-sourced, unlike the broker types above — it's public data, not a credential. See the [Integration CRD reference](integration.md#httptlsspec) (`HttpTLSSpec`) for full field details and a worked example. Separately, a boolean `tlsSkipVerify` exists on the internal controller-to-executor `/execute` request, honored only when the `http-executor` is started with the dev-only `--allow-tls-skip-verify` flag (off by default) — that flag is not exposed through any `Trigger`/`Flow` field and is unrelated to the CA-bundle mechanism above. See [HTTP Executor — Design Contract](../architecture/http-executor.md) for the internal RPC contract.
 
 ### Inbound Webhook mTLS
 
@@ -619,31 +594,7 @@ spec:
     window: "60s"
 ```
 
-### Example 5: Inline Action (No Flow)
-
-For simple forwarding, use an inline `action` instead of a Flow.
-
-```yaml
-apiVersion: automation.kubezap.io/v1alpha1
-kind: Trigger
-metadata:
-  name: forward-to-slack
-  namespace: automation
-spec:
-  type: webhook
-  webhook:
-    path: /hooks/alerts
-  action:
-    type: webhook
-    webhook:
-      url: "https://hooks.slack.com/services/YOUR/WEBHOOK/URL"
-      method: POST
-      headers:
-        Content-Type: "application/json"
-      body: '{"text": "Alert received"}'
-```
-
-### Example 6: Resource Trigger (Pod Failure Watcher)
+### Example 5: Resource Trigger (Pod Failure Watcher)
 
 Watch for Pod status changes and fire a flow when a Pod's phase changes.
 

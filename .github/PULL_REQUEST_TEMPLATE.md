@@ -27,7 +27,7 @@ issue, Story, or design record (docs/design/) if one exists.
 - [ ] I added/updated Ginkgo tests covering this change
 - [ ] I updated relevant docs (`docs/`) for any user-facing or API change
 - [ ] This change does not require a design record (`docs/design/`), or I've
-      added one per `planning/process/design-process.md`
+      added one per `docs/design/README.md`
 
 ## Additional context
 

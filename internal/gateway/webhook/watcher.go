@@ -42,7 +42,7 @@ type TriggerWatcher struct {
 	jwksCache *jwk.Cache
 
 	// secretIndex and triggers together let a Secret change (see
-	// docs/design/2026-09-11-secret-rotation-watches.md) reprocess exactly the
+	// docs/design/secret-rotation-watches.md) reprocess exactly the
 	// Triggers that reference it, without an extra API call: triggers holds the
 	// most recently seen object for each Trigger key (kept in sync by
 	// handleTrigger/handleDelete), and secretIndex maps a Secret key to the set
@@ -166,7 +166,7 @@ func (w *TriggerWatcher) handleTrigger(obj interface{}) {
 // references, without fetching them. Computed independently of whether those
 // secrets currently exist or can be read, so a Trigger with a missing secret
 // still gets reprocessed once that secret is created — see
-// docs/design/2026-09-11-secret-rotation-watches.md.
+// docs/design/secret-rotation-watches.md.
 func secretRefsForTrigger(trigger *automationv1alpha1.Trigger) []types.NamespacedName {
 	if trigger.Spec.Type != triggerTypeWebhook || trigger.Spec.Webhook == nil || trigger.Spec.Webhook.Auth == nil {
 		return nil
@@ -278,10 +278,7 @@ func (w *TriggerWatcher) buildRouteEntry(ctx context.Context, trigger *automatio
 		method = strings.ToUpper(trigger.Spec.Webhook.Method)
 	}
 
-	flowRef := ""
-	if trigger.Spec.FlowRef != nil {
-		flowRef = trigger.Spec.FlowRef.Name
-	}
+	flowRef := trigger.Spec.FlowRef.Name
 
 	entry := RouteEntry{
 		TriggerName:      trigger.Name,

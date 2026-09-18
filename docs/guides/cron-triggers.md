@@ -326,5 +326,6 @@ EOF
 
 - [Webhook Security](webhook-security.md) — secure external triggers (not needed for cron, but useful if the same Flow is called by both triggers)
 - [Observability](observability.md) — metrics and alerts for scheduled jobs
-- [Troubleshooting](troubleshooting.md) — diagnose missed or stuck cron runs
+- [Troubleshooting: Trigger not being accepted](troubleshooting.md#trigger-not-being-accepted) — diagnose missed cron runs (e.g. an invalid `spec.cron.schedule`)
+- [Troubleshooting: FlowRun stuck in Running](troubleshooting.md#flowrun-stuck-in-running) — diagnose stuck cron runs
 - [Using the CLI](using-the-cli.md) — `kubezap history --trigger nightly-report` for quick inspection

@@ -121,7 +121,7 @@ The controller reads the `WEBHOOK_GATEWAY_IMAGE`, `KAFKA_GATEWAY_IMAGE`, `AMQP_G
 
 Until the `IMG=` transformer mismatch above is fixed, the practical workaround for picking up any new controller build (not just http-executor) is to build and import as `:latest` and force a fresh pod with `kubectl rollout restart deployment/kubezap-controller-manager -n kubezap-system` (and `kubectl delete pod` for any gateway/executor Deployment the controller itself reconciles, since a bare `rollout restart` on those gets reverted by the reconciler).
 
-The controller-manager self-provisions its own admission-webhook TLS certificate on boot (see `docs/design/2026-09-18-self-managed-webhook-certs.md`), so no manual cert generation or dev-overlay mounting is needed before it comes up healthy.
+The controller-manager self-provisions its own admission-webhook TLS certificate on boot (see `docs/design/self-managed-webhook-certs.md`), so no manual cert generation or dev-overlay mounting is needed before it comes up healthy.
 
 ## Architecture orientation
 
@@ -129,42 +129,42 @@ The controller-manager self-provisions its own admission-webhook TLS certificate
 
 KubeZap consists of seven binaries: six service binaries, each with its own container image, plus the `kubezap` CLI (distributed as a binary only, no image):
 
-| Binary / entry point          | Image                     | Purpose                                                                                                                                     |
-| ----------------------------- | ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| `cmd/main.go`                 | `kubezap/controller`      | Kubernetes operator: reconciles all CRDs, manages gateway and executor Deployments, delegates HTTP steps to the http-executor. **Does NOT make outbound HTTP calls itself.** |
-| `cmd/webhook-gateway/main.go` | `kubezap/webhook-gateway` | HTTP server: watches Trigger CRDs, registers routes dynamically, creates FlowRuns                                                          |
-| `cmd/kafka-gateway/main.go`   | `kubezap/kafka-gateway`   | Kafka consumer: watches Trigger CRDs, manages topic subscriptions, creates FlowRuns                                                        |
+| Binary / entry point          | Image                     | Purpose                                                                                                                                                                                                                                                                       |
+| ----------------------------- | ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `cmd/main.go`                 | `kubezap/controller`      | Kubernetes operator: reconciles all CRDs, manages gateway and executor Deployments, delegates HTTP steps to the http-executor. **Does NOT make outbound HTTP calls itself.**                                                                                                  |
+| `cmd/webhook-gateway/main.go` | `kubezap/webhook-gateway` | HTTP server: watches Trigger CRDs, registers routes dynamically, creates FlowRuns                                                                                                                                                                                             |
+| `cmd/kafka-gateway/main.go`   | `kubezap/kafka-gateway`   | Kafka consumer: watches Trigger CRDs, manages topic subscriptions, creates FlowRuns                                                                                                                                                                                           |
 | `cmd/http-executor/main.go`   | `kubezap/http-executor`   | HTTP step executor: receives fully-resolved HTTP requests from the controller via internal `POST /execute` RPC, executes them with an SSRF blocklist, and returns the result. Minimal RBAC (no Secret access). One Deployment per namespace, managed by `ExecutorReconciler`. |
-| `cmd/amqp-gateway/main.go`    | `kubezap/amqp-gateway`    | AMQP consumer (RabbitMQ, Azure Service Bus, IBM MQ): beta                                                                                   |
-| `cmd/nats-gateway/main.go`    | `kubezap/nats-gateway`    | NATS JetStream consumer: beta                                                                                                                |
-| `cmd/kubezap/`                | —                         | CLI tool (`bin/kubezap`), built with `make build-cli`                                                                                       |
+| `cmd/amqp-gateway/main.go`    | `kubezap/amqp-gateway`    | AMQP consumer (RabbitMQ, Azure Service Bus, IBM MQ): beta                                                                                                                                                                                                                     |
+| `cmd/nats-gateway/main.go`    | `kubezap/nats-gateway`    | NATS JetStream consumer: beta                                                                                                                                                                                                                                                 |
+| `cmd/kubezap/`                | —                         | CLI tool (`bin/kubezap`), built with `make build-cli`                                                                                                                                                                                                                         |
 
 The controller is the only binary that interacts with the Kubernetes API for reconciliation. Gateways interact with the Kubernetes API only to watch Trigger CRDs and create FlowRun CRDs. All gateway→controller communication flows through the `FlowRun` CRD — gateways create a FlowRun; the controller picks it up and executes the step graph, delegating individual `http` steps to the http-executor over an internal RPC call rather than making outbound HTTP requests itself. Kubernetes resource-event triggers (the alpha `Resource` trigger type) are a special case handled directly inside the controller via dynamic informers (`internal/controller/resource_watcher.go`) — there is no separate gateway binary for them.
 
 ### Key packages
 
-| Package                     | Description                                                                           |
-| --------------------------- | ------------------------------------------------------------------------------------- |
-| `api/v1alpha1/`             | CRD Go type definitions — source of truth for all CRD schemas and kubebuilder markers |
-| `internal/controller/`      | All reconciler implementations (one file per controller, plus shared helpers)         |
-| `internal/gateway/webhook/` | Webhook gateway request handling, route registration, HMAC/bearer/OIDC auth           |
-| `internal/gateway/kafka/`   | Kafka consumer, partition management, offset tracking                                 |
-| `internal/gateway/amqp/`    | AMQP gateway (beta)                                                                   |
-| `internal/gateway/nats/`    | NATS JetStream gateway (beta)                                                         |
+| Package                     | Description                                                                                                                |
+| --------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| `api/v1alpha1/`             | CRD Go type definitions — source of truth for all CRD schemas and kubebuilder markers                                      |
+| `internal/controller/`      | All reconciler implementations (one file per controller, plus shared helpers)                                              |
+| `internal/gateway/webhook/` | Webhook gateway request handling, route registration, HMAC/bearer/OIDC auth                                                |
+| `internal/gateway/kafka/`   | Kafka consumer, partition management, offset tracking                                                                      |
+| `internal/gateway/amqp/`    | AMQP gateway (beta)                                                                                                        |
+| `internal/gateway/nats/`    | NATS JetStream gateway (beta)                                                                                              |
 | `internal/executor/http/`   | http-executor request handling — SSRF-blocklisted execution of fully-resolved HTTP requests received over the internal RPC |
-| `internal/metrics/`         | Prometheus metric definitions shared across packages                                  |
+| `internal/metrics/`         | Prometheus metric definitions shared across packages                                                                       |
 
 ### Reconciler entry points
 
 Each controller is registered with the manager via `SetupWithManager`. The five active reconcilers and their source files are:
 
-| Reconciler              | File                                                  | Watches                                                                                             |
-| ----------------------- | ------------------------------------------------------ | ----------------------------------------------------------------------------------------------------- |
-| `FlowReconciler`        | `internal/controller/flow_controller.go:52`           | `Flow`                                                                                              |
-| `TriggerReconciler`     | `internal/controller/trigger_controller.go:69`        | `Trigger`, manages gateway Deployments                                                              |
-| `FlowRunReconciler`     | `internal/controller/flowrun_controller.go:198`       | `FlowRun`, executes step graphs                                                                     |
-| `IntegrationReconciler` | `internal/controller/integration_controller.go:68`    | `Integration`, manages plugin Deployments                                                            |
-| `ExecutorReconciler`    | `internal/controller/executor_reconciler.go:147`      | `FlowRun`, `Trigger` — provisions the http-executor Deployment/Service/NetworkPolicy per namespace  |
+| Reconciler              | File                                               | Watches                                                                                            |
+| ----------------------- | -------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| `FlowReconciler`        | `internal/controller/flow_controller.go:52`        | `Flow`                                                                                             |
+| `TriggerReconciler`     | `internal/controller/trigger_controller.go:69`     | `Trigger`, manages gateway Deployments                                                             |
+| `FlowRunReconciler`     | `internal/controller/flowrun_controller.go:198`    | `FlowRun`, executes step graphs                                                                    |
+| `IntegrationReconciler` | `internal/controller/integration_controller.go:68` | `Integration`, manages plugin Deployments                                                          |
+| `ExecutorReconciler`    | `internal/controller/executor_reconciler.go:147`   | `FlowRun`, `Trigger` — provisions the http-executor Deployment/Service/NetworkPolicy per namespace |
 
 ### Important design patterns
 
@@ -189,7 +189,6 @@ Each controller is registered with the manager via `SetupWithManager`. The five 
 
 - Check the GitHub issue tracker for issues labelled `good first issue`.
 - The `docs/` directory often has `TODO` or `FIXME` comments where doc improvements are welcome.
-- `planning/backlog/backlog.md`'s Backlog Candidates lists known limitations and unscoped feature ideas — many are good targets for first contributions.
 
 ### Running a single test
 
@@ -256,10 +255,10 @@ This runs three steps in sequence:
 2. `kustomize build config/manifests | operator-sdk generate bundle` — assembles the full bundle directory under `bundle/`.
 3. `operator-sdk bundle validate ./bundle` — validates the generated bundle against OLM's schema rules.
 
-The bundle version is controlled by the `VERSION` variable (default `0.0.1`). To generate a bundle for a specific version:
+The bundle version is controlled by the `VERSION` variable (default `0.1.0`). To generate a bundle for a specific version:
 
 ```bash
-make bundle VERSION=0.1.0
+make bundle VERSION=0.2.0
 ```
 
 ### Build and push the bundle image

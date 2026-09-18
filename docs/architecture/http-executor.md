@@ -1,7 +1,5 @@
 # HTTP Executor — Design Contract
 
-> **Status:** Implemented — all six §17 P0 chunks complete as of 2026-03-27. This document reflects the shipped design.
-
 ## Overview
 
 The `kubezap/http-executor` is a dedicated sidecar-style binary that makes outbound HTTP calls on behalf of the KubeZap controller. The controller (which holds broad RBAC including secrets read) resolves all secret references in-memory and sends fully-substituted requests to the executor. The executor has **no RBAC, no secrets access, no cluster management** — it only makes outbound HTTP calls with SSRF protection.
@@ -17,9 +15,9 @@ One `http-executor` Deployment per namespace where KubeZap manages Flows. The co
 │  Namespace: kubezap-system  (or any managed namespace)   │
 │                                                          │
 │  ┌────────────────────┐    POST /execute   ┌──────────┐  │
-│  │   controller pod   │ ──────────────────▶│ executor │  │
+│  │   controller pod   │ ──────────────────►│ executor │  │
 │  │  (holds RBAC,      │                    │   pod    │  │
-│  │   resolves secrets)│◀──────────────────  │          │  │
+│  │   resolves secrets)│◄────────────────── │          │  │
 │  └────────────────────┘    JSON response   └──────────┘  │
 │                                                          │
 │  NetworkPolicy: executor accepts ingress only from       │
@@ -58,14 +56,14 @@ Accepts a fully-resolved HTTP request, executes it against the target, and retur
 }
 ```
 
-| Field | Type | Required | Default | Notes |
-|-------|------|----------|---------|-------|
-| `method` | string | yes | — | One of: `GET`, `POST`, `PUT`, `PATCH`, `DELETE` |
-| `url` | string | yes | — | Fully-resolved URL with secrets substituted. Executor re-validates SSRF. |
-| `headers` | map[string]string | no | `{}` | Fully-resolved header values. |
-| `body` | string | no | `""` | Raw body string (may be JSON, form data, etc.). |
-| `timeoutSeconds` | int | no | `30` | Per-request timeout. Capped at 300 by executor. |
-| `tlsSkipVerify` | bool | no | `false` | Skip TLS verification. Only honoured when executor is started with `--allow-tls-skip-verify`. Off by default. |
+| Field            | Type              | Required | Default | Notes                                                                                                         |
+| ---------------- | ----------------- | -------- | ------- | ------------------------------------------------------------------------------------------------------------- |
+| `method`         | string            | yes      | —       | One of: `GET`, `POST`, `PUT`, `PATCH`, `DELETE`                                                               |
+| `url`            | string            | yes      | —       | Fully-resolved URL with secrets substituted. Executor re-validates SSRF.                                      |
+| `headers`        | map[string]string | no       | `{}`    | Fully-resolved header values.                                                                                 |
+| `body`           | string            | no       | `""`    | Raw body string (may be JSON, form data, etc.).                                                               |
+| `timeoutSeconds` | int               | no       | `30`    | Per-request timeout. Capped at 300 by executor.                                                               |
+| `tlsSkipVerify`  | bool              | no       | `false` | Skip TLS verification. Only honoured when executor is started with `--allow-tls-skip-verify`. Off by default. |
 
 #### Response schema
 
@@ -83,26 +81,26 @@ HTTP `200 OK` always (transport errors included in body). The response status co
 }
 ```
 
-| Field | Type | Notes |
-|-------|------|-------|
-| `statusCode` | int | HTTP status code from the upstream target. 0 when `error` is set and no response was received. |
-| `headers` | map[string]string | Response headers from upstream. Values are the last value for each header name. |
-| `body` | string | Response body, UTF-8. Truncated to `bodyLimitBytes` (default 4096 bytes). See `truncated`. |
-| `truncated` | bool | `true` when the upstream response body exceeded `bodyLimitBytes` and was truncated. |
-| `error` | string | Non-empty when the request could not be completed (SSRF block, DNS error, timeout, TLS error, etc.). When set, `statusCode` is 0 unless a partial response was received. |
+| Field        | Type              | Notes                                                                                                                                                                    |
+| ------------ | ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `statusCode` | int               | HTTP status code from the upstream target. 0 when `error` is set and no response was received.                                                                           |
+| `headers`    | map[string]string | Response headers from upstream. Values are the last value for each header name.                                                                                          |
+| `body`       | string            | Response body, UTF-8. Truncated to `bodyLimitBytes` (default 4096 bytes). See `truncated`.                                                                               |
+| `truncated`  | bool              | `true` when the upstream response body exceeded `bodyLimitBytes` and was truncated.                                                                                      |
+| `error`      | string            | Non-empty when the request could not be completed (SSRF block, DNS error, timeout, TLS error, etc.). When set, `statusCode` is 0 unless a partial response was received. |
 
 #### Error codes in the `error` field
 
 The error string begins with a machine-readable prefix:
 
-| Prefix | Meaning |
-|--------|---------|
-| `ssrf_blocked:` | Target URL rejected by SSRF blocklist (IP in blocked CIDR or `.svc.cluster.local`). |
-| `dns_error:` | DNS resolution failed for the target hostname. |
-| `timeout:` | Request timed out (context deadline exceeded). |
-| `tls_error:` | TLS handshake or certificate verification failed. |
-| `upstream_error:` | Connection to upstream refused, reset, or otherwise failed at the transport layer. |
-| `invalid_request:` | Malformed executor request (bad method, missing URL, etc.). |
+| Prefix             | Meaning                                                                             |
+| ------------------ | ----------------------------------------------------------------------------------- |
+| `ssrf_blocked:`    | Target URL rejected by SSRF blocklist (IP in blocked CIDR or `.svc.cluster.local`). |
+| `dns_error:`       | DNS resolution failed for the target hostname.                                      |
+| `timeout:`         | Request timed out (context deadline exceeded).                                      |
+| `tls_error:`       | TLS handshake or certificate verification failed.                                   |
+| `upstream_error:`  | Connection to upstream refused, reset, or otherwise failed at the transport layer.  |
+| `invalid_request:` | Malformed executor request (bad method, missing URL, etc.).                         |
 
 **HTTP status from the executor itself** (not upstream):
 - `200` — always, with the result embedded in the JSON body
@@ -131,6 +129,8 @@ The executor runs an independent SSRF check before every outbound call. This is 
 - Hostnames ending in `.svc.cluster.local` (blocked by name, before DNS resolution)
 
 **Additional CIDRs** configurable via `--blocked-cidrs` flag (comma-separated, additive to defaults).
+
+The SSRF check exists in two places — `internal/controller/ssrf.go` (the controller's own pre-send check) and `internal/executor/http/ssrf.go` (the executor's independent re-check). This duplication is intentional, not an oversight: the two checks run in different processes with different trust boundaries, and collapsing them into one shared package is a separate, larger refactor than either currently warrants.
 
 ---
 
@@ -188,16 +188,16 @@ Enabled via `--executor-mtls=true` on the controller. When enabled:
 
 ## Executor binary flags
 
-| Flag | Type | Default | Description |
-|------|------|---------|-------------|
-| `--port` | int | `8091` | Port to listen on. |
-| `--blocked-cidrs` | string | `""` | Comma-separated extra CIDRs to block (additive to defaults). |
-| `--body-limit-bytes` | int | `4096` | Maximum upstream response body size to return. Bodies larger than this are truncated; `truncated: true` is set in the response. |
-| `--mtls` | bool | `false` | Enable mTLS. Requires `--tls-cert-file` and `--tls-ca-file`. |
-| `--tls-cert-file` | string | `""` | Path to PEM-encoded server certificate (required when `--mtls=true`). |
-| `--tls-key-file` | string | `""` | Path to PEM-encoded server private key (required when `--mtls=true`). |
-| `--tls-ca-file` | string | `""` | Path to PEM-encoded CA certificate for client cert verification (required when `--mtls=true`). |
-| `--allow-tls-skip-verify` | bool | `false` | Allow callers to request TLS verification skip via `tlsSkipVerify: true`. When `false`, `tlsSkipVerify` in the request is ignored and verification is always enforced. |
+| Flag                      | Type   | Default | Description                                                                                                                                                            |
+| ------------------------- | ------ | ------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--port`                  | int    | `8091`  | Port to listen on.                                                                                                                                                     |
+| `--blocked-cidrs`         | string | `""`    | Comma-separated extra CIDRs to block (additive to defaults).                                                                                                           |
+| `--body-limit-bytes`      | int    | `4096`  | Maximum upstream response body size to return. Bodies larger than this are truncated; `truncated: true` is set in the response.                                        |
+| `--mtls`                  | bool   | `false` | Enable mTLS. Requires `--tls-cert-file` and `--tls-ca-file`.                                                                                                           |
+| `--tls-cert-file`         | string | `""`    | Path to PEM-encoded server certificate (required when `--mtls=true`).                                                                                                  |
+| `--tls-key-file`          | string | `""`    | Path to PEM-encoded server private key (required when `--mtls=true`).                                                                                                  |
+| `--tls-ca-file`           | string | `""`    | Path to PEM-encoded CA certificate for client cert verification (required when `--mtls=true`).                                                                         |
+| `--allow-tls-skip-verify` | bool   | `false` | Allow callers to request TLS verification skip via `tlsSkipVerify: true`. When `false`, `tlsSkipVerify` in the request is ignored and verification is always enforced. |
 
 ---
 
@@ -219,37 +219,11 @@ The controller sends a `POST /execute` with a `30s` timeout (configurable via `-
 
 The executor pod requires **no RBAC**. It makes outbound HTTP calls only. No `ServiceAccount` token is mounted (`automountServiceAccountToken: false`).
 
-The controller's existing `ServiceAccount` is used for managing executor `Deployments`, `Services`, `NetworkPolicies`, and (when mTLS is enabled) `Secrets`. RBAC markers to add in chunk [3/6]:
-
-```go
-// +kubebuilder:rbac:groups="",resources=secrets,verbs=create;update;patch;delete,namespace=true
-// +kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch;create;update;patch;delete,namespace=true
-// +kubebuilder:rbac:groups="",resources=services,verbs=get;list;watch;create;update;patch;delete,namespace=true
-// +kubebuilder:rbac:groups=networking.k8s.io,resources=networkpolicies,verbs=get;list;watch;create;update;patch;delete,namespace=true
-```
+The controller's existing `ServiceAccount` is used for managing executor `Deployments`, `Services`, `NetworkPolicies`, and (when mTLS is enabled) `Secrets` — the RBAC markers for this live on `internal/controller/executor_reconciler.go`.
 
 ---
 
-## Go package layout
-
-```
-cmd/http-executor/
-  main.go              # binary entry point: flags, server setup, signal handling
-
-internal/executor/
-  http/
-    server.go          # HTTP server wiring (chi or net/http ServeMux)
-    handler.go         # POST /execute handler
-    ssrf.go            # SSRF check (ported from internal/controller/ssrf.go; shared logic extracted to internal/ssrf/ in a later pass)
-    types.go           # ExecuteRequest / ExecuteResponse Go structs
-    handler_test.go    # Ginkgo unit tests
-```
-
-> **Note on SSRF code duplication:** Until the executor is fully wired and the controller's inline HTTP step execution is removed (chunk [4/6]), the SSRF logic will exist in both `internal/controller/ssrf.go` and `internal/executor/http/ssrf.go`. This is intentional — do not attempt to merge them prematurely. After chunk [4/6] lands, the controller copy can be deleted or reduced to a thin wrapper.
-
----
-
-## Sequence: FlowRun HTTP step execution (after chunk [4/6])
+## Sequence: FlowRun HTTP step execution
 
 ```
 FlowRunReconciler.Reconcile()
@@ -261,9 +235,3 @@ FlowRunReconciler.Reconcile()
        │    (ExecuteRequest with fully-resolved URL, headers, body)
        └─ map ExecuteResponse → StepRunStatus
 ```
-
----
-
-## Open questions
-
-None — all design decisions resolved.

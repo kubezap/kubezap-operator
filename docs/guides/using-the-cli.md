@@ -14,11 +14,13 @@ After installing, verify connectivity:
 
 ```bash
 kubezap version
-# KubeZap CLI v0.0.1
-# Operator: v0.0.1 (in namespace kubezap-system)
+# KubeZap CLI v0.1.0
+# Operator: v0.1.0 (in namespace kubezap-system)
 ```
 
-`kubezap` respects the same kubeconfig as `kubectl`. Use `--context` and `--namespace` / `-n` flags the same way:
+The operator version is read from the `kubezap-controller-manager` Deployment's image tag in the target namespace; it's omitted if that Deployment isn't found.
+
+`kubezap` respects the same kubeconfig as `kubectl`, resolved in the same order: `--kubeconfig` flag, then `KUBECONFIG` env var, then `~/.kube/config`, then the in-cluster service account when running inside a pod. Use `--context` and `--namespace` / `-n` the same way — all three are persistent flags available on every subcommand:
 
 ```bash
 kubezap history -n my-namespace --context prod-cluster
@@ -118,6 +120,8 @@ Results from enrich-order:
   customerId = cust-001
   tier       = express
 ```
+
+If a step failed, its error is printed indented below the step row (e.g. `message: HTTP 503 after 3 retries: connection refused`). In a color-capable terminal, `PHASE` is also rendered as an icon; set `NO_COLOR` or redirect output to disable this and print the phase name as plain text instead.
 
 Use this whenever a FlowRun finishes unexpectedly or takes longer than expected.
 
@@ -266,6 +270,6 @@ See the [Observability guide](observability.md) for PromQL queries.
 
 ## Next Steps
 
-- [Getting Started](getting-started.md) — run an end-to-end webhook workflow
+- [order-router example](https://github.com/kubezap/kubezap-operator/tree/main/examples/order-router) — run an end-to-end webhook workflow
 - [Observability](observability.md) — Prometheus metrics and OTel traces
 - [Troubleshooting](troubleshooting.md) — common issues and fixes

@@ -10,6 +10,7 @@ This document describes the runtime architecture of KubeZap — specifically how
 - [Why Separate Gateway Pods](#why-separate-gateway-pods)
 - [Webhook Gateway](#webhook-gateway)
 - [Kafka Gateway](#kafka-gateway)
+- [HTTP Executor](#http-executor)
 - [Gateway Configuration: CRD-Watching](#gateway-configuration-crd-watching)
 - [Gateway ServiceAccount and RBAC](#gateway-serviceaccount-and-rbac)
 - [Trigger → Flow Invocation](#trigger-flow-invocation)
@@ -19,7 +20,7 @@ This document describes the runtime architecture of KubeZap — specifically how
 - [Container Images](#container-images)
 - [Deployment Lifecycle](#deployment-lifecycle)
 - [Adding New Trigger Types](#adding-new-trigger-types)
-- [Future Trigger Types](#future-trigger-types)
+- [Kubernetes Resource Event Triggers](#kubernetes-resource-event-triggers)
 
 ---
 
@@ -38,23 +39,23 @@ KubeZap is composed of five distinct runtime components, each with its own binar
   AMQP Message  ────────► amqp-gateway    ──┤               │ creates & manages
                           (one per broker)  │               ▼
   NATS Message  ────────► nats-gateway    ──┤         gateway Deployments
-                          (one per server) │               │
-                                │          │               │ POST /execute (RPC)
-                                │ watch    │               ▼
-                                └─────────►┘        http-executor pod
+                          (one per server)  │               │
+                                │           │               │ POST /execute (RPC)
+                                │ watch     │               ▼
+                                └──────────►┘        http-executor pod
                            Trigger CRDs              (one per namespace;
                                                       no RBAC, SSRF guard)
                                             ──────────────────────────────────
                           Prometheus metrics + OpenTelemetry traces
 ```
 
-| Component                 | Binary                        | Purpose                                                                                                      |
-| ------------------------- | ----------------------------- | ------------------------------------------------------------------------------------------------------------ |
-| `kubezap-controller`      | `cmd/main.go`                 | Kubernetes operator. Reconciles all CRDs, manages gateway Deployments, executes Flows via FlowRun.           |
-| `kubezap-webhook-gateway` | `cmd/webhook-gateway/main.go` | HTTP server. Watches Trigger CRDs and dynamically registers webhook routes. Creates FlowRun on each request. |
-| `kubezap-kafka-gateway`   | `cmd/kafka-gateway/main.go`   | Kafka consumer. Watches Trigger CRDs and manages topic subscriptions. Creates FlowRun on each message.       |
-| `kubezap-amqp-gateway`    | `cmd/amqp-gateway/main.go`    | AMQP consumer (RabbitMQ, Azure Service Bus, etc.). One Deployment per broker Integration per namespace.      |
-| `kubezap-nats-gateway`    | `cmd/nats-gateway/main.go`    | NATS JetStream consumer. One Deployment per NATS server Integration per namespace.                           |
+| Component                 | Binary                        | Purpose                                                                                                                                                                                                                                 |
+| ------------------------- | ----------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `kubezap-controller`      | `cmd/main.go`                 | Kubernetes operator. Reconciles all CRDs, manages gateway Deployments, executes Flows via FlowRun.                                                                                                                                      |
+| `kubezap-webhook-gateway` | `cmd/webhook-gateway/main.go` | HTTP server. Watches Trigger CRDs and dynamically registers webhook routes. Creates FlowRun on each request.                                                                                                                            |
+| `kubezap-kafka-gateway`   | `cmd/kafka-gateway/main.go`   | Kafka consumer. Watches Trigger CRDs and manages topic subscriptions. Creates FlowRun on each message.                                                                                                                                  |
+| `kubezap-amqp-gateway`    | `cmd/amqp-gateway/main.go`    | AMQP consumer (RabbitMQ, Azure Service Bus, etc.). One Deployment per broker Integration per namespace.                                                                                                                                 |
+| `kubezap-nats-gateway`    | `cmd/nats-gateway/main.go`    | NATS JetStream consumer. One Deployment per NATS server Integration per namespace.                                                                                                                                                      |
 | `kubezap-http-executor`   | `cmd/http-executor/main.go`   | HTTP step executor: receives fully-resolved HTTP requests from controller via internal `POST /execute` RPC, executes with SSRF blocklist, returns results. Minimal RBAC (no secrets, no RBAC management). One Deployment per namespace. |
 
 The controller and gateways are separate processes deployed as separate Kubernetes `Deployment` resources. The controller creates and manages the gateway Deployments.
@@ -158,6 +159,16 @@ Offsets are committed after the `FlowRun` CR is successfully persisted to Kubern
 - If the gateway crashes *after* creating the FlowRun but *before* committing the offset, the message is re-delivered. The gateway deduplicates using the Kafka offset as part of the FlowRun name (e.g. `order-events-p0-offset-12345`), so the second delivery finds the existing FlowRun and skips creation. ✓
 
 Flows should still be designed to be idempotent as a defence-in-depth measure.
+
+---
+
+## HTTP Executor
+
+Flow steps of `type: http` don't call out to the target URL from the controller — the controller resolves all secrets and builds the fully-substituted request in-memory, then hands it off to `kubezap-http-executor`, a separate pod with **no RBAC, no secrets access, and no cluster management**, over an internal `POST /execute` RPC. One `http-executor` Deployment runs per managed namespace.
+
+This split limits the blast radius of an SSRF bypass: even if a DNS-rebinding attack gets past the SSRF blocklist, the attacker gains execution in a pod that can't read secrets or talk to the Kubernetes API, not in the controller pod. The channel between the controller and the executor is protected by a mandatory `NetworkPolicy` (ingress restricted to the controller pod) and optional mTLS (`--executor-mtls=true`) for clusters without a service mesh.
+
+See [HTTP Executor — Design Contract](architecture/http-executor.md) for the full RPC contract (request/response schemas, error codes), SSRF details, and certificate rotation.
 
 ---
 
@@ -269,9 +280,18 @@ The gateway returns `202 Accepted` to the caller as soon as the FlowRun is creat
 
 ### Scale Limitations
 
-KubeZap is designed for **workflow orchestration** — multi-step flows with HTTP calls, retries, conditional branching, and wait steps. It is not designed for high-throughput stream processing (see [scale-limitations.md](https://github.com/kubezap/kubezap-operator/blob/main/docs/design/scale-limitations.md), a design record in the repository — not part of this published docs site).
+KubeZap is designed for **workflow orchestration** — multi-step flows with HTTP calls, retries, conditional branching, and wait steps — not high-throughput stream processing. It's not the right tool for stateless message transforms at very high throughput (use Kafka Streams or Flink), sub-second per-event latency requirements, or aggregation/windowing/stream joins (use Flink).
 
-FlowRun history is managed entirely via TTL and count-based GC policies. At high ingest rates, tuning these policies aggressively (short TTLs, low `maxSucceeded`/`maxFailed` counts) is required to avoid etcd storage pressure.
+All FlowRun state lives in Kubernetes CRDs (etcd), which gives `kubectl` observability, crash recovery, and Kubernetes-native deduplication with no external dependencies — but bounds practical scale:
+
+| Dimension          | Practical limit          | Notes                                                                                  |
+| ------------------- | ------------------------- | --------------------------------------------------------------------------------------- |
+| Ingest rate         | ~hundreds/min sustained   | etcd write throughput and storage quota bound this                                      |
+| etcd object size    | ~10–50 KB per FlowRun     | Spec + full step status + 4 KB body snapshot                                            |
+| etcd storage quota  | 2 GB default              | ~40,000–200,000 FlowRuns before GC must keep pace                                       |
+| GC list scan        | O(n) per trigger          | `enforceMaxFlowRunsByPhase` lists all FlowRuns per trigger on each terminal reconcile    |
+
+FlowRun history is managed entirely via TTL and count-based GC policies (see [Garbage Collection](api/flowrun.md#garbage-collection)); at high ingest rates, tuning these aggressively (short TTLs, low `maxSucceeded`/`maxFailed`) is required to avoid etcd storage pressure. At enterprise Kafka scale (10,000+/min), KubeZap CRD storage will exhaust etcd regardless of GC tuning — front it with a stream processor that filters/aggregates messages, invoking KubeZap only for the subset that needs true workflow orchestration. See [scale-limitations.md](design/scale-limitations.md) for the decision to keep FlowRun state in etcd rather than add an external database.
 
 ---
 
@@ -345,15 +365,13 @@ The controller uses leader election and should run with 2–3 replicas. Only the
 
 The controller watches CRDs in all namespaces and creates gateway Deployments within each namespace where they are needed. If all Triggers in a namespace are deleted, the controller garbage-collects the gateway Deployments.
 
-A future cluster-scoped mode is planned for single-tenant deployments where namespace isolation is not required.
-
 ---
 
 ## Multi-Tenancy
 
-### The actual isolation boundaries
+### Isolation boundaries
 
-Gateway pods are already per-namespace in the current design — tenant A's webhook traffic never touches tenant B's gateway pod. However, the **operator controller** is the true shared component in a default installation: it watches all namespaces, holds wide RBAC permissions, and its compromise or misconfiguration could affect all tenants.
+Gateway pods are per-namespace — tenant A's webhook traffic never touches tenant B's gateway pod. The **operator controller** is the shared component: in a default installation it watches all namespaces, holds wide RBAC permissions, and its compromise or misconfiguration could affect all tenants.
 
 For teams within the same organization (separate namespaces for dev/staging/prod, or team-per-namespace), this is generally acceptable. For true multi-tenant scenarios — different organizations sharing a cluster, regulated environments with strict data segregation, or SaaS platforms — the controller must also be isolated.
 
@@ -361,12 +379,12 @@ For teams within the same organization (separate namespaces for dev/staging/prod
 
 KubeZap supports four watch modes controlled by the `WATCH_NAMESPACES` environment variable on the controller Deployment (standard Operator SDK / controller-runtime pattern):
 
-| Mode                | `WATCH_NAMESPACES` value        | Default? | Use case                                                  |
-| ------------------- | ------------------------------- | -------- | --------------------------------------------------------- |
-| **OwnNamespace**    | `""` (empty) or operator's ns   | **Yes**  | Default; maximum isolation, least privilege (OLM default) |
-| **AllNamespaces**   | `"*"`                           | No       | Single-org cluster; secrets restricted to `kubezap.io/managed=true` namespaces |
-| **MultiNamespace**  | `"ns1,ns2,ns3"`                 | No       | Operator serves a defined set of tenant namespaces        |
-| **SingleNamespace** | `"tenant-a"`                    | No       | One operator installation per tenant group                |
+| Mode                | `WATCH_NAMESPACES` value      | Default? | Use case                                                                       |
+| ------------------- | ----------------------------- | -------- | ------------------------------------------------------------------------------ |
+| **OwnNamespace**    | `""` (empty) or operator's ns | **Yes**  | Default; maximum isolation, least privilege (OLM default)                      |
+| **AllNamespaces**   | `"*"`                         | No       | Single-org cluster; secrets restricted to `kubezap.io/managed=true` namespaces |
+| **MultiNamespace**  | `"ns1,ns2,ns3"`               | No       | Operator serves a defined set of tenant namespaces                             |
+| **SingleNamespace** | `"tenant-a"`                  | No       | One operator installation per tenant group                                     |
 
 > **Security note:** The default is OwnNamespace (least privilege). `WATCH_NAMESPACES=*` enables AllNamespaces mode, where the operator's secrets RBAC is restricted to namespaces labeled `kubezap.io/managed=true`. This prevents the operator from reading secrets in unrelated namespaces.
 
@@ -458,8 +476,8 @@ spec:
 ```yaml
 # values.yaml
 controller:
-  watchNamespaces: ""           # OwnNamespace (default — least privilege)
-  # watchNamespaces: "*"                   # AllNamespaces (secrets restricted to kubezap.io/managed=true namespaces)
+  watchNamespaces: ""                     # OwnNamespace (default — least privilege)
+  # watchNamespaces: "*"                  # AllNamespaces (secrets restricted to kubezap.io/managed=true namespaces)
   # watchNamespaces: "tenant-a"           # SingleNamespace
   # watchNamespaces: "tenant-a,tenant-b"  # MultiNamespace
 ```
@@ -648,144 +666,3 @@ The trigger body is the full resource object's JSON (no wrapper key), navigable 
 
 **Not accessible from step interpolation**: `eventType` (`ADDED`/`MODIFIED`/`DELETED`) is recorded on the FlowRun's `spec.triggerData` but has no `$(trigger.eventType)` interpolation syntax today. There is also no captured "previous object" for update events — only the current resource state is available.
 
----
-
-## Future Trigger Types
-
-| Type                         | Implementation                        | Notes                                                                          |
-| ---------------------------- | ------------------------------------- | ------------------------------------------------------------------------------ |
-| Kubernetes resource events   | Controller extension (no new gateway) | **Implemented** — see resource trigger section above; production-readiness TBD |
-| NATS                         | `kubezap-nats-gateway`                | **Implemented** (beta) — separate image; NATS client library                   |
-| RabbitMQ / ActiveMQ          | `kubezap-amqp-gateway`                | **Implemented** (beta) — AMQP 0-9-1 and 1.0; see integration.md                |
-| Solace                       | `kubezap-solace-gateway`              | Solace Go API; likely separate image                                           |
-| S3 / GCS events              | `kubezap-s3-gateway`                  | Polls or uses bucket notifications                                             |
-| Git (GitHub/GitLab webhooks) | Webhook gateway (existing)            | Standard webhook with HMAC verification; no new gateway needed                 |
-| Remote cluster events        | `kubezap-remote-cluster-gateway`      | Future; requires cross-cluster API server access                               |
-
----
-
-## Multi-Region HA
-
-> **Status**: Backlog — not yet implemented. This section documents the target architecture
-> and the design constraints it imposes on current implementation decisions. Exact
-> topology details (CRD replication mechanism, failover detection) are to be decided later.
-
-### Target Model: Active-Passive Controller, Active-Active Gateway
-
-The two components have different HA requirements and are treated separately:
-
-| Component                                           | Model          | Rationale                                                                                                        |
-| --------------------------------------------------- | -------------- | ---------------------------------------------------------------------------------------------------------------- |
-| **Controller** (FlowRun execution, cron scheduling) | Active-passive | Cron must not fire twice; FlowRun execution must have a single owner. Cross-region leader election handles this. |
-| **Webhook / Kafka gateway**                         | Active-active  | Stateless — trivial to run in multiple regions. Lower latency for geographically distributed senders.            |
-
-```
-Region A (primary)              Region B (standby)
-──────────────────              ──────────────────
-Gateway ◄── global LB ──────►  Gateway
-   │                               │
-   └──► FlowRun CRDs ◄─────────────┘   (both regions write FlowRuns)
-              │
-         Controller ◄── leader election ──► Controller
-         (active)                            (standby — takes over on failure)
-```
-
-Both gateways create FlowRuns against the same (replicated) CRD API. Only the leader
-controller executes them. On primary failure the standby wins the lease, picks up any
-in-flight FlowRuns from their last persisted status, and resumes execution — no re-run
-from scratch.
-
----
-
-### What is already designed for HA
-
-**CRD-as-state (not in-memory)**
-All execution state lives in CRD status (`FlowRun.status`). The controller holds no
-in-memory execution state between reconcile loops. If the active controller fails, the
-standby picks up from the last persisted step status.
-
-**Idempotent reconcilers**
-All reconcilers are safe to re-run at any time. Steps that already have `Succeeded`
-status are skipped on re-reconciliation.
-
-**FlowRun dedup keys**
-FlowRun names encode the triggering event to prevent duplicates:
-- Kafka: `<trigger>-p<partition>-offset-<offset>` — exactly-once per message
-- Cron: `<trigger>-<scheduled-time>` — exactly-once per schedule tick (enforced by leader election)
-- Webhook: `<trigger>-<timestamp>-<random>` — no dedup (webhooks are not idempotent by nature)
-
-**Leader election**
-controller-runtime's lease-based leader election ensures only one controller instance
-executes reconcile loops at a time, both within and (with cross-cluster lease) across regions.
-
----
-
-### Gaps and future work
-
-**CRD replication**
-Kubernetes CRDs are cluster-scoped and do not replicate automatically. The mechanism for
-making FlowRun CRDs accessible across regions is to be decided (options: managed
-Kubernetes with multi-region etcd, KubeFed, GitOps sync). This is the primary open
-design question for multi-region support.
-
-**Cross-cluster leader election**
-controller-runtime leader election uses a Kubernetes Lease object. Extending this across
-clusters requires a shared API endpoint or a separate distributed lock. Exact mechanism TBD.
-
-**Step idempotency**
-HTTP steps are not idempotent by default. If a FlowRun is resumed after failover, a step
-that was in-flight (started but not yet written to status) may fire twice. Downstream
-services should be prepared for at-least-once delivery, or a future `step.idempotencyKey`
-field can propagate a caller-supplied key (e.g., `$(trigger.headers.X-Idempotency-Key)`).
-
-**Split-brain prevention**
-Split-brain occurs when both regions believe they are the active controller and execute
-the same FlowRuns simultaneously. Mitigation operates in layers:
-
-1. **Lease expiry, not forced failover.** The standby controller must wait for the
-   primary's Kubernetes Lease to expire naturally (default: 15s `leaseDuration`) before
-   acquiring leadership. It must never force-take the lease. If the primary is slow but
-   alive, forcing a takeover would cause dual execution.
-
-2. **Fencing via shared API server.** If the shared Kubernetes API (or etcd) is
-   reachable, the primary must be able to renew its Lease. If it cannot renew within
-   `renewDeadline`, it voluntarily stops reconciling. This is controller-runtime's default
-   behavior — the controller exits on lease loss rather than continuing blind.
-
-3. **Optimistic concurrency as the last line of defense.** Even if split-brain occurs
-   briefly, both controllers writing to the same `FlowRun.status` will race on
-   `resourceVersion`. Kubernetes rejects the stale write with a conflict error; the
-   losing controller requeues. Because reconcilers are idempotent, the result converges
-   correctly — the only risk is a step firing twice (the step idempotency gap above).
-
-4. **No split-brain within a single cluster.** Kubernetes Lease guarantees mutual
-   exclusion for all controllers sharing the same API server. Split-brain is only a
-   concern when controllers in separate clusters can both reach the CRD API.
-
-The practical recommendation: prefer a **single shared Kubernetes control plane** (e.g.,
-multi-region etcd with a single API server endpoint) over federated independent clusters.
-This eliminates split-brain at the architecture level rather than trying to solve it in
-application code. If independent clusters are required, cross-cluster leader election
-and fencing become necessary (mechanism TBD).
-
----
-
-### Design constraints for current implementation
-
-These must be respected now to avoid rework when HA is added:
-
-1. **Never store execution state in controller memory.** All step results, retry counts,
-   and phase transitions must be written to `FlowRun.status` before the next reconcile.
-   (Already enforced.)
-
-2. **FlowRun names must be deterministic from the trigger event** where possible (Kafka,
-   cron) to support cross-region dedup via `AlreadyExists` error handling on the CRD API.
-
-3. **Avoid node-local resources.** Gateways must not write to local disk or use
-   node-local sockets. All state goes through the Kubernetes API.
-
-4. **Trace context propagation via annotations** must use W3C `traceparent` — this is
-   region-agnostic and works across process boundaries (see observability guide).
-
-5. **RBAC must be namespace-scoped** (Role, not ClusterRole) where possible, supporting
-   future multi-cluster deployments. (Already enforced for gateway RBAC.)

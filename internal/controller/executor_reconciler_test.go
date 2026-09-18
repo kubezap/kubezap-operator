@@ -140,7 +140,7 @@ var _ = Describe("ExecutorReconciler", func() {
 				"kubernetes.io/metadata.name": "kubezap-system",
 			}))
 
-			// Egress: SSRF defense-in-depth (see docs/design/2026-09-11-executor-egress-networkpolicy.md).
+			// Egress: SSRF defense-in-depth (see docs/design/executor-egress-networkpolicy.md).
 			Expect(np.Spec.PolicyTypes).To(ContainElement(networkingv1.PolicyTypeEgress))
 			Expect(np.Spec.Egress).To(HaveLen(2), "one rule for HTTP(S) egress minus blocked ranges, one for DNS")
 			httpEgress := np.Spec.Egress[0]

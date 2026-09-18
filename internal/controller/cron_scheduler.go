@@ -66,10 +66,7 @@ func (s *CronScheduler) Register(trigger *automationv1alpha1.Trigger) error {
 	}
 
 	key := trigger.Namespace + "/" + trigger.Name
-	flowRef := ""
-	if trigger.Spec.FlowRef != nil {
-		flowRef = trigger.Spec.FlowRef.Name
-	}
+	flowRef := trigger.Spec.FlowRef.Name
 
 	ns := trigger.Namespace
 	name := trigger.Name

@@ -5,7 +5,7 @@
 # regardless of WATCH_NAMESPACES install mode, so the operator's self-managed
 # webhook cert mechanism (internal/webhookcerts) can always patch the
 # ValidatingWebhookConfiguration's caBundle. See
-# docs/design/2026-09-18-self-managed-webhook-certs.md.
+# docs/design/self-managed-webhook-certs.md.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:

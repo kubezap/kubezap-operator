@@ -90,7 +90,7 @@ type ResultValue struct {
 // FlowRunPhase (rather than sharing one "Phase" type) so the compiler catches a
 // value valid for one but not the other being used in place of the wrong one —
 // e.g. Waiting is a valid StepPhase but was, before this type existed, mistakenly
-// documented as a valid FlowRunPhase too. See docs/design/2026-09-11-typed-phase-enums.md.
+// documented as a valid FlowRunPhase too. See docs/design/typed-phase-enums.md.
 type StepPhase string
 
 const (
@@ -114,6 +114,15 @@ type StepRunStatus struct {
 	Attempts       int32         `json:"attempts,omitempty"`
 	Message        string        `json:"message,omitempty"`
 	Results        []ResultValue `json:"results,omitempty"`
+
+	// DurationMillis is the step's execution time in milliseconds, set once the
+	// step reaches a terminal phase (Succeeded, Failed, or Skipped) — the same
+	// full-precision time.Duration observed into the kubezap_step_duration_seconds
+	// histogram, in case a caller needs it and can't fall back to subtracting the
+	// second-precision StartTime/CompletionTime. Unset while the step is Pending,
+	// Running, or Waiting.
+	// +optional
+	DurationMillis *int64 `json:"durationMillis,omitempty"`
 
 	// ResumeAfter is set by the wait step executor and records when the step should resume.
 	// The controller requeues the FlowRun until this time has elapsed.
@@ -147,6 +156,14 @@ type FlowRunStatus struct {
 	CompletionTime *metav1.Time       `json:"completionTime,omitempty"`
 	Steps          []StepRunStatus    `json:"steps,omitempty"`
 	Message        string             `json:"message,omitempty"`
+
+	// DurationMillis is the FlowRun's total execution time in milliseconds, set
+	// once the FlowRun reaches a terminal phase (Succeeded, Failed, or
+	// Cancelled) — the same full-precision time.Duration observed into the
+	// kubezap_flowrun_duration_seconds histogram. Unset while the FlowRun is
+	// Pending or Running.
+	// +optional
+	DurationMillis *int64 `json:"durationMillis,omitempty"`
 }
 
 // +kubebuilder:object:root=true

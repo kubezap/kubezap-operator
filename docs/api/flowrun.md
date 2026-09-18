@@ -14,9 +14,9 @@ A `FlowRun` is an execution instance of a `Flow`. Gateways create a `FlowRun` ea
   - [Who Creates FlowRuns](#who-creates-flowruns)
   - [Spec Reference](#spec-reference)
     - [FlowRunSpec](#flowrunspec)
-    - [FlowReference](#flowreference)
     - [TriggerReference](#triggerreference)
     - [TriggerData](#triggerdata)
+    - [FlowReference](#flowreference)
     - [ParamValue](#paramvalue)
   - [Cross-namespace flows](#cross-namespace-flows)
   - [Status Reference](#status-reference)
@@ -28,6 +28,7 @@ A `FlowRun` is an execution instance of a `Flow`. Gateways create a `FlowRun` ea
   - [Garbage Collection](#garbage-collection)
     - [TTL-Based GC (time-to-live)](#ttl-based-gc-time-to-live)
     - [Count-Based GC (history limit)](#count-based-gc-history-limit)
+    - [FlowRunGCPolicy](#flowrungcpolicy)
     - [Active FlowRuns are exempt](#active-flowruns-are-exempt)
     - [Retain annotation](#retain-annotation)
   - [Deduplication](#deduplication)
@@ -74,13 +75,13 @@ A `FlowRun` is an execution instance of a `Flow`. Gateways create a `FlowRun` ea
   │ Running │  Controller is executing steps
   └────┬────┘
        │
-       ├──► all steps Succeeded ──────────────────────────────► ┌───────────┐
+       ├──► all steps Succeeded ───────────────────────────────► ┌───────────┐
        │                                                         │ Succeeded │
        │                                                         └───────────┘
-       ├──► any step Failed (no onFailure handler, or ──────────► ┌────────┐
+       ├──► any step Failed (no onFailure handler, or ───────────► ┌────────┐
        │    handler also failed)                                   │ Failed │
        │                                                           └────────┘
-       └──► cancelled via annotation ──────────────────────────► ┌───────────┐
+       └──► cancelled via annotation ───────────────────────────► ┌───────────┐
                                                                   │ Cancelled │
                                                                   └───────────┘
 ```
@@ -148,11 +149,10 @@ Snapshot of the event that caused this FlowRun. The full set of fields depends o
 | `source`        | string            | `webhook`, `cron`, `kafka`, `kubernetes-event`             |
 | `method`        | string            | HTTP method (webhook only)                                 |
 | `path`          | string            | URL path (webhook only)                                    |
-| `headers`       | map[string]string | Request headers (webhook only; sensitive headers redacted) |
-| `topic`         | string            | Kafka topic (kafka only)                                   |
+| `headers`       | map[string]string | Request/message headers (webhook, kafka, and amqp; sensitive headers redacted). NATS message headers are not captured. |
+| `topic`         | string            | Kafka topic or AMQP/NATS subject (broker triggers only)    |
 | `partition`     | integer           | Kafka partition (kafka only)                               |
 | `offset`        | integer           | Kafka message offset (kafka only)                          |
-| `kafkaHeaders`  | map[string]string | Kafka message headers (kafka only)                         |
 | `scheduledTime`        | timestamp         | Scheduled fire time (cron only)                                    |
 | `body`                 | string            | Request or message body (truncated at 64KB by default for webhook triggers — configurable via the webhook gateway's `--max-stored-body-bytes` flag; see [Webhook Security](../guides/webhook-security.md#body-size-limits)) |
 | `bodyTruncated`        | boolean           | `true` if the body exceeded the limit and was truncated            |
@@ -429,7 +429,7 @@ spec:
     offset: 12345
     body: '{"orderId": "ORD-9922"}'
     contentType: application/json
-    kafkaHeaders:
+    headers:
       X-Correlation-Id: "corr-789"
 ```
 

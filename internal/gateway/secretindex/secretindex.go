@@ -2,7 +2,7 @@
 // Kubernetes Secret to the set of objects (Triggers, in every current caller)
 // that currently depend on it. Gateway watchers use it to know which objects
 // to reprocess when a watched Secret's contents change — see
-// docs/design/2026-09-11-secret-rotation-watches.md.
+// docs/design/secret-rotation-watches.md.
 //
 // It intentionally holds no Kubernetes client, informer, or credential-
 // resolution logic: those differ per gateway (webhook's auth config lives

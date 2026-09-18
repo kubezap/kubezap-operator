@@ -55,6 +55,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
@@ -324,7 +325,7 @@ func (r *FlowRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		}
 	}
 
-	// §12b: One-step-per-reconcile execution model.
+	// One-step-per-reconcile execution model.
 	//
 	// Design: Each Reconcile call processes exactly one "wave" — the set of
 	// steps whose runAfter dependencies are all satisfied AND that have not yet
@@ -348,7 +349,7 @@ func (r *FlowRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	}
 
 	// Resolve Flow parameters before dispatching any step — see
-	// docs/design/2026-09-10-flow-parameters.md. A required parameter that cannot be
+	// docs/design/flow-parameters.md. A required parameter that cannot be
 	// resolved fails the FlowRun immediately, before any step executes. Resolution is
 	// deterministic given FlowRunSpec (immutable after creation) and Flow.spec.params, so
 	// recomputing it on every reconcile (rather than caching it in status) is safe and
@@ -645,6 +646,10 @@ func (r *FlowRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 					flowRun.Namespace, flowRun.Spec.FlowRef.Name,
 					res.stepType, string(res.status.Phase),
 				).Observe(res.duration.Seconds())
+				switch res.status.Phase {
+				case automationv1alpha1.StepPhaseSucceeded, automationv1alpha1.StepPhaseFailed, automationv1alpha1.StepPhaseSkipped:
+					res.status.DurationMillis = ptr.To(res.duration.Milliseconds())
+				}
 				flowRun.Status.Steps = upsertStepStatus(flowRun.Status.Steps, res.status)
 				if res.failFatal && fatalMsg == "" {
 					fatalMsg = res.failMsg
@@ -695,6 +700,7 @@ func (r *FlowRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		metrics.FlowRunDuration.WithLabelValues(
 			flowRun.Namespace, flowRun.Spec.FlowRef.Name, "Succeeded",
 		).Observe(duration.Seconds())
+		flowRun.Status.DurationMillis = ptr.To(duration.Milliseconds())
 	}
 	span.SetStatus(otelcodes.Ok, "")
 	// Status update must happen BEFORE the metadata Update (finalizer removal).
@@ -1592,6 +1598,7 @@ func (r *FlowRunReconciler) finishFlowRun(ctx context.Context, flowRun *automati
 		metrics.FlowRunDuration.WithLabelValues(
 			flowRun.Namespace, flowRun.Spec.FlowRef.Name, string(phase),
 		).Observe(duration.Seconds())
+		flowRun.Status.DurationMillis = ptr.To(duration.Milliseconds())
 	}
 	if phase == automationv1alpha1.FlowRunPhaseFailed {
 		trace.SpanFromContext(ctx).SetStatus(otelcodes.Error, "FlowRun failed")
@@ -1844,10 +1851,8 @@ func (r *FlowRunReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	metrics.RegisterFlowRunActiveCollector(mgr.GetClient())
 	maxConcurrent := r.MaxConcurrentReconciles
 	if maxConcurrent <= 0 {
-		// WIRING NOTE: §12b — update --max-concurrent-flowruns default to 25 in cmd/main.go.
-		// With one-step-per-reconcile, each goroutine is short-lived (one step, not the full
-		// flow), so more concurrent reconciles are safe. The hot-file wiring pass should
-		// raise the default from 10 to 25.
+		// Fallback for callers that don't set MaxConcurrentReconciles explicitly
+		// (cmd/main.go always passes --max-concurrent-flowruns, default 25).
 		maxConcurrent = 10
 	}
 
@@ -2107,7 +2112,7 @@ func (r *FlowRunReconciler) substituteVarsWithSecrets(
 // substituteVars replaces template placeholders in s with values from stepResults,
 // triggerData, and params. Supported syntax:
 //   - $(steps.<name>.results.<key>) — step output value; hyphens in name are normalized to underscores
-//   - $(params.<name>) — a resolved Flow parameter; see docs/design/2026-09-10-flow-parameters.md
+//   - $(params.<name>) — a resolved Flow parameter; see docs/design/flow-parameters.md
 //   - $(trigger.body) — raw trigger request body
 //   - $(trigger.body.<field>) — dot-path into the trigger body (nested objects and array indices
 //     supported for JSON bodies; flat top-level fields only for application/x-www-form-urlencoded
@@ -2133,7 +2138,7 @@ func substituteVars(s string, stepResults map[string]map[string]string, triggerD
 // (a body field, header, or upstream step/API result) landing next to one
 // legitimate $(secrets.*) reference inject its own
 // $(secrets.<any-name>.<any-key>) text and have it resolved — reading any
-// secret in the namespace. See docs/design/2026-09-11-single-pass-interpolation.md.
+// secret in the namespace. See docs/design/single-pass-interpolation.md.
 //
 // resolveSecret is nil for callers that must never resolve secrets (e.g. Flow
 // parameter defaults via resolveFlowParams) — $(secrets.*) is then left as
@@ -2373,7 +2378,7 @@ func parseFormURLEncodedBody(body string) map[string]interface{} {
 }
 
 // resolveFlowParams resolves $(params.<name>) values for a FlowRun, per the resolution
-// order in docs/design/2026-09-10-flow-parameters.md, for each param declared by the
+// order in docs/design/flow-parameters.md, for each param declared by the
 // Flow:
 //  1. An explicit entry in flowRunParams with a matching name wins — its value is itself
 //     resolved through substituteVars, so it may reference $(trigger.body.x)/$(steps.*)/etc.

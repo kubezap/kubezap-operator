@@ -33,8 +33,8 @@ log_err()  { printf '[%s] ERROR %s\n' "$(date -u +%H:%M:%S)" "$*" >&2; }
 now_iso() { date -u +%Y-%m-%dT%H:%M:%S.%3NZ; }
 
 # require_cmds fails fast (before any cluster work) if a required binary is
-# missing, per METHODOLOGY.md §0's "go/no-go signal" framing — no value in
-# discovering a missing dependency 150 runs into a 200-run sequence.
+# missing — no value in discovering a missing dependency 150 runs into a
+# 200-run sequence.
 require_cmds() {
   local missing=()
   for c in "$@"; do

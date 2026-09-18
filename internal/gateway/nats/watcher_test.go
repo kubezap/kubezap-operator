@@ -63,7 +63,7 @@ func newNatsTrigger(name, integrationName string) *automationv1alpha1.Trigger {
 				Subject:        "orders.created",
 				IntegrationRef: corev1.LocalObjectReference{Name: integrationName},
 			},
-			FlowRef: &automationv1alpha1.FlowReference{Name: "my-flow"},
+			FlowRef: automationv1alpha1.FlowReference{Name: "my-flow"},
 		},
 	}
 }

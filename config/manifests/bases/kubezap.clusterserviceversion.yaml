@@ -10,7 +10,7 @@ metadata:
     operatorframework.io/suggested-namespace: kubezap-system
     repository: https://github.com/kubezap/kubezap-operator
     support: KubeZap Community
-  name: kubezap.v0.0.1
+  name: kubezap.v0.1.0
   namespace: placeholder
 spec:
   apiservicedefinitions: {}
@@ -149,9 +149,12 @@ spec:
     - description: |-
         WebhookGatewayConfig is the Schema for the webhookgatewayconfigs API.
 
-        At most one WebhookGatewayConfig may exist per namespace — a validating
-        admission webhook rejects a create when another one (any name) already
-        exists in the same namespace.
+        At most one WebhookGatewayConfig may exist per namespace. This is enforced
+        by requiring the object be named "default" (see the XValidation rule
+        above) rather than by an admission webhook — Kubernetes' own
+        per-(namespace, name) uniqueness in etcd then makes "at most one" hold
+        unconditionally, with no dependency on webhook/cert infrastructure being
+        deployed or healthy. See docs/design/webhookgatewayconfig-singleton-name.md.
       displayName: Webhook Gateway Config
       kind: WebhookGatewayConfig
       name: webhookgatewayconfigs.automation.kubezap.io
@@ -552,4 +555,4 @@ spec:
   provider:
     name: KubeZap Community
     url: https://github.com/kubezap/kubezap-operator
-  version: 0.0.1
+  version: 0.1.0

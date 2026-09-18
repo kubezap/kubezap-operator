@@ -23,7 +23,7 @@ import (
 	automationv1alpha1 "github.com/kubezap/kubezap-operator/api/v1alpha1"
 )
 
-// See docs/design/2026-09-10-flow-parameters.md for the resolution order these tests
+// See docs/design/flow-parameters.md for the resolution order these tests
 // verify: explicit FlowRunSpec.Params > auto-derived from a same-named top-level
 // trigger.body field > declared default > required-and-missing fails > empty string.
 var _ = Describe("resolveFlowParams", func() {

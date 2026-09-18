@@ -6,7 +6,7 @@
 # via its internal RPC endpoint (POST /execute on port 8091). These requests include
 # resolved credentials — therefore this channel must be tightly restricted.
 #
-# As of the fix in docs/design/2026-09-11-executor-egress-networkpolicy.md, the
+# As of the fix in docs/design/executor-egress-networkpolicy.md, the
 # operator auto-creates a NetworkPolicy with this same shape (ingress restricted to
 # the controller pod; egress open except for the ranges below) in every managed
 # namespace via reconcileExecutorNetworkPolicy — you do NOT need to apply this file

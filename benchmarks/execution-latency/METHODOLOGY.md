@@ -8,14 +8,14 @@ these decisions.
 
 ## 0. Why this benchmark exists
 
-KubeZap's README and `docs/overview.md` currently assert that its
-controller-resolves-in-memory + RPC-to-`http-executor` model is "lighter" than
-Pod-per-step engines like Argo Workflows. That claim has never been measured.
-This benchmark produces real numbers so the claim can be confirmed, qualified,
-or walked back. It is scoped to a **go/no-go signal on the core architectural
-claim**, not a comprehensive performance characterization of either system —
-see §4 for why sequential-only, single-flow-at-a-time firing is sufficient for
-that narrower goal.
+KubeZap's controller-resolves-in-memory + RPC-to-`http-executor` model is
+architecturally different from Pod-per-step engines like Argo Workflows, but
+that difference had never been measured. This benchmark produces real numbers
+for the per-step and end-to-end latency difference between the two models.
+It is scoped to measuring that core architectural difference, not a
+comprehensive performance characterization of either system — see §4 for why
+sequential-only, single-flow-at-a-time firing is sufficient for that
+narrower goal.
 
 ## 1. Scenario
 
@@ -49,7 +49,7 @@ POST to the gateway creates one `FlowRun`, which the controller resolves and
 executes step-by-step, delegating each HTTP call to the namespace's
 `http-executor` Deployment via the internal RPC.
 
-### 1.3 Argo side — researched, not assumed
+### 1.3 Argo side
 
 Argo Workflows offers two distinct mechanisms for an HTTP call step, and they
 are **not interchangeable for this benchmark**:
@@ -78,8 +78,8 @@ distinct `container` template running `curlimages/curl` against
 matching KubeZap's three step-dispatches structurally.
 
 Record the `http` template / Agent model as an **optional secondary
-comparison arm** worth running in a follow-up if the primary result is
-surprising, but out of scope for the go/no-go call this story enables —
+comparison arm** worth running separately if the primary result is
+surprising, but out of scope for this benchmark —
 flag this explicitly in any report so nobody later conflates the two Argo
 execution models when reading the results.
 
@@ -106,12 +106,11 @@ newest minor line (`v4.1`); `v4.0.11` is the parallel latest-patch release on
 the immediately preceding supported line, released the same day. `v4.1.3` is
 the correct pin under the project's own stated policy.
 
-**Confidence flag**: I could not find an explicit "this is the version we
-recommend for new installs" sentence anywhere in Argo's docs beyond the
-general "use the latest patch" policy statement — that general policy plus
-the GitHub `Latest` release tag is what this pin is based on. Because this
-document may be read weeks or months before a harness actually installs
-Argo, whoever builds the harness should re-check
+Argo's docs don't state an explicit "this is the version we recommend for
+new installs" beyond the general "use the latest patch" policy statement —
+that general policy plus the GitHub `Latest` release tag is what this pin is
+based on. Because this document may be read weeks or months before a
+harness actually installs Argo, whoever builds the harness should re-check
 `https://github.com/argoproj/argo-workflows/releases` for a newer `4.1.x`
 patch before installing, and must record the *actual* installed
 `argo-workflows` version string in every run's output JSON (§5.3) regardless
@@ -152,9 +151,8 @@ the prior pod) **and pooled across all three positions**, both reported.
 
 ### 3.2 Per-step resource overhead
 
-Sampled via `kubectl top pod` polling — per the story's explicit instruction
-to use this mechanism rather than cgroup/cAdvisor scraping (a legitimate
-higher-fidelity alternative, but out of scope here).
+Sampled via `kubectl top pod` polling, rather than cgroup/cAdvisor scraping
+(a legitimate higher-fidelity alternative, but out of scope here).
 
 **Polling interval — 5 seconds, with an explicit caveat.** `kubectl top pod`
 is only as fresh as the cluster's metrics-server cache; metrics-server's own
@@ -228,7 +226,7 @@ rather than folded into (a):
   "execution start" instant; if not available at implementation time, this
   sub-delta may need to be approximated as the gap between the controller's
   step `StartTime` and the step's `CompletionTime` minus the target's known
-  response latency, which is a weaker proxy — the harness-building story
+  response latency, which is a weaker proxy — the harness implementation
   should verify whether `http-executor` emits a usable timestamp before
   falling back to the proxy.
 - Argo: time from the step-node's `startedAt` (control-plane decision to run
@@ -258,7 +256,7 @@ the number this benchmark targets.
 
 This explicitly does **not** claim to produce a stable p99: the same rule
 gives `n × 0.01 ≥ 10 → n ≥ 1000`, five times the sample size — out of scope
-for this first pass. If a later story wants a defensible p99, budget for
+for this first pass. A defensible p99 would require budgeting for
 ≥1000 firings per system, not 200.
 
 Per-step latency (§3.1) benefits further from this same 200-firing budget
@@ -270,8 +268,8 @@ still get 200 samples each).
 ### 4.2 Sequential (not concurrent) firing
 
 Fire triggers one at a time, waiting for each `FlowRun`/`Workflow` to reach a
-terminal phase before submitting the next. This is sufficient for the go/no-
-go question this benchmark answers — "is the core per-step dispatch overhead
+terminal phase before submitting the next. This is sufficient to answer the
+question this benchmark targets — "is the core per-step dispatch overhead
 meaningfully different between the two architectures" — because:
 
 - It isolates per-step/per-run dispatch and pod-startup cost from unrelated
@@ -280,13 +278,13 @@ meaningfully different between the two architectures" — because:
   work-queue backlog under concurrent reconciles, or node-level scheduler
   contention from many pods landing at once. All of those are real and
   interesting, but they're throughput/scaling questions, not the base
-  per-step-latency question this story is chartered to answer.
-- A go/no-go call on the architectural claim only needs to know whether one
+  per-step-latency question this benchmark targets.
+- Answering the core architectural question only needs to know whether one
   flow, run alone, is faster end-to-end and per-step under one model versus
-  the other. If it isn't, concurrent-load characterization becomes moot for
-  the "lighter" claim specifically (though still useful for other purposes).
+  the other. Concurrent-load characterization is a separate question
+  (though still useful for other purposes).
 - Concurrent-firing characterization is naturally a **separate follow-up
-  story** once this base result exists — it has its own methodology
+  measurement** once this base result exists — it has its own methodology
   questions (how many concurrent firings, how to attribute resource samples
   when multiple runs overlap in the same `kubectl top pod` window, etc.) that
   don't have clean answers reused from this document.
@@ -296,20 +294,20 @@ meaningfully different between the two architectures" — because:
 For each of the 200 firings per system, write one JSON file (not just
 contribute to a running aggregate), named
 `<system>-run-<3-digit-index>.json` (e.g. `kubezap-run-014.json`,
-`argo-run-014.json`), so a later story can recompute every statistic
+`argo-run-014.json`), so every statistic can be recomputed
 independently if an aggregation bug is suspected. Each file should contain,
 at minimum:
 
 - `system`: `"kubezap"` or `"argo"`, plus the actually-installed version
   string of the relevant component (KubeZap controller image tag; Argo
-  Workflows version actually installed — see §2's confidence flag).
+  Workflows version actually installed — see §2).
 - `run_index` and a wall-clock `run_started_at` (harness-local timestamp,
   for sequencing/debugging, distinct from the in-cluster timestamps below).
 - The full raw object the harness fetched to derive metrics — i.e. the
   complete `kubectl get flowrun <name> -o json` output, or `kubectl get
   workflow <name> -o json` output — stored verbatim, not just the fields the
-  harness happened to parse out. This is the specific mechanism that lets a
-  later story re-derive metrics independently: if the parsing logic had a
+  harness happened to parse out. This is the specific mechanism that lets
+  metrics be re-derived independently: if the parsing logic had a
   bug, the raw object is still there to reprocess.
 - The derived fields this document defines: trigger-fired timestamp,
   first-step-started timestamp, per-step start/completion timestamps (by
@@ -322,12 +320,3 @@ at minimum:
   the whole 200-firing sequential window, plus the pod-capture-rate count
   described in §3.2, rather than trying to fold a sustained-load measurement
   into each individual run's file.
-
-## 5. Summary of what a later harness story must still decide
-
-This document intentionally leaves the following to the implementation story,
-since they're harness-construction details rather than methodology:
-how exactly triggers are fired programmatically (`kubectl apply` loop vs. a
-Go test harness), how `kubectl top pod` polling is backgrounded and stopped
-cleanly, exact retry/backoff if a firing's terminal phase isn't reached
-within some timeout, and where result JSON files are written/retained.

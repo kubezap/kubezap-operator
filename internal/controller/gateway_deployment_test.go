@@ -19,6 +19,7 @@ package controller
 import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -131,10 +132,10 @@ var _ = Describe("getWebhookGatewayConfig", func() {
 		Expect(cfg).To(BeNil())
 	})
 
-	It("returns the object when exactly one exists in the namespace", func() {
+	It("returns the object when it exists in the namespace", func() {
 		created := &automationv1alpha1.WebhookGatewayConfig{
 			ObjectMeta: metav1.ObjectMeta{
-				Name:      "gw-cfg-test",
+				Name:      webhookGatewayConfigName,
 				Namespace: getCfgTestNamespace,
 			},
 			Spec: automationv1alpha1.WebhookGatewayConfigSpec{
@@ -147,8 +148,171 @@ var _ = Describe("getWebhookGatewayConfig", func() {
 
 		Expect(err).NotTo(HaveOccurred())
 		Expect(got).NotTo(BeNil())
-		Expect(got.Name).To(Equal("gw-cfg-test"))
+		Expect(got.Name).To(Equal(webhookGatewayConfigName))
 		Expect(got.Spec.HPA.MinReplicas).NotTo(BeNil())
 		Expect(*got.Spec.HPA.MinReplicas).To(Equal(int32(4)))
+	})
+
+	It("rejects a create with any name other than the required one", func() {
+		bad := &automationv1alpha1.WebhookGatewayConfig{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "not-default",
+				Namespace: getCfgTestNamespace,
+			},
+		}
+		err := k8sClient.Create(ctx, bad)
+
+		Expect(err).To(HaveOccurred())
+		Expect(err.Error()).To(ContainSubstring("the only valid name for a WebhookGatewayConfig is 'default'"))
+	})
+})
+
+var _ = Describe("validateWebhookGatewayConfigTLS", func() {
+	const validateTLSTestNamespace = "default"
+
+	AfterEach(func() {
+		var secrets corev1.SecretList
+		Expect(k8sClient.List(ctx, &secrets, client.InNamespace(validateTLSTestNamespace))).To(Succeed())
+		for i := range secrets.Items {
+			Expect(k8sClient.Delete(ctx, &secrets.Items[i])).To(Succeed())
+		}
+	})
+
+	newCfg := func(tls *automationv1alpha1.WebhookGatewayTLSSpec) *automationv1alpha1.WebhookGatewayConfig {
+		return &automationv1alpha1.WebhookGatewayConfig{
+			ObjectMeta: metav1.ObjectMeta{Namespace: validateTLSTestNamespace},
+			Spec:       automationv1alpha1.WebhookGatewayConfigSpec{TLS: tls},
+		}
+	}
+
+	It("is Ready/NoTLSConfigured when spec.tls is nil", func() {
+		cond := validateWebhookGatewayConfigTLS(ctx, k8sClient, newCfg(nil))
+
+		Expect(cond.Status).To(Equal(metav1.ConditionTrue))
+		Expect(cond.Reason).To(Equal("NoTLSConfigured"))
+	})
+
+	It("is not-Ready/ServerSecretNotFound when serverSecretRef names a missing Secret", func() {
+		cfg := newCfg(&automationv1alpha1.WebhookGatewayTLSSpec{
+			ServerSecretRef: &corev1.LocalObjectReference{Name: "does-not-exist"},
+		})
+
+		cond := validateWebhookGatewayConfigTLS(ctx, k8sClient, cfg)
+
+		Expect(cond.Status).To(Equal(metav1.ConditionFalse))
+		Expect(cond.Reason).To(Equal("ServerSecretNotFound"))
+	})
+
+	It("is not-Ready/ServerSecretMissingKeys when the server Secret lacks tls.crt/tls.key", func() {
+		secret := &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{Name: "incomplete-server-secret", Namespace: validateTLSTestNamespace},
+			Data:       map[string][]byte{"tls.crt": []byte("cert-only")},
+		}
+		Expect(k8sClient.Create(ctx, secret)).To(Succeed())
+		cfg := newCfg(&automationv1alpha1.WebhookGatewayTLSSpec{
+			ServerSecretRef: &corev1.LocalObjectReference{Name: secret.Name},
+		})
+
+		cond := validateWebhookGatewayConfigTLS(ctx, k8sClient, cfg)
+
+		Expect(cond.Status).To(Equal(metav1.ConditionFalse))
+		Expect(cond.Reason).To(Equal("ServerSecretMissingKeys"))
+	})
+
+	It("is Ready/WebhookGatewayConfigReady when the server Secret has both keys and no CA is configured", func() {
+		secret := &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{Name: "valid-server-secret", Namespace: validateTLSTestNamespace},
+			Data:       map[string][]byte{"tls.crt": []byte("cert"), "tls.key": []byte("key")},
+		}
+		Expect(k8sClient.Create(ctx, secret)).To(Succeed())
+		cfg := newCfg(&automationv1alpha1.WebhookGatewayTLSSpec{
+			ServerSecretRef: &corev1.LocalObjectReference{Name: secret.Name},
+		})
+
+		cond := validateWebhookGatewayConfigTLS(ctx, k8sClient, cfg)
+
+		Expect(cond.Status).To(Equal(metav1.ConditionTrue))
+		Expect(cond.Reason).To(Equal("WebhookGatewayConfigReady"))
+	})
+
+	It("is not-Ready/ClientCASecretNotFound when clientCASecretRef names a missing Secret", func() {
+		serverSecret := &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{Name: "server-secret-for-ca-test", Namespace: validateTLSTestNamespace},
+			Data:       map[string][]byte{"tls.crt": []byte("cert"), "tls.key": []byte("key")},
+		}
+		Expect(k8sClient.Create(ctx, serverSecret)).To(Succeed())
+		cfg := newCfg(&automationv1alpha1.WebhookGatewayTLSSpec{
+			ServerSecretRef:   &corev1.LocalObjectReference{Name: serverSecret.Name},
+			ClientCASecretRef: &corev1.LocalObjectReference{Name: "does-not-exist"},
+		})
+
+		cond := validateWebhookGatewayConfigTLS(ctx, k8sClient, cfg)
+
+		Expect(cond.Status).To(Equal(metav1.ConditionFalse))
+		Expect(cond.Reason).To(Equal("ClientCASecretNotFound"))
+	})
+
+	It("is Ready/WebhookGatewayConfigReady when both server and CA Secrets are valid", func() {
+		serverSecret := &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{Name: "server-secret-full", Namespace: validateTLSTestNamespace},
+			Data:       map[string][]byte{"tls.crt": []byte("cert"), "tls.key": []byte("key")},
+		}
+		caSecret := &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{Name: "ca-secret-full", Namespace: validateTLSTestNamespace},
+			Data:       map[string][]byte{"ca.crt": []byte("ca-cert")},
+		}
+		Expect(k8sClient.Create(ctx, serverSecret)).To(Succeed())
+		Expect(k8sClient.Create(ctx, caSecret)).To(Succeed())
+		cfg := newCfg(&automationv1alpha1.WebhookGatewayTLSSpec{
+			ServerSecretRef:   &corev1.LocalObjectReference{Name: serverSecret.Name},
+			ClientCASecretRef: &corev1.LocalObjectReference{Name: caSecret.Name},
+		})
+
+		cond := validateWebhookGatewayConfigTLS(ctx, k8sClient, cfg)
+
+		Expect(cond.Status).To(Equal(metav1.ConditionTrue))
+		Expect(cond.Reason).To(Equal("WebhookGatewayConfigReady"))
+	})
+
+	It("does not flag clientCASecretRef set without serverSecretRef, since that combination is a documented no-op", func() {
+		cfg := newCfg(&automationv1alpha1.WebhookGatewayTLSSpec{
+			ClientCASecretRef: &corev1.LocalObjectReference{Name: "does-not-exist"},
+		})
+
+		cond := validateWebhookGatewayConfigTLS(ctx, k8sClient, cfg)
+
+		Expect(cond.Status).To(Equal(metav1.ConditionTrue))
+	})
+})
+
+var _ = Describe("reconcileWebhookGatewayConfigStatus", func() {
+	const reconcileStatusTestNamespace = "default"
+
+	AfterEach(func() {
+		var list automationv1alpha1.WebhookGatewayConfigList
+		Expect(k8sClient.List(ctx, &list, client.InNamespace(reconcileStatusTestNamespace))).To(Succeed())
+		for i := range list.Items {
+			Expect(k8sClient.Delete(ctx, &list.Items[i])).To(Succeed())
+		}
+	})
+
+	It("writes a Ready condition onto the live object's status", func() {
+		created := &automationv1alpha1.WebhookGatewayConfig{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      webhookGatewayConfigName,
+				Namespace: reconcileStatusTestNamespace,
+			},
+		}
+		Expect(k8sClient.Create(ctx, created)).To(Succeed())
+
+		reconcileWebhookGatewayConfigStatus(ctx, k8sClient, created)
+
+		var got automationv1alpha1.WebhookGatewayConfig
+		Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(created), &got)).To(Succeed())
+		Expect(got.Status.Conditions).To(HaveLen(1))
+		Expect(got.Status.Conditions[0].Type).To(Equal(conditionTypeReady))
+		Expect(got.Status.Conditions[0].Status).To(Equal(metav1.ConditionTrue))
+		Expect(got.Status.Conditions[0].Reason).To(Equal("NoTLSConfigured"))
+		Expect(got.Status.Conditions[0].ObservedGeneration).To(Equal(got.Generation))
 	})
 })

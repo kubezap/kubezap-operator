@@ -120,7 +120,7 @@ func TestReconcileTrigger_IndexesIntegrationSecrets(t *testing.T) {
 				Topic:          "orders",
 				IntegrationRef: corev1.LocalObjectReference{Name: "kafka-integ"},
 			},
-			FlowRef: &automationv1alpha1.FlowReference{Name: "my-flow"},
+			FlowRef: automationv1alpha1.FlowReference{Name: "my-flow"},
 		},
 	}
 
@@ -151,7 +151,7 @@ func TestHandleSecretChange_ReprocessesDependentKafkaTrigger(t *testing.T) {
 				Topic:          "orders",
 				IntegrationRef: corev1.LocalObjectReference{Name: "kafka-integ"},
 			},
-			FlowRef: &automationv1alpha1.FlowReference{Name: "my-flow"},
+			FlowRef: automationv1alpha1.FlowReference{Name: "my-flow"},
 		},
 	}
 
@@ -204,7 +204,7 @@ func TestOnTriggerDelete_RemovesKafkaTriggerFromIndex(t *testing.T) {
 				Topic:          "orders",
 				IntegrationRef: corev1.LocalObjectReference{Name: "kafka-integ"},
 			},
-			FlowRef: &automationv1alpha1.FlowReference{Name: "my-flow"},
+			FlowRef: automationv1alpha1.FlowReference{Name: "my-flow"},
 		},
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)

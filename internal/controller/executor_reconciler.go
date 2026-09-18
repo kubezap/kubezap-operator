@@ -386,7 +386,7 @@ func (r *ExecutorReconciler) reconcileExecutorService(ctx context.Context, names
 // actual destination IP of the packet the executor sends, so DNS trickery
 // cannot defeat it the way it defeats the app-level check. Kept in sync with
 // the Go blocklist by convention — see
-// docs/design/2026-09-11-executor-egress-networkpolicy.md. Requires a
+// docs/design/executor-egress-networkpolicy.md. Requires a
 // NetworkPolicy-enforcing CNI (Calico, Cilium, most managed-Kubernetes
 // defaults); on a non-enforcing CNI (e.g. plain Flannel) this provides no
 // additional protection — see docs/guides/security-checklist.md.
@@ -468,7 +468,7 @@ func (r *ExecutorReconciler) reconcileExecutorNetworkPolicy(ctx context.Context,
 					// restriction: Flow HTTP steps and integrations legitimately target
 					// arbitrary ports (internal APIs and dev/test mocks are frequently
 					// not on 80/443), and the design intent here (see
-					// docs/design/2026-09-11-executor-egress-networkpolicy.md) is a
+					// docs/design/executor-egress-networkpolicy.md) is a
 					// destination-CIDR blocklist, not a port allowlist.
 					// When SSRFAllowClusterInternal is set (dev/test only — see
 					// config/dev/manager_dev_patch.yaml), the software SSRF check already

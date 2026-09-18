@@ -32,21 +32,43 @@ import (
 	"strings"
 )
 
-// defaultSSRFBlockedCIDRs is the set of CIDRs blocked by default for HTTP step
-// outbound requests. Covers RFC1918 private ranges, loopback, link-local
-// (including cloud metadata endpoints at 169.254.169.254), and IPv6 equivalents.
-var defaultSSRFBlockedCIDRs = mustParseCIDRs([]string{
-	"10.0.0.0/8",
-	"172.16.0.0/12",
-	"192.168.0.0/16",
-	"127.0.0.0/8",
-	"169.254.0.0/16", // link-local — includes AWS/GCP/Azure metadata IPs
-	"0.0.0.0/8",
-	"::1/128",
-	"fe80::/10",     // IPv6 link-local
-	"fc00::/7",      // IPv6 unique local
-	"100.64.0.0/10", // CGNAT / shared address space (RFC6598)
-})
+// SSRFBlockedCIDRsV4 and SSRFBlockedCIDRsV6 are the authoritative set of CIDRs
+// blocked by default for HTTP step outbound requests. Covers RFC1918 private
+// ranges, loopback, link-local (including cloud metadata endpoints at
+// 169.254.169.254), and CGNAT/IPv6 equivalents.
+//
+// This is the single source of truth for the SSRF blocklist: it also backs
+// internal/controller/executor_reconciler.go's generated NetworkPolicy egress
+// "except" list (defense-in-depth against the DNS-rebinding gap in the
+// software check below — see that file's doc comment) and is referenced from
+// config/network-policy/http-executor-ingress.yaml and
+// config/samples/network-policy-executor.yaml for manual cluster auditing.
+// Changing these values changes both the software SSRF check and the
+// generated NetworkPolicy.
+var (
+	SSRFBlockedCIDRsV4 = []string{
+		"10.0.0.0/8",
+		"172.16.0.0/12",
+		"192.168.0.0/16",
+		"127.0.0.0/8",
+		"169.254.0.0/16", // link-local — includes AWS/GCP/Azure metadata IPs
+		"0.0.0.0/8",
+		"100.64.0.0/10", // CGNAT / shared address space (RFC6598)
+	}
+
+	SSRFBlockedCIDRsV6 = []string{
+		"::1/128",
+		"fe80::/10", // IPv6 link-local
+		"fc00::/7",  // IPv6 unique local
+	}
+)
+
+// defaultSSRFBlockedCIDRs is the parsed form of SSRFBlockedCIDRsV4 +
+// SSRFBlockedCIDRsV6, used by checkSSRF for the software-level SSRF check.
+var defaultSSRFBlockedCIDRs = mustParseCIDRs(append(
+	append([]string{}, SSRFBlockedCIDRsV4...),
+	SSRFBlockedCIDRsV6...,
+))
 
 // mustParseCIDRs parses a slice of CIDR strings and panics on invalid input.
 // Intended for package-level initialization of known-good default CIDRs only.

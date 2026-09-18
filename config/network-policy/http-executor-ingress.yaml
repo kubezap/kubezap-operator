@@ -16,8 +16,9 @@
 # on a namespace the operator doesn't manage).
 #
 # This egress rule is SSRF defense-in-depth, not the primary control: the executor
-# also enforces a software SSRF blocklist (internal/executor/http/ssrf.go), but that
-# blocklist has an inherent DNS-rebinding gap (it resolves a hostname to validate,
+# also enforces a software SSRF blocklist (internal/executor/http/ssrf.go's
+# executorhttp.SSRFBlockedCIDRsV4/V6), but that blocklist has an inherent
+# DNS-rebinding gap (it resolves a hostname to validate,
 # then the HTTP client resolves the same hostname again to connect — an attacker
 # who controls the target's DNS can return a safe address for the first lookup and
 # a blocked one for the second). NetworkPolicy filters the actual destination IP of
@@ -35,8 +36,12 @@
 #     0.0.0.0/0 egress CIDR with the specific CIDRs of those services.
 #   - If your cluster enforces strict egress policies, add per-service egress
 #     rules instead of the wide-open CIDR below.
-#   - Keep the except list below in sync with defaultSSRFBlockedCIDRs in
-#     internal/executor/http/ssrf.go if you customize either one.
+#   - Authoritative source: the except list below is a manual copy of
+#     executorhttp.SSRFBlockedCIDRsV4 / SSRFBlockedCIDRsV6, defined in
+#     internal/executor/http/ssrf.go. That Go var is also what
+#     internal/controller/executor_reconciler.go's reconcileExecutorNetworkPolicy
+#     uses to generate the real, operator-applied NetworkPolicy — keep this
+#     file's except list in sync with it if you customize either one.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -70,8 +75,8 @@ spec:
   egress:
     # The executor makes outbound HTTP/HTTPS calls on behalf of Flow steps.
     # Replace 0.0.0.0/0 (and ::/0) with the specific CIDRs of your target
-    # services if known. The except lists mirror defaultSSRFBlockedCIDRs in
-    # internal/executor/http/ssrf.go.
+    # services if known. The except lists mirror executorhttp.SSRFBlockedCIDRsV4/V6
+    # in internal/executor/http/ssrf.go (see the file header above for details).
     - to:
         - ipBlock:
             cidr: 0.0.0.0/0  # TODO: narrow to known external service CIDRs

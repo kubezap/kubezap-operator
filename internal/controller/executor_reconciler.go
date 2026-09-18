@@ -36,6 +36,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	automationv1alpha1 "github.com/kubezap/kubezap-operator/api/v1alpha1"
+	executorhttp "github.com/kubezap/kubezap-operator/internal/executor/http"
 )
 
 const (
@@ -130,7 +131,7 @@ func (r *ExecutorReconciler) egressExceptCIDRs() []string {
 	if r.SSRFAllowClusterInternal {
 		return nil
 	}
-	return executorSSRFBlockedEgressCIDRs
+	return executorhttp.SSRFBlockedCIDRsV4
 }
 
 // egressExceptCIDRsV6 is the IPv6 equivalent of egressExceptCIDRs.
@@ -138,7 +139,7 @@ func (r *ExecutorReconciler) egressExceptCIDRsV6() []string {
 	if r.SSRFAllowClusterInternal {
 		return nil
 	}
-	return executorSSRFBlockedEgressCIDRsV6
+	return executorhttp.SSRFBlockedCIDRsV6
 }
 
 // operatorNamespace returns the namespace the controller-manager pod itself runs in.
@@ -377,34 +378,21 @@ func (r *ExecutorReconciler) reconcileExecutorService(ctx context.Context, names
 	return err
 }
 
-// executorSSRFBlockedEgressCIDRs mirrors internal/executor/http/ssrf.go's
-// defaultSSRFBlockedCIDRs. This NetworkPolicy egress rule is defense-in-depth
-// against the software SSRF blocklist's inherent DNS-rebinding gap (resolve,
-// validate, then let the HTTP transport re-resolve and connect — an attacker
-// who controls the target hostname's DNS can return a safe address for the
-// first lookup and a blocked one for the second). NetworkPolicy filters the
-// actual destination IP of the packet the executor sends, so DNS trickery
-// cannot defeat it the way it defeats the app-level check. Kept in sync with
-// the Go blocklist by convention — see
+// egressExceptCIDRs/egressExceptCIDRsV6 (above) source this NetworkPolicy
+// egress rule's "except" ranges from executorhttp.SSRFBlockedCIDRsV4/V6 —
+// the same authoritative CIDR list internal/executor/http/ssrf.go uses for
+// the software SSRF blocklist (see that var's doc comment for the full
+// rationale). This NetworkPolicy egress rule is defense-in-depth against the
+// software SSRF blocklist's inherent DNS-rebinding gap (resolve, validate,
+// then let the HTTP transport re-resolve and connect — an attacker who
+// controls the target hostname's DNS can return a safe address for the first
+// lookup and a blocked one for the second). NetworkPolicy filters the actual
+// destination IP of the packet the executor sends, so DNS trickery cannot
+// defeat it the way it defeats the app-level check. See
 // docs/design/executor-egress-networkpolicy.md. Requires a
 // NetworkPolicy-enforcing CNI (Calico, Cilium, most managed-Kubernetes
 // defaults); on a non-enforcing CNI (e.g. plain Flannel) this provides no
 // additional protection — see docs/guides/security-checklist.md.
-var executorSSRFBlockedEgressCIDRs = []string{
-	"10.0.0.0/8",
-	"172.16.0.0/12",
-	"192.168.0.0/16",
-	"127.0.0.0/8",
-	"169.254.0.0/16", // link-local — includes AWS/GCP/Azure metadata IPs
-	"0.0.0.0/8",
-	"100.64.0.0/10", // CGNAT / shared address space (RFC6598)
-}
-
-var executorSSRFBlockedEgressCIDRsV6 = []string{
-	"::1/128",
-	"fe80::/10", // IPv6 link-local
-	"fc00::/7",  // IPv6 unique local
-}
 
 // reconcileExecutorNetworkPolicy ensures only the controller pod can reach the executor,
 // and that the executor cannot egress to internal/link-local ranges (SSRF defense-in-depth).

@@ -350,7 +350,7 @@ The Flow receives the message contents via the same `$(trigger.*)` placeholders 
 - `$(trigger.topic)` — the topic/queue name
 - `$(trigger.partition)` — the partition number (Kafka only; empty for AMQP/NATS)
 - `$(trigger.offset)` — the message offset (Kafka only; empty for AMQP/NATS)
-- `$(trigger.headers.<name>)` — Kafka record headers and AMQP message headers (case-insensitive lookup), via the same placeholder used for webhook HTTP headers. NATS message headers are not captured today, so this is always empty for `nats` triggers.
+- `$(trigger.headers.<name>)` — Kafka record headers, AMQP message headers, and NATS message headers (case-insensitive lookup), via the same placeholder used for webhook HTTP headers.
 
 > **Not accessible from step interpolation**: the Kafka message key is not captured anywhere on the FlowRun object and is not exposed via `$(...)` syntax today. If a Flow needs the message key, there is currently no supported way to read it.
 

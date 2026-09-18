@@ -1387,13 +1387,6 @@ func (in *TriggerData) DeepCopyInto(out *TriggerData) {
 			(*out)[key] = val
 		}
 	}
-	if in.KafkaHeaders != nil {
-		in, out := &in.KafkaHeaders, &out.KafkaHeaders
-		*out = make(map[string]string, len(*in))
-		for key, val := range *in {
-			(*out)[key] = val
-		}
-	}
 	if in.ScheduledTime != nil {
 		in, out := &in.ScheduledTime, &out.ScheduledTime
 		*out = (*in).DeepCopy()

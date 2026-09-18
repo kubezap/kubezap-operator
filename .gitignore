@@ -31,11 +31,10 @@ before
 after
 coredns.yaml
 
-# .claude/ is mostly project-shared config (skills, templates, agents, hooks) and should be
-# tracked — only exclude genuinely personal/generated state.
-.claude/settings.local.json
-.claude/agent-memory/
-.claude/worktrees/
+# internal tooling config and project-management docs — not part of the public repo
+.claude/
+planning/
+CLAUDE.md
 
 # gateway binaries (built at repo root during development)
 /kafka-gateway

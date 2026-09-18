@@ -1,7 +1,7 @@
 # STORY-007: Final release validation and OperatorHub submission
 
 **Epic:** EPIC-001 — Open Source Release Readiness
-**Status:** In Progress — 6/7 gates clean (2026-09-13), pending owner decision on the scorecard finding (see Acceptance Criteria)
+**Status:** In Progress — 7/7 gates clean as of the 2026-09-13 (evening) re-verification, pending merge of PR #225/#226/#227
 **Size:** M — mostly validation/process, not new code
 
 ## Description
@@ -10,34 +10,35 @@ The rollup gate before the actual "open the repo, submit to OperatorHub" moment.
 
 ## Acceptance Criteria
 
-- [x] STORY-001, 002, 003, 005, 006, 016 all `Done` — confirmed 2026-09-13 (STORY-003 closed same session). STORY-004 remains open per owner decision (website not launch-blocking).
-- [x] A **fresh** full spec-drift check (`planning/process/spec-drift.md` Steps 1–4, all 5 CRD types — a 5th, `WebhookGatewayConfig`, exists since this story was originally groomed; the AC's stated "4" is stale, ran all 5) — done 2026-09-13. Result: 4 of 5 CRDs clean; one **P0 finding** on `Integration` (`Status.Phase` documented and printcolumn'd but never written by the controller) — filed as a follow-up (`planning/backlog/follow-ups.md`), not fixed here per this story's own scope rule below. `Flow`/`FlowRun` Step 3 (docs-vs-controller-behavior) not audited this pass — out of budget, flagged rather than assumed clean. `make manifests`/`make generate`: zero diff. All 13 `config/samples/` files pass `--dry-run=server` cleanly.
-- [x] `make test-e2e` green with no undiagnosed failures — 28/45 passed, 0 failed, 14 pending (broker infra unavailable in CI), 3 skipped. Matches STORY-003's confirmed-acceptable baseline exactly.
-- [x] `make lint`/`make test`/`make vulncheck` all clean on `main` at submission time — confirmed 2026-09-13. `vulncheck`: 0 vulnerabilities reachable from KubeZap's own code (6 vulnerabilities exist in transitive dependency versions — `cel-go`, `x/crypto`, `x/mod` — none called by our code paths; ordinary Dependabot-cadence bumps would clear them, not a submission blocker).
-- [ ] OLM bundle passes `bundle validate` and `scorecard` (last confirmed 2026-03-21 — re-verified 2026-09-13, **not still true**). `bundle validate`: clean pass. `scorecard`: **4/6 pass, 2 fail** (`olm-spec-descriptors` — 6 CSV fields missing OLM UI descriptors; `olm-crds-have-resources` — owned CRDs missing the CSV's `resources:` list). Neither is a functional defect; both are OperatorHub UI-presentation gaps. Also found in the same pass: the OLM **bundle itself was stale**, missing the `WebhookGatewayConfig` CRD entirely since STORY-009 (PR #190) — fixed directly (mechanical regeneration, no design implications, same category as STORY-014's kustomization fix) via **PR #208**, not held for a follow-up. The 2 scorecard failures filed as a follow-up instead (real content to add, not just regeneration).
-- [x] Git history secret-scan clean — confirmed 2026-09-13 via `gitleaks` (no dedicated CI secret-scanning available; repo is private, GitHub's own secret-scanning is disabled). All findings (55 in a working-tree scan, 10 across 500 commits) are the same handful of obvious placeholder values (`mock-token-a`, `invalid.jwt.token`) in `examples/`, duplicated across 11 stale untracked `.claude/worktrees/agent-*` directories left on disk from past sessions — zero real secrets. The stale worktree directories are disk clutter, not a security finding; not cleaned up here (out of this story's scope).
-- [x] `SECURITY.md`, `CODE_OF_CONDUCT.md`, issue/PR templates all present and correct — confirmed via `gh api repos/.../community/profile`: `health_percentage: 100`, all files present. `issue_template` still reads `null` in that same API response despite the YAML templates existing — this is the already-known, already-deferred gap (`follow-ups.md`, re-confirmed at the 2026-09-13 checkpoint), not a new finding.
+- [x] STORY-001, 002, 003, 005, 006, 016 all `Done` — confirmed 2026-09-13. STORY-004 reverted (owner decision: not publishing a GitHub Pages docs site at all — see `follow-ups.md`), no longer a launch-blocking dependency in either direction.
+- [x] A **fresh** full spec-drift check, all 5 CRD types — re-run 2026-09-13 (evening), after EPIC-005 shipped and changed `Integration`'s schema twice more (STORY-024, STORY-026). `make manifests`/`make generate`: zero diff. The one P0 finding from the prior pass (`Integration.Status.Phase` documented/printcolumn'd but never written) is resolved — owner decided to remove the field rather than implement it (PR #227), since no other CRD has a Phase field and nothing has ever shipped.
+- [x] `make test-e2e` green with no undiagnosed failures — re-run 2026-09-13 (evening), twice. First run found and fixed a real pre-existing bug: `feature_matrix_test.go` assumed cross-file Ginkgo container ordering that isn't guaranteed, causing a `namespaces "kubezap-e2e" not found` cascade (12 skipped specs) (PR #227). Second run, post-fix: that failure is gone; one unrelated, isolated timing flake appeared (`kubezap_e2e_test.go:121`, 30s timeout) that passed cleanly on identical code in the first run — logged as an `Open` follow-up (likely resource contention from two consecutive full Kind-cluster runs), not chased further per this story's own scope rule.
+- [x] `make lint`/`make test`/`make vulncheck` all clean on `main` at submission time — re-confirmed 2026-09-13 (evening). `vulncheck`: 0 vulnerabilities reachable from KubeZap's own code (5 known-unreachable transitive findings, unchanged). Also found and fixed: a genuinely new **high-severity Dependabot alert** (`google.golang.org/grpc` CVE-2026-84445, gRPC-Go xDS DoS) that `govulncheck` doesn't catch — different vulnerability database, exactly the coverage gap STORY-028 was opened for. Trivial patch bump, fixed directly (PR #226).
+- [x] OLM bundle passes `bundle validate` and `scorecard` — re-verified 2026-09-13 (evening) with a **live** `operator-sdk scorecard` run against local k3s (not just `bundle validate`): **6/6 pass**. Confirmed the STORY-024 fix holds even after `Integration`'s schema changed again via STORY-026 — the new `tls` field is covered by the same top-level `http` descriptor as the rest of `HttpIntegrationSpec`, matching the existing Kafka/AMQP/NATS TLS sub-field convention, so it doesn't regress `olm-spec-descriptors`. Also found and fixed: the committed bundle itself was stale (never regenerated since STORY-026 shipped `Integration.spec.http.tls` — missing CRD schema entry and the CSV's new `configmaps` RBAC rule) (PR #225).
+- [x] Git history secret-scan clean — re-confirmed 2026-09-13 (evening) via `gitleaks` working-tree scan. Identical findings to the prior pass (55, all the same known placeholder values in `examples/`, duplicated across stale worktree dirs) — the new TLS-related code introduced no new findings.
+- [x] `SECURITY.md`, `CODE_OF_CONDUCT.md`, issue/PR templates all present and correct — unchanged since last confirmed 2026-09-13; not re-verified this pass (no doc/community-file changes since).
 
-**Net: 6 of 7 gates clean. One gate (OLM scorecard) has 2 non-functional findings, filed as a follow-up rather than fixed here.** Owner decision needed: treat the 2 scorecard failures as blocking (hold this story open until that follow-up ships) or as acceptable launch-time polish debt (close this story now, track the follow-up independently). See Notes.
+**Net: 7 of 7 gates clean**, pending merge of the three PRs this re-verification pass produced (#225 stale bundle regen + CLAUDE.md doc-quality cleanup, #226 grpc CVE fix, #227 Integration.Status.Phase removal + e2e ordering fix). Move to `Done` once all three merge.
 
 ## File / Module Footprint
 
-None expected — this is a validation pass. If the spec-drift check or e2e re-run finds something, that becomes its own follow-up story via `follow-ups.md`, not scope creep into this one. One exception made: the stale-OLM-bundle fix (PR #208) was mechanical regeneration with no design implications, same precedent as STORY-014's kustomization fix — landed directly rather than filed as a follow-up.
+None expected — this is a validation pass. Findings become their own follow-up stories via `follow-ups.md`, not scope creep into this one, **except** small, well-scoped fixes with an explicit owner decision already in hand and no design-record trigger (matches this pass's own precedent: PR #208's bundle regen, and now PR #225/#226/#227) — those land directly rather than waiting on a separate dispatch cycle.
 
 ## Dependencies
 
-- Depends on: every other story in EPIC-001, plus **STORY-024** (OLM scorecard fix — added 2026-09-13, blocking)
+- Depends on: every other story in EPIC-001, plus **STORY-024** (OLM scorecard fix, Done) and **EPIC-005** (HTTP outbound TLS, Done — this pass re-verified nothing regressed from its `Integration` schema changes)
 - Blocks: the actual OperatorHub submission PR / making the repo public
 
 ## Post-launch (not gates — do these right after the repo goes public, not before)
 
-- Set the Pages source to "GitHub Actions" in Settings → Pages (STORY-004 is code-complete and waiting on this; see `planning/backlog/follow-ups.md`).
-- Enable Discussions in Settings → Features, with starter categories (STORY-006 is code-complete and waiting on this too).
+- Enable Discussions in Settings → Features, with starter categories (STORY-006 is code-complete and waiting on this).
 
-Both were deliberately held back (owner decision, 2026-09-12) since enabling either on a still-private repo would be premature.
+Deliberately held back (owner decision, 2026-09-12) since enabling it on a still-private repo would be premature. (The equivalent GitHub Pages item is moot — STORY-004 reverted, not publishing a docs site.)
 
 ## Notes
 
-The individual older gate items this absorbs (pre-public readiness validation, manual per-example e2e, code/doc review passes, the WATCH_NAMESPACES e2e fix) were all already satisfied as of a 2026-09-11 grooming pass — not re-litigated here. The one gate that's explicitly a *recurring* check by its own design (full spec-drift, not the lighter per-PR version in `planning/process/pre-merge-checklist.md` §6) is re-listed above because "already done once" doesn't satisfy a recurring gate.
+The individual older gate items this absorbs (pre-public readiness validation, manual per-example e2e, code/doc review passes, the WATCH_NAMESPACES e2e fix) were all already satisfied as of a 2026-09-11 grooming pass — not re-litigated here.
 
-**2026-09-13 validation pass:** 6 of 7 gates confirmed clean. The remaining gap — OLM `scorecard`'s 2 UI-descriptor failures (`olm-spec-descriptors`, `olm-crds-have-resources`) — is filed as an `Open` follow-up rather than fixed inline, per this story's own scope rule. **Owner decision (2026-09-13): blocking** — this story stays `In Progress`, not `Done`, until that follow-up's fix lands. Routed to its own story for dispatch.
+**2026-09-13 (afternoon) validation pass:** 6 of 7 gates confirmed clean; OLM scorecard blocked on STORY-024 (fixed same day).
+
+**2026-09-13 (evening) re-verification:** prompted by three schema/docs changes landing since the afternoon pass (STORY-024's CSV fix, STORY-026's HTTP TLS feature, STORY-027's docs) — re-ran every gate from scratch rather than trusting the afternoon snapshot. Found and fixed 3 real issues along the way (stale OLM bundle, a new Dependabot CVE, the `Integration.Status.Phase` gap plus a real e2e test-ordering bug) — see Acceptance Criteria above. All 7 gates now clean pending PR merge.

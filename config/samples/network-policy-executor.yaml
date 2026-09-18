@@ -18,12 +18,50 @@ spec:
       app.kubernetes.io/component: http-executor
   ingress:
     - from:
+        # Matches config/manager/manager.yaml's controller-manager pod template
+        # labels exactly — it does NOT carry an app.kubernetes.io/component
+        # label. A namespaceSelector is required alongside it: the
+        # controller-manager pod normally runs in a different namespace (its
+        # own, e.g. "kubezap-system") than this NetworkPolicy (the watched
+        # namespace, e.g. "default").
         - podSelector:
             matchLabels:
               app.kubernetes.io/name: kubezap
-              app.kubernetes.io/component: controller
+              control-plane: controller-manager
+          namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kubezap-system  # replace with your operator's namespace
       ports:
         - protocol: TCP
           port: 8091
+  egress:
+    # Outbound calls for Flow steps, minus internal/link-local ranges (SSRF
+    # defense-in-depth — see docs/design/executor-egress-networkpolicy.md).
+    # No port restriction: Flow HTTP steps and integrations legitimately
+    # target arbitrary ports.
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+              - 127.0.0.0/8
+              - 169.254.0.0/16 # link-local — includes AWS/GCP/Azure metadata IPs
+              - 0.0.0.0/8
+              - 100.64.0.0/10 # CGNAT / shared address space (RFC6598)
+        - ipBlock:
+            cidr: ::/0
+            except:
+              - ::1/128
+              - fe80::/10 # IPv6 link-local
+              - fc00::/7 # IPv6 unique local
+    - ports:
+        # DNS resolution — always allowed regardless of destination.
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
   policyTypes:
     - Ingress
+    - Egress

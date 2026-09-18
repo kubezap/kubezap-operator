@@ -314,10 +314,7 @@ spec:
       - description: Webhook configuration (only for type=webhook)
         displayName: Webhook
         path: webhook
-      - description: |-
-          Reference to the flow this trigger invokes. FlowRef is the primary
-          action target for the MVP. If omitted, the optional inline Action can
-          be used to perform a quick action (e.g., call an external webhook).
+      - description: Reference to the flow this trigger invokes.
         displayName: Flow Reference
         path: flowRef
       version: v1alpha1
@@ -481,6 +478,7 @@ spec:
           - flows/status
           - integrations/status
           - triggers/status
+          - webhookgatewayconfigs/status
           verbs:
           - get
           - patch

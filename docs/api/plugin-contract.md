@@ -214,7 +214,7 @@ The operator injects these environment variables into the plugin container:
 | `KUBEZAP_PUBLISHER_PORT`   | Port to listen on for publisher calls (default: `8090`) |
 | `KUBEZAP_LOG_LEVEL`        | `debug`, `info`, `warn`, or `error`                     |
 
-Secrets referenced in `spec.plugin.secretRefs` are injected as the environment variable names you define in `envVarMappings`. Non-sensitive config values in `spec.plugin.config` are also injected directly as environment variables.
+Secrets referenced in `spec.plugin.secretRefs` are injected as the environment variable names you define in `envVarMappings`. Non-sensitive config is injected via `spec.plugin.env` (see `docs/api/integration.md`'s `PluginIntegrationSpec` table — a dedicated `spec.plugin.config` map is planned but not yet implemented).
 
 ### In-cluster Kubernetes access
 

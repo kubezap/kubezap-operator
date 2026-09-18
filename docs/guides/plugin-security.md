@@ -105,7 +105,7 @@ spec:
   type: plugin
   plugin:
     image: ghcr.io/my-org/kubezap-slack-plugin:v1.2.3
-    imageDigest: sha256:abcdef1234567890...  # pin to a verified digest
+    imageDigest: abcdef1234567890abcdef1234567890abcdef1234567890abcdef12345678  # pin to a verified digest (64 hex chars, no "sha256:" prefix)
     publisherPort: 8090
 ```
 

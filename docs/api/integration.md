@@ -807,7 +807,7 @@ spec:
       action:
         type: http
         http:
-          url: "$(configmaps.service-urls.orders-api)/orders/$(params.orderId)/process"
+          url: "https://orders-api.automation.svc.cluster.local/orders/$(params.orderId)/process"
           method: POST
           resultMappings:
             status: "$.status"

@@ -41,45 +41,6 @@ spec:
           spec:
             description: TriggerSpec defines the desired state of Trigger.
             properties:
-              action:
-                description: Inline action definition (optional). Starts with webhook
-                  action type.
-                properties:
-                  type:
-                    description: Type of action (webhook)
-                    enum:
-                    - webhook
-                    type: string
-                  webhook:
-                    description: Webhook action details
-                    properties:
-                      body:
-                        description: Optional body template (raw string or templating
-                          placeholder)
-                        type: string
-                      headers:
-                        additionalProperties:
-                          type: string
-                        description: Optional headers to include in the call
-                        type: object
-                      method:
-                        default: POST
-                        description: HTTP method to use (default POST)
-                        enum:
-                        - POST
-                        - PUT
-                        - PATCH
-                        - GET
-                        type: string
-                      url:
-                        description: URL to call when the trigger fires
-                        type: string
-                    required:
-                    - url
-                    type: object
-                required:
-                - type
-                type: object
               amqp:
                 description: Amqp configuration (only for type=amqp)
                 properties:
@@ -150,10 +111,7 @@ spec:
                   For external triggers (webhook/cron/kafka/amqp/nats) this is typically empty.
                 type: string
               flowRef:
-                description: |-
-                  Reference to the flow this trigger invokes. FlowRef is the primary
-                  action target for the MVP. If omitted, the optional inline Action can
-                  be used to perform a quick action (e.g., call an external webhook).
+                description: Reference to the flow this trigger invokes.
                 properties:
                   name:
                     description: |-
@@ -647,11 +605,9 @@ spec:
                 - path
                 type: object
             required:
+            - flowRef
             - type
             type: object
-            x-kubernetes-validations:
-            - message: exactly one of flowRef or action must be set
-              rule: has(self.flowRef) != has(self.action)
           status:
             description: TriggerStatus defines the observed state of Trigger.
             properties:

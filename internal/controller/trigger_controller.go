@@ -219,10 +219,7 @@ func (r *TriggerReconciler) SetupWithManager(mgr ctrl.Manager) error {
 // TLS configuration is read from the namespace's WebhookGatewayConfig object
 // (spec.tls.{serverSecretRef,clientCASecretRef}). A namespace with no
 // WebhookGatewayConfig object, or one with no spec.tls set, gets no TLS cert
-// mounted — the gateway serves plain HTTP. This is a hard cutover from the
-// Namespace annotations (kubezap.io/webhook-tls-secret,
-// kubezap.io/webhook-mtls-ca-secret) formerly read here; see
-// docs/design/2026-09-12-webhookgatewayconfig-crd.md and the CHANGELOG.
+// mounted — the gateway serves plain HTTP.
 func ensureWebhookGateway(ctx context.Context, c client.Client, namespace string) error {
 	log := logf.FromContext(ctx)
 

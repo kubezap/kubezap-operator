@@ -121,7 +121,7 @@ release:
 #   - name: kubezap
 #     ids:
 #       - kubezap-archive
-#     homepage: https://github.com/kubezap/kubezap
+#     homepage: https://github.com/kubezap/kubezap-operator
 #     description: "CLI for inspecting KubeZap Kubernetes workflow automation resources"
 #     license: "Apache-2.0"
 #     repository:
@@ -129,7 +129,7 @@ release:
 #       name: homebrew-tap
 #     commit_author:
 #       name: kubezap-bot
-#       email: bot@kubezap.io
+#       email: 6481864+Borfswitch@users.noreply.github.com
 #     install: |
 #       bin.install "kubezap"
 #       bin.install "kubectl-kubezap"

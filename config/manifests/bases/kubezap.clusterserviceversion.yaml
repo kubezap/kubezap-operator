@@ -545,7 +545,7 @@ spec:
   - name: Source Code
     url: https://github.com/kubezap/kubezap-operator
   maintainers:
-  - email: maintainers@kubezap.io
+  - email: 6481864+Borfswitch@users.noreply.github.com
     name: KubeZap Maintainers
   maturity: alpha
   minKubeVersion: 1.25.0

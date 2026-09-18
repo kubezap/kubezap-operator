@@ -38,6 +38,30 @@ jobs:
           go mod tidy
           make test
 
+  generated-files:
+    name: Generated Files Drift Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Regenerate code, CRDs, RBAC, and webhook manifests
+        run: |
+          make generate
+          make manifests
+
+      - name: Fail if regeneration produced any diff
+        run: |
+          git diff --exit-code -- api/ config/ charts/kubezap-operator/crds/ || {
+            echo "::error::Generated files are out of date. Run 'make generate && make manifests' locally and commit the result.";
+            git diff --stat -- api/ config/ charts/kubezap-operator/crds/;
+            exit 1;
+          }
+
   govulncheck:
     name: Vulnerability Scan (govulncheck)
     runs-on: ubuntu-latest

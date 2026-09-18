@@ -13,10 +13,7 @@ KubeZap is currently pre-1.0 (`v1alpha1` API). Security fixes are made against t
 
 **Please do not open a public GitHub issue for security vulnerabilities.**
 
-Report suspected vulnerabilities privately using one of the following:
-
-- **GitHub Security Advisories** (preferred): open a draft advisory at [github.com/kubezap/kubezap-operator/security/advisories/new](https://github.com/kubezap/kubezap-operator/security/advisories/new). This keeps the report private until a fix is ready and lets us coordinate a disclosure timeline with you directly in GitHub.
-- **Email**: [maintainers@kubezap.io](mailto:maintainers@kubezap.io)
+Report suspected vulnerabilities privately via **GitHub Security Advisories**: open a draft advisory at [github.com/kubezap/kubezap-operator/security/advisories/new](https://github.com/kubezap/kubezap-operator/security/advisories/new). This keeps the report private until a fix is ready and lets us coordinate a disclosure timeline with you directly in GitHub.
 
 Please include:
 

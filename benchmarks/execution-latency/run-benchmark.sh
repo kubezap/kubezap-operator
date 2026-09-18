@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Single entry point for the KubeZap vs. Argo Workflows execution-latency
-# benchmark (STORY-014), implementing the scenario/metrics/run-count defined
-# in benchmarks/execution-latency/METHODOLOGY.md.
+# benchmark, implementing the scenario/metrics/run-count defined in
+# benchmarks/execution-latency/METHODOLOGY.md.
 #
 # Usage:
 #   ./run-benchmark.sh [--runs N] [--skip-setup] [--only kubezap|argo|both]
@@ -101,14 +101,12 @@ stop_sampler_and_finalize() {
   [ -f "${samples}" ] || : > "${samples}"
   [ -f "${created}" ] || : > "${created}"
   [ -f "${captured}" ] || : > "${captured}"
-  # NOTE (STORY-015): previously this built the samples/created/captured
-  # JSON arrays into shell variables and passed them to the final `jq -n`
-  # via --argjson. At full 200-run scale (~1300+ 5s-interval samples over a
-  # ~100min Argo arm) the serialized samples array exceeds Linux's
-  # per-argument MAX_ARG_STRLEN (128KiB), and `jq` fails with "Argument list
-  # too long" — silently losing the entire resource-overhead file. Reading
-  # directly from the files via --slurpfile/--rawfile avoids putting large
-  # data on the exec argv at all, regardless of run count/duration.
+  # Read directly from the files via --slurpfile/--rawfile rather than passing
+  # the arrays through --argjson: at full 200-run scale (~1300+ 5s-interval
+  # samples over a ~100min Argo arm) a serialized samples array on the exec
+  # argv exceeds Linux's per-argument MAX_ARG_STRLEN (128KiB), and `jq` fails
+  # with "Argument list too long" -- silently losing the entire
+  # resource-overhead file.
   jq -n \
     --arg system "${system}" \
     --slurpfile samples "${samples}" \

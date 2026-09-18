@@ -1710,7 +1710,7 @@ var _ = Describe("FlowRunReconciler", func() {
 		})
 	})
 
-	Describe("applyHTTPIntegration — TLS resolution (STORY-026)", func() {
+	Describe("applyHTTPIntegration — TLS resolution", func() {
 		const caBundlePEM = "-----BEGIN CERTIFICATE-----\ntest-ca-bundle-content\n-----END CERTIFICATE-----\n"
 		const clientCertPEM = "-----BEGIN CERTIFICATE-----\ntest-client-cert-content\n-----END CERTIFICATE-----\n"
 		const clientKeyPEM = "-----BEGIN RSA PRIVATE KEY-----\ntest-client-key-content\n-----END RSA PRIVATE KEY-----\n"

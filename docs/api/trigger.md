@@ -508,7 +508,7 @@ spec:
 
 ## TLS and mTLS
 
-TLS covers two independent paths: **outbound** connections KubeZap makes to other systems, and **inbound** TLS for calls arriving at the webhook gateway. Neither is configured via Trigger-level annotations — outbound TLS is configured on the relevant `Integration`, and inbound TLS is configured on the namespace's `WebhookGatewayConfig`.
+TLS covers two independent paths: **outbound** connections KubeZap makes to other systems, and **inbound** TLS for calls arriving at the webhook gateway. Outbound TLS is configured on the relevant `Integration`, and inbound TLS is configured on the namespace's `WebhookGatewayConfig`.
 
 ### Outbound TLS
 
@@ -534,8 +534,6 @@ spec:
 ```
 
 The operator will verify that the client certificate is signed by the CA in the specified Secret. Requests without a valid client certificate are rejected with HTTP 401. Note: inbound mTLS requires TLS passthrough at the Ingress/Route layer. See `docs/guides/webhook-security.md` for the full reference.
-
-> **Migration note**: the `kubezap.io/webhook-tls-secret` / `kubezap.io/webhook-mtls-ca-secret` Namespace annotations formerly used for this are no longer read (hard cutover, see `CHANGELOG.md`) — use `WebhookGatewayConfig` as shown above.
 
 ---
 

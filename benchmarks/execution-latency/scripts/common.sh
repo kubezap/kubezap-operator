@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Shared helpers for the execution-latency benchmark harness (STORY-014).
+# Shared helpers for the execution-latency benchmark harness.
 # Sourced by every other script in this directory — not meant to be run
 # directly.
 set -euo pipefail

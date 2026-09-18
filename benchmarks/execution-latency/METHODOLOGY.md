@@ -1,10 +1,10 @@
 # KubeZap vs. Argo Workflows — Per-Step Execution Latency Benchmark Methodology
 
-STORY-013. This document defines *how* to run the benchmark. It does not build a
-harness, script, or fixture — that is later work. Everything below is prose
+This document defines *how* to run the benchmark. It does not build a harness,
+script, or fixture — that is later work. Everything below is prose
 specification: scenario, versions, metrics, timestamps, and run parameters,
-written so a later story can implement a harness against it without re-deriving
-any of these decisions.
+written so a harness can be implemented against it without re-deriving any of
+these decisions.
 
 ## 0. Why this benchmark exists
 

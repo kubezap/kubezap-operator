@@ -48,18 +48,9 @@ linters:
           - dupl
           - lll
         path: internal/*
-      # golangci-lint v2.1.0 -> v2.13.2 bump (2026-09-12, forced by a dependabot go.mod
-      # bump to go 1.26.0, which v2.1.0 can't lint against) surfaced 176 new goconst
-      # findings across the repo that the old version never reported -- same code, 0
-      # issues before the bump, so this is a linter-sensitivity/default change, not a
-      # code regression. Excluded here rather than fixed line-by-line: this repo's own
-      # prior goconst cleanup (docs/design/2026-09-11-typed-phase-enums.md) already
-      # established that per-line suppression of high-count strings just shifts which
-      # occurrence is reported (whack-a-mole), so a path-scoped exclusion is the only
-      # fix that converges.
-      #
-      # Permanent: test files (117 of 176) -- HTTP methods, header names, fixture data,
-      # no type-safety concern, same reasoning as the dupl/lll test exclusion above.
+      # Test files -- HTTP methods, header names, fixture data repeat across cases with
+      # no type-safety concern; per-line goconst suppression just shifts which
+      # occurrence gets reported, so a path-scoped exclusion is used instead.
       - linters:
           - goconst
         path: _test\.go

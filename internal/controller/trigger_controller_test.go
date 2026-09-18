@@ -613,9 +613,7 @@ var _ = Describe("TriggerReconciler", func() {
 	})
 
 	// -------------------------------------------------------------------------
-	// WebhookGatewayConfig.spec.tls — STORY-011 hard cutover from Namespace
-	// annotations (kubezap.io/webhook-tls-secret, kubezap.io/webhook-mtls-ca-secret)
-	// to the CRD. The annotations are no longer read at all; see CHANGELOG.md.
+	// WebhookGatewayConfig.spec.tls
 	// -------------------------------------------------------------------------
 
 	Context("when a WebhookGatewayConfig with spec.tls exists in the namespace", func() {

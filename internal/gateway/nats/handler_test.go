@@ -109,6 +109,58 @@ func TestHandleMessage_CoreNATS(t *testing.T) {
 	}
 }
 
+// TestHandleMessage_Headers verifies that NATS message headers are flattened into
+// TriggerData.Headers, joining multi-value headers with commas and redacting
+// built-in sensitive header names, consistent with webhook/Kafka/AMQP handling.
+func TestHandleMessage_Headers(t *testing.T) {
+	fakeClient := fake.NewClientBuilder().WithScheme(newTestScheme()).Build()
+	log := zap.New()
+
+	h := &MessageHandler{
+		client:           fakeClient,
+		log:              log,
+		triggerName:      "header-trigger",
+		triggerNamespace: "default",
+		flowRefName:      "my-flow",
+		isJetStream:      false,
+	}
+
+	hdr := natsio.Header{}
+	hdr.Add("X-Order-Source", "warehouse-1")
+	hdr.Add("X-Trace-Id", "abc")
+	hdr.Add("X-Trace-Id", "def")
+	hdr.Add("Authorization", "Bearer secret-token")
+
+	msg := &natsio.Msg{
+		Subject: "orders.created",
+		Data:    []byte(`{"order_id":"123"}`),
+		Header:  hdr,
+	}
+
+	if err := h.handleMessage(msg); err != nil {
+		t.Fatalf("handleMessage returned error: %v", err)
+	}
+
+	list := &automationv1alpha1.FlowRunList{}
+	if err := fakeClient.List(context.Background(), list); err != nil {
+		t.Fatalf("listing FlowRuns: %v", err)
+	}
+	if len(list.Items) != 1 {
+		t.Fatalf("expected 1 FlowRun, got %d", len(list.Items))
+	}
+
+	headers := list.Items[0].Spec.TriggerData.Headers
+	if got, want := headers["X-Order-Source"], "warehouse-1"; got != want {
+		t.Errorf("Headers[X-Order-Source] = %q, want %q", got, want)
+	}
+	if got, want := headers["X-Trace-Id"], "abc,def"; got != want {
+		t.Errorf("Headers[X-Trace-Id] = %q, want %q", got, want)
+	}
+	if got, want := headers["Authorization"], "[REDACTED]"; got != want {
+		t.Errorf("Headers[Authorization] = %q, want %q (redacted)", got, want)
+	}
+}
+
 // TestHandleMessage_CoreNATS_Duplicate verifies that a duplicate FlowRun is silently ignored.
 func TestHandleMessage_CoreNATS_Duplicate(t *testing.T) {
 	s := newTestScheme()

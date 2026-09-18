@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"fmt"
+	"net/http"
 	"regexp"
 	"strings"
 	"time"
@@ -15,6 +16,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	automationv1alpha1 "github.com/kubezap/kubezap-operator/api/v1alpha1"
+	"github.com/kubezap/kubezap-operator/internal/gateway/redact"
 )
 
 // triggerTypeNats is the TriggerSpec.Type value "nats".
@@ -75,6 +77,11 @@ func (h *MessageHandler) handleMessage(msg *natsio.Msg) error {
 		flowRunName = sanitizeFlowRunName(rawName)
 	}
 
+	// Convert NATS message headers (map[string][]string, same shape as http.Header)
+	// to map[string]string and redact sensitive keys. Multi-value headers are
+	// joined with commas, matching the convention used for webhook headers.
+	hdrs := redact.Headers(http.Header(msg.Header), nil)
+
 	flowRun := &automationv1alpha1.FlowRun{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      flowRunName,
@@ -92,9 +99,10 @@ func (h *MessageHandler) handleMessage(msg *natsio.Msg) error {
 				Type: triggerTypeNats,
 			},
 			TriggerData: &automationv1alpha1.TriggerData{
-				Source: triggerTypeNats,
-				Body:   string(msg.Data),
-				Topic:  msg.Subject,
+				Source:  triggerTypeNats,
+				Body:    string(msg.Data),
+				Topic:   msg.Subject,
+				Headers: hdrs,
 			},
 		},
 	}

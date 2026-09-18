@@ -149,7 +149,7 @@ Snapshot of the event that caused this FlowRun. The full set of fields depends o
 | `source`        | string            | `webhook`, `cron`, `kafka`, `kubernetes-event`             |
 | `method`        | string            | HTTP method (webhook only)                                 |
 | `path`          | string            | URL path (webhook only)                                    |
-| `headers`       | map[string]string | Request/message headers (webhook, kafka, and amqp; sensitive headers redacted). NATS message headers are not captured. |
+| `headers`       | map[string]string | Request/message headers (webhook, kafka, amqp, and nats; sensitive headers redacted). |
 | `topic`         | string            | Kafka topic or AMQP/NATS subject (broker triggers only)    |
 | `partition`     | integer           | Kafka partition (kafka only)                               |
 | `offset`        | integer           | Kafka message offset (kafka only)                          |

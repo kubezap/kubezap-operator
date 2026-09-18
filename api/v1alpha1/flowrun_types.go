@@ -50,7 +50,6 @@ type TriggerData struct {
 	Topic         string            `json:"topic,omitempty"`
 	Partition     int32             `json:"partition,omitempty"`
 	Offset        int64             `json:"offset,omitempty"`
-	KafkaHeaders  map[string]string `json:"kafkaHeaders,omitempty"`
 	ScheduledTime *metav1.Time      `json:"scheduledTime,omitempty"`
 	Body          string            `json:"body,omitempty"`
 	BodyTruncated bool              `json:"bodyTruncated,omitempty"`

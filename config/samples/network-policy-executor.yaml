@@ -39,6 +39,13 @@ spec:
     # defense-in-depth — see docs/design/executor-egress-networkpolicy.md).
     # No port restriction: Flow HTTP steps and integrations legitimately
     # target arbitrary ports.
+    #
+    # Authoritative source: the except CIDRs below are a manual copy of
+    # executorhttp.SSRFBlockedCIDRsV4 / SSRFBlockedCIDRsV6, defined in
+    # internal/executor/http/ssrf.go — also used directly by
+    # internal/controller/executor_reconciler.go's reconcileExecutorNetworkPolicy
+    # to generate the real, operator-applied NetworkPolicy. Keep this file's
+    # values in sync with that Go var if you customize either one.
     - to:
         - ipBlock:
             cidr: 0.0.0.0/0

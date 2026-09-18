@@ -256,6 +256,20 @@ var _ = Describe("FlowRunReconciler", func() {
 			Expect(updated.Status.Steps[0].Name).To(Equal("call-backend"))
 			Expect(updated.Status.Steps[0].Phase).To(Equal(automationv1alpha1.StepPhaseSucceeded))
 		})
+
+		It("sets DurationMillis on both the step and the FlowRun once Succeeded", func() {
+			r := newReconciler()
+			updated, err := reconcileUntilTerminal(r, flowRun.Name, 10)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(updated.Status.Phase).To(Equal(automationv1alpha1.FlowRunPhaseSucceeded))
+
+			Expect(updated.Status.Steps).NotTo(BeEmpty())
+			Expect(updated.Status.Steps[0].DurationMillis).NotTo(BeNil())
+			Expect(*updated.Status.Steps[0].DurationMillis).To(BeNumerically(">=", 0))
+
+			Expect(updated.Status.DurationMillis).NotTo(BeNil())
+			Expect(*updated.Status.DurationMillis).To(BeNumerically(">=", 0))
+		})
 	})
 
 	Context("with an http step that returns 500", func() {
@@ -306,6 +320,23 @@ var _ = Describe("FlowRunReconciler", func() {
 			updated, err := reconcileUntilTerminal(r, flowRun.Name, 10)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(updated.Status.Phase).To(Equal(automationv1alpha1.FlowRunPhaseFailed))
+		})
+
+		It("sets DurationMillis on both the Failed step and the Failed FlowRun", func() {
+			r := newReconciler()
+			updated, err := reconcileUntilTerminal(r, flowRun.Name, 10)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(updated.Status.Phase).To(Equal(automationv1alpha1.FlowRunPhaseFailed))
+
+			Expect(updated.Status.Steps).NotTo(BeEmpty())
+			failedStep := findStepStatus(updated.Status.Steps, "call-backend")
+			Expect(failedStep).NotTo(BeNil())
+			Expect(failedStep.Phase).To(Equal(automationv1alpha1.StepPhaseFailed))
+			Expect(failedStep.DurationMillis).NotTo(BeNil())
+			Expect(*failedStep.DurationMillis).To(BeNumerically(">=", 0))
+
+			Expect(updated.Status.DurationMillis).NotTo(BeNil())
+			Expect(*updated.Status.DurationMillis).To(BeNumerically(">=", 0))
 		})
 	})
 
@@ -1003,6 +1034,12 @@ var _ = Describe("FlowRunReconciler", func() {
 			Expect(waitStatus).NotTo(BeNil())
 			Expect(waitStatus.Phase).To(Equal(automationv1alpha1.StepPhaseWaiting))
 			Expect(waitStatus.ResumeAfter).NotTo(BeNil())
+
+			// Neither the step nor the FlowRun has reached a terminal phase yet,
+			// so DurationMillis must not be set at either level.
+			Expect(waitStatus.DurationMillis).To(BeNil())
+			Expect(updated.Status.Phase).To(Equal(automationv1alpha1.FlowRunPhaseRunning))
+			Expect(updated.Status.DurationMillis).To(BeNil())
 		})
 
 		It("completes the step with phase=Succeeded after the wait duration elapses", func() {

@@ -228,6 +228,10 @@ func ensureWebhookGateway(ctx context.Context, c client.Client, namespace string
 		return err
 	}
 
+	if webhookGatewayCfg != nil {
+		reconcileWebhookGatewayConfigStatus(ctx, c, webhookGatewayCfg)
+	}
+
 	// Build TLS configuration from the namespace's WebhookGatewayConfig (if any).
 	// A namespace with no WebhookGatewayConfig object, or one with no spec.tls
 	// set, gets the zero value (no TLS cert mounted) — matching today's

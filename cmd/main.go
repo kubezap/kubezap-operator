@@ -212,7 +212,7 @@ func main() {
 		// write it to webhookCertPath, and patch the CA into the
 		// ValidatingWebhookConfiguration's caBundle. Uses an uncached client since
 		// the manager's cache isn't running yet. See
-		// docs/design/2026-09-18-self-managed-webhook-certs.md.
+		// docs/design/self-managed-webhook-certs.md.
 		bootstrapClient, err := client.New(restCfg, client.Options{Scheme: scheme})
 		if err != nil {
 			setupLog.Error(err, "unable to create bootstrap client for webhook cert provisioning")
@@ -467,10 +467,6 @@ func main() {
 	}
 	if err := kubezapwebhook.SetupTriggerWebhook(mgr); err != nil {
 		setupLog.Error(err, "unable to set up Trigger validating webhook")
-		os.Exit(1)
-	}
-	if err := kubezapwebhook.SetupWebhookGatewayConfigWebhook(mgr); err != nil {
-		setupLog.Error(err, "unable to set up WebhookGatewayConfig validating webhook")
 		os.Exit(1)
 	}
 

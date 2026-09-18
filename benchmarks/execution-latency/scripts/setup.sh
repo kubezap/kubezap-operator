@@ -129,7 +129,7 @@ kubectl set env deployment/kubezap-controller-manager -n kubezap-system \
 
 # cmd/main.go self-provisions its own admission webhook TLS cert on boot
 # (internal/webhookcerts) — no manual cert generation or patching needed. See
-# docs/design/2026-09-18-self-managed-webhook-certs.md.
+# docs/design/self-managed-webhook-certs.md.
 
 # The scenario's HTTP steps target an in-cluster Service DNS name; the
 # controller's SSRF blocklist rejects that by default. Mirrors
@@ -184,8 +184,8 @@ kubectl get deployment/kubezap-controller-manager -n kubezap-system \
   -o jsonpath='{.spec.template.spec.containers[0].image}' > "${BENCH_ROOT}/results/.kubezap-version"
 
 # ---------------------------------------------------------------------------
-# 7. Argo Workflows, pinned version (re-check METHODOLOGY.md §2's confidence
-#    flag before relying on this pin for a future run — it may be stale).
+# 7. Argo Workflows, pinned version (re-check METHODOLOGY.md §2 before
+#    relying on this pin for a future run — it may be stale).
 # ---------------------------------------------------------------------------
 ARGO_INSTALL_URL="https://github.com/argoproj/argo-workflows/releases/download/${ARGO_VERSION}/namespace-install.yaml"
 # Keyed on the workflows.argoproj.io CRD, not the workflow-controller

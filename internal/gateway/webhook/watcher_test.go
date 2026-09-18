@@ -56,7 +56,7 @@ func newWebhookTrigger(name string, rl *automationv1alpha1.WebhookRateLimit) *au
 				Method:    "POST",
 				RateLimit: rl,
 			},
-			FlowRef: &automationv1alpha1.FlowReference{Name: "my-flow"},
+			FlowRef: automationv1alpha1.FlowReference{Name: "my-flow"},
 		},
 	}
 }
@@ -257,7 +257,7 @@ func TestHandleTrigger_IndexesReferencedSecret(t *testing.T) {
 // TestHandleSecretChange_ReprocessesDependentTrigger verifies that changing a
 // Secret already referenced by a known Trigger causes that Trigger to be
 // rebuilt with the new secret value — the core of the secret-rotation fix in
-// docs/design/2026-09-11-secret-rotation-watches.md.
+// docs/design/secret-rotation-watches.md.
 func TestHandleSecretChange_ReprocessesDependentTrigger(t *testing.T) {
 	w := newMinimalWatcher(t)
 	secret := &corev1.Secret{

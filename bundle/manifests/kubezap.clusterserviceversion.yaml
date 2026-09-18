@@ -155,7 +155,7 @@ metadata:
           "apiVersion": "automation.kubezap.io/v1alpha1",
           "kind": "WebhookGatewayConfig",
           "metadata": {
-            "name": "webhook-gateway-config",
+            "name": "default",
             "namespace": "default"
           },
           "spec": {
@@ -178,14 +178,14 @@ metadata:
     capabilities: Basic Install
     categories: Integration & Delivery
     containerImage: ghcr.io/kubezap/controller:latest
-    createdAt: "2026-09-18T15:41:03Z"
+    createdAt: "2026-09-18T18:52:10Z"
     description: Declarative workflow automation for Kubernetes
     operatorframework.io/suggested-namespace: kubezap-system
     operators.operatorframework.io/builder: operator-sdk-v1.42.0
     operators.operatorframework.io/project_layout: go.kubebuilder.io/v4
     repository: https://github.com/kubezap/kubezap-operator
     support: KubeZap Community
-  name: kubezap.v0.0.1
+  name: kubezap.v0.1.0
   namespace: placeholder
 spec:
   apiservicedefinitions: {}
@@ -324,9 +324,12 @@ spec:
     - description: |-
         WebhookGatewayConfig is the Schema for the webhookgatewayconfigs API.
 
-        At most one WebhookGatewayConfig may exist per namespace — a validating
-        admission webhook rejects a create when another one (any name) already
-        exists in the same namespace.
+        At most one WebhookGatewayConfig may exist per namespace. This is enforced
+        by requiring the object be named "default" (see the XValidation rule
+        above) rather than by an admission webhook — Kubernetes' own
+        per-(namespace, name) uniqueness in etcd then makes "at most one" hold
+        unconditionally, with no dependency on webhook/cert infrastructure being
+        deployed or healthy. See docs/design/webhookgatewayconfig-singleton-name.md.
       displayName: Webhook Gateway Config
       kind: WebhookGatewayConfig
       name: webhookgatewayconfigs.automation.kubezap.io
@@ -428,6 +431,16 @@ spec:
           verbs:
           - get
           - list
+          - watch
+        - apiGroups:
+          - admissionregistration.k8s.io
+          resources:
+          - validatingwebhookconfigurations
+          verbs:
+          - get
+          - list
+          - patch
+          - update
           - watch
         - apiGroups:
           - apps
@@ -564,6 +577,16 @@ spec:
           - subjectaccessreviews
           verbs:
           - create
+        - apiGroups:
+          - admissionregistration.k8s.io
+          resources:
+          - validatingwebhookconfigurations
+          verbs:
+          - get
+          - list
+          - patch
+          - update
+          - watch
         serviceAccountName: kubezap-controller-manager
       deployments:
       - label:
@@ -700,4 +723,4 @@ spec:
   provider:
     name: KubeZap Community
     url: https://github.com/kubezap/kubezap-operator
-  version: 0.0.1
+  version: 0.1.0

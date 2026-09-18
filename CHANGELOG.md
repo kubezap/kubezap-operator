@@ -5,11 +5,9 @@ All notable changes to KubeZap are documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versions follow [Semantic Versioning](https://semver.org/).
 
-No version of KubeZap has been released yet — everything below is unreleased. When the first release is cut, this section becomes `## [v0.1.0] - YYYY-MM-DD` per `docs/releasing.md`.
-
 ---
 
-## [Unreleased]
+## [v0.1.0] - 2026-09-18
 
 ### Added
 

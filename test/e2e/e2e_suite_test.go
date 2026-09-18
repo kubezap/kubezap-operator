@@ -153,7 +153,7 @@ var _ = BeforeSuite(func() {
 
 	// cmd/main.go self-provisions its own admission webhook TLS cert on boot
 	// (internal/webhookcerts) — no manual cert generation or patching needed.
-	// See docs/design/2026-09-18-self-managed-webhook-certs.md.
+	// See docs/design/self-managed-webhook-certs.md.
 
 	By("setting WATCH_NAMESPACES=* so controller reconciles e2e test namespaces")
 	cmd = exec.Command("kubectl", "set", "env", "deployment/kubezap-controller-manager",

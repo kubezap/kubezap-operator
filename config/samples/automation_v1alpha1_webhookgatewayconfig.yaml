@@ -1,11 +1,12 @@
 # Example WebhookGatewayConfig — widens the default autoscaling range for a
 # higher-traffic namespace and terminates TLS on the gateway's listener.
-# At most one WebhookGatewayConfig may exist per namespace (enforced by an
-# admission webhook); omit any field to keep the operator's default for it.
+# At most one WebhookGatewayConfig may exist per namespace — the object must
+# be named "default" (enforced by a CRD-level CEL validation rule); omit any
+# field to keep the operator's default for it.
 apiVersion: automation.kubezap.io/v1alpha1
 kind: WebhookGatewayConfig
 metadata:
-  name: webhook-gateway-config
+  name: default
   namespace: default
 spec:
   tls:

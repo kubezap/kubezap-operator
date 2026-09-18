@@ -73,7 +73,7 @@ var _ = Describe("ResourceWatcher", func() {
 						APIVersion: "v1",
 						Kind:       "Pod",
 					},
-					FlowRef: &automationv1alpha1.FlowReference{Name: "test-flow"},
+					FlowRef: automationv1alpha1.FlowReference{Name: "test-flow"},
 				},
 			}
 
@@ -126,7 +126,7 @@ var _ = Describe("ResourceWatcher", func() {
 						APIVersion: "v1",
 						Kind:       "ConfigMap",
 					},
-					FlowRef: &automationv1alpha1.FlowReference{Name: "test-flow"},
+					FlowRef: automationv1alpha1.FlowReference{Name: "test-flow"},
 				},
 			}
 
@@ -153,7 +153,7 @@ var _ = Describe("ResourceWatcher", func() {
 				Spec: automationv1alpha1.TriggerSpec{
 					Type:     "resource",
 					Resource: nil,
-					FlowRef:  &automationv1alpha1.FlowReference{Name: "test-flow"},
+					FlowRef:  automationv1alpha1.FlowReference{Name: "test-flow"},
 				},
 			}
 
@@ -180,7 +180,7 @@ var _ = Describe("ResourceWatcher", func() {
 						APIVersion: "v1",
 						Kind:       "Pod",
 					},
-					FlowRef: &automationv1alpha1.FlowReference{Name: "test-flow"},
+					FlowRef: automationv1alpha1.FlowReference{Name: "test-flow"},
 				},
 			}
 

@@ -26,15 +26,24 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	policyv1 "k8s.io/api/policy/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	automationv1alpha1 "github.com/kubezap/kubezap-operator/api/v1alpha1"
 )
 
+// webhookGatewayConfigName is the only name a WebhookGatewayConfig object may
+// have — enforced by that type's XValidation rule, not by an admission
+// webhook. See docs/design/webhookgatewayconfig-singleton-name.md.
+const webhookGatewayConfigName = "default"
+
 // +kubebuilder:rbac:groups=automation.kubezap.io,resources=webhookgatewayconfigs,verbs=get;list;watch
+// +kubebuilder:rbac:groups=automation.kubezap.io,resources=webhookgatewayconfigs/status,verbs=get;update;patch
 
 const (
 	webhookGatewayDeploymentName = "kubezap-webhook-gateway"
@@ -215,8 +224,7 @@ func desiredWebhookGatewayHPAFromConfig(namespace string, cfg *automationv1alpha
 //
 // A nil cfg, a cfg with a nil Spec.PodDisruptionBudget, or a Spec.PodDisruptionBudget with a
 // nil MinAvailable all return nil — matching today's actual behavior of no PodDisruptionBudget
-// existing at all. Only a non-nil MinAvailable opts a namespace in, per
-// docs/design/2026-09-12-webhookgatewayconfig-crd.md.
+// existing at all. Only a non-nil MinAvailable opts a namespace in.
 //
 // The returned PodDisruptionBudget targets the same pod selector as the webhook gateway
 // Deployment's pod template (see desiredWebhookGatewayDeployment).
@@ -246,22 +254,129 @@ func desiredWebhookGatewayPDB(namespace string, cfg *automationv1alpha1.WebhookG
 }
 
 // getWebhookGatewayConfig returns the namespace's WebhookGatewayConfig object, or nil if
-// none exists. The singleton-per-namespace invariant (at most one object, any name) is
-// enforced at admission time by the WebhookGatewayConfig validating webhook — this helper
-// simply returns the first (and, per that invariant, only) item found.
+// none exists. The singleton-per-namespace invariant is enforced by that type's
+// XValidation rule requiring the name "default" — Kubernetes' own per-(namespace, name)
+// uniqueness then guarantees there is at most one, so a Get is sufficient here.
 //
 // Called once per reconcile from ensureWebhookGateway (internal/controller/trigger_controller.go),
 // which feeds the result into desiredWebhookGatewayHPAFromConfig, desiredWebhookGatewayPDB,
 // and the gateway's TLS configuration (spec.tls) — see that function's doc comment.
 func getWebhookGatewayConfig(ctx context.Context, c client.Client, namespace string) (*automationv1alpha1.WebhookGatewayConfig, error) {
-	var list automationv1alpha1.WebhookGatewayConfigList
-	if err := c.List(ctx, &list, client.InNamespace(namespace)); err != nil {
-		return nil, fmt.Errorf("listing WebhookGatewayConfig in namespace %s: %w", namespace, err)
+	cfg := &automationv1alpha1.WebhookGatewayConfig{}
+	key := client.ObjectKey{Namespace: namespace, Name: webhookGatewayConfigName}
+	if err := c.Get(ctx, key, cfg); err != nil {
+		if apierrors.IsNotFound(err) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("getting WebhookGatewayConfig %s/%s: %w", namespace, webhookGatewayConfigName, err)
 	}
-	if len(list.Items) == 0 {
-		return nil, nil
+	return cfg, nil
+}
+
+// reconcileWebhookGatewayConfigStatus validates cfg.Spec.TLS's Secret references and
+// writes a Ready condition onto cfg.Status.Conditions reflecting the result. This is the
+// only place WebhookGatewayConfig's status is ever written — there is no dedicated
+// WebhookGatewayConfig controller (see docs/api/webhookgatewayconfig.md's Limitations
+// section); it is called from ensureWebhookGateway, which already reads cfg once per
+// Trigger reconcile, rather than standing up a second controller for this alone.
+//
+// A status-update failure is logged, not returned — this is best-effort observability,
+// not load-bearing for the gateway Deployment/Service/HPA reconciliation ensureWebhookGateway
+// actually depends on, and must not fail a Trigger's reconcile.
+func reconcileWebhookGatewayConfigStatus(ctx context.Context, c client.Client, cfg *automationv1alpha1.WebhookGatewayConfig) {
+	log := logf.FromContext(ctx)
+
+	cond := validateWebhookGatewayConfigTLS(ctx, c, cfg)
+	cond.ObservedGeneration = cfg.Generation
+	apimeta.SetStatusCondition(&cfg.Status.Conditions, cond)
+
+	if err := c.Status().Update(ctx, cfg); err != nil {
+		log.Error(err, "failed to update WebhookGatewayConfig status",
+			"namespace", cfg.Namespace, "name", cfg.Name)
 	}
-	return &list.Items[0], nil
+}
+
+// validateWebhookGatewayConfigTLS checks that cfg.Spec.TLS's Secret references exist and
+// contain the keys ensureWebhookGateway's Deployment mount expects
+// (ServerSecretRef: tls.crt/tls.key; ClientCASecretRef: ca.crt), returning a Ready
+// condition describing the result. It does not check whether ClientCASecretRef is set
+// without ServerSecretRef — that combination is a documented no-op
+// (docs/api/webhookgatewayconfig.md), not an error.
+func validateWebhookGatewayConfigTLS(ctx context.Context, c client.Client, cfg *automationv1alpha1.WebhookGatewayConfig) metav1.Condition {
+	if cfg.Spec.TLS == nil {
+		return metav1.Condition{
+			Type:    conditionTypeReady,
+			Status:  metav1.ConditionTrue,
+			Reason:  "NoTLSConfigured",
+			Message: "spec.tls is not set; the webhook gateway serves plain HTTP.",
+		}
+	}
+
+	tlsSpec := cfg.Spec.TLS
+	if tlsSpec.ServerSecretRef != nil {
+		secret := &corev1.Secret{}
+		key := client.ObjectKey{Namespace: cfg.Namespace, Name: tlsSpec.ServerSecretRef.Name}
+		if err := c.Get(ctx, key, secret); err != nil {
+			if apierrors.IsNotFound(err) {
+				return metav1.Condition{
+					Type:    conditionTypeReady,
+					Status:  metav1.ConditionFalse,
+					Reason:  "ServerSecretNotFound",
+					Message: fmt.Sprintf("spec.tls.serverSecretRef %q not found in namespace %q.", tlsSpec.ServerSecretRef.Name, cfg.Namespace),
+				}
+			}
+			return metav1.Condition{
+				Type:    conditionTypeReady,
+				Status:  metav1.ConditionFalse,
+				Reason:  "ServerSecretGetFailed",
+				Message: fmt.Sprintf("getting spec.tls.serverSecretRef %q: %s", tlsSpec.ServerSecretRef.Name, err.Error()),
+			}
+		}
+		if len(secret.Data["tls.crt"]) == 0 || len(secret.Data["tls.key"]) == 0 {
+			return metav1.Condition{
+				Type:    conditionTypeReady,
+				Status:  metav1.ConditionFalse,
+				Reason:  "ServerSecretMissingKeys",
+				Message: fmt.Sprintf("spec.tls.serverSecretRef %q must contain both tls.crt and tls.key.", tlsSpec.ServerSecretRef.Name),
+			}
+		}
+
+		if tlsSpec.ClientCASecretRef != nil {
+			caSecret := &corev1.Secret{}
+			caKey := client.ObjectKey{Namespace: cfg.Namespace, Name: tlsSpec.ClientCASecretRef.Name}
+			if err := c.Get(ctx, caKey, caSecret); err != nil {
+				if apierrors.IsNotFound(err) {
+					return metav1.Condition{
+						Type:    conditionTypeReady,
+						Status:  metav1.ConditionFalse,
+						Reason:  "ClientCASecretNotFound",
+						Message: fmt.Sprintf("spec.tls.clientCASecretRef %q not found in namespace %q.", tlsSpec.ClientCASecretRef.Name, cfg.Namespace),
+					}
+				}
+				return metav1.Condition{
+					Type:    conditionTypeReady,
+					Status:  metav1.ConditionFalse,
+					Reason:  "ClientCASecretGetFailed",
+					Message: fmt.Sprintf("getting spec.tls.clientCASecretRef %q: %s", tlsSpec.ClientCASecretRef.Name, err.Error()),
+				}
+			}
+			if len(caSecret.Data["ca.crt"]) == 0 {
+				return metav1.Condition{
+					Type:    conditionTypeReady,
+					Status:  metav1.ConditionFalse,
+					Reason:  "ClientCASecretMissingKey",
+					Message: fmt.Sprintf("spec.tls.clientCASecretRef %q must contain ca.crt.", tlsSpec.ClientCASecretRef.Name),
+				}
+			}
+		}
+	}
+
+	return metav1.Condition{
+		Type:    conditionTypeReady,
+		Status:  metav1.ConditionTrue,
+		Reason:  "WebhookGatewayConfigReady",
+		Message: "spec.tls Secret references resolved successfully.",
+	}
 }
 
 // desiredWebhookGatewayService returns the desired ClusterIP service for the webhook gateway.

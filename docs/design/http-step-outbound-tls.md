@@ -1,0 +1,43 @@
+# HTTP-Step Outbound TLS/CA Support
+
+> Status: Approved
+> Date: 2026-09-13
+> Related: `api/v1alpha1/integration_types.go` (`HttpIntegrationSpec`), `internal/controller/flowrun_controller.go` (`applyHTTPIntegration`/`applyHTTPAuth`), `internal/executor/http/types.go` (`ExecuteRequest`), `internal/executor/http/handler.go` (`httpClient`), `internal/gateway/secretindex`, `docs/design/security-architecture.md`, `docs/design/secret-rotation-watches.md`
+
+## Problem
+
+HTTP steps have no way to trust a private/internal CA or present a client certificate for an outbound call. The only existing control, `tlsSkipVerify` on `ExecuteRequest`, is honored only behind `--allow-tls-skip-verify` and is currently unreachable — nothing in the API surface sets it. An HTTP step targeting a service behind a private CA (common for internal enterprise services, service meshes with custom root CAs, self-hosted infra) fails TLS verification with no fix short of disabling verification for every HTTP step in the namespace. Kafka/AMQP/NATS `Integration`s already have a working CA/client-cert mechanism (`CASecretRef`/`ClientCertSecretRef`); HTTP is the one Integration type this pattern doesn't reach, despite `HttpIntegrationSpec` already being the per-target home for `baseUrl`/`auth`/`defaultHeaders`.
+
+## Constraints
+
+- Executor RBAC stays minimal — no `Secret`/`ConfigMap` access, and it's never passed a `SecretKeyRef`/`ConfigMapKeyRef` to resolve itself; CA/cert resolution happens controller-side only (per `docs/design/security-architecture.md`'s low-privilege-executor rationale).
+- Credentials never persisted beyond the source objects — a resolved client-cert private key is forwarded only via the internal `POST /execute` RPC body, never cached in `FlowRun.Status` or logged (mirrors existing `applyHTTPAuth` behavior).
+- Additive-only on `v1alpha1` `Integration` — no field removals/retyping, no version bump.
+- Match the existing `KafkaTLSConfig`/`AmqpTLSConfig`/`NatsTLSConfig` field-naming/reference shapes where it doesn't conflict with the CA-bundle decision below.
+- Owner-mandated, non-negotiable: the CA field accepts a bundle (multiple concatenated PEM certs), and is `ConfigMap`-sourced, not `Secret`-sourced — "a CA bundle is public data, not a secret," a deliberate asymmetry from Kafka/AMQP/NATS's Secret-only convention.
+- Controller↔executor channel security (mandatory NetworkPolicy + optional mTLS) is already handled and out of scope here.
+- TLS configured on an `Integration` applies only to HTTP steps referencing it — never a global/package-level default transport.
+- Resolving the same `Integration`'s TLS config twice in one reconcile returns identical PEM content (per-reconcile `Integration` cache, `cacheKey`).
+- An HTTP step with no TLS-configured `Integration` behaves exactly as today (system root pool, no client cert) — purely additive.
+- The configured CA bundle is added to the system root pool (start from `x509.SystemCertPool()`), not a replacement — a private CA doesn't lose access to public-CA-signed endpoints. **Deliberate divergence from Kafka/AMQP/NATS**, whose `CASecretRef` handling builds an empty pool (replaces system trust) — correct for a broker's one fixed bootstrap address, wrong for HTTP steps whose per-call URLs may legitimately need both private- and public-CA-signed backends. Migrating the brokers to additive mode was considered and rejected (below) — not implied by this decision.
+- `tlsSkipVerify`'s existing semantics are unchanged and orthogonal to a configured CA bundle — neither implicitly overrides the other.
+
+## Rejected Alternatives
+
+- **A dedicated `type: tls` Integration** — unnecessary indirection; `HttpIntegrationSpec` is already the per-target home for `baseUrl`/`auth`/`defaultHeaders`, and requiring two Integrations per backend has no precedent and complicates the common case.
+- **A `Trigger`- or step-level TLS field** — wrong scope; a backend's CA/cert is a property of the backend, not each call to it, same reasoning as `baseUrl`/`auth`/`defaultHeaders` being Integration-scoped, and re-specifying the same ref on every step calling the same backend is more error-prone.
+- **Migrating Kafka/AMQP/NATS's `CASecretRef` to additive-pool semantics for consistency** — a real security-posture change to shipped production code: anyone who configured a private broker CA today implicitly gets "only that CA trusted," and silently switching to additive on upgrade would trust unrelated valid public-CA certs where it wasn't trusted before. A fixed broker address has no legitimate need for public-CA trust the way a dynamic HTTP URL does, so "replace" is arguably more correct there — needs its own design record if reconsidered.
+- **A single executor-wide TLS flag** (extending `--allow-tls-skip-verify`'s model to one namespace-wide CA bundle) — wrong scope, too broad; different Integrations call different backends with different trust needs, and a namespace-wide bundle would force every HTTP step to trust every configured private CA, against the codebase's least-privilege posture (SSRF blocklist, executor's minimal RBAC).
+- **`SecretKeyRef` for the CA bundle, matching Kafka/AMQP/NATS exactly** — rejected per explicit owner decision: a CA bundle is public, no private key material; using `Secret` for it repeats the category error the earlier fictional `kubezap.io/tls-ca-secret` annotation made. Chose correctness over sibling-type API uniformity — an accepted tradeoff (below).
+- **Passing the raw ref to the executor to resolve itself** — violates the RBAC boundary; granting `ConfigMap`/`Secret` read to the executor for one feature would expand its blast radius on compromise, undoing the reason a separate low-privilege executor binary exists.
+- **Caching resolved CA-bundle/client-cert material across reconciles** — resolution is already cheap (one `Get`, same cost as existing per-reconcile auth-secret resolution); a cache adds invalidation complexity for no measured benefit — revisit only if profiling shows a bottleneck.
+- **A `ConfigMap`-watching reverse index** (`secretindex`-style informer for rotation) — that pattern exists for long-lived gateway connections that read a secret once and hold it open; HTTP-step TLS resolution re-fetches the `Integration` fresh on every `FlowRun` reconcile that needs it (same as existing auth resolution), so a rotated `ConfigMap` is picked up by the next step execution automatically — no watcher needed.
+
+## Decision
+
+Extend `HttpIntegrationSpec` with an additive `+optional TLS *HttpTLSSpec` field shaped `{CABundleConfigMapRef *corev1.ConfigMapKeySelector, ClientCertSecretRef *corev1.LocalObjectReference}` — `ConfigMap`-sourced CA bundle (multiple concatenated PEM certs in one key), `Secret`-sourced client cert (standard `tls.crt`/`tls.key`, matching the Kafka/AMQP/NATS `ClientCertSecretRef` convention). The controller resolves both in `applyHTTPIntegration` (parallel to the existing `applyHTTPAuth` call, same per-reconcile cache), adding resolved-content fields `TLSCABundle`/`TLSClientCert`/`TLSClientKey` to `ExecuteRequest` — never a reference, matching how every other resolved credential already crosses the RPC. `internal/executor/http/handler.go`'s `httpClient` builds a `tls.Config` with `RootCAs`/`Certificates` from those fields when present, alongside its existing `InsecureSkipVerify` handling — additive, no change for steps that don't use the new fields. No watcher/reverse-index needed; TLS config resolves fresh on every reconcile like auth secrets do today. Purely additive to the `v1alpha1` schema, no version bump.
+
+- CPU cost: parsing PEM and building `x509.CertPool`/`tls.Certificate` happens on every resolving `applyHTTPIntegration` call (bounded by the per-reconcile cache) and again per-call in the executor's one-shot `*http.Transport` build — more work than today's zero-TLS path but the same order as header-auth handling; not expected to be measurable against the ~5-10ms per-step dispatch baseline, worth confirming post-implementation.
+- API surface asymmetry: `HttpIntegrationSpec`'s CA field is `ConfigMap`-sourced while Kafka/AMQP/NATS's `CASecretRef` is `Secret`-sourced — a deliberate inconsistency a user has to notice across Integration types.
+- PEM content (plus client cert, if configured) flows through the RPC body as plaintext on every call to a TLS-configured backend, same trust model as existing resolved auth headers — not a new exposure, but grows request-body size per call rather than once at startup.
+- No rotation-latency guarantee beyond "next FlowRun" — a namespace with no active Triggers for a given Integration won't pick up a rotated CA until something fires again, same as existing secret-backed auth today.

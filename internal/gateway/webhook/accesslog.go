@@ -32,7 +32,7 @@ var accessLogger = slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
 // calls this to decide access. Trusting these headers unconditionally lets any
 // caller who can reach the gateway directly forge its apparent source IP and
 // bypass an IP allowlist outright — see
-// docs/design/2026-09-11-webhook-gateway-trust-boundary.md.
+// docs/design/webhook-gateway-trust-boundary.md.
 //
 // When trustedProxies is empty (the default), the headers are never consulted
 // and r.RemoteAddr is always returned. When non-empty and the peer is trusted,

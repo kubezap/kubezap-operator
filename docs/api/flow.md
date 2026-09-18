@@ -164,7 +164,7 @@ Use `$(syntax)` to reference dynamic values in string fields (URLs, headers, bod
 | ------------------------------------------ | ---------------------------------------------------------------------------------------------- |
 | `$(trigger.body)`                          | Raw trigger event body (webhook request body or Kafka message value)                           |
 | `$(trigger.body.<field>)`                  | A field from the trigger body; JSON bodies support full dot-path traversal (e.g., `$(trigger.body.order.id)`), `application/x-www-form-urlencoded` bodies support flat top-level fields only (e.g., `$(trigger.body.text)`) |
-| `$(trigger.headers.<name>)`                | An HTTP header from the triggering request (case-insensitive lookup)                            |
+| `$(trigger.headers.<name>)`                | An HTTP header, Kafka record header, or AMQP message header from the triggering event (case-insensitive lookup; not captured for NATS) |
 | `$(trigger.topic)` / `$(trigger.partition)` / `$(trigger.offset)` | Kafka topic/partition/offset (empty for non-Kafka triggers)                       |
 | `$(trigger.scheduledTime)`                 | RFC3339 scheduled fire time (cron triggers only)                                                |
 | `$(steps.<stepName>.results.<resultName>)` | A result produced by a previous step (hyphens in the step name become underscores)              |
@@ -321,7 +321,7 @@ when:
 
 ### ParamDeclaration
 
-Declares an input parameter the flow accepts. For each declared param, the controller resolves a value in this order (see [`docs/design/2026-09-10-flow-parameters.md`](../design/2026-09-10-flow-parameters.md) for the full design):
+Declares an input parameter the flow accepts. For each declared param, the controller resolves a value in this order (see [`docs/design/flow-parameters.md`](../design/flow-parameters.md) for the full design):
 
 1. An explicit entry in the invoking `FlowRun.spec.params` with a matching name — its `value` is itself resolved through `$(...)` interpolation, so it may reference `$(trigger.body.x)`, `$(steps.*.results.x)`, `$(secrets.x.y)`, etc.
 2. Otherwise, a same-named **top-level** field in the trigger body is used automatically (JSON objects or form-urlencoded bodies; this only matches a flat field — `name: orderId` matches a top-level `orderId` in the body, not a nested one).

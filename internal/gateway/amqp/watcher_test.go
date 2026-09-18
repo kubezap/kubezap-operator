@@ -63,7 +63,7 @@ func newAmqpTrigger(name, integrationName string) *automationv1alpha1.Trigger {
 				Topic:          "orders",
 				IntegrationRef: corev1.LocalObjectReference{Name: integrationName},
 			},
-			FlowRef: &automationv1alpha1.FlowReference{Name: "my-flow"},
+			FlowRef: automationv1alpha1.FlowReference{Name: "my-flow"},
 		},
 	}
 }

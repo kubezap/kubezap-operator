@@ -46,15 +46,15 @@ A plugin serves up to two roles:
 A plugin may implement one or both roles. A subscriber-only plugin (e.g., an inbound webhook relay) does not need to expose a publisher port. A publisher-only plugin (e.g., a notification gateway) does not need to watch Triggers.
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
+┌──────────────────────────────────────────────────────────────────┐
 │ Plugin Pod                                                       │
 │                                                                  │
 │  Subscriber goroutine          Publisher HTTP server             │
-│  ─────────────────────         ──────────────────────           │
+│  ─────────────────────         ──────────────────────            │
 │  watches Trigger CRDs          POST /publish                     │
 │  connects to ext system        called by controller              │
 │  creates FlowRun CRDs          returns messageId or error        │
-└─────────────────────────────────────────────────────────────────┘
+└──────────────────────────────────────────────────────────────────┘
         │  k8s API                       ▲
         ▼                                │
   FlowRun created             controller routes publish call
@@ -328,4 +328,4 @@ A community plugin may graduate to a first-party built-in Integration type. See 
 
 ## Reference Implementation
 
-A minimal Go reference implementation is forthcoming at `docs/plugins/example-plugin/`. Until then, the Kafka gateway source at `cmd/kafka-gateway/` and `internal/gateway/kafka/` demonstrates the subscriber pattern against the Kubernetes API, and the `internal/controller/flowrun_controller.go` publish path demonstrates the publisher call sequence.
+There is no standalone reference plugin today. The Kafka gateway source at `cmd/kafka-gateway/` and `internal/gateway/kafka/` demonstrates the subscriber pattern against the Kubernetes API, and the `internal/controller/flowrun_controller.go` publish path demonstrates the publisher call sequence.

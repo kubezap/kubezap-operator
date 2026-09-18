@@ -150,7 +150,7 @@ var _ = Describe("FlowRunReconciler", func() {
 
 	// reconcileUntilTerminal drives Reconcile() in a loop until the FlowRun reaches
 	// a terminal phase (Succeeded, Failed, or Cancelled) or maxIterations is exhausted.
-	// This is required for multi-step flows under the §12b one-step-per-reconcile model,
+	// This is required for multi-step flows under the one-step-per-reconcile model,
 	// where each call processes exactly one step wave and returns Requeue: true.
 	reconcileUntilTerminal := func(r *FlowRunReconciler, flowRunName string, maxIterations int) (*automationv1alpha1.FlowRun, error) {
 		nn := types.NamespacedName{Name: flowRunName, Namespace: testNamespace}
@@ -1026,7 +1026,7 @@ var _ = Describe("FlowRunReconciler", func() {
 
 			// Second reconcile: the wait has elapsed, step should now complete
 			// (Succeeded) and return Requeue: true so the next reconcile can
-			// finalize the FlowRun. Under §12b one-step-per-reconcile, the step
+			// finalize the FlowRun. Under one-step-per-reconcile, the step
 			// completion and the FlowRun terminal transition happen in separate calls.
 			_, err = r.Reconcile(ctx, ctrl.Request{NamespacedName: nn})
 			Expect(err).NotTo(HaveOccurred())
@@ -1131,9 +1131,9 @@ var _ = Describe("FlowRunReconciler", func() {
 		})
 	})
 
-	// §12c — Secret value redaction (P0)
+	// Secret value redaction
 	// Verifies that raw secret values are never persisted to StepRunStatus.Message.
-	Context("secret value redaction in failed HTTP step (§12c)", func() {
+	Context("secret value redaction in failed HTTP step", func() {
 		var (
 			secret  *corev1.Secret
 			flow    *automationv1alpha1.Flow
@@ -1220,10 +1220,9 @@ var _ = Describe("FlowRunReconciler", func() {
 		})
 	})
 
-	// §18 P2 TECH DEBT — executor RPC transport failure → requeue with backoff
 	// Verifies that when the http-executor pod is unreachable (connection refused),
 	// the reconciler returns RequeueAfter instead of marking the step as Failed.
-	Context("executor pod unreachable (transport error) → requeue with backoff (§18)", func() {
+	Context("executor pod unreachable (transport error) → requeue with backoff", func() {
 		var (
 			flow    *automationv1alpha1.Flow
 			flowRun *automationv1alpha1.FlowRun
@@ -1598,7 +1597,7 @@ var _ = Describe("FlowRunReconciler", func() {
 	})
 
 	Describe("doPluginPublish — plugin publisher envelope", func() {
-		// See docs/design/2026-09-10-plugin-publish-envelope.md: the controller must
+		// See docs/design/plugin-publish-envelope.md: the controller must
 		// send the documented {integration, namespace, destination, headers, body}
 		// JSON envelope, not raw body/headers, and must parse the documented
 		// {messageId}/{error} response shapes.

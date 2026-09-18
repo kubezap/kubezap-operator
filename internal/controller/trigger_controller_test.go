@@ -105,7 +105,7 @@ var _ = Describe("TriggerReconciler", func() {
 						Path:   "/hook/enabled",
 						Method: "POST",
 					},
-					FlowRef: &automationv1alpha1.FlowReference{Name: "example-flow"},
+					FlowRef: automationv1alpha1.FlowReference{Name: "example-flow"},
 				},
 			)
 			Expect(k8sClient.Create(ctx, trigger)).To(Succeed())
@@ -154,7 +154,7 @@ var _ = Describe("TriggerReconciler", func() {
 						Path:   "/hook/disabled",
 						Method: "POST",
 					},
-					FlowRef: &automationv1alpha1.FlowReference{Name: "example-flow"},
+					FlowRef: automationv1alpha1.FlowReference{Name: "example-flow"},
 				},
 			)
 			Expect(k8sClient.Create(ctx, trigger)).To(Succeed())
@@ -205,7 +205,7 @@ var _ = Describe("TriggerReconciler", func() {
 						Path:   "/hook/gateway",
 						Method: "POST",
 					},
-					FlowRef: &automationv1alpha1.FlowReference{Name: "example-flow"},
+					FlowRef: automationv1alpha1.FlowReference{Name: "example-flow"},
 				},
 			)
 			Expect(k8sClient.Create(ctx, trigger)).To(Succeed())
@@ -260,7 +260,7 @@ var _ = Describe("TriggerReconciler", func() {
 						Path:   "/hook/ltt",
 						Method: "POST",
 					},
-					FlowRef: &automationv1alpha1.FlowReference{Name: "example-flow"},
+					FlowRef: automationv1alpha1.FlowReference{Name: "example-flow"},
 				},
 			)
 			Expect(k8sClient.Create(ctx, trigger)).To(Succeed())
@@ -307,7 +307,7 @@ var _ = Describe("TriggerReconciler", func() {
 					Cron: &automationv1alpha1.CronTrigger{
 						Schedule: "*/5 * * * *",
 					},
-					FlowRef: &automationv1alpha1.FlowReference{Name: "example-flow"},
+					FlowRef: automationv1alpha1.FlowReference{Name: "example-flow"},
 				},
 			)
 			Expect(k8sClient.Create(ctx, trigger)).To(Succeed())
@@ -378,7 +378,7 @@ var _ = Describe("TriggerReconciler", func() {
 					Type:    "webhook",
 					Enabled: true,
 					// spec.webhook is intentionally absent
-					FlowRef: &automationv1alpha1.FlowReference{Name: "example-flow"},
+					FlowRef: automationv1alpha1.FlowReference{Name: "example-flow"},
 				},
 			)
 			Expect(k8sClient.Create(ctx, trigger)).To(Succeed())
@@ -418,7 +418,7 @@ var _ = Describe("TriggerReconciler", func() {
 						Path:   "/hook/idempotent",
 						Method: "POST",
 					},
-					FlowRef: &automationv1alpha1.FlowReference{Name: "example-flow"},
+					FlowRef: automationv1alpha1.FlowReference{Name: "example-flow"},
 				},
 			)
 			Expect(k8sClient.Create(ctx, trigger)).To(Succeed())
@@ -475,7 +475,7 @@ var _ = Describe("TriggerReconciler", func() {
 		BeforeEach(func() {
 			cfg = &automationv1alpha1.WebhookGatewayConfig{
 				ObjectMeta: metav1.ObjectMeta{
-					Name:      "gw-cfg-reconcile-test",
+					Name:      webhookGatewayConfigName,
 					Namespace: testNamespace,
 				},
 				Spec: automationv1alpha1.WebhookGatewayConfigSpec{
@@ -496,7 +496,7 @@ var _ = Describe("TriggerReconciler", func() {
 						Path:   "/hook/gwcfg",
 						Method: "POST",
 					},
-					FlowRef: &automationv1alpha1.FlowReference{Name: "example-flow"},
+					FlowRef: automationv1alpha1.FlowReference{Name: "example-flow"},
 				},
 			)
 			Expect(k8sClient.Create(ctx, trigger)).To(Succeed())
@@ -548,7 +548,7 @@ var _ = Describe("TriggerReconciler", func() {
 			minAvailable := intstr.FromInt32(2)
 			cfg = &automationv1alpha1.WebhookGatewayConfig{
 				ObjectMeta: metav1.ObjectMeta{
-					Name:      "gw-cfg-pdb-test",
+					Name:      webhookGatewayConfigName,
 					Namespace: testNamespace,
 				},
 				Spec: automationv1alpha1.WebhookGatewayConfigSpec{
@@ -568,7 +568,7 @@ var _ = Describe("TriggerReconciler", func() {
 						Path:   "/hook/gwcfg-pdb",
 						Method: "POST",
 					},
-					FlowRef: &automationv1alpha1.FlowReference{Name: "example-flow"},
+					FlowRef: automationv1alpha1.FlowReference{Name: "example-flow"},
 				},
 			)
 			Expect(k8sClient.Create(ctx, trigger)).To(Succeed())
@@ -623,7 +623,7 @@ var _ = Describe("TriggerReconciler", func() {
 		BeforeEach(func() {
 			cfg = &automationv1alpha1.WebhookGatewayConfig{
 				ObjectMeta: metav1.ObjectMeta{
-					Name:      "gw-cfg-tls-test",
+					Name:      webhookGatewayConfigName,
 					Namespace: testNamespace,
 				},
 				Spec: automationv1alpha1.WebhookGatewayConfigSpec{
@@ -644,7 +644,7 @@ var _ = Describe("TriggerReconciler", func() {
 						Path:   "/hook/gwtls",
 						Method: "POST",
 					},
-					FlowRef: &automationv1alpha1.FlowReference{Name: "example-flow"},
+					FlowRef: automationv1alpha1.FlowReference{Name: "example-flow"},
 				},
 			)
 			Expect(k8sClient.Create(ctx, trigger)).To(Succeed())
@@ -698,7 +698,7 @@ var _ = Describe("TriggerReconciler", func() {
 						Path:   "/hook/notls",
 						Method: "POST",
 					},
-					FlowRef: &automationv1alpha1.FlowReference{Name: "example-flow"},
+					FlowRef: automationv1alpha1.FlowReference{Name: "example-flow"},
 				},
 			)
 			Expect(k8sClient.Create(ctx, trigger)).To(Succeed())

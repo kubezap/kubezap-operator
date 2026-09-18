@@ -82,7 +82,7 @@ func (ct *cooldownTracker) allow(path string, maxInvocations int32, window time.
 // not just truncate its visible portion — and real JSON webhook payloads
 // (GitHub, Slack, Stripe) routinely exceed 4KB. 64KB is still comfortably
 // below the 4MB read limit while covering the common case out of the box. See
-// docs/design/2026-09-11-webhook-gateway-trust-boundary.md.
+// docs/design/webhook-gateway-trust-boundary.md.
 const defaultMaxStoredBodyBytes = 65536
 
 // errorJSONKey is the map key used for {"error": "..."} JSON error responses.

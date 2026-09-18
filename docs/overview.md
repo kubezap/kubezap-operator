@@ -22,6 +22,7 @@ Events flow into Triggers, Triggers fire Flows, Flows execute ordered Steps — 
 - [Installation](#installation)
 - [Compatibility](#compatibility)
 - [Roadmap](#roadmap)
+- [Contributing](#contributing)
 
 ---
 
@@ -103,16 +104,15 @@ See [Architecture](architecture.md) for the full design including scaling, names
 
 ## CRD Overview
 
-| CRD                     | API Group                        | Scope      | Status    |
-| ----------------------- | --------------------------------- | ---------- | --------- |
-| `Trigger`               | `automation.kubezap.io/v1alpha1` | Namespaced | Available |
-| `Flow`                  | `automation.kubezap.io/v1alpha1` | Namespaced | Available |
-| `FlowRun`               | `automation.kubezap.io/v1alpha1` | Namespaced | Available |
-| `Integration`           | `automation.kubezap.io/v1alpha1` | Namespaced | Available |
-| `WebhookGatewayConfig`  | `automation.kubezap.io/v1alpha1` | Namespaced | Available |
-| `Step`                  | `automation.kubezap.io/v1alpha1` | Namespaced | Planned   |
+| CRD                    | API Group                        | Scope      | Status    |
+| ---------------------- | -------------------------------- | ---------- | --------- |
+| `Trigger`              | `automation.kubezap.io/v1alpha1` | Namespaced | Available |
+| `Flow`                 | `automation.kubezap.io/v1alpha1` | Namespaced | Available |
+| `FlowRun`              | `automation.kubezap.io/v1alpha1` | Namespaced | Available |
+| `Integration`          | `automation.kubezap.io/v1alpha1` | Namespaced | Available |
+| `WebhookGatewayConfig` | `automation.kubezap.io/v1alpha1` | Namespaced | Available |
 
-All CRDs are namespaced by default. Cluster-scoped variants are planned for multi-tenant deployments.
+All CRDs are namespaced.
 
 `FlowRun` is an execution instance created automatically each time a trigger fires. It persists in etcd with full trigger metadata, step results, and timing — every execution is a Kubernetes resource you can inspect with `kubectl`. See [FlowRun CRD](api/flowrun.md).
 
@@ -311,7 +311,7 @@ spec:
       name: kubezap-webhook-tls
 ```
 
-At most one `WebhookGatewayConfig` object may exist per namespace — the operator's admission webhook rejects a second `create`, regardless of name. See the [WebhookGatewayConfig CRD reference](api/webhookgatewayconfig.md) for the full spec/status field reference, the exact singleton-rejection error text, and a worked example combining TLS, a custom HPA range, and a `PodDisruptionBudget`.
+At most one `WebhookGatewayConfig` object may exist per namespace — the object must be named `default`, and Kubernetes' own name-uniqueness rejects a second one. See the [WebhookGatewayConfig CRD reference](api/webhookgatewayconfig.md) for the full spec/status field reference, the exact rejection error text, and a worked example combining TLS, a custom HPA range, and a `PodDisruptionBudget`.
 
 The Secret must contain `tls.crt` and `tls.key` in standard Kubernetes TLS Secret format, compatible with [cert-manager](https://cert-manager.io) `Certificate` resources:
 
@@ -475,7 +475,7 @@ namespace as the Flow. The controller resolves all credential references in-memo
 a fully-substituted request to the executor via an internal `POST /execute` RPC call.
 The executor enforces SSRF protection independently of the controller. This separation limits
 the blast radius of SSRF vulnerabilities: the executor pod has no Kubernetes API access and
-no secrets RBAC. See [HTTP Executor design](dev/http-executor.md) for details.
+no secrets RBAC. See [HTTP Executor design](architecture/http-executor.md) for details.
 
 See [Flow CRD → Payload Formats](api/flow.md#payload-formats) for the full reference.
 
@@ -593,52 +593,49 @@ kubectl apply -k config/default # deploy the operator
 ```bash
 # From the OCI registry (recommended for production)
 helm install kubezap oci://ghcr.io/kubezap/charts/kubezap-operator \
-  --version 0.3.0 \
   --namespace kubezap-system --create-namespace
 
 # OwnNamespace mode (default — operator watches only its own namespace)
 helm install kubezap oci://ghcr.io/kubezap/charts/kubezap-operator \
-  --version 0.3.0 --namespace kubezap-system --create-namespace
+  --namespace kubezap-system --create-namespace
 
 # AllNamespaces mode (secrets restricted to kubezap.io/managed=true namespaces)
 helm install kubezap oci://ghcr.io/kubezap/charts/kubezap-operator \
-  --version 0.3.0 --namespace kubezap-system --create-namespace \
+  --namespace kubezap-system --create-namespace \
   --set watchNamespaces="*"
 
 # SingleNamespace mode
 helm install kubezap oci://ghcr.io/kubezap/charts/kubezap-operator \
-  --version 0.3.0 \
   --namespace tenant-a --create-namespace \
   --set watchNamespaces=tenant-a
 
 # Multi-namespace mode
 helm install kubezap oci://ghcr.io/kubezap/charts/kubezap-operator \
-  --version 0.3.0 \
   --namespace kubezap-system --create-namespace \
   --set watchNamespaces="tenant-a,tenant-b"
 ```
 
-See `charts/kubezap-operator/values.yaml` for all configurable options. Check [GitHub Releases](https://github.com/kubezap/kubezap-operator/releases) for the latest chart version.
+By default this installs the latest published chart version. See `charts/kubezap-operator/values.yaml` for all configurable options, or pass `--version <x.y.z>` to pin one — check [GitHub Releases](https://github.com/kubezap/kubezap-operator/releases) for available versions.
+
+### Overriding container images
+
+KubeZap's Helm chart and operator defaults point at the public `ghcr.io/kubezap/*` images — no registry authentication needed. To use a different registry, tag, or a private fork/mirror, override the image paths in Helm:
+
+```bash
+helm install kubezap oci://ghcr.io/kubezap/charts/kubezap-operator \
+  --set image.repository=ghcr.io/kubezap/controller \
+  --set gatewayImages.webhook=ghcr.io/kubezap/webhook-gateway:latest
+```
+
+### OperatorHub / OLM _(submission in progress)_
+
+Install via the OpenShift OperatorHub catalog or the community OperatorHub. The OLM bundle is validated (`operator-sdk bundle validate`) and passes the OLM scorecard suite. Community-operators PR in progress.
+
+For a full setup walkthrough including namespace configuration and RBAC see [Getting Started](https://github.com/kubezap/kubezap-operator/tree/main/examples/order-router).
 
 ### kubezap CLI
 
 The `kubezap` CLI provides rich FlowRun history and operator status views beyond what `kubectl get` offers.
-
-### GitHub Container Registry (GHCR) image defaults
-
-KubeZap now publishes container images under `ghcr.io/kubezap/*`. The Helm chart and operator defaults are configured to use these values by default. If you are using private GHCR repositories, authenticate first:
-
-```bash
-echo $GITHUB_TOKEN | docker login ghcr.io -u <user> --password-stdin
-```
-
-If you need to override image paths in Helm:
-
-```bash
-helm install kubezap oci://ghcr.io/kubezap/charts/kubezap-operator --version 0.3.0 \
-  --set image.repository=ghcr.io/kubezap/controller \
-  --set gatewayImages.webhook=ghcr.io/kubezap/webhook-gateway:latest
-```
 
 **Direct download (linux/darwin/windows)**
 
@@ -669,69 +666,25 @@ kubectl kubezap version
 make build-cli   # produces bin/kubezap
 ```
 
-### OperatorHub / OLM _(submission in progress)_
-
-Install via the OpenShift OperatorHub catalog or the community OperatorHub. The OLM bundle is validated (`operator-sdk bundle validate`) and passes the OLM scorecard suite. Community-operators PR in progress.
-
-For a full setup walkthrough including namespace configuration and RBAC see [Getting Started](https://github.com/kubezap/kubezap-operator/tree/main/examples/order-router).
-
 ---
 
 ## Compatibility
 
-| Platform                       | Status                                                        |
-| ------------------------------ | ------------------------------------------------------------- |
-| Kubernetes 1.27+               | Supported                                                     |
-| Kubernetes 1.28+ (Gateway API) | Supported                                                     |
-| OpenShift 4.12+                | Supported (tested on OpenShift 4.12+; OLM bundle in progress) |
-| k3s                            | Tested (local development)                                    |
-| EKS / GKE / AKS                | Compatible (no cloud-specific dependencies)                   |
+| Platform         | Status                                                        |
+| ---------------- | ------------------------------------------------------------- |
+| Kubernetes 1.27+ | Supported                                                     |
+| OpenShift 4.12+  | Supported (tested on OpenShift 4.12+; OLM bundle in progress) |
+| k3s              | Tested (local development)                                    |
+| EKS / GKE / AKS  | Compatible (no cloud-specific dependencies)                   |
 
 ---
 
 ## Roadmap
 
-### v0.1 — MVP ✅
-
-- [x] `Trigger` CRD — webhook, cron, Kafka pub/sub sources
-- [x] Webhook HTTP server with dynamic route registration
-- [x] Cron scheduler with FlowRun creation
-- [x] Kafka gateway with consumer group management
-- [x] `Flow` CRD — DAG steps, HTTP actions, CEL conditions, data passing
-- [x] `FlowRun` CRD — execution history, GC, status conditions
-- [x] `Integration` CRD — Kafka (built-in), plugin protocol
-- [x] Webhook auth — HMAC, bearer, OIDC/JWT, API-key, IP allowlist, mTLS
-- [x] Observability — Prometheus metrics, OpenTelemetry traces, structured access logs
-- [x] Multi-namespace — `WATCH_NAMESPACES`, all four OLM install modes
-
-### v0.2 — Flow Engine ✅
-
-- [x] CEL `when` expression evaluation
-- [x] Skipped step phase with downstream cascade
-- [x] Step input/output data passing (`$(steps.<name>.results.<key>)`)
-- [x] Data transformation step type (`type: transform`)
-- [x] Retry policies with exponential/linear/fixed backoff
-- [x] Flow-level and per-step timeout enforcement
-- [x] `type: publish` step — routes to Kafka/plugin `/publish` endpoint
-- [x] `type: wait` step — blocking pause with restart-safe `ResumeAfter` in status
-
-### v0.3 — Distribution & Observability ✅
-
-- [x] Helm chart
-- [x] Multi-platform CLI binaries via Goreleaser
-- [x] Additional message brokers (AMQP, NATS)
-- [x] OLM bundle validated (`operator-sdk bundle validate` + scorecard pass)
-- [x] Metrics port normalization (`:9090` HTTP default across all components)
-- [x] `kubezap watch` CLI — live FlowRun execution timeline in terminal
-- [x] `type: http` Integration — centralized credentials for HTTP steps
 - [ ] OperatorHub community-operators PR — submission in progress
-
-### Future
-
-- [ ] `Step` CRD for reusable step definitions
 - [ ] Plugin marketplace and integration catalog
-- [ ] OpenLineage support
-- [ ] Multi-region HA support
+
+See [CHANGELOG.md](../CHANGELOG.md) for everything already implemented.
 
 ---
 

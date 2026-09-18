@@ -6,21 +6,19 @@ This guide covers the most common issues when running KubeZap. Each section desc
 
 ## Contents
 
-- [Troubleshooting](#troubleshooting)
-  - [Contents](#contents)
-  - [Controller not starting](#controller-not-starting)
-  - [Trigger not being accepted](#trigger-not-being-accepted)
-  - [Webhook not receiving requests](#webhook-not-receiving-requests)
-  - [FlowRun not being created](#flowrun-not-being-created)
-  - [FlowRun stuck in Running](#flowrun-stuck-in-running)
-  - [FlowRun stuck in Waiting](#flowrun-stuck-in-waiting)
-  - [Step failing unexpectedly](#step-failing-unexpectedly)
-  - [CEL expression errors](#cel-expression-errors)
-  - [Mockoon not receiving requests](#mockoon-not-receiving-requests)
-  - [Kafka gateway not consuming messages](#kafka-gateway-not-consuming-messages)
-  - [RBAC and permission errors](#rbac-and-permission-errors)
-  - [Using the kubezap CLI for debugging](#using-the-kubezap-cli-for-debugging)
-  - [Getting Help](#getting-help)
+- [Controller not starting](#controller-not-starting)
+- [Trigger not being accepted](#trigger-not-being-accepted)
+- [Webhook not receiving requests](#webhook-not-receiving-requests)
+- [FlowRun not being created](#flowrun-not-being-created)
+- [FlowRun stuck in Running](#flowrun-stuck-in-running)
+- [FlowRun stuck in Waiting](#flowrun-stuck-in-waiting)
+- [Step failing unexpectedly](#step-failing-unexpectedly)
+- [CEL expression errors](#cel-expression-errors)
+- [Mockoon not receiving requests](#mockoon-not-receiving-requests)
+- [Kafka gateway not consuming messages](#kafka-gateway-not-consuming-messages)
+- [RBAC and permission errors](#rbac-and-permission-errors)
+- [Using the kubezap CLI for debugging](#using-the-kubezap-cli-for-debugging)
+- [Getting Help](#getting-help)
 
 ---
 
@@ -67,9 +65,8 @@ kubectl logs -n kubezap-system -l control-plane=controller-manager | grep <trigg
 **Common causes:**
 
 - **Invalid cron expression**: The `spec.cron.schedule` field failed validation. The condition message will contain the parsing error.
-- **Referenced Flow not found**: If using `flowRef`, the Flow must exist in the same namespace (or the specified namespace). Create the Flow first or check the namespace.
+- **Referenced Flow not found**: The Flow named by `flowRef` must exist in the same namespace as the Trigger. Create the Flow first or check the namespace.
 - **Integration not ready**: For `kafka`, `amqp`, and `nats` triggers, the referenced Integration must have a `Ready: True` condition.
-- **Both `flowRef` and `action` set**: Only one of `spec.flowRef` or `spec.action` may be set — the CRD validation will reject the Trigger.
 
 ```bash
 # Check the referenced Flow exists
@@ -226,14 +223,14 @@ The `message` field in the step status contains the failure reason.
 
 **Common HTTP step failures:**
 
-| Symptom                                                            | Fix                                                                                     |
-| ------------------------------------------------------------------ | --------------------------------------------------------------------------------------- |
-| `connection refused` / `dial tcp: connect: connection refused`     | The target URL is not reachable. Check the URL and verify the service is running.       |
+| Symptom                                                            | Fix                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| ------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `connection refused` / `dial tcp: connect: connection refused`     | The target URL is not reachable. Check the URL and verify the service is running.                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
 | `TLS handshake failed` / `certificate signed by unknown authority` | The target uses a self-signed or private CA. For an HTTP step, set `Integration.spec.http.tls.caBundleConfigMapRef` to a ConfigMap containing the PEM CA bundle (see [Integration CRD → HttpTLSSpec](../api/integration.md#httptlsspec)) — this adds the bundle to the system root pool, it doesn't replace it. For a broker Integration (Kafka/AMQP/NATS) hitting this instead, set `Integration.spec.{kafka,amqp,nats}.tls.caSecretRef` to the Secret containing your private CA (note: broker CA config *replaces* system trust rather than adding to it). |
-| `non-2xx response: 401`                                            | The target requires authentication. Check headers and secrets.                          |
-| `non-2xx response: 503`                                            | The target is temporarily unavailable. Add a `retryPolicy` to the step.                 |
-| `context deadline exceeded`                                        | The step hit its `timeoutSeconds`. Increase the timeout or fix the slow endpoint.       |
-| `resultMapping key "x" not found in response`                      | The JSONPath expression did not match. Verify the response shape with a manual curl.    |
+| `non-2xx response: 401`                                            | The target requires authentication. Check headers and secrets.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| `non-2xx response: 503`                                            | The target is temporarily unavailable. Add a `retryPolicy` to the step.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| `context deadline exceeded`                                        | The step hit its `timeoutSeconds`. Increase the timeout or fix the slow endpoint.                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| `resultMapping key "x" not found in response`                      | The JSONPath expression did not match. Verify the response shape with a manual curl.                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
 
 **Adding a retry policy:**
 ```yaml

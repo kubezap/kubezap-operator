@@ -164,7 +164,7 @@ Use `$(syntax)` to reference dynamic values in string fields (URLs, headers, bod
 | ------------------------------------------ | ---------------------------------------------------------------------------------------------- |
 | `$(trigger.body)`                          | Raw trigger event body (webhook request body or Kafka message value)                           |
 | `$(trigger.body.<field>)`                  | A field from the trigger body; JSON bodies support full dot-path traversal (e.g., `$(trigger.body.order.id)`), `application/x-www-form-urlencoded` bodies support flat top-level fields only (e.g., `$(trigger.body.text)`) |
-| `$(trigger.headers.<name>)`                | An HTTP header, Kafka record header, or AMQP message header from the triggering event (case-insensitive lookup; not captured for NATS) |
+| `$(trigger.headers.<name>)`                | An HTTP header, or a Kafka/AMQP/NATS message header, from the triggering event (case-insensitive lookup) |
 | `$(trigger.topic)` / `$(trigger.partition)` / `$(trigger.offset)` | Kafka topic/partition/offset (empty for non-Kafka triggers)                       |
 | `$(trigger.scheduledTime)`                 | RFC3339 scheduled fire time (cron triggers only)                                                |
 | `$(steps.<stepName>.results.<resultName>)` | A result produced by a previous step (hyphens in the step name become underscores)              |

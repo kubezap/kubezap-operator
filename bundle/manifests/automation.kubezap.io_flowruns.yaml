@@ -104,10 +104,6 @@ spec:
                     additionalProperties:
                       type: string
                     type: object
-                  kafkaHeaders:
-                    additionalProperties:
-                      type: string
-                    type: object
                   method:
                     type: string
                   offset:

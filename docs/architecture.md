@@ -296,7 +296,7 @@ spec:
           averageUtilization: 70
 ```
 
-You can override HPA settings via the `Trigger` annotation or via the operator's global configuration (planned).
+You can override HPA settings per namespace via the namespace's `WebhookGatewayConfig` (`spec.hpa.{minReplicas,maxReplicas,targetCPUUtilization}`); see `docs/api/webhookgatewayconfig.md`.
 
 All replicas share the same `Service`, so load is distributed by the Service's kube-proxy load balancing. For more sophisticated load balancing (e.g., sticky sessions, request-rate-based), put a Gateway API `HTTPRoute` in front.
 

@@ -288,7 +288,7 @@ Flow steps reference credentials using the same `$(secrets.name.key)` and `$(con
 
 ## TLS and mTLS
 
-TLS covers two independent paths: **outbound** connections KubeZap makes to other systems, and **inbound** TLS for calls arriving at the webhook gateway. Neither is configured via annotations — outbound TLS is configured on the relevant `Integration`, and inbound TLS is configured on the namespace's `WebhookGatewayConfig`.
+TLS covers two independent paths: **outbound** connections KubeZap makes to other systems, and **inbound** TLS for calls arriving at the webhook gateway. Outbound TLS is configured on the relevant `Integration`, and inbound TLS is configured on the namespace's `WebhookGatewayConfig`.
 
 ### Outbound TLS
 
@@ -312,8 +312,6 @@ spec:
 ```
 
 At most one `WebhookGatewayConfig` object may exist per namespace — the operator's admission webhook rejects a second `create`, regardless of name. See the [WebhookGatewayConfig CRD reference](api/webhookgatewayconfig.md) for the full spec/status field reference, the exact singleton-rejection error text, and a worked example combining TLS, a custom HPA range, and a `PodDisruptionBudget`.
-
-> **Migrated from a Namespace annotation.** Prior to this release, this was configured via the `kubezap.io/webhook-tls-secret` Namespace annotation. That annotation is no longer read anywhere in the operator — see the `CHANGELOG.md` entry under `## [Unreleased]` for the required migration step if you were relying on it.
 
 The Secret must contain `tls.crt` and `tls.key` in standard Kubernetes TLS Secret format, compatible with [cert-manager](https://cert-manager.io) `Certificate` resources:
 

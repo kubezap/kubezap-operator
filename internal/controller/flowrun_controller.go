@@ -199,7 +199,7 @@ type FlowRunReconciler struct {
 
 // nolint:gocyclo // single dispatch-heavy reconcile loop; splitting it apart without a
 // specific extraction plan trades one auditable function for several that only make
-// sense read together -- owner decided (2026-09-11) to keep it as one function.
+// sense read together.
 func (r *FlowRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := logf.FromContext(ctx)
 
@@ -801,7 +801,7 @@ func (r *FlowRunReconciler) executeStep(
 }
 
 // nolint:gocyclo // single-pass HTTP step request/response builder with a dispatch
-// case per config option; owner decided (2026-09-11) to keep it as one function.
+// case per config option, kept as one function.
 func (r *FlowRunReconciler) executeHTTPStep(
 	ctx context.Context,
 	log logr.Logger,
@@ -2126,15 +2126,14 @@ func substituteVars(s string, stepResults map[string]map[string]string, triggerD
 // value is written straight to the output and the scan position advances past
 // the original closing ")" — substituted content is never re-scanned.
 //
-// This matters for more than correctness: previously, sequential
-// scan-and-ReplaceAll passes re-scanned already-substituted output, which meant
-// (a) a trigger body field or header whose value echoed its own placeholder
-// hung the reconciler forever (a scan loop kept "resolving" the same text on
-// every iteration), and (b) attacker-controlled data (a body field, header, or
-// upstream step/API result) landing next to one legitimate $(secrets.*)
-// reference could inject its own $(secrets.<any-name>.<any-key>) text and have
-// it resolved — reading any secret in the namespace. See
-// docs/design/2026-09-11-single-pass-interpolation.md.
+// This matters for more than correctness. A scan that re-scanned already-
+// substituted output would let (a) a trigger body field or header whose value
+// echoes its own placeholder hang the reconciler forever (the scan keeps
+// "resolving" the same text every iteration), and (b) attacker-controlled data
+// (a body field, header, or upstream step/API result) landing next to one
+// legitimate $(secrets.*) reference inject its own
+// $(secrets.<any-name>.<any-key>) text and have it resolved — reading any
+// secret in the namespace. See docs/design/2026-09-11-single-pass-interpolation.md.
 //
 // resolveSecret is nil for callers that must never resolve secrets (e.g. Flow
 // parameter defaults via resolveFlowParams) — $(secrets.*) is then left as

@@ -49,6 +49,7 @@ No version of KubeZap has been released yet — everything below is unreleased. 
 - Source IP recorded in structured access logs only — excluded from Prometheus label values to avoid cardinality blowup
 
 **Distribution and packaging**
+- Self-managed admission webhook TLS: the controller generates and rotates its own self-signed CA/serving cert on boot and keeps the `ValidatingWebhookConfiguration`'s `caBundle` in sync — no cert-manager dependency, works identically across Helm, raw manifests, and OLM
 - Helm chart (`charts/kubezap-operator`) — configurable namespace mode, gateway image overrides, RBAC
 - OLM bundle scaffolded via Operator SDK; `operator-sdk bundle validate` and scorecard (`basic` + `olm` suites) both pass
 - Multi-namespace support: all four OLM install modes (AllNamespaces, SingleNamespace, MultiNamespace, OwnNamespace); `WATCH_NAMESPACES` env var controls scope, with Role vs. ClusterRole chosen per mode
@@ -61,13 +62,3 @@ No version of KubeZap has been released yet — everything below is unreleased. 
 **Docs**
 - `docs/guides/cron-triggers.md`, `docs/guides/troubleshooting.md`, `docs/guides/amqp-setup.md`, `docs/guides/nats-setup.md`, `docs/guides/using-the-cli.md`
 
-### Changed
-- Go module path: `github.com/kubezap/kubezap-operator` (GitHub org: `kubezap`)
-- `type: pubsub` trigger split into `type: kafka` / `type: amqp` / `type: nats` at the API level
-- Metrics port normalized to `:9090` HTTP across all components
-- All container image references migrated from `docker.io/kubezap/` to `ghcr.io/kubezap/`
-
-### Fixed
-- Stale `github.com/Borfswitch/kubezap` issue URL replaced with `kubezap/kubezap-operator`
-- Wrong `kubezap.io/` container registry domain in the OLM CSV base manifest
-- `docs/api/flow.md`'s stale "top-level JSON fields only" limitation removed

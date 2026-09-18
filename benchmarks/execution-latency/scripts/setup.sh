@@ -127,24 +127,9 @@ log_info "scoping controller to WATCH_NAMESPACES=${KUBEZAP_NS} (least-privilege 
 kubectl set env deployment/kubezap-controller-manager -n kubezap-system \
   "WATCH_NAMESPACES=${KUBEZAP_NS}"
 
-# cmd/main.go unconditionally starts an admission webhook TLS server; without
-# a cert at --webhook-cert-path the controller crash-loops. Mirrors
-# test/e2e/e2e_suite_test.go and config/dev/manager_dev_patch.yaml exactly.
-log_info "generating webhook TLS cert so the controller doesn't crash-loop"
-"${REPO_ROOT}/hack/gen-webhook-certs.sh" kubezap-system kubezap-webhook-certs
-
-# Only apply the cert-path/volume patches once (idempotent re-run guard).
-if ! kubectl get deployment/kubezap-controller-manager -n kubezap-system \
-    -o jsonpath='{.spec.template.spec.volumes[?(@.name=="webhook-certs")]}' | grep -q webhook-certs; then
-  log_info "patching controller manager to mount the webhook TLS cert"
-  kubectl patch deployment/kubezap-controller-manager -n kubezap-system --type=json -p="[
-    {\"op\": \"add\", \"path\": \"/spec/template/spec/containers/0/args/-\", \"value\": \"--webhook-cert-path=/tmp/k8s-webhook-server/serving-certs\"},
-    {\"op\": \"add\", \"path\": \"/spec/template/spec/containers/0/volumeMounts\", \"value\": [{\"name\": \"webhook-certs\", \"mountPath\": \"/tmp/k8s-webhook-server/serving-certs\", \"readOnly\": true}]},
-    {\"op\": \"add\", \"path\": \"/spec/template/spec/volumes\", \"value\": [{\"name\": \"webhook-certs\", \"secret\": {\"secretName\": \"kubezap-webhook-certs\"}}]}
-  ]"
-else
-  log_info "webhook cert volume already patched in"
-fi
+# cmd/main.go self-provisions its own admission webhook TLS cert on boot
+# (internal/webhookcerts) — no manual cert generation or patching needed. See
+# docs/design/2026-09-18-self-managed-webhook-certs.md.
 
 # The scenario's HTTP steps target an in-cluster Service DNS name; the
 # controller's SSRF blocklist rejects that by default. Mirrors

@@ -243,8 +243,6 @@ For zero-trust environments or service meshes where the calling service must aut
 
 mTLS requires server-side TLS to be enabled first. Both settings are configured via a namespaced **`WebhookGatewayConfig`** object — they apply to the shared webhook gateway Deployment for that namespace.
 
-> **Migrated from Namespace annotations.** Prior to this release, these settings were configured via the `kubezap.io/webhook-tls-secret` / `kubezap.io/webhook-mtls-ca-secret` Namespace annotations. Those annotations are no longer read anywhere in the operator — see the `CHANGELOG.md` entry under `## [Unreleased]` for the required migration step if you were relying on them.
-
 ### Configuration
 
 Create a `WebhookGatewayConfig` object in the namespace referencing the TLS server cert Secret and the CA Secret for client verification:
@@ -383,7 +381,7 @@ spec:
 
 | Field          | Type               | Required    | Description                                                                                                                                                                                                                            |
 | -------------- | ------------------ | ----------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `type`         | enum               | **Yes**     | Auth method: `hmac`, `bearer`, `oidc`, `basic`, `apiKey`, `ipAllowlist`, `header-equals`. Omit `auth` entirely for no authentication. mTLS is configured at the transport layer via Namespace annotations — see [mTLS (Client Certificate)](#mtls-client-certificate). Only one type is active per Trigger. |
+| `type`         | enum               | **Yes**     | Auth method: `hmac`, `bearer`, `oidc`, `basic`, `apiKey`, `ipAllowlist`, `header-equals`. Omit `auth` entirely for no authentication. mTLS is configured at the transport layer via the namespace's `WebhookGatewayConfig` — see [mTLS (Client Certificate)](#mtls-client-certificate). Only one type is active per Trigger. |
 | `hmac`         | HMACConfig         | Conditional | Required when `type: hmac`                                                                                                                                                                                                             |
 | `bearer`       | BearerConfig       | Conditional | Required when `type: bearer`                                                                                                                                                                                                           |
 | `oidc`         | OIDCConfig         | Conditional | Required when `type: oidc`                                                                                                                                                                                                             |

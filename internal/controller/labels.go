@@ -18,12 +18,11 @@ package controller
 
 // Shared string constants referenced from more than one file in this package.
 //
-// These exist to satisfy goconst (see the removed temporary internal/*
-// exclusion in .golangci.yml, STORY-017): each literal below was repeated
-// across two or more files in this package, so it gets exactly one constant
-// here rather than being duplicated (or separately named) per file. A literal
-// that only repeats within a single file instead gets a file-scoped const in
-// that file (see e.g. gateway_deployment.go's top-level consts).
+// Each literal below is repeated across two or more files in this package, so
+// it gets exactly one constant here rather than being duplicated (or
+// separately named) per file. A literal that only repeats within a single
+// file instead gets a file-scoped const in that file (see e.g.
+// gateway_deployment.go's top-level consts).
 const (
 	// labelApp is the conventional short "app" label key used to select gateway
 	// and plugin Deployments and their Pods.

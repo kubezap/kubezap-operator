@@ -165,49 +165,9 @@ remove a harmless annotation) to force a reconcile.
 
 ---
 
-## Migration from Namespace Annotations
-
-Before this CRD existed, gateway TLS/mTLS was configured via two `Namespace` annotations:
-`kubezap.io/webhook-tls-secret` and `kubezap.io/webhook-mtls-ca-secret`. This was a **hard
-cutover, not a deprecation** — as of this release those annotations are no longer read
-anywhere in the operator (`internal/controller/trigger_controller.go`'s annotation lookups
-were removed in the same change that added this CRD). There is no dual-read window and no
-precedence rule between the old and new mechanism, because the old mechanism no longer exists
-in the code at all.
-
-**If you were relying on either annotation, create the equivalent `WebhookGatewayConfig`
-object *before* upgrading the operator** — see the `## [Unreleased]` → `### Breaking` entry in
-[`CHANGELOG.md`](../../CHANGELOG.md) for the required migration step and its exact wording.
-Skipping this step does not produce an error: the namespace's gateway silently reverts to
-plain HTTP with no client-certificate verification on upgrade.
-
-```yaml
-# Before (no longer read):
-# metadata:
-#   annotations:
-#     kubezap.io/webhook-tls-secret: kubezap-webhook-tls
-#     kubezap.io/webhook-mtls-ca-secret: webhook-client-ca
-
-# After:
-apiVersion: automation.kubezap.io/v1alpha1
-kind: WebhookGatewayConfig
-metadata:
-  name: default
-  namespace: <namespace>
-spec:
-  tls:
-    serverSecretRef:
-      name: kubezap-webhook-tls
-    clientCASecretRef:
-      name: webhook-client-ca
-```
-
 There is no hardcoded requirement that the object be named `default` — any name is valid, as
 long as it's the only `WebhookGatewayConfig` in the namespace. `default` is used above only
 because it matches the samples in `docs/overview.md` and `docs/guides/webhook-security.md`.
-
-See also [design record: 2026-09-12-webhookgatewayconfig-crd.md](../design/2026-09-12-webhookgatewayconfig-crd.md)
-for the full rationale behind the hard-cutover decision (Rejected Alternative B).
 
 ---
 

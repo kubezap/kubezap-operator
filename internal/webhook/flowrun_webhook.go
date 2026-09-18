@@ -44,12 +44,10 @@ func (v *FlowRunValidator) Handle(ctx context.Context, req admission.Request) ad
 		return admission.Errored(http.StatusBadRequest, err)
 	}
 
-	// FlowReference.Namespace was removed from the v1alpha1 API. Any object
-	// that still carries the field (e.g., created against an older version of
-	// the schema via a raw YAML apply) is rejected here.
-	//
-	// We check via the raw JSON rather than the decoded struct, because the Go
-	// field no longer exists — a legacy client could still send the key.
+	// FlowReference has no Namespace field in the v1alpha1 API, so a raw YAML
+	// apply that sets one would be silently dropped by decoding into the Go
+	// struct. Check the raw JSON instead, so the key is caught and rejected
+	// rather than silently ignored.
 	raw := map[string]interface{}{}
 	if err := json.Unmarshal(req.Object.Raw, &raw); err != nil {
 		return admission.Errored(http.StatusBadRequest, err)

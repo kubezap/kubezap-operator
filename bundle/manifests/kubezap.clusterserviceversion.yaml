@@ -178,7 +178,7 @@ metadata:
     capabilities: Basic Install
     categories: Integration & Delivery
     containerImage: ghcr.io/kubezap/controller:latest
-    createdAt: "2026-09-14T00:50:25Z"
+    createdAt: "2026-09-18T15:41:03Z"
     description: Declarative workflow automation for Kubernetes
     operatorframework.io/suggested-namespace: kubezap-system
     operators.operatorframework.io/builder: operator-sdk-v1.42.0
@@ -693,7 +693,7 @@ spec:
   - name: Source Code
     url: https://github.com/kubezap/kubezap-operator
   maintainers:
-  - email: maintainers@kubezap.io
+  - email: 6481864+Borfswitch@users.noreply.github.com
     name: KubeZap Maintainers
   maturity: alpha
   minKubeVersion: 1.25.0

@@ -1,5 +1,5 @@
-# Dev/test patch: enables in-cluster SSRF bypass and mounts the webhook TLS
-# secret created by hack/gen-webhook-certs.sh. NOT for production use.
+# Dev/test patch: enables in-cluster SSRF bypass and scopes the watch to the
+# default namespace. NOT for production use.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -14,15 +14,6 @@ spec:
             - --leader-elect
             - --health-probe-bind-address=:8081
             - --ssrf-allow-in-cluster=true
-            - --webhook-cert-path=/tmp/k8s-webhook-server/serving-certs
           env:
             - name: WATCH_NAMESPACES
               value: "default"
-          volumeMounts:
-            - name: webhook-certs
-              mountPath: /tmp/k8s-webhook-server/serving-certs
-              readOnly: true
-      volumes:
-        - name: webhook-certs
-          secret:
-            secretName: kubezap-webhook-certs

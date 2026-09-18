@@ -151,29 +151,9 @@ var _ = BeforeSuite(func() {
 	_, err = utils.Run(cmd)
 	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to label kubezap-system namespace with restricted policy")
 
-	// cmd/main.go unconditionally starts an admission webhook TLS server on boot,
-	// but config/webhook and config/certmanager (the kustomize components that would
-	// wire up cert-manager to provision that cert) are not scaffolded. Without a cert
-	// at --webhook-cert-path the controller-manager crash-loops forever and every
-	// spec below times out waiting for it to become Ready. Generate a self-signed
-	// cert and patch it in, mirroring config/dev/manager_dev_patch.yaml.
-	By("generating a webhook TLS cert so the controller-manager doesn't crash-loop")
-	cmd = exec.Command("hack/gen-webhook-certs.sh", "kubezap-system", "kubezap-webhook-certs")
-	_, err = utils.Run(cmd)
-	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to generate webhook TLS cert Secret")
-
-	By("patching controller manager to mount the webhook TLS cert")
-	webhookCertArgPatch := `{"op": "add", "path": "/spec/template/spec/containers/0/args/-", ` +
-		`"value": "--webhook-cert-path=/tmp/k8s-webhook-server/serving-certs"}`
-	webhookCertMountPatch := `{"op": "add", "path": "/spec/template/spec/containers/0/volumeMounts", ` +
-		`"value": [{"name": "webhook-certs", "mountPath": "/tmp/k8s-webhook-server/serving-certs", "readOnly": true}]}`
-	webhookCertVolumePatch := `{"op": "add", "path": "/spec/template/spec/volumes", ` +
-		`"value": [{"name": "webhook-certs", "secret": {"secretName": "kubezap-webhook-certs"}}]}`
-	webhookCertJSONPatch := "[" + webhookCertArgPatch + "," + webhookCertMountPatch + "," + webhookCertVolumePatch + "]"
-	cmd = exec.Command("kubectl", "patch", "deployment/kubezap-controller-manager",
-		"-n", "kubezap-system", "--type=json", "-p", webhookCertJSONPatch)
-	_, err = utils.Run(cmd)
-	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to patch controller manager with webhook cert mount")
+	// cmd/main.go self-provisions its own admission webhook TLS cert on boot
+	// (internal/webhookcerts) — no manual cert generation or patching needed.
+	// See docs/design/2026-09-18-self-managed-webhook-certs.md.
 
 	By("setting WATCH_NAMESPACES=* so controller reconciles e2e test namespaces")
 	cmd = exec.Command("kubectl", "set", "env", "deployment/kubezap-controller-manager",

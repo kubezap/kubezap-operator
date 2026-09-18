@@ -121,14 +121,7 @@ The controller reads the `WEBHOOK_GATEWAY_IMAGE`, `KAFKA_GATEWAY_IMAGE`, `AMQP_G
 
 Until the `IMG=` transformer mismatch above is fixed, the practical workaround for picking up any new controller build (not just http-executor) is to build and import as `:latest` and force a fresh pod with `kubectl rollout restart deployment/kubezap-controller-manager -n kubezap-system` (and `kubectl delete pod` for any gateway/executor Deployment the controller itself reconciles, since a bare `rollout restart` on those gets reverted by the reconciler).
 
-Finally, the controller-manager unconditionally starts an admission-webhook TLS server on boot but has no cert available under a plain `make deploy` (no cert-manager wiring is scaffolded yet) — without one it will crash-loop with `open /tmp/k8s-webhook-server/serving-certs/tls.crt: no such file or directory`. Generate a self-signed cert and apply the dev overlay that mounts it before the pod will come up healthy:
-
-```bash
-./hack/gen-webhook-certs.sh kubezap-system kubezap-webhook-certs
-kubectl apply -k config/dev   # mounts the cert + sets --webhook-cert-path (dev/test only)
-```
-
-Both of these are tracked as known limitations in `planning/backlog/backlog.md`'s Backlog Candidates.
+The controller-manager self-provisions its own admission-webhook TLS certificate on boot (see `docs/design/2026-09-18-self-managed-webhook-certs.md`), so no manual cert generation or dev-overlay mounting is needed before it comes up healthy.
 
 ## Architecture orientation
 

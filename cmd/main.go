@@ -37,6 +37,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/certwatcher"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	"sigs.k8s.io/controller-runtime/pkg/metrics/filters"
@@ -47,6 +48,7 @@ import (
 	"github.com/kubezap/kubezap-operator/internal/controller"
 	"github.com/kubezap/kubezap-operator/internal/telemetry"
 	kubezapwebhook "github.com/kubezap/kubezap-operator/internal/webhook"
+	"github.com/kubezap/kubezap-operator/internal/webhookcerts"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -86,6 +88,7 @@ func main() {
 	var ssrfAllowClusterInternal bool
 	var executorImage string
 	var executorMTLS bool
+	var webhookServiceName string
 	flag.StringVar(&metricsAddr, "metrics-bind-address", ":9090", "The address the metrics endpoint binds to. "+
 		"Use :9090 for HTTP (default) or :8443 for HTTPS.")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
@@ -94,9 +97,12 @@ func main() {
 			"Enabling this will ensure there is only one active controller manager.")
 	flag.BoolVar(&secureMetrics, "metrics-secure", false,
 		"If set, the metrics endpoint is served securely via HTTPS. Use --metrics-secure=false to use HTTP instead.")
-	flag.StringVar(&webhookCertPath, "webhook-cert-path", "", "The directory that contains the webhook certificate.")
+	flag.StringVar(&webhookCertPath, "webhook-cert-path", "/tmp/k8s-webhook-server/serving-certs",
+		"The directory the operator's self-managed webhook serving certificate is written to and watched from.")
 	flag.StringVar(&webhookCertName, "webhook-cert-name", "tls.crt", "The name of the webhook certificate file.")
 	flag.StringVar(&webhookCertKey, "webhook-cert-key", "tls.key", "The name of the webhook key file.")
+	flag.StringVar(&webhookServiceName, "webhook-service-name", "kubezap-webhook-service",
+		"Name of the Service fronting the webhook server, used as the serving cert's DNS SAN.")
 	flag.StringVar(&metricsCertPath, "metrics-cert-path", "",
 		"The directory that contains the metrics server certificate.")
 	flag.StringVar(&metricsCertName, "metrics-cert-name", "tls.crt", "The name of the metrics server certificate file.")
@@ -145,19 +151,23 @@ func main() {
 
 	ctx := ctrl.SetupSignalHandler()
 
+	operatorNamespace := os.Getenv("POD_NAMESPACE")
+	if operatorNamespace == "" {
+		operatorNamespace = defaultNamespace
+		setupLog.Info("POD_NAMESPACE not set; defaulting to namespace 'default'")
+	}
+
+	restCfg := ctrl.GetConfigOrDie()
+
 	// Generate initial mTLS bundle when --executor-mtls=true.
 	// The bundle is in-memory (never written to etcd as a Secret with the key material).
 	// The controller reconciler writes only the server cert + CA cert to a Secret in each
 	// managed namespace; the CA private key and client cert never leave the controller process.
 	var initialMTLSBundle *controller.MTLSBundle
 	if executorMTLS {
-		ownNS := os.Getenv("POD_NAMESPACE")
-		if ownNS == "" {
-			ownNS = defaultNamespace
-		}
 		dnsSANs := []string{
-			fmt.Sprintf("kubezap-http-executor.%s.svc.cluster.local", ownNS),
-			fmt.Sprintf("kubezap-http-executor.%s.svc", ownNS),
+			fmt.Sprintf("kubezap-http-executor.%s.svc.cluster.local", operatorNamespace),
+			fmt.Sprintf("kubezap-http-executor.%s.svc", operatorNamespace),
 		}
 		bundle, err := controller.GenerateMTLSBundle(dnsSANs)
 		if err != nil {
@@ -196,11 +206,29 @@ func main() {
 	// Initial webhook TLS options
 	webhookTLSOpts := tlsOpts
 
-	if len(webhookCertPath) > 0 {
-		setupLog.Info("Initializing webhook certificate watcher using provided certificates",
+	{
+		// Self-provision the webhook server's TLS cert: generate (or rotate) a
+		// self-signed CA + serving cert, store it in a Secret in this namespace,
+		// write it to webhookCertPath, and patch the CA into the
+		// ValidatingWebhookConfiguration's caBundle. Uses an uncached client since
+		// the manager's cache isn't running yet. See
+		// docs/design/2026-09-18-self-managed-webhook-certs.md.
+		bootstrapClient, err := client.New(restCfg, client.Options{Scheme: scheme})
+		if err != nil {
+			setupLog.Error(err, "unable to create bootstrap client for webhook cert provisioning")
+			os.Exit(1)
+		}
+		webhookCertOpts := webhookCertOptions(
+			operatorNamespace, webhookServiceName, webhookCertPath, webhookCertName, webhookCertKey,
+		)
+		if err := webhookcerts.Ensure(ctx, bootstrapClient, webhookCertOpts); err != nil {
+			setupLog.Error(err, "unable to ensure webhook serving certificate")
+			os.Exit(1)
+		}
+
+		setupLog.Info("Initializing webhook certificate watcher",
 			"webhook-cert-path", webhookCertPath, "webhook-cert-name", webhookCertName, "webhook-cert-key", webhookCertKey)
 
-		var err error
 		webhookCertWatcher, err = certwatcher.New(
 			filepath.Join(webhookCertPath, webhookCertName),
 			filepath.Join(webhookCertPath, webhookCertKey),
@@ -275,13 +303,8 @@ func main() {
 		setupLog.Info("AllNamespaces mode: watching all namespaces")
 	case "":
 		// Default: OwnNamespace — watch only the operator's own namespace.
-		ownNS := os.Getenv("POD_NAMESPACE")
-		if ownNS == "" {
-			ownNS = defaultNamespace
-			setupLog.Info("POD_NAMESPACE not set; defaulting watch to namespace 'default'")
-		}
-		cacheOpts.DefaultNamespaces = map[string]cache.Config{ownNS: {}}
-		setupLog.Info("OwnNamespace mode: restricting watch to operator namespace", "namespace", ownNS)
+		cacheOpts.DefaultNamespaces = map[string]cache.Config{operatorNamespace: {}}
+		setupLog.Info("OwnNamespace mode: restricting watch to operator namespace", "namespace", operatorNamespace)
 	default:
 		ns := map[string]cache.Config{}
 		for _, n := range strings.Split(watchNS, ",") {
@@ -293,7 +316,7 @@ func main() {
 		setupLog.Info("MultiNamespace mode: restricting watch to namespaces", "namespaces", watchNS)
 	}
 
-	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
+	mgr, err := ctrl.NewManager(restCfg, ctrl.Options{
 		Scheme:                 scheme,
 		Metrics:                metricsServerOptions,
 		WebhookServer:          webhookServer,
@@ -392,10 +415,6 @@ func main() {
 		setupLog.Error(err, "unable to create controller", "controller", "Integration")
 		os.Exit(1)
 	}
-	operatorNamespace := os.Getenv("POD_NAMESPACE")
-	if operatorNamespace == "" {
-		operatorNamespace = defaultNamespace
-	}
 	executorReconciler := &controller.ExecutorReconciler{
 		Client:                   mgr.GetClient(),
 		Scheme:                   mgr.GetScheme(),
@@ -415,13 +434,9 @@ func main() {
 		go func() {
 			ticker := time.NewTicker(5 * time.Minute)
 			defer ticker.Stop()
-			ownNS := os.Getenv("POD_NAMESPACE")
-			if ownNS == "" {
-				ownNS = defaultNamespace
-			}
 			dnsSANs := []string{
-				fmt.Sprintf("kubezap-http-executor.%s.svc.cluster.local", ownNS),
-				fmt.Sprintf("kubezap-http-executor.%s.svc", ownNS),
+				fmt.Sprintf("kubezap-http-executor.%s.svc.cluster.local", operatorNamespace),
+				fmt.Sprintf("kubezap-http-executor.%s.svc", operatorNamespace),
 			}
 			for {
 				select {
@@ -467,12 +482,18 @@ func main() {
 		}
 	}
 
-	if webhookCertWatcher != nil {
-		setupLog.Info("Adding webhook certificate watcher to manager")
-		if err := mgr.Add(webhookCertWatcher); err != nil {
-			setupLog.Error(err, "unable to add webhook certificate watcher to manager")
-			os.Exit(1)
-		}
+	setupLog.Info("Adding webhook certificate watcher to manager")
+	if err := mgr.Add(webhookCertWatcher); err != nil {
+		setupLog.Error(err, "unable to add webhook certificate watcher to manager")
+		os.Exit(1)
+	}
+
+	if err := mgr.Add(&webhookcerts.Rotator{
+		Client:  mgr.GetClient(),
+		Options: webhookCertOptions(operatorNamespace, webhookServiceName, webhookCertPath, webhookCertName, webhookCertKey),
+	}); err != nil {
+		setupLog.Error(err, "unable to add webhook certificate rotator to manager")
+		os.Exit(1)
 	}
 
 	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
@@ -488,5 +509,24 @@ func main() {
 	if err := mgr.Start(ctx); err != nil {
 		setupLog.Error(err, "problem running manager")
 		os.Exit(1)
+	}
+}
+
+// webhookConfigurationName is the ValidatingWebhookConfiguration name generated
+// by config/webhook/manifests.yaml (kustomize applies namePrefix: kubezap- only
+// to namespaced resources, not this cluster-scoped one, so the name is unprefixed).
+const webhookConfigurationName = "validating-webhook-configuration"
+
+// webhookCertOptions builds the webhookcerts.Options shared by the bootstrap
+// Ensure call and the manager-registered Rotator, so the two never drift apart.
+func webhookCertOptions(namespace, serviceName, certDir, certName, certKey string) webhookcerts.Options {
+	return webhookcerts.Options{
+		Namespace:                namespace,
+		SecretName:               "kubezap-webhook-server-cert",
+		ServiceName:              serviceName,
+		WebhookConfigurationName: webhookConfigurationName,
+		CertDir:                  certDir,
+		CertFileName:             certName,
+		KeyFileName:              certKey,
 	}
 }

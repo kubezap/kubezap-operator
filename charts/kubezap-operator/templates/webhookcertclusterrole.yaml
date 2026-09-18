@@ -1,0 +1,39 @@
+# ValidatingWebhookConfiguration is cluster-scoped, so this permission can
+# never be granted via the namespaced Role (role.yaml) used when
+# watchOwnNamespace/a single watchNamespaces value is set. This ClusterRole +
+# ClusterRoleBinding pair is rendered unconditionally, regardless of
+# namespacedRBAC, so the operator's self-managed webhook cert mechanism
+# (internal/webhookcerts) can always patch the ValidatingWebhookConfiguration's
+# caBundle. See docs/design/2026-09-18-self-managed-webhook-certs.md.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "kubezap.fullname" . }}-webhook-cert
+  labels:
+    {{- include "kubezap.labels" . | nindent 4 }}
+rules:
+  - apiGroups:
+      - admissionregistration.k8s.io
+    resources:
+      - validatingwebhookconfigurations
+    verbs:
+      - get
+      - list
+      - patch
+      - update
+      - watch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "kubezap.fullname" . }}-webhook-cert
+  labels:
+    {{- include "kubezap.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "kubezap.fullname" . }}-webhook-cert
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "kubezap.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}

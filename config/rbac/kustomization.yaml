@@ -9,6 +9,11 @@ resources:
 - role_binding.yaml
 - leader_election_role.yaml
 - leader_election_role_binding.yaml
+# Cluster-scoped webhook cert permission, applied regardless of WATCH_NAMESPACES
+# mode — see webhook_cert_role.yaml's header comment for why this can't be
+# folded into role.yaml/namespaced_role.yaml.
+- webhook_cert_role.yaml
+- webhook_cert_role_binding.yaml
 # The following RBAC configurations are used to protect
 # the metrics endpoint with authn/authz. These configurations
 # ensure that only authorized users and service accounts

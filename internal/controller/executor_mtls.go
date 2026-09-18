@@ -18,20 +18,13 @@ package controller
 
 import (
 	"crypto"
-	"crypto/ecdsa"
-	"crypto/elliptic"
-	"crypto/rand"
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
-	"encoding/pem"
-	"math/big"
 	"time"
-)
 
-// pemBlockTypeCertificate is the pem.Block.Type value for a DER-encoded X.509
-// certificate, per RFC 7468.
-const pemBlockTypeCertificate = "CERTIFICATE"
+	"github.com/kubezap/kubezap-operator/internal/certutil"
+)
 
 // MTLSBundle holds an in-memory CA and the derived cert pair for the executor channel.
 // The bundle is generated once at startup (or on rotation) and is never persisted to etcd.
@@ -56,56 +49,32 @@ func GenerateMTLSBundle(serverDNSNames []string) (*MTLSBundle, error) {
 	now := time.Now().UTC()
 	expiry := now.Add(24 * time.Hour)
 
-	// --- CA ---
-	caKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-	if err != nil {
-		return nil, err
-	}
-	caSerial, err := rand.Int(rand.Reader, new(big.Int).Lsh(big.NewInt(1), 128))
-	if err != nil {
-		return nil, err
-	}
-	caTemplate := &x509.Certificate{
-		SerialNumber: caSerial,
-		Subject: pkix.Name{
-			Organization:       []string{"kubezap.io"},
-			OrganizationalUnit: []string{"executor-ca"},
-			CommonName:         "kubezap-executor-ca",
-		},
-		NotBefore:             now,
-		NotAfter:              expiry,
-		IsCA:                  true,
-		BasicConstraintsValid: true,
-		KeyUsage:              x509.KeyUsageCertSign | x509.KeyUsageCRLSign,
-	}
-	caDER, err := x509.CreateCertificate(rand.Reader, caTemplate, caTemplate, &caKey.PublicKey, caKey)
-	if err != nil {
-		return nil, err
-	}
-	caCert, err := x509.ParseCertificate(caDER)
+	caCert, caKey, err := certutil.GenerateCA(pkix.Name{
+		Organization:       []string{"kubezap.io"},
+		OrganizationalUnit: []string{"executor-ca"},
+		CommonName:         "kubezap-executor-ca",
+	}, now, expiry)
 	if err != nil {
 		return nil, err
 	}
 
-	// --- server cert (for the executor pod) ---
-	serverCert, err := issueLeafCert(
-		now, expiry,
+	serverCert, err := certutil.IssueLeafCert(
+		caCert, caKey,
 		pkix.Name{CommonName: "kubezap-http-executor"},
 		serverDNSNames,
 		x509.ExtKeyUsageServerAuth,
-		caCert, caKey,
+		now, expiry,
 	)
 	if err != nil {
 		return nil, err
 	}
 
-	// --- client cert (for the controller) ---
-	clientCert, err := issueLeafCert(
-		now, expiry,
+	clientCert, err := certutil.IssueLeafCert(
+		caCert, caKey,
 		pkix.Name{CommonName: "kubezap-controller"},
 		nil,
 		x509.ExtKeyUsageClientAuth,
-		caCert, caKey,
+		now, expiry,
 	)
 	if err != nil {
 		return nil, err
@@ -118,48 +87,6 @@ func GenerateMTLSBundle(serverDNSNames []string) (*MTLSBundle, error) {
 		ClientCert: clientCert,
 		ExpiresAt:  expiry,
 	}, nil
-}
-
-// issueLeafCert creates a signed leaf certificate for either server or client auth.
-func issueLeafCert(
-	notBefore, notAfter time.Time,
-	subject pkix.Name,
-	dnsNames []string,
-	extKeyUsage x509.ExtKeyUsage,
-	caCert *x509.Certificate,
-	caKey crypto.PrivateKey,
-) (tls.Certificate, error) {
-	leafKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-	if err != nil {
-		return tls.Certificate{}, err
-	}
-	serial, err := rand.Int(rand.Reader, new(big.Int).Lsh(big.NewInt(1), 128))
-	if err != nil {
-		return tls.Certificate{}, err
-	}
-	template := &x509.Certificate{
-		SerialNumber:          serial,
-		Subject:               subject,
-		NotBefore:             notBefore,
-		NotAfter:              notAfter,
-		KeyUsage:              x509.KeyUsageDigitalSignature,
-		ExtKeyUsage:           []x509.ExtKeyUsage{extKeyUsage},
-		DNSNames:              dnsNames,
-		BasicConstraintsValid: true,
-	}
-	certDER, err := x509.CreateCertificate(rand.Reader, template, caCert, &leafKey.PublicKey, caKey)
-	if err != nil {
-		return tls.Certificate{}, err
-	}
-
-	certPEM := pem.EncodeToMemory(&pem.Block{Type: pemBlockTypeCertificate, Bytes: certDER})
-	keyDER, err := x509.MarshalECPrivateKey(leafKey)
-	if err != nil {
-		return tls.Certificate{}, err
-	}
-	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyDER})
-
-	return tls.X509KeyPair(certPEM, keyPEM)
 }
 
 // ClientTLSConfig returns a *tls.Config for the controller's HTTP client that:
@@ -177,44 +104,24 @@ func (b *MTLSBundle) ClientTLSConfig() *tls.Config {
 
 // ServerCertPEM returns the PEM-encoded server certificate.
 func (b *MTLSBundle) ServerCertPEM() []byte {
-	return certChainPEM(b.ServerCert)
+	return certutil.CertChainPEM(b.ServerCert)
 }
 
 // ServerKeyPEM returns the PEM-encoded server private key.
 func (b *MTLSBundle) ServerKeyPEM() []byte {
-	return privateKeyPEM(b.ServerCert.PrivateKey)
+	pemBytes, err := certutil.PrivateKeyPEM(b.ServerCert.PrivateKey)
+	if err != nil {
+		return nil
+	}
+	return pemBytes
 }
 
 // CACertPEM returns the PEM-encoded CA certificate.
 func (b *MTLSBundle) CACertPEM() []byte {
-	return pem.EncodeToMemory(&pem.Block{Type: pemBlockTypeCertificate, Bytes: b.CACert.Raw})
+	return certutil.EncodeCertPEM(b.CACert.Raw)
 }
 
 // NeedsRotation returns true when the bundle will expire within 1 hour.
 func (b *MTLSBundle) NeedsRotation() bool {
 	return time.Now().UTC().Add(time.Hour).After(b.ExpiresAt)
-}
-
-// certChainPEM encodes the leaf (and any intermediate) certificates in a tls.Certificate
-// as a PEM block sequence.
-func certChainPEM(cert tls.Certificate) []byte {
-	buf := make([]byte, 0, len(cert.Certificate))
-	for _, der := range cert.Certificate {
-		buf = append(buf, pem.EncodeToMemory(&pem.Block{Type: pemBlockTypeCertificate, Bytes: der})...)
-	}
-	return buf
-}
-
-// privateKeyPEM encodes the private key stored in a tls.Certificate as PEM.
-// Supports ECDSA keys (the only type generated by this package).
-func privateKeyPEM(key crypto.PrivateKey) []byte {
-	ecKey, ok := key.(*ecdsa.PrivateKey)
-	if !ok {
-		return nil
-	}
-	der, err := x509.MarshalECPrivateKey(ecKey)
-	if err != nil {
-		return nil
-	}
-	return pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: der})
 }

@@ -4,6 +4,12 @@
 # single namespace.  Use this instead of manager-role when the operator is
 # installed with OwnNamespace or SingleNamespace install mode so that it does
 # not require cluster-wide RBAC.
+#
+# Exception: any rule on a cluster-scoped resource (e.g.
+# validatingwebhookconfigurations.admissionregistration.k8s.io) cannot be
+# granted via a Role at all, regardless of install mode — that permission is
+# instead in the always-applied webhook_cert_role.yaml/webhook_cert_role_binding.yaml
+# ClusterRole pair, which must be deployed alongside this file.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
@@ -14,8 +20,12 @@ rules:
   resources:
   - secrets
   verbs:
+  - create
+  - delete
   - get
   - list
+  - patch
+  - update
   - watch
 - apiGroups:
   - ""

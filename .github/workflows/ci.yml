@@ -62,6 +62,44 @@ jobs:
             exit 1;
           }
 
+  bundle-drift:
+    name: OLM Bundle Drift Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Regenerate the OLM bundle
+        run: |
+          make bundle
+
+      - name: Normalize non-deterministic CSV timestamp
+        run: |
+          # `operator-sdk generate bundle` stamps metadata.annotations.createdAt
+          # in the CSV with the current wall-clock time on every single run, so
+          # it always differs from the committed file even with zero real
+          # drift. Reset it back to the committed value so only meaningful
+          # content changes are flagged as drift below.
+          csv=bundle/manifests/kubezap.clusterserviceversion.yaml
+          if [ -f "$csv" ]; then
+            orig_line="$(git show HEAD:"$csv" | grep -m1 '^\s*createdAt:' || true)"
+            if [ -n "$orig_line" ]; then
+              sed -i "s|^[[:space:]]*createdAt:.*|${orig_line}|" "$csv"
+            fi
+          fi
+
+      - name: Fail if regeneration produced any diff
+        run: |
+          git diff --exit-code -- bundle/ || {
+            echo "::error::bundle/ is out of date. Run 'make bundle' locally and commit the result.";
+            git diff --stat -- bundle/;
+            exit 1;
+          }
+
   govulncheck:
     name: Vulnerability Scan (govulncheck)
     runs-on: ubuntu-latest

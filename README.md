@@ -45,8 +45,11 @@ kubectl get pods -n kubezap-system
 ### Helm chart
 
 ```bash
-helm install kubezap kubezap/kubezap-operator
+helm install kubezap oci://ghcr.io/kubezap/charts/kubezap-operator \
+  --namespace kubezap-system --create-namespace
 ```
+
+See [docs/overview.md](docs/overview.md#helm-recommended) for install-mode options (OwnNamespace, AllNamespaces, SingleNamespace, MultiNamespace) and image-override examples.
 
 ### OperatorHub / OLM _(submission pending)_
 

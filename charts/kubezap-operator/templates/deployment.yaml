@@ -50,6 +50,7 @@ spec:
           args:
             - --leader-elect={{ .Values.leaderElect }}
             - --health-probe-bind-address={{ .Values.healthProbeBindAddress }}
+            - --executor-image={{ .Values.executor.image }}
           env:
             - name: WEBHOOK_GATEWAY_IMAGE
               value: {{ .Values.gatewayImages.webhook | quote }}
@@ -59,6 +60,10 @@ spec:
               value: {{ .Values.gatewayImages.amqp | quote }}
             - name: NATS_GATEWAY_IMAGE
               value: {{ .Values.gatewayImages.nats | quote }}
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
             {{- $watchNs := include "kubezap.watchNamespaces" . }}
             {{- if $watchNs }}
             - name: WATCH_NAMESPACES
@@ -78,3 +83,9 @@ spec:
             periodSeconds: 10
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - name: webhook-certs
+              mountPath: /tmp/k8s-webhook-server
+      volumes:
+        - name: webhook-certs
+          emptyDir: {}

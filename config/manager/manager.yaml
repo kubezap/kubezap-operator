@@ -63,6 +63,7 @@ spec:
         args:
           - --leader-elect
           - --health-probe-bind-address=:8081
+          - --executor-image=ghcr.io/kubezap/http-executor:latest
         env:
           - name: WEBHOOK_GATEWAY_IMAGE
             value: "ghcr.io/kubezap/webhook-gateway:latest"

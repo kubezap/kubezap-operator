@@ -316,3 +316,46 @@ var _ = Describe("reconcileWebhookGatewayConfigStatus", func() {
 		Expect(got.Status.Conditions[0].ObservedGeneration).To(Equal(got.Generation))
 	})
 })
+
+var _ = Describe("desiredWebhookGatewayDeployment TLS volumes", func() {
+	// Regression test: the mounted Secret volumes' DefaultMode must be
+	// world-readable (0444), not owner-only (0400). Kubernetes Secret volume
+	// files are owned by root regardless of the pod's securityContext; with
+	// readOnlyRootFilesystem+runAsNonRoot (this Deployment's actual
+	// securityContext) and no fsGroup set, a 0400 mode means the non-root
+	// container user cannot read the file at all — verified live on k3s: the
+	// webhook-gateway container crash-looped with "permission denied" opening
+	// its own mounted TLS cert until this was fixed to 0444.
+	It("mounts the server TLS secret with a world-readable DefaultMode", func() {
+		dep := desiredWebhookGatewayDeployment("default", WebhookGatewayTLSConfig{
+			TLSSecretName: "webhook-gw-tls",
+		})
+
+		var found *corev1.Volume
+		for i := range dep.Spec.Template.Spec.Volumes {
+			if dep.Spec.Template.Spec.Volumes[i].Name == "webhook-tls" {
+				found = &dep.Spec.Template.Spec.Volumes[i]
+			}
+		}
+		Expect(found).NotTo(BeNil(), "expected a webhook-tls volume when TLSSecretName is set")
+		Expect(found.Secret).NotTo(BeNil())
+		Expect(found.Secret.DefaultMode).To(Equal(ptr.To(int32(0444))))
+	})
+
+	It("mounts the client CA secret with a world-readable DefaultMode", func() {
+		dep := desiredWebhookGatewayDeployment("default", WebhookGatewayTLSConfig{
+			TLSSecretName:    "webhook-gw-tls",
+			MTLSCASecretName: "webhook-gw-mtls-ca",
+		})
+
+		var found *corev1.Volume
+		for i := range dep.Spec.Template.Spec.Volumes {
+			if dep.Spec.Template.Spec.Volumes[i].Name == "webhook-mtls-ca" {
+				found = &dep.Spec.Template.Spec.Volumes[i]
+			}
+		}
+		Expect(found).NotTo(BeNil(), "expected a webhook-mtls-ca volume when MTLSCASecretName is set")
+		Expect(found.Secret).NotTo(BeNil())
+		Expect(found.Secret.DefaultMode).To(Equal(ptr.To(int32(0444))))
+	})
+})

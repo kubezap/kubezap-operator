@@ -465,7 +465,7 @@ func desiredWebhookGatewayDeployment(namespace string, tlsCfg WebhookGatewayTLSC
 			VolumeSource: corev1.VolumeSource{
 				Secret: &corev1.SecretVolumeSource{
 					SecretName:  tlsCfg.TLSSecretName,
-					DefaultMode: ptr.To(int32(0400)),
+					DefaultMode: ptr.To(int32(0444)),
 				},
 			},
 		})
@@ -482,7 +482,7 @@ func desiredWebhookGatewayDeployment(namespace string, tlsCfg WebhookGatewayTLSC
 				VolumeSource: corev1.VolumeSource{
 					Secret: &corev1.SecretVolumeSource{
 						SecretName:  tlsCfg.MTLSCASecretName,
-						DefaultMode: ptr.To(int32(0400)),
+						DefaultMode: ptr.To(int32(0444)),
 					},
 				},
 			})

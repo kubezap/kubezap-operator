@@ -1,6 +1,6 @@
 # Cluster-Scoped Namespace-Read RBAC for AllNamespaces-Mode Broker Gateways
 
-> Status: Draft
+> Status: Approved
 > Date: 2026-09-19
 > Related: `internal/gateway/{kafka,amqp,nats,webhook}/watcher.go`, `internal/controller/integration_controller.go`, `internal/controller/gateway_deployment.go`, `docs/design/allnamespaces-secrets-label-restriction.md`, `docs/design/allnamespaces-dynamic-secrets-rbac.md`, `planning/backlog/stories/STORY-053-canonical-rbac-completeness-audit.md`, `planning/backlog/stories/STORY-055-gateway-namespace-read-rbac.md`, `planning/backlog/stories/STORY-056-webhook-gateway-watch-namespaces-propagation.md`
 

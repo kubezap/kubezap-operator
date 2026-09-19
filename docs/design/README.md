@@ -58,3 +58,6 @@ Multi-decision reference files are permitted for a single security/architecture 
 | 2026-09-18 | [CLI Tool Scope](cli-tool-scope.md)                                                      | Approved |
 | 2026-09-18 | [Self-Managed Webhook Admission Certs](self-managed-webhook-certs.md)                   | Approved |
 | 2026-09-18 | [WebhookGatewayConfig Singleton via Fixed Name](webhookgatewayconfig-singleton-name.md) | Approved |
+| 2026-09-19 | [Container Image Signing/Provenance](container-image-signing.md)                       | Draft    |
+| 2026-09-19 | [Kafka Message Key Capture](kafka-message-key-capture.md)                               | Draft    |
+| 2026-09-19 | [TriggerData.Body Binary-Safety Fix](trigger-body-encoding-safety.md)                   | Draft    |

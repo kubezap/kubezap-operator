@@ -146,7 +146,6 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      security-events: write
     steps:
       - uses: actions/checkout@v7
 
@@ -168,8 +167,7 @@ jobs:
         uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8 # v0.36.0
         with:
           image-ref: kubezap/controller:ci
-          format: sarif
-          output: trivy-controller.sarif
+          format: table
           severity: 'CRITICAL,HIGH'
           exit-code: '1'
 
@@ -188,8 +186,7 @@ jobs:
         uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8 # v0.36.0
         with:
           image-ref: kubezap/webhook-gateway:ci
-          format: sarif
-          output: trivy-webhook-gateway.sarif
+          format: table
           severity: 'CRITICAL,HIGH'
           exit-code: '1'
 
@@ -208,8 +205,7 @@ jobs:
         uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8 # v0.36.0
         with:
           image-ref: kubezap/kafka-gateway:ci
-          format: sarif
-          output: trivy-kafka-gateway.sarif
+          format: table
           severity: 'CRITICAL,HIGH'
           exit-code: '1'
 
@@ -228,8 +224,7 @@ jobs:
         uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8 # v0.36.0
         with:
           image-ref: kubezap/amqp-gateway:ci
-          format: sarif
-          output: trivy-amqp-gateway.sarif
+          format: table
           severity: 'CRITICAL,HIGH'
           exit-code: '1'
 
@@ -248,8 +243,7 @@ jobs:
         uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8 # v0.36.0
         with:
           image-ref: kubezap/nats-gateway:ci
-          format: sarif
-          output: trivy-nats-gateway.sarif
+          format: table
           severity: 'CRITICAL,HIGH'
           exit-code: '1'
 
@@ -268,22 +262,9 @@ jobs:
         uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8 # v0.36.0
         with:
           image-ref: kubezap/http-executor:ci
-          format: sarif
-          output: trivy-http-executor.sarif
+          format: table
           severity: 'CRITICAL,HIGH'
           exit-code: '1'
-
-      - name: Upload Trivy SARIF results
-        if: always()
-        uses: github/codeql-action/upload-sarif@v3
-        with:
-          sarif_file: |
-            trivy-controller.sarif
-            trivy-webhook-gateway.sarif
-            trivy-kafka-gateway.sarif
-            trivy-amqp-gateway.sarif
-            trivy-nats-gateway.sarif
-            trivy-http-executor.sarif
 
       - name: Fail job if any image scan found CRITICAL/HIGH findings
         if: always()
@@ -304,6 +285,6 @@ jobs:
             fi
           done
           if [ "$failed" -ne 0 ]; then
-            echo "One or more images failed the Trivy CRITICAL/HIGH scan. See the Security tab for details."
+            echo "One or more images failed the Trivy CRITICAL/HIGH scan. See the corresponding 'Scan <image> image (Trivy)' step's log above for the finding details."
             exit 1
           fi

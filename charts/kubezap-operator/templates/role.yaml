@@ -10,6 +10,14 @@ rules:
   - apiGroups:
       - ""
     resources:
+      - configmaps
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - ""
+    resources:
       - secrets
     verbs:
       - create
@@ -26,6 +34,7 @@ rules:
       - services
     verbs:
       - create
+      - delete
       - get
       - list
       - patch
@@ -70,6 +79,7 @@ rules:
       - flows/status
       - integrations/status
       - triggers/status
+      - webhookgatewayconfigs/status
     verbs:
       - get
       - patch
@@ -85,6 +95,57 @@ rules:
       - patch
       - update
       - watch
+  - apiGroups:
+      - automation.kubezap.io
+    resources:
+      - webhookgatewayconfigs
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - networking.k8s.io
+    resources:
+      - networkpolicies
+    verbs:
+      - create
+      - delete
+      - get
+      - list
+      - patch
+      - update
+      - watch
+  - apiGroups:
+      - policy
+    resources:
+      - poddisruptionbudgets
+    verbs:
+      - create
+      - delete
+      - get
+      - list
+      - patch
+      - update
+      - watch
+  - apiGroups:
+      - coordination.k8s.io
+    resources:
+      - leases
+    verbs:
+      - create
+      - delete
+      - get
+      - list
+      - patch
+      - update
+      - watch
+  - apiGroups:
+      - ""
+    resources:
+      - events
+    verbs:
+      - create
+      - patch
   - apiGroups:
       - autoscaling
     resources:
@@ -116,6 +177,7 @@ rules:
       - roles
     verbs:
       - create
+      - delete
       - get
       - list
       - patch

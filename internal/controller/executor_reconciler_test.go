@@ -122,18 +122,23 @@ var _ = Describe("ExecutorReconciler", func() {
 			Expect(np.Spec.PolicyTypes).To(ContainElement(networkingv1.PolicyTypeIngress))
 
 			// Regression test: the ingress From peer must match the REAL
-			// controller-manager pod's labels (config/manager/manager.yaml — no
-			// app.kubernetes.io/component label exists on that pod) and must carry a
-			// NamespaceSelector, since the controller normally runs in a different
-			// namespace than the executor it's reaching. A selector that doesn't match
-			// the real pod silently breaks every HTTP step whenever NetworkPolicy is
-			// actually enforced by the cluster's CNI.
+			// controller-manager pod's labels across BOTH install paths — the raw
+			// kustomize manifests (config/manager/manager.yaml, app.kubernetes.io/name:
+			// kubezap) and the Helm chart (charts/kubezap-operator, app.kubernetes.io/name:
+			// kubezap-operator, Helm's chart-name convention) disagree on
+			// app.kubernetes.io/name for the controller pod itself, so the selector
+			// must key on control-plane=controller-manager ALONE (the one label both
+			// paths agree on), not also require app.kubernetes.io/name. It must also
+			// carry a NamespaceSelector, since the controller normally runs in a
+			// different namespace than the executor it's reaching. A selector that
+			// doesn't match the real pod silently breaks every HTTP step whenever
+			// NetworkPolicy is actually enforced by the cluster's CNI — verified live
+			// on k3s: this exact mismatch blocked 100% of HTTP steps on a Helm install.
 			Expect(np.Spec.Ingress[0].From).To(HaveLen(1))
 			peer := np.Spec.Ingress[0].From[0]
 			Expect(peer.PodSelector).NotTo(BeNil())
 			Expect(peer.PodSelector.MatchLabels).To(Equal(map[string]string{
-				"app.kubernetes.io/name": "kubezap",
-				"control-plane":          "controller-manager",
+				"control-plane": "controller-manager",
 			}))
 			Expect(peer.NamespaceSelector).NotTo(BeNil())
 			Expect(peer.NamespaceSelector.MatchLabels).To(Equal(map[string]string{

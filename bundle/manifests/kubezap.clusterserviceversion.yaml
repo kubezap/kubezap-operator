@@ -178,7 +178,7 @@ metadata:
     capabilities: Basic Install
     categories: Integration & Delivery
     containerImage: ghcr.io/kubezap/controller:latest
-    createdAt: "2026-09-19T17:05:26Z"
+    createdAt: "2026-09-19T18:58:52Z"
     description: Declarative workflow automation for Kubernetes
     operatorframework.io/suggested-namespace: kubezap-system
     operators.operatorframework.io/builder: operator-sdk-v1.42.0
@@ -515,6 +515,18 @@ spec:
           - update
           - watch
         - apiGroups:
+          - coordination.k8s.io
+          resources:
+          - leases
+          verbs:
+          - create
+          - delete
+          - get
+          - list
+          - patch
+          - update
+          - watch
+        - apiGroups:
           - keda.sh
           resources:
           - scaledobjects
@@ -612,6 +624,7 @@ spec:
                 - --metrics-bind-address=:9090
                 - --leader-elect
                 - --health-probe-bind-address=:8081
+                - --executor-image=ghcr.io/kubezap/http-executor:latest
                 command:
                 - /manager
                 env:

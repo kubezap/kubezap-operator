@@ -424,16 +424,21 @@ func (r *ExecutorReconciler) reconcileExecutorNetworkPolicy(ctx context.Context,
 				{
 					From: []networkingv1.NetworkPolicyPeer{
 						{
-							// Matches config/manager/manager.yaml's controller-manager pod
-							// template labels exactly (it does NOT carry an
-							// app.kubernetes.io/component label). A namespace selector is
-							// required alongside it: the controller-manager pod normally
-							// runs in a different namespace (its own, e.g. "kubezap-system")
-							// than this NetworkPolicy (the watched namespace, e.g. "default").
+							// Matches on control-plane=controller-manager alone (not also
+							// app.kubernetes.io/name=kubezap): the raw kustomize manifests
+							// (config/manager/manager.yaml) and the Helm chart
+							// (charts/kubezap-operator) label the controller pod with
+							// different app.kubernetes.io/name values (Helm's chart-name
+							// convention gives it "kubezap-operator", not "kubezap"), but
+							// both agree on control-plane=controller-manager, which is
+							// unique enough on its own within the operator's namespace. A
+							// namespace selector is required alongside it: the
+							// controller-manager pod normally runs in a different namespace
+							// (its own, e.g. "kubezap-system") than this NetworkPolicy (the
+							// watched namespace, e.g. "default").
 							PodSelector: &metav1.LabelSelector{
 								MatchLabels: map[string]string{
-									labelAppKubernetesIOName: appNameKubezap,
-									"control-plane":          "controller-manager",
+									"control-plane": "controller-manager",
 								},
 							},
 							NamespaceSelector: &metav1.LabelSelector{

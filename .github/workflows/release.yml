@@ -35,6 +35,10 @@ jobs:
   release-images:
     name: Build and push container images
     runs-on: ubuntu-latest
+    permissions:
+      contents: read     # actions/checkout
+      packages: write    # push image + cosign signature to GHCR
+      id-token: write    # mint the OIDC token cosign uses for keyless signing
     strategy:
       matrix:
         include:
@@ -80,6 +84,7 @@ jobs:
             type=semver,pattern={{major}}.{{minor}}
 
       - name: Build and push ${{ matrix.name }}
+        id: build
         uses: docker/build-push-action@v7
         with:
           context: .
@@ -90,6 +95,21 @@ jobs:
           platforms: linux/amd64,linux/arm64
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v3
+
+      # Keyless signing via Sigstore's public-good Fulcio + Rekor, tied to
+      # this workflow's own GitHub Actions OIDC identity (no stored signing
+      # key or secret). Signs by digest — not tag — so the signature is
+      # bound to the exact content pushed above, for both -rc.N and final
+      # tags alike (no conditional skip). A signing failure fails this job:
+      # an unsigned image published without any visible signal defeats the
+      # point of signing at all.
+      - name: Sign ${{ matrix.name }} image (cosign keyless)
+        run: |
+          cosign sign --yes \
+            "ghcr.io/kubezap/${{ matrix.name }}@${{ steps.build.outputs.digest }}"
 
   release-helm:
     name: Publish Helm chart to GHCR OCI

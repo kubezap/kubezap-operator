@@ -68,10 +68,16 @@ jobs:
         uses: docker/metadata-action@v6
         with:
           images: ghcr.io/kubezap/${{ matrix.name }}
+          # flavor: latest=auto only applies the `latest` tag when this tag is
+          # the highest *stable* semver seen — never for a `-rc.N` prerelease
+          # tag, so an RC never displaces the real `:latest`. The
+          # {{major}}.{{minor}} pattern is likewise skipped by docker/metadata-action
+          # for prerelease tags automatically (no explicit handling needed here).
+          flavor: |
+            latest=auto
           tags: |
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
-            type=raw,value=latest
 
       - name: Build and push ${{ matrix.name }}
         uses: docker/build-push-action@v7

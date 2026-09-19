@@ -336,9 +336,16 @@ func AccessLogMiddleware(next http.Handler, trustedProxies []*net.IPNet) http.Ha
 			}
 		}
 
-		accessLogger.LogAttrs(r.Context(), level, "webhook_request",
-			slog.String("trace_id", fields.TraceID),
-			slog.String("span_id", fields.SpanID),
+		// trace_id/span_id are only included when tracing is actually
+		// configured (fields.TraceID is non-empty — see the IsValid() check
+		// in WebhookHandler.ServeHTTP where these are populated). Omitting
+		// them when tracing is off (the default) is clearer than printing a
+		// zero-filled, real-looking-but-meaningless ID on every line.
+		var attrs []slog.Attr
+		if fields.TraceID != "" {
+			attrs = append(attrs, slog.String("trace_id", fields.TraceID), slog.String("span_id", fields.SpanID))
+		}
+		attrs = append(attrs,
 			slog.Group("request", requestAttrs...),
 			slog.Group("auth", authAttrs...),
 			slog.Group("response",
@@ -347,5 +354,7 @@ func AccessLogMiddleware(next http.Handler, trustedProxies []*net.IPNet) http.Ha
 			),
 			slog.Group("flowrun", flowrunAttrs...),
 		)
+
+		accessLogger.LogAttrs(r.Context(), level, "webhook_request", attrs...)
 	})
 }

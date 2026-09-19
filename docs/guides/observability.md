@@ -373,8 +373,8 @@ Access logging is implemented via `internal/gateway/webhook/accesslog.go`. `Acce
 | ----------------------- | ------- | ------------------------------------------------------------------------------ |
 | `ts`                    | RFC3339 | Request timestamp                                                              |
 | `level`                 | string  | `info` (success), `warn` (auth failure, rate limited), `error` (gateway error) |
-| `trace_id`              | string  | OpenTelemetry trace ID for correlation with traces                             |
-| `span_id`               | string  | OpenTelemetry span ID of the `webhook_request` root span                       |
+| `trace_id`              | string  | OpenTelemetry trace ID for correlation with traces. **Omitted** (not zero-filled) when `OTEL_EXPORTER_OTLP_ENDPOINT` is unset — the default — since a no-op `TracerProvider` has no real ID to report. |
+| `span_id`               | string  | OpenTelemetry span ID of the `webhook_request` root span. Omitted under the same condition as `trace_id`.                     |
 | `request.source_ip`     | string  | Client IP (respects `trustedProxies` for X-Forwarded-For)                      |
 | `request.forwarded_for` | string  | Raw X-Forwarded-For header if present                                          |
 | `request.user_agent`    | string  | HTTP User-Agent header                                                         |

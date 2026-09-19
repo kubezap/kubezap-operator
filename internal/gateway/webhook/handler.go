@@ -432,7 +432,16 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		))
 	defer rootSpan.End()
 	r = r.WithContext(spanCtx)
-	alFields.setTrace(rootSpan.SpanContext().TraceID().String(), rootSpan.SpanContext().SpanID().String())
+	// Only record trace/span IDs when tracing is actually configured
+	// (OTEL_EXPORTER_OTLP_ENDPOINT set) — a no-op TracerProvider (the
+	// default) yields an invalid SpanContext with all-zero IDs for a fresh
+	// root span, which would otherwise print as a real-looking-but-meaningless
+	// "00000...0" trace_id on every single access log line in the default
+	// configuration. Omitting the fields entirely when invalid is clearer
+	// than zero-filling them.
+	if sc := rootSpan.SpanContext(); sc.IsValid() {
+		alFields.setTrace(sc.TraceID().String(), sc.SpanID().String())
+	}
 
 	defer func() {
 		if rec := recover(); rec != nil {

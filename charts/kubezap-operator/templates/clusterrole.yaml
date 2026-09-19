@@ -200,4 +200,18 @@ rules:
       - patch
       - update
       - watch
+  # Required so IntegrationReconciler can maintain the two
+  # kubezap-gateway-namespace-reader ClusterRoleBindings' Subjects lists (see
+  # docs/design/allnamespaces-gateway-namespace-read-rbac.md). Cluster-scoped,
+  # so resourceNames restriction (which would need to name objects that don't
+  # exist yet at install time) is not applicable; verbs are limited to exactly
+  # what ensureGatewayNamespaceReaderBinding uses — no list/watch/delete/patch.
+  - apiGroups:
+      - rbac.authorization.k8s.io
+    resources:
+      - clusterrolebindings
+    verbs:
+      - create
+      - get
+      - update
 {{- end }}

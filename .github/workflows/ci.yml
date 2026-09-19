@@ -165,7 +165,7 @@ jobs:
       - name: Scan controller image (Trivy)
         id: trivy-controller
         continue-on-error: true
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8 # v0.36.0
         with:
           image-ref: kubezap/controller:ci
           format: sarif
@@ -185,7 +185,7 @@ jobs:
       - name: Scan webhook-gateway image (Trivy)
         id: trivy-webhook-gateway
         continue-on-error: true
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8 # v0.36.0
         with:
           image-ref: kubezap/webhook-gateway:ci
           format: sarif
@@ -205,7 +205,7 @@ jobs:
       - name: Scan kafka-gateway image (Trivy)
         id: trivy-kafka-gateway
         continue-on-error: true
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8 # v0.36.0
         with:
           image-ref: kubezap/kafka-gateway:ci
           format: sarif
@@ -225,7 +225,7 @@ jobs:
       - name: Scan amqp-gateway image (Trivy)
         id: trivy-amqp-gateway
         continue-on-error: true
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8 # v0.36.0
         with:
           image-ref: kubezap/amqp-gateway:ci
           format: sarif
@@ -245,7 +245,7 @@ jobs:
       - name: Scan nats-gateway image (Trivy)
         id: trivy-nats-gateway
         continue-on-error: true
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8 # v0.36.0
         with:
           image-ref: kubezap/nats-gateway:ci
           format: sarif
@@ -265,7 +265,7 @@ jobs:
       - name: Scan http-executor image (Trivy)
         id: trivy-http-executor
         continue-on-error: true
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8 # v0.36.0
         with:
           image-ref: kubezap/http-executor:ci
           format: sarif

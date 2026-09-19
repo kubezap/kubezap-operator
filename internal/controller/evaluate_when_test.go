@@ -126,6 +126,38 @@ var _ = Describe("evaluateWhen", func() {
 			Expect(err).NotTo(HaveOccurred())
 			Expect(result).To(BeTrue())
 		})
+
+		It("evaluates trigger.key equality for a UTF-8 key", func() {
+			td := &automationv1alpha1.TriggerData{Key: "order-123", KeyEncoding: "utf8"}
+			result, err := r.evaluateWhen(when(`trigger.key == "order-123"`), nil, nil, td, nil)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result).To(BeTrue())
+		})
+
+		It("evaluates trigger.key and trigger.keyEncoding for a base64-encoded (binary) key", func() {
+			// Binary keys are base64-encoded verbatim into TriggerData.Key; the CEL
+			// variable exposes the same encoded string, same as $(trigger.key) interpolation.
+			td := &automationv1alpha1.TriggerData{Key: "//7+/Q==", KeyEncoding: "base64"}
+			result, err := r.evaluateWhen(
+				when(`trigger.key == "//7+/Q==" && trigger.keyEncoding == "base64"`),
+				nil, nil, td, nil,
+			)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result).To(BeTrue())
+		})
+
+		It("defaults trigger.key and trigger.keyEncoding to empty strings when unset on trigger data", func() {
+			td := &automationv1alpha1.TriggerData{Topic: "orders"}
+			result, err := r.evaluateWhen(when(`trigger.key == "" && trigger.keyEncoding == ""`), nil, nil, td, nil)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result).To(BeTrue())
+		})
+
+		It("defaults trigger.key and trigger.keyEncoding to empty strings when triggerData is nil", func() {
+			result, err := r.evaluateWhen(when(`trigger.key == "" && trigger.keyEncoding == ""`), nil, nil, nil, nil)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result).To(BeTrue())
+		})
 	})
 
 	Context("trigger.bodyFields (nested body field access)", func() {

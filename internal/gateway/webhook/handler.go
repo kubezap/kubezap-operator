@@ -167,6 +167,12 @@ func sourceRange(ipStr string) string {
 	return ip.Mask(mask).String() + "/48"
 }
 
+// authMsgHMACSignatureMismatch is returned by both authenticateRequest's
+// GitHub-style HMAC branch and verifySlackHMAC on a signature check failure,
+// and matched again in authFailureReason — a shared constant so the literal
+// exists exactly once instead of three times.
+const authMsgHMACSignatureMismatch = "HMAC signature mismatch"
+
 // authenticateRequest validates the incoming request against the route entry's auth configuration.
 // triggerName is used only for metric labelling when a request is blocked by IP allowlist.
 // trustedProxies is forwarded to realClientIP for the ipAllowlist case — see its doc comment.
@@ -190,7 +196,7 @@ func authenticateRequest(r *http.Request, body []byte, entry RouteEntry, trigger
 			return mac.Sum(nil)
 		}())
 		if !hmac.Equal([]byte(sigHeader), []byte(expected)) {
-			return http.StatusUnauthorized, "HMAC signature mismatch"
+			return http.StatusUnauthorized, authMsgHMACSignatureMismatch
 		}
 
 	case authTypeBearer:
@@ -305,7 +311,7 @@ func authFailureReason(authType, msg string) string {
 			return "invalid_timestamp"
 		case "X-Slack-Request-Timestamp outside tolerance window":
 			return "timestamp_out_of_tolerance"
-		case "HMAC signature mismatch":
+		case authMsgHMACSignatureMismatch:
 			return "invalid_signature"
 		}
 	case authTypeBearer:
@@ -383,7 +389,7 @@ func verifySlackHMAC(r *http.Request, body []byte, secret string, toleranceSecon
 	mac.Write([]byte("v0:" + tsHeader + ":" + string(body)))
 	expected := "v0=" + hex.EncodeToString(mac.Sum(nil))
 	if !hmac.Equal([]byte(sigHeader), []byte(expected)) {
-		return http.StatusUnauthorized, "HMAC signature mismatch"
+		return http.StatusUnauthorized, authMsgHMACSignatureMismatch
 	}
 	return http.StatusOK, ""
 }

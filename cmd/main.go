@@ -133,9 +133,17 @@ func main() {
 			"production without NetworkPolicy enforcement.")
 	flag.StringVar(&executorImage, "executor-image", "ghcr.io/kubezap/http-executor:latest",
 		"Container image for the http-executor Deployment managed in each namespace.")
+	var executorPort int
+	flag.IntVar(&executorPort, "executor-port", int(controller.DefaultExecutorPort),
+		"TCP port the http-executor server listens on, and the executor Deployment/Service are configured with. "+
+			"If --executor-rpc-base-url is left at its default, its embedded port is derived from this flag "+
+			"instead of needing to be updated separately.")
 	var executorRPCBaseURL string
-	flag.StringVar(&executorRPCBaseURL, "executor-rpc-base-url", "http://kubezap-http-executor.%s.svc.cluster.local:8091",
-		"Base URL format string for the http-executor Service RPC calls; %s is replaced with the target namespace.")
+	defaultExecutorRPCBaseURL := fmt.Sprintf(
+		"http://kubezap-http-executor.%%s.svc.cluster.local:%d", controller.DefaultExecutorPort)
+	flag.StringVar(&executorRPCBaseURL, "executor-rpc-base-url", defaultExecutorRPCBaseURL,
+		"Base URL format string for the http-executor Service RPC calls; %s is replaced with the target namespace. "+
+			"Leave unset when overriding --executor-port — the port is derived automatically in that case.")
 	flag.BoolVar(&executorMTLS, "executor-mtls", false,
 		"Enable mTLS between controller and http-executor. When true, the controller generates a "+
 			"self-signed CA at startup, injects certs into the executor Deployment, and rotates them every 23h.")
@@ -377,8 +385,15 @@ func main() {
 		setupLog.Error(err, "invalid --http-step-blocked-cidrs flag")
 		os.Exit(1)
 	}
-	// When mTLS is enabled, switch the executor RPC base URL to https.
+	// If --executor-rpc-base-url was left at its default and --executor-port was
+	// changed, derive the RPC URL's port from --executor-port instead of requiring
+	// both flags to be kept in sync by hand. An explicit --executor-rpc-base-url
+	// override always wins as-is, port included.
 	rpcBaseURL := executorRPCBaseURL
+	if rpcBaseURL == defaultExecutorRPCBaseURL && executorPort != int(controller.DefaultExecutorPort) {
+		rpcBaseURL = fmt.Sprintf("http://kubezap-http-executor.%%s.svc.cluster.local:%d", executorPort)
+	}
+	// When mTLS is enabled, switch the executor RPC base URL to https.
 	var executorTLSConfig *tls.Config
 	if executorMTLS && initialMTLSBundle != nil {
 		rpcBaseURL = strings.ReplaceAll(rpcBaseURL, "http://", "https://")
@@ -421,6 +436,7 @@ func main() {
 		Client:                   mgr.GetClient(),
 		Scheme:                   mgr.GetScheme(),
 		ExecutorImage:            executorImage,
+		ExecutorPort:             int32(executorPort),
 		MTLSEnabled:              executorMTLS,
 		MTLSBundle:               initialMTLSBundle,
 		SSRFAllowClusterInternal: ssrfAllowClusterInternal,

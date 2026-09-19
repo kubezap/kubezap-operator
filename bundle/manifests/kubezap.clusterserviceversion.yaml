@@ -178,7 +178,7 @@ metadata:
     capabilities: Basic Install
     categories: Integration & Delivery
     containerImage: ghcr.io/kubezap/controller:latest
-    createdAt: "2026-09-19T18:58:52Z"
+    createdAt: "2026-09-19T19:16:56Z"
     description: Declarative workflow automation for Kubernetes
     operatorframework.io/suggested-namespace: kubezap-system
     operators.operatorframework.io/builder: operator-sdk-v1.42.0
@@ -625,6 +625,7 @@ spec:
                 - --leader-elect
                 - --health-probe-bind-address=:8081
                 - --executor-image=ghcr.io/kubezap/http-executor:latest
+                - --executor-port=8091
                 command:
                 - /manager
                 env:

@@ -682,6 +682,7 @@ func desiredKafkaGatewayDeployment(integration *automationv1alpha1.Integration) 
 		{Name: envVarKubezapIntegrationName, Value: integration.Name},
 		{Name: envVarLogLevel, Value: defaultLogLevel},
 	}
+	envVars = append(envVars, otelPassthroughEnv()...)
 
 	return &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{

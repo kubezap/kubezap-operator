@@ -19,6 +19,9 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/trace"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -329,6 +332,24 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	sourceIP := realClientIP(r, h.trustedProxies)
 
+	// webhook_request is the root span for the whole request. Extract any
+	// incoming W3C traceparent (e.g. from an upstream API gateway) as the
+	// parent when present; otherwise this starts a new trace. Rebinding the
+	// request's context via r.WithContext makes this span visible to
+	// trace.SpanFromContext(r.Context()) everywhere downstream (including the
+	// existing disconnect-survival logic around the FlowRun Create call
+	// below), without threading a ctx parameter through every helper.
+	tracer := otel.Tracer("kubezap.io/webhook")
+	spanCtx := otel.GetTextMapPropagator().Extract(r.Context(), propagation.HeaderCarrier(r.Header))
+	spanCtx, rootSpan := tracer.Start(spanCtx, "webhook_request",
+		trace.WithAttributes(
+			attribute.String("http.method", r.Method),
+			attribute.String("http.path", r.URL.Path),
+			attribute.String("net.peer.ip", sourceIP),
+		))
+	defer rootSpan.End()
+	r = r.WithContext(spanCtx)
+
 	defer func() {
 		if rec := recover(); rec != nil {
 			stack := debug.Stack()
@@ -372,6 +393,10 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	triggerName = entry.TriggerName
 	triggerNamespace = entry.TriggerNamespace
+	rootSpan.SetAttributes(
+		attribute.String("kubezap.trigger.name", triggerName),
+		attribute.String("kubezap.trigger.type", triggerTypeWebhook),
+	)
 
 	if strings.ToUpper(r.Method) != entry.AllowedMethod {
 		status = http.StatusMethodNotAllowed
@@ -401,14 +426,20 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if authStatus, authMsg := authenticateRequest(r, bodyBytes, entry, triggerName, h.trustedProxies); authStatus != http.StatusOK {
+	_, authSpan := tracer.Start(spanCtx, "auth_verify")
+	authStatus, authMsg := authenticateRequest(r, bodyBytes, entry, triggerName, h.trustedProxies)
+	authSpan.End()
+	if authStatus != http.StatusOK {
 		status = authStatus
 		writeJSON(w, status, map[string]string{errorJSONKey: authMsg})
 		return
 	}
 
 	// Cooldown window enforcement: suppress requests that exceed maxInvocations within the window.
-	if entry.MaxInvocations > 0 && !h.cooldown.allow(r.URL.Path, entry.MaxInvocations, entry.CooldownWindow) {
+	_, cooldownSpan := tracer.Start(spanCtx, "cooldown_check")
+	cooldownExceeded := entry.MaxInvocations > 0 && !h.cooldown.allow(r.URL.Path, entry.MaxInvocations, entry.CooldownWindow)
+	cooldownSpan.End()
+	if cooldownExceeded {
 		status = http.StatusTooManyRequests
 		metricResult = metricResultRateLimited
 		metrics.WebhookRateLimited.WithLabelValues(triggerName, triggerNamespace).Inc()
@@ -416,6 +447,7 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	_, payloadSpan := tracer.Start(spanCtx, "payload_parse")
 	bodyString := string(bodyBytes)
 	if len(bodyString) > h.maxStoredBodyBytes {
 		bodyTruncated = true
@@ -424,20 +456,28 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	redactedHeaders := redact.Headers(r.Header, entry.RedactHeaders)
 	bodyString = redact.Body(bodyString, entry.RedactBody)
+	payloadSpan.End()
 
 	flowRunName = fmt.Sprintf("%s-%d-%s", entry.TriggerName, time.Now().Unix(), randomHex(8))
 
-	// Build annotations for W3C Trace Context propagation.
-	// http.Header.Get performs canonical-form lookup, so "Traceparent" matches
-	// both "traceparent" and "Traceparent" sent by the caller.
-	// Annotating the FlowRun lets the controller resume the distributed trace
-	// when it picks up execution — linking gateway and controller spans into a
-	// single end-to-end trace without requiring the controller to parse HTTP headers.
+	// Build annotations for W3C Trace Context propagation. Inject the CURRENT
+	// span context (spanCtx, carrying the webhook_request span started above)
+	// rather than merely forwarding the incoming request's own Traceparent
+	// header: the latter is only present when an upstream caller already
+	// propagates one (most webhook senders like GitHub/Slack never do), which
+	// would leave every such FlowRun's flowrun.reconcile starting a brand-new,
+	// disconnected trace instead of nesting under webhook_request as
+	// documented in docs/guides/observability.md's Trace Structure. Injecting
+	// spanCtx works in both cases: when an upstream traceparent was extracted
+	// into it above, this forwards that same trace id; when none was present,
+	// this forwards the trace id webhook_request itself started.
+	traceCarrier := propagation.MapCarrier{}
+	otel.GetTextMapPropagator().Inject(spanCtx, traceCarrier)
 	var annotations map[string]string
-	if tp := r.Header.Get("Traceparent"); tp != "" {
+	if tp := traceCarrier.Get("traceparent"); tp != "" {
 		annotations = map[string]string{"kubezap.io/traceparent": tp}
 	}
-	if ts := r.Header.Get("Tracestate"); ts != "" {
+	if ts := traceCarrier.Get("tracestate"); ts != "" {
 		if annotations == nil {
 			annotations = make(map[string]string)
 		}
@@ -493,6 +533,9 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	createCtx, createCancel := context.WithTimeout(createParent, 10*time.Second)
 	defer createCancel()
+	createCtx, createSpan := tracer.Start(createCtx, "flowrun_create",
+		trace.WithAttributes(attribute.String("kubezap.flowrun.name", flowRunName)))
+	defer createSpan.End()
 	err = h.k8sClient.Create(createCtx, flowRun)
 	if err != nil {
 		if apierrors.IsAlreadyExists(err) {

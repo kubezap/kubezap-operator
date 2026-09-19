@@ -263,6 +263,7 @@ func (r *ExecutorReconciler) reconcileExecutorDeployment(ctx context.Context, na
 							Image:           r.executorImage(),
 							ImagePullPolicy: corev1.PullIfNotPresent,
 							Args:            containerArgs,
+							Env:             otelPassthroughEnv(),
 							VolumeMounts:    volumeMounts,
 							Ports: []corev1.ContainerPort{
 								{

@@ -513,6 +513,7 @@ func desiredWebhookGatewayDeployment(namespace string, tlsCfg WebhookGatewayTLSC
 							Image:           webhookGatewayImage(),
 							ImagePullPolicy: corev1.PullIfNotPresent,
 							Args:            args,
+							Env:             otelPassthroughEnv(),
 							Ports: []corev1.ContainerPort{
 								{Name: portName, ContainerPort: webhookGatewayPort, Protocol: corev1.ProtocolTCP},
 								{Name: portNameMetrics, ContainerPort: webhookGatewayMetricsPort, Protocol: corev1.ProtocolTCP},

@@ -28,6 +28,12 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	otelcodes "go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/propagation"
+	"go.opentelemetry.io/otel/trace"
 )
 
 const (
@@ -101,7 +107,13 @@ func (h *Handler) ServeExecute(w http.ResponseWriter, r *http.Request) {
 		timeoutSecs = maxTimeoutSeconds
 	}
 
-	ctx, cancel := context.WithTimeout(r.Context(), time.Duration(timeoutSecs)*time.Second)
+	// Extract W3C trace context propagated by the controller over this
+	// internal RPC (see callExecutor in internal/controller/flowrun_controller.go)
+	// so that http_call — the real outbound call this handler makes below —
+	// nests correctly under the controller's flowrun.step span instead of
+	// starting a disconnected trace.
+	ctx := otel.GetTextMapPropagator().Extract(r.Context(), propagation.HeaderCarrier(r.Header))
+	ctx, cancel := context.WithTimeout(ctx, time.Duration(timeoutSecs)*time.Second)
 	defer cancel()
 
 	// SSRF check — defence-in-depth: the controller also checks before sending.
@@ -114,6 +126,17 @@ func (h *Handler) ServeExecute(w http.ResponseWriter, r *http.Request) {
 		h.writeJSON(w, resp)
 		return
 	}
+
+	// http_call is the span for the real outbound HTTP request — the actual
+	// network call this executor exists to make (as opposed to the
+	// controller's internal RPC dispatch to this process, which is not
+	// itself an outbound call).
+	ctx, httpCallSpan := otel.Tracer("kubezap.io/http-executor").Start(ctx, "http_call",
+		trace.WithAttributes(
+			attribute.String("http.method", method),
+			attribute.String("http.url", req.URL),
+		))
+	defer httpCallSpan.End()
 
 	// Build outbound request.
 	outReq, err := http.NewRequestWithContext(ctx, method, req.URL, strings.NewReader(req.Body))
@@ -141,13 +164,17 @@ func (h *Handler) ServeExecute(w http.ResponseWriter, r *http.Request) {
 	// Execute request.
 	upstream, err := client.Do(outReq)
 	if err != nil {
+		classified := h.classifyTransportError(err)
+		httpCallSpan.RecordError(err)
+		httpCallSpan.SetStatus(otelcodes.Error, classified)
 		resp := ExecuteResponse{
-			Error: h.classifyTransportError(err),
+			Error: classified,
 		}
 		h.writeJSON(w, resp)
 		return
 	}
 	defer upstream.Body.Close()
+	httpCallSpan.SetAttributes(attribute.Int("http.status_code", upstream.StatusCode))
 
 	// Read body up to the limit.
 	limitedReader := io.LimitReader(upstream.Body, h.BodyLimitBytes+1)

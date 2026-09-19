@@ -1011,6 +1011,10 @@ func (r *FlowRunReconciler) callExecutor(ctx context.Context, namespace string, 
 		return nil, fmt.Errorf("building executor HTTP request: %w", err)
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
+	// Propagate W3C trace context across the internal RPC boundary to the
+	// http-executor process, so its http_call span nests correctly under this
+	// step's flowrun.step span rather than starting a disconnected trace.
+	otel.GetTextMapPropagator().Inject(ctx, propagation.HeaderCarrier(httpReq.Header))
 
 	// When mTLS is enabled, use a reusable client with the TLS transport.
 	// The client is initialized exactly once via sync.Once to avoid allocating
@@ -1066,6 +1070,10 @@ func (r *FlowRunReconciler) executePublishStep(
 	stepResults map[string]map[string]string,
 	params map[string]string,
 ) (map[string]string, int, error) {
+	ctx, pubSpan := otel.Tracer("kubezap.io/flowrun").Start(ctx, "publish_call",
+		trace.WithAttributes(attribute.String("step.name", step.Name)))
+	defer pubSpan.End()
+
 	if step.Action.Publish == nil || step.Action.Publish.IntegrationRef.Name == "" {
 		return nil, 0, fmt.Errorf("step %q has type=publish but no integrationRef.name", step.Name)
 	}

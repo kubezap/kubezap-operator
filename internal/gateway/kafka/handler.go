@@ -153,6 +153,21 @@ func (h *MessageHandler) HandleMessage(ctx context.Context, topic string, partit
 		}
 	}
 
+	// Capture the message payload. The Kafka gateway does not truncate
+	// payloads (unlike the webhook gateway's maxStoredBodyBytes), so this
+	// checks the full payload as-is; stored verbatim as UTF-8 when valid, or
+	// base64-encoded otherwise — Kafka payloads are commonly binary
+	// (Avro/Protobuf/schema-registry-encoded), unlike the JSON-typical
+	// webhook case. See docs/design/trigger-body-encoding-safety.md.
+	var bodyStr, bodyEncoding string
+	if utf8.Valid(payload) {
+		bodyStr = string(payload)
+		bodyEncoding = "utf8"
+	} else {
+		bodyStr = base64.StdEncoding.EncodeToString(payload)
+		bodyEncoding = "base64"
+	}
+
 	flowRun := &automationv1alpha1.FlowRun{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      flowRunName,
@@ -170,14 +185,15 @@ func (h *MessageHandler) HandleMessage(ctx context.Context, topic string, partit
 				Type: triggerTypeKafka,
 			},
 			TriggerData: &automationv1alpha1.TriggerData{
-				Source:      triggerTypeKafka,
-				Body:        string(payload),
-				Headers:     hdrs,
-				Topic:       topic,
-				Partition:   partition,
-				Offset:      offset,
-				Key:         keyStr,
-				KeyEncoding: keyEncoding,
+				Source:       triggerTypeKafka,
+				Body:         bodyStr,
+				BodyEncoding: bodyEncoding,
+				Headers:      hdrs,
+				Topic:        topic,
+				Partition:    partition,
+				Offset:       offset,
+				Key:          keyStr,
+				KeyEncoding:  keyEncoding,
 			},
 		},
 	}

@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/subtle"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -17,6 +18,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/go-logr/logr"
 	"go.opentelemetry.io/otel"
@@ -550,14 +552,32 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	_, payloadSpan := tracer.Start(spanCtx, "payload_parse")
-	bodyString := string(bodyBytes)
-	if len(bodyString) > h.maxStoredBodyBytes {
+	storedBody := bodyBytes
+	if len(storedBody) > h.maxStoredBodyBytes {
 		bodyTruncated = true
-		bodyString = bodyString[:h.maxStoredBodyBytes]
+		storedBody = storedBody[:h.maxStoredBodyBytes]
+	}
+
+	// Determine encoding on the (possibly truncated) bytes — truncating a
+	// UTF-8 body at an arbitrary byte boundary can itself produce invalid
+	// UTF-8 by splitting a multi-byte rune, so this check must run after
+	// truncation, not before. See docs/design/trigger-body-encoding-safety.md.
+	var bodyString, bodyEncoding string
+	if utf8.Valid(storedBody) {
+		bodyString = string(storedBody)
+		bodyEncoding = "utf8"
+	} else {
+		bodyString = base64.StdEncoding.EncodeToString(storedBody)
+		bodyEncoding = "base64"
 	}
 
 	redactedHeaders := redact.Headers(r.Header, entry.RedactHeaders)
 	bodyString = redact.Body(bodyString, entry.RedactBody)
+	if entry.RedactBody {
+		// The stored value is now the literal "[REDACTED]" placeholder, not
+		// base64 data — BodyEncoding must describe what's actually in Body.
+		bodyEncoding = "utf8"
+	}
 	payloadSpan.End()
 
 	flowRunName = fmt.Sprintf("%s-%d-%s", entry.TriggerName, time.Now().Unix(), randomHex(8))
@@ -610,6 +630,7 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				Headers:       redactedHeaders,
 				Body:          bodyString,
 				BodyTruncated: bodyTruncated,
+				BodyEncoding:  bodyEncoding,
 				ContentType:   r.Header.Get("Content-Type"),
 			},
 		},

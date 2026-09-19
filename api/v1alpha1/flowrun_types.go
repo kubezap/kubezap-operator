@@ -60,7 +60,12 @@ type TriggerData struct {
 	ScheduledTime *metav1.Time `json:"scheduledTime,omitempty"`
 	Body          string       `json:"body,omitempty"`
 	BodyTruncated bool         `json:"bodyTruncated,omitempty"`
-	ContentType   string       `json:"contentType,omitempty"`
+	// BodyEncoding indicates how Body is encoded: "utf8" or "base64". Body is
+	// captured verbatim as UTF-8 when the (possibly truncated, per
+	// BodyTruncated) payload decodes as valid UTF-8, or base64-encoded
+	// otherwise — mirrors the Key/KeyEncoding convention above.
+	BodyEncoding string `json:"bodyEncoding,omitempty"`
+	ContentType  string `json:"contentType,omitempty"`
 }
 
 // FlowRunSpec defines the desired state of FlowRun.

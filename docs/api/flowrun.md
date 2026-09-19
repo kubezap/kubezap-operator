@@ -156,8 +156,9 @@ Snapshot of the event that caused this FlowRun. The full set of fields depends o
 | `key`           | string            | Kafka record key (kafka only); verbatim UTF-8, or base64-encoded when the key isn't valid UTF-8 — see `keyEncoding`. Unset when the record has no key. |
 | `keyEncoding`   | string            | `utf8` or `base64`, describing how `key` is encoded (kafka only). Unset when `key` is unset. |
 | `scheduledTime`        | timestamp         | Scheduled fire time (cron only)                                    |
-| `body`                 | string            | Request or message body (truncated at 64KB by default for webhook triggers — configurable via the webhook gateway's `--max-stored-body-bytes` flag; see [Webhook Security](../guides/webhook-security.md#body-size-limits)) |
+| `body`                 | string            | Request or message body (truncated at 64KB by default for webhook triggers — configurable via the webhook gateway's `--max-stored-body-bytes` flag; see [Webhook Security](../guides/webhook-security.md#body-size-limits)); verbatim UTF-8, or base64-encoded when the (possibly-truncated) body isn't valid UTF-8 — see `bodyEncoding`. |
 | `bodyTruncated`        | boolean           | `true` if the body exceeded the limit and was truncated            |
+| `bodyEncoding`         | string            | `utf8` or `base64`, describing how `body` is encoded. See [Trigger CRD → Body Encoding](trigger.md#body-encoding). |
 | `contentType`          | string            | Content-Type of the body                                           |
 | `eventType`            | string            | Kubernetes watch event type: `ADDED`, `MODIFIED`, `DELETED` (resource triggers only) |
 | `resourceName`         | string            | Name of the watched resource (resource triggers only)              |

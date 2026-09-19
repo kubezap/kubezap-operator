@@ -162,7 +162,7 @@ Use `$(syntax)` to reference dynamic values in string fields (URLs, headers, bod
 
 | Expression                                 | Resolves to                                                                                    |
 | ------------------------------------------ | ---------------------------------------------------------------------------------------------- |
-| `$(trigger.body)`                          | Raw trigger event body (webhook request body or Kafka message value)                           |
+| `$(trigger.body)`                          | Raw trigger event body (webhook request body or Kafka message value), emitted verbatim — check `triggerData.bodyEncoding` (`utf8`/`base64`) if the body may be binary; see [Trigger docs](trigger.md#body-encoding) |
 | `$(trigger.body.<field>)`                  | A field from the trigger body; JSON bodies support full dot-path traversal (e.g., `$(trigger.body.order.id)`), `application/x-www-form-urlencoded` bodies support flat top-level fields only (e.g., `$(trigger.body.text)`) |
 | `$(trigger.headers.<name>)`                | An HTTP header, or a Kafka/AMQP/NATS message header, from the triggering event (case-insensitive lookup) |
 | `$(trigger.topic)` / `$(trigger.partition)` / `$(trigger.offset)` | Kafka topic/partition/offset (empty for non-Kafka triggers)                       |
@@ -227,7 +227,7 @@ Available CEL variables:
 
 | Variable                | Type                  | Description                                                              |
 | ----------------------- | --------------------- | ------------------------------------------------------------------------- |
-| `trigger.body`          | `string`              | Raw trigger event body — **not parsed into a map**; string ops only (`==`, `contains()`, etc.) |
+| `trigger.body`          | `string`              | Raw trigger event body — **not parsed into a map**; string ops only (`==`, `contains()`, etc.). Verbatim `triggerData.body`, so for a binary body this is its base64 text, not the decoded bytes — see [Trigger docs](trigger.md#body-encoding). |
 | `trigger.topic`         | `string`              | Kafka topic (empty for non-Kafka triggers)                              |
 | `trigger.partition`     | `string`              | Kafka partition, formatted as a string (empty for non-Kafka triggers)    |
 | `trigger.offset`        | `string`              | Kafka offset, formatted as a string (empty for non-Kafka triggers)      |
@@ -1025,7 +1025,7 @@ spec:
 ### `$(...)` Interpolation Quick Reference
 
 ```
-$(trigger.body)                          → raw trigger event body
+$(trigger.body)                          → raw trigger event body, verbatim (utf8 or base64 — see triggerData.bodyEncoding, trigger.md)
 $(trigger.body.<field>)                  → field from the trigger body (JSON: full dot-path; form-urlencoded: flat top-level only)
 $(trigger.headers.<name>)                → HTTP header from the triggering request (case-insensitive)
 $(trigger.topic) / .partition / .offset  → Kafka coordinates (empty for non-Kafka triggers)

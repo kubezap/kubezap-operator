@@ -17,6 +17,7 @@ import (
 
 	automationv1alpha1 "github.com/kubezap/kubezap-operator/api/v1alpha1"
 	"github.com/kubezap/kubezap-operator/internal/gateway/redact"
+	"github.com/kubezap/kubezap-operator/internal/metrics"
 )
 
 // triggerTypeNats is the TriggerSpec.Type value "nats".
@@ -110,11 +111,14 @@ func (h *MessageHandler) handleMessage(msg *natsio.Msg) error {
 	if err := h.client.Create(context.Background(), flowRun); err != nil {
 		if apierrors.IsAlreadyExists(err) {
 			h.log.V(1).Info("FlowRun already exists, skipping", "flowRun", flowRunName)
+			metrics.TriggerFirings.WithLabelValues(h.triggerNamespace, h.triggerName, triggerTypeNats, "success").Inc()
 			return nil
 		}
+		metrics.TriggerFirings.WithLabelValues(h.triggerNamespace, h.triggerName, triggerTypeNats, "error").Inc()
 		return err
 	}
 
+	metrics.TriggerFirings.WithLabelValues(h.triggerNamespace, h.triggerName, triggerTypeNats, "success").Inc()
 	h.log.Info("created FlowRun", "flowRun", flowRunName, "subject", msg.Subject)
 	return nil
 }

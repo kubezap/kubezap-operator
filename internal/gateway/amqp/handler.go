@@ -16,6 +16,7 @@ import (
 
 	automationv1alpha1 "github.com/kubezap/kubezap-operator/api/v1alpha1"
 	"github.com/kubezap/kubezap-operator/internal/gateway/redact"
+	"github.com/kubezap/kubezap-operator/internal/metrics"
 )
 
 // triggerTypeAMQP is the TriggerSpec.Type value "amqp".
@@ -119,12 +120,15 @@ func (h *MessageHandler091) handleDelivery(ctx context.Context, d amqp091.Delive
 				"routingKey", routingKey,
 				"deliveryTag", d.DeliveryTag,
 			)
+			metrics.TriggerFirings.WithLabelValues(h.triggerNamespace, h.triggerName, triggerTypeAMQP, "success").Inc()
 			// Ack even on duplicate to prevent infinite redelivery.
 			return d.Ack(false)
 		}
+		metrics.TriggerFirings.WithLabelValues(h.triggerNamespace, h.triggerName, triggerTypeAMQP, "error").Inc()
 		return err
 	}
 
+	metrics.TriggerFirings.WithLabelValues(h.triggerNamespace, h.triggerName, triggerTypeAMQP, "success").Inc()
 	h.log.Info("created FlowRun",
 		"flowRun", flowRunName,
 		"routingKey", routingKey,
@@ -223,11 +227,14 @@ func (h *MessageHandler10) handleMessage(ctx context.Context, msg *goamqp.Messag
 	if err := h.client.Create(ctx, flowRun); err != nil {
 		if apierrors.IsAlreadyExists(err) {
 			h.log.V(1).Info("FlowRun already exists, skipping", "flowRun", flowRunName)
+			metrics.TriggerFirings.WithLabelValues(h.triggerNamespace, h.triggerName, triggerTypeAMQP, "success").Inc()
 			return nil
 		}
+		metrics.TriggerFirings.WithLabelValues(h.triggerNamespace, h.triggerName, triggerTypeAMQP, "error").Inc()
 		return err
 	}
 
+	metrics.TriggerFirings.WithLabelValues(h.triggerNamespace, h.triggerName, triggerTypeAMQP, "success").Inc()
 	h.log.Info("created FlowRun", "flowRun", flowRunName)
 	return nil
 }

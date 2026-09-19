@@ -401,6 +401,7 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if strings.ToUpper(r.Method) != entry.AllowedMethod {
 		status = http.StatusMethodNotAllowed
 		w.Header().Set("Allow", entry.AllowedMethod)
+		metrics.TriggerFirings.WithLabelValues(triggerNamespace, triggerName, triggerTypeWebhook, "error").Inc()
 		writeJSON(w, status, map[string]string{errorJSONKey: "method not allowed"})
 		return
 	}
@@ -411,6 +412,7 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		status = http.StatusInternalServerError
 		h.log.Error(err, "unable to read request body")
+		metrics.TriggerFirings.WithLabelValues(triggerNamespace, triggerName, triggerTypeWebhook, "error").Inc()
 		writeJSON(w, status, map[string]string{errorJSONKey: "unable to read request body"})
 		return
 	}
@@ -422,6 +424,7 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	if bodyTruncated {
 		status = http.StatusRequestEntityTooLarge
+		metrics.TriggerFirings.WithLabelValues(triggerNamespace, triggerName, triggerTypeWebhook, "error").Inc()
 		writeJSON(w, status, map[string]string{errorJSONKey: "request body exceeds maximum allowed size"})
 		return
 	}
@@ -431,6 +434,7 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	authSpan.End()
 	if authStatus != http.StatusOK {
 		status = authStatus
+		metrics.TriggerFirings.WithLabelValues(triggerNamespace, triggerName, triggerTypeWebhook, "error").Inc()
 		writeJSON(w, status, map[string]string{errorJSONKey: authMsg})
 		return
 	}
@@ -443,6 +447,7 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		status = http.StatusTooManyRequests
 		metricResult = metricResultRateLimited
 		metrics.WebhookRateLimited.WithLabelValues(triggerName, triggerNamespace).Inc()
+		metrics.TriggerFirings.WithLabelValues(triggerNamespace, triggerName, triggerTypeWebhook, "rate_limited").Inc()
 		writeJSON(w, status, map[string]string{errorJSONKey: "cooldown window exceeded"})
 		return
 	}
@@ -541,16 +546,19 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if apierrors.IsAlreadyExists(err) {
 			metricResult = "accepted"
 			status = http.StatusAccepted
+			metrics.TriggerFirings.WithLabelValues(triggerNamespace, triggerName, triggerTypeWebhook, "success").Inc()
 			writeJSON(w, status, map[string]string{"flowRun": flowRunName, "namespace": entry.TriggerNamespace})
 			return
 		}
 		status = http.StatusInternalServerError
 		h.log.Error(err, "unable to create FlowRun", "flowRun", flowRunName, "trigger", entry.TriggerName, "namespace", entry.TriggerNamespace)
+		metrics.TriggerFirings.WithLabelValues(triggerNamespace, triggerName, triggerTypeWebhook, "error").Inc()
 		writeJSON(w, status, map[string]string{errorJSONKey: "unable to create FlowRun"})
 		return
 	}
 
 	metricResult = "accepted"
 	status = http.StatusAccepted
+	metrics.TriggerFirings.WithLabelValues(triggerNamespace, triggerName, triggerTypeWebhook, "success").Inc()
 	writeJSON(w, status, map[string]string{"flowRun": flowRunName, "namespace": entry.TriggerNamespace})
 }

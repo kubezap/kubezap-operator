@@ -272,50 +272,26 @@ Every request to the webhook gateway produces a structured JSON access log entry
 
 **This is where source IP tracking lives.** Raw IP addresses are not Prometheus label values due to cardinality — they are in the access log.
 
-Access logging is implemented via `internal/gateway/webhook/accesslog.go`. The `AccessLogMiddleware` wraps every request and emits one log line per request containing the core fields listed below. Auth-specific detail (reason, FlowRun name) is additionally logged inline by the webhook handler at `warn` or `error` level.
+Access logging is implemented via `internal/gateway/webhook/accesslog.go`. `AccessLogMiddleware` is the **sole** emitter of the access log line — exactly one structured JSON line per request. It threads handler-side detail (trace/span IDs, resolved trigger namespace, auth outcome, FlowRun outcome) out of `internal/gateway/webhook/handler.go`'s `WebhookHandler.ServeHTTP` via a small mutable fields struct injected into the request context, so the full picture below is genuinely a single log line, not two separately-logged fragments.
 
-> **Corrected 2026-09-18 after live validation.** Only the "Core access log
-> line" example immediately below matches real output byte-for-byte (confirmed
-> against `kubectl logs` on a live webhook gateway pod after 13 real requests).
-> The "Full structured entry" and "On auth failure" examples further down are
-> the **intended target schema**, not current output — real code does not
-> currently emit a `trace_id`, nested `request`/`auth`/`response`/`flowrun`
-> objects, `request_id`, `source_port`, `forwarded_for`, `user_agent`,
-> `body_bytes`, or any structured `auth.reason` field anywhere. What the
-> webhook handler (`internal/gateway/webhook/handler.go:348`) actually emits
-> as its one supplementary line per request, verified live, is a **flat** set
-> of fields — `method`, `path`, `status`, `trigger`, `namespace`, `flowRun`,
-> `duration_ms`, `content_type`, `source_ip` — logged through a different
-> logger (controller-runtime's zap-based logr, console-encoded) than the
-> middleware's line (Go `slog`, JSON-encoded), so unlike the middleware line it
-> is **not** parseable as a single JSON value — it looks like:
-> `2026-09-18T22:40:35.884Z\tINFO\twebhook-gateway.webhook-handler\twebhook/handler.go:348\twebhook access\t{"method": "POST", ...}`.
-> This is a real product gap (the richer structured schema described below was
-> designed but not implemented), not a doc typo — logged as a follow-up, not
-> fixed here. The [Source IP Tracking](#source-ip-tracking) LogQL examples
-> further down have been corrected to only rely on fields that exist today.
+> **Corrected 2026-09-19 — now real, verified live.** Earlier revisions of
+> this doc (as of 2026-09-18) described the schema below as an intended
+> target, not current output: at the time, `AccessLogMiddleware` emitted a
+> flat `msg: "access"` line and the webhook handler separately emitted a
+> second, differently-shaped, non-JSON `"webhook access"` line via
+> controller-runtime's zap-based logr. Both of those gaps are closed as of
+> STORY-042: the handler's separate log call was removed, and
+> `AccessLogMiddleware` now emits exactly one JSON line per request in the
+> shape shown below, confirmed against `kubectl logs` on a live webhook
+> gateway pod for both a successful request and an auth-failure request. The
+> [Source IP Tracking](#source-ip-tracking) LogQL examples further down have
+> been updated to match.
 
 ### Access Log Fields
 
-The `AccessLogMiddleware` emits one compact JSON line per request (core fields). The webhook handler emits supplementary log lines for auth detail and FlowRun outcomes. Together they form the full picture shown in the example below — see the note above for which parts of this are implemented today versus intended.
+`AccessLogMiddleware` emits one JSON line per request, `msg: "webhook_request"`, shown in full below.
 
-**Core access log line (emitted by middleware):**
-```json
-{
-  "time": "2026-03-14T10:32:11Z",
-  "level": "INFO",
-  "msg": "access",
-  "timestamp": "2026-03-14T10:32:11Z",
-  "method": "POST",
-  "path": "/hooks/orders",
-  "status": 202,
-  "duration_ms": 12,
-  "source_ip": "203.0.113.42",
-  "trigger": "orders"
-}
-```
-
-**Full structured entry (conceptual — combining middleware + handler log fields):**
+**Access log line — successful request:**
 ```json
 {
   "ts": "2026-03-14T10:32:11.423Z",
@@ -334,7 +310,7 @@ The `AccessLogMiddleware` emits one compact JSON line per request (core fields).
     "forwarded_for": "203.0.113.42, 10.0.0.1",
     "user_agent": "GitHub-Hookshot/abc123",
     "request_id": "req-9f8e7d6c",
-    "content_type": "application/json",
+    "content_type": "json",
     "body_bytes": 1247
   },
 
@@ -356,7 +332,7 @@ The `AccessLogMiddleware` emits one compact JSON line per request (core fields).
 }
 ```
 
-**On auth failure:**
+**Access log line — auth failure:**
 ```json
 {
   "ts": "2026-03-14T10:35:44.001Z",
@@ -398,6 +374,7 @@ The `AccessLogMiddleware` emits one compact JSON line per request (core fields).
 | `ts`                    | RFC3339 | Request timestamp                                                              |
 | `level`                 | string  | `info` (success), `warn` (auth failure, rate limited), `error` (gateway error) |
 | `trace_id`              | string  | OpenTelemetry trace ID for correlation with traces                             |
+| `span_id`               | string  | OpenTelemetry span ID of the `webhook_request` root span                       |
 | `request.source_ip`     | string  | Client IP (respects `trustedProxies` for X-Forwarded-For)                      |
 | `request.forwarded_for` | string  | Raw X-Forwarded-For header if present                                          |
 | `request.user_agent`    | string  | HTTP User-Agent header                                                         |
@@ -410,50 +387,48 @@ The `AccessLogMiddleware` emits one compact JSON line per request (core fields).
 | `response.duration_ms`  | float   | Total request handling time in milliseconds                                    |
 | `flowrun.created`       | boolean | Whether a FlowRun was created                                                  |
 | `flowrun.name`          | string  | Name of the created FlowRun (only when `created: true`)                        |
+| `flowrun.flow`          | string  | Name of the Flow the FlowRun references (only when `created: true`)            |
 
 ### Source IP Tracking
 
 To analyze traffic by source, query your log aggregation stack.
 
-> **Corrected 2026-09-18 after live validation.** The examples below previously
-> filtered on `msg="webhook_request"` — the real `msg` value the middleware
-> emits is `"access"` (verified against live pod logs); `"webhook_request"`
-> does not appear anywhere in the codebase. The "top source IPs" query below
-> now works as written against the real `access` line's flat fields. The
-> auth-failure examples further down could not be corrected the same way: no
-> current code path logs a structured `auth.result`/`auth.reason` (or flat
-> `auth_result`/`auth_reason`) field anywhere — see the note under [Access Log
-> Fields](#access-log-fields). Rewritten below to use `status="401"` on the
-> real `access` line as today's best available proxy for an auth rejection;
-> per-request auth failure *reason* is not queryable from logs until that gap
-> is closed (real gap, logged as a follow-up, not fixed here).
+> **Corrected 2026-09-19.** The examples below now filter on
+> `msg="webhook_request"`, matching the real `msg` value emitted by
+> `AccessLogMiddleware` as of STORY-042 (previously `"access"`, and previously
+> only queryable via the flat `status="401"` proxy since no structured
+> `auth.result`/`auth.reason` field existed). Loki's `| json` parser
+> flattens nested objects using `_` as the separator (e.g.
+> `request.source_ip` → `request_source_ip`, `auth.result` → `auth_result`),
+> which the queries below rely on — adjust the separator if your log
+> aggregation stack's JSON parser flattens differently.
 
 **Loki — top source IPs for a trigger:**
 ```logql
 topk(10,
-  sum by (source_ip) (
+  sum by (request_source_ip) (
     count_over_time(
-      {namespace="automation"} |= "access" | json | trigger="order-received"
+      {namespace="automation"} |= "webhook_request" | json | request_trigger="order-received"
       [1h]
     )
   )
 )
 ```
 
-**Loki — requests rejected (HTTP 401) in the last 24h:**
+**Loki — auth failures in the last 24h:**
 ```logql
 {namespace="automation"}
   | json
-  | msg="access"
-  | status="401"
-  | line_format "{{.timestamp}} {{.source_ip}} {{.trigger}}"
+  | msg="webhook_request"
+  | auth_result="failure"
+  | line_format "{{.ts}} {{.request_source_ip}} {{.request_trigger}} {{.auth_reason}}"
 ```
 
-**Identifying scanning/probing activity (by 401 rate, not auth reason):**
+**Identifying scanning/probing activity (by real auth-failure reason, not just status code):**
 ```logql
-sum by (source_ip) (
+sum by (request_source_ip, auth_reason) (
   count_over_time(
-    {namespace="automation"} | json | msg="access" | status="401" [10m]
+    {namespace="automation"} | json | msg="webhook_request" | auth_result="failure" [10m]
   )
 ) > 20
 ```

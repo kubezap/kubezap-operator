@@ -153,6 +153,8 @@ Snapshot of the event that caused this FlowRun. The full set of fields depends o
 | `topic`         | string            | Kafka topic or AMQP/NATS subject (broker triggers only)    |
 | `partition`     | integer           | Kafka partition (kafka only)                               |
 | `offset`        | integer           | Kafka message offset (kafka only)                          |
+| `key`           | string            | Kafka record key (kafka only); verbatim UTF-8, or base64-encoded when the key isn't valid UTF-8 — see `keyEncoding`. Unset when the record has no key. |
+| `keyEncoding`   | string            | `utf8` or `base64`, describing how `key` is encoded (kafka only). Unset when `key` is unset. |
 | `scheduledTime`        | timestamp         | Scheduled fire time (cron only)                                    |
 | `body`                 | string            | Request or message body (truncated at 64KB by default for webhook triggers — configurable via the webhook gateway's `--max-stored-body-bytes` flag; see [Webhook Security](../guides/webhook-security.md#body-size-limits)) |
 | `bodyTruncated`        | boolean           | `true` if the body exceeded the limit and was truncated            |

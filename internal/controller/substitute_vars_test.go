@@ -321,6 +321,27 @@ var _ = Describe("substituteVars", func() {
 			Expect(result).To(Equal("3/42"))
 		})
 
+		It("substitutes $(trigger.key) verbatim for a utf8-encoded key", func() {
+			td := &automationv1alpha1.TriggerData{Key: "order-123", KeyEncoding: "utf8"}
+			result := substituteVars("key=$(trigger.key)", nil, td, nil)
+			Expect(result).To(Equal("key=order-123"))
+		})
+
+		It("substitutes $(trigger.key) verbatim (still base64 text) for a base64-encoded key, without decoding", func() {
+			// $(trigger.key) never decodes based on KeyEncoding — that is the
+			// caller's responsibility, consistent with how $(trigger.body) is
+			// also emitted verbatim regardless of ContentType.
+			td := &automationv1alpha1.TriggerData{Key: "//4AAQ==", KeyEncoding: "base64"}
+			result := substituteVars("key=$(trigger.key)", nil, td, nil)
+			Expect(result).To(Equal("key=//4AAQ=="))
+		})
+
+		It("replaces $(trigger.key) with empty string when unset (nil record key)", func() {
+			td := &automationv1alpha1.TriggerData{}
+			result := substituteVars("key=$(trigger.key)", nil, td, nil)
+			Expect(result).To(Equal("key="))
+		})
+
 		It("substitutes $(trigger.scheduledTime) in RFC3339 format when set", func() {
 			// Use a fixed Unix epoch instant for deterministic output.
 			epoch := metav1.Unix(0, 0)

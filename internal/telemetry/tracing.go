@@ -74,6 +74,22 @@ func traceSampleRatio() float64 {
 // The returned shutdown func must be called (typically via defer) to flush
 // and close the exporter cleanly.
 func InitTracerProvider(ctx context.Context, serviceName string) (func(), error) {
+	// Always install the W3C TraceContext + Baggage propagator, regardless of
+	// whether an exporter is configured below. Propagation (extracting an
+	// inbound traceparent, injecting an outbound one — e.g. into a FlowRun's
+	// kubezap.io/traceparent annotation) is a distinct concern from whether
+	// spans are actually recorded/exported: callers like the webhook handler
+	// forward trace context unconditionally, and the OTel API's own default
+	// global propagator (before anyone calls SetTextMapPropagator) is a no-op
+	// that silently drops every Extract/Inject call. Setting this only in the
+	// exporter-configured branch below previously meant context propagation
+	// was silently broken whenever OTEL_EXPORTER_OTLP_ENDPOINT was unset — the
+	// common case, including in every existing unit test.
+	otel.SetTextMapPropagator(propagation.NewCompositeTextMapPropagator(
+		propagation.TraceContext{},
+		propagation.Baggage{},
+	))
+
 	endpoint := os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT")
 	if endpoint == "" {
 		// No endpoint configured — install a no-op provider so that all
@@ -103,10 +119,6 @@ func InitTracerProvider(ctx context.Context, serviceName string) (func(), error)
 	)
 
 	otel.SetTracerProvider(tp)
-	otel.SetTextMapPropagator(propagation.NewCompositeTextMapPropagator(
-		propagation.TraceContext{},
-		propagation.Baggage{},
-	))
 
 	shutdown := func() {
 		_ = tp.Shutdown(ctx)

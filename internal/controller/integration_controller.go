@@ -676,13 +676,12 @@ func desiredKafkaGatewayDeployment(integration *automationv1alpha1.Integration) 
 		labelComponent: componentKafkaGateway,
 	}
 
-	envVars := []corev1.EnvVar{
+	envVars := append([]corev1.EnvVar{
 		{Name: envVarWatchNamespaces, Value: os.Getenv(envVarWatchNamespaces)},
 		{Name: envVarKubezapNamespace, Value: integration.Namespace},
 		{Name: envVarKubezapIntegrationName, Value: integration.Name},
 		{Name: envVarLogLevel, Value: defaultLogLevel},
-	}
-	envVars = append(envVars, otelPassthroughEnv()...)
+	}, otelPassthroughEnv()...)
 
 	return &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{

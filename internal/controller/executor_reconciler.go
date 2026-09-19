@@ -44,7 +44,7 @@ const (
 	executorNetworkPolicyName = "kubezap-executor-ingress"
 	executorMTLSSecretName    = "kubezap-executor-mtls-cert"
 	defaultExecutorImage      = "ghcr.io/kubezap/http-executor:latest"
-	defaultExecutorPort       = int32(8091)
+	DefaultExecutorPort       = int32(8091)
 
 	// labelAppKubernetesIOName / labelAppKubernetesIOComponent are the
 	// app.kubernetes.io/* convention label keys used for both the executor's
@@ -120,7 +120,7 @@ func (r *ExecutorReconciler) executorPort() int32 {
 	if r.ExecutorPort != 0 {
 		return r.ExecutorPort
 	}
-	return defaultExecutorPort
+	return DefaultExecutorPort
 }
 
 // egressExceptCIDRs returns the IPv4 ranges excluded from the executor's egress

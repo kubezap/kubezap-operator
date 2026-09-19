@@ -1,0 +1,35 @@
+{{- if not (include "kubezap.namespacedRBAC" .) }}
+# ClusterRole granting `get` on Namespace objects to the gateway
+# ServiceAccounts (kafka/amqp/nats's shared "kubezap-gateway" SA, and — once
+# STORY-056 wires it up — the webhook gateway's own SA). Namespace is
+# cluster-scoped, so no per-namespace Role/RoleBinding can ever grant this —
+# only a ClusterRole+ClusterRoleBinding can. This lets each gateway's
+# readSecretKey check (kubezap.io/managed=true label enforcement, active only
+# in AllNamespaces mode) actually execute instead of 403ing. See
+# docs/design/allnamespaces-gateway-namespace-read-rbac.md.
+#
+# Named as a fixed, non-templated literal (not {{ include "kubezap.fullname" . }}-
+# prefixed) because internal/controller/integration_controller.go's
+# ClusterRoleBinding-maintenance logic references this ClusterRole by a fixed
+# Go constant — it must resolve to the same name regardless of Helm release
+# name, matching config/rbac/gateway_namespace_reader_role.yaml's raw-manifest
+# equivalent.
+#
+# The two ClusterRoleBindings that reference this ClusterRole are NOT rendered
+# here: their Subjects lists accumulate one entry per namespace at runtime, so
+# they are created and maintained dynamically by the operator, not by this
+# chart.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: kubezap-gateway-namespace-reader
+  labels:
+    {{- include "kubezap.labels" . | nindent 4 }}
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - namespaces
+    verbs:
+      - get
+{{- end }}

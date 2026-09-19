@@ -1,0 +1,35 @@
+---
+# ClusterRole granting `get` on Namespace objects to the gateway ServiceAccounts
+# (kafka/amqp/nats's shared "kubezap-gateway" SA, and — once STORY-056 wires it
+# up — the webhook gateway's own SA). Namespace is cluster-scoped, so no
+# per-namespace Role/RoleBinding can ever grant this, regardless of the bound
+# Role's rules — only a ClusterRole+ClusterRoleBinding can. This lets each
+# gateway's readSecretKey check (kubezap.io/managed=true label enforcement,
+# active only in AllNamespaces mode) actually execute instead of 403ing. See
+# docs/design/allnamespaces-gateway-namespace-read-rbac.md.
+#
+# The two ClusterRoleBindings that reference this ClusterRole are NOT static
+# manifests here: their Subjects lists accumulate one entry per namespace at
+# runtime (the set of namespaces needing a gateway is not known at install
+# time), so they are created and maintained dynamically by
+# IntegrationReconciler (internal/controller/integration_controller.go) and,
+# once STORY-056 lands, the webhook gateway's own reconcile path.
+#
+# This grant is meaningless outside AllNamespaces-mode installs — the
+# application-level check it supports is itself a no-op there — so this file
+# is deployed alongside role.yaml (the ClusterRole/AllNamespaces manifest set),
+# not alongside namespaced_role.yaml.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  labels:
+    app.kubernetes.io/name: kubezap
+    app.kubernetes.io/managed-by: kustomize
+  name: kubezap-gateway-namespace-reader
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - namespaces
+  verbs:
+  - get

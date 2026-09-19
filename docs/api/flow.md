@@ -166,6 +166,7 @@ Use `$(syntax)` to reference dynamic values in string fields (URLs, headers, bod
 | `$(trigger.body.<field>)`                  | A field from the trigger body; JSON bodies support full dot-path traversal (e.g., `$(trigger.body.order.id)`), `application/x-www-form-urlencoded` bodies support flat top-level fields only (e.g., `$(trigger.body.text)`) |
 | `$(trigger.headers.<name>)`                | An HTTP header, or a Kafka/AMQP/NATS message header, from the triggering event (case-insensitive lookup) |
 | `$(trigger.topic)` / `$(trigger.partition)` / `$(trigger.offset)` | Kafka topic/partition/offset (empty for non-Kafka triggers)                       |
+| `$(trigger.key)`                           | Kafka record key (Kafka only; empty for non-Kafka triggers or a keyless record). See [Trigger docs](trigger.md#kafka-amqp-nats-broker-triggers) for its UTF-8/base64 encoding rules — this is emitted verbatim, not auto-decoded. Not available as a CEL variable in `condition:` (see below) — only via `$(...)` interpolation. |
 | `$(trigger.scheduledTime)`                 | RFC3339 scheduled fire time (cron triggers only)                                                |
 | `$(steps.<stepName>.results.<resultName>)` | A result produced by a previous step (hyphens in the step name become underscores)              |
 | `$(secrets.<secretName>.<key>)`            | A value from a Kubernetes Secret in the same namespace                                         |
@@ -1028,6 +1029,7 @@ $(trigger.body)                          → raw trigger event body
 $(trigger.body.<field>)                  → field from the trigger body (JSON: full dot-path; form-urlencoded: flat top-level only)
 $(trigger.headers.<name>)                → HTTP header from the triggering request (case-insensitive)
 $(trigger.topic) / .partition / .offset  → Kafka coordinates (empty for non-Kafka triggers)
+$(trigger.key)                           → Kafka record key, verbatim (utf8 or base64 — see trigger.md)
 $(trigger.scheduledTime)                 → scheduled fire time, RFC3339 (cron triggers only)
 $(steps.<step-name>.results.<result>)    → result from a completed step
 $(secrets.<secret-name>.<key>)           → value from a Kubernetes Secret

@@ -50,6 +50,11 @@ const integrationTypeKafka = "kafka"
 // see docs/guides/observability.md.
 const kafkaGatewayMetricsPort = int32(9090)
 
+// componentKafkaGateway is the "kafka-gateway" value used for the labelComponent
+// label and the gateway container name, mirroring componentWebhookGateway's
+// convention in gateway_deployment.go.
+const componentKafkaGateway = "kafka-gateway"
+
 // integrationTypeHTTP is the IntegrationSpec.Type value "http" (an HTTP
 // Integration providing shared base URL/auth/default headers to HTTP steps).
 const integrationTypeHTTP = "http"
@@ -635,7 +640,7 @@ func desiredKafkaGatewayService(integration *automationv1alpha1.Integration) *co
 	name := "kubezap-kafka-gateway-" + integration.Name
 	selector := map[string]string{
 		labelApp:       name,
-		labelComponent: "kafka-gateway",
+		labelComponent: componentKafkaGateway,
 	}
 
 	return &corev1.Service{
@@ -668,7 +673,7 @@ func desiredKafkaGatewayDeployment(integration *automationv1alpha1.Integration) 
 	deploymentName := "kubezap-kafka-gateway-" + integration.Name
 	labels := map[string]string{
 		labelApp:       deploymentName,
-		labelComponent: "kafka-gateway",
+		labelComponent: componentKafkaGateway,
 	}
 
 	envVars := []corev1.EnvVar{
@@ -696,7 +701,7 @@ func desiredKafkaGatewayDeployment(integration *automationv1alpha1.Integration) 
 					},
 					Containers: []corev1.Container{
 						{
-							Name:            "kafka-gateway",
+							Name:            componentKafkaGateway,
 							Image:           image,
 							ImagePullPolicy: corev1.PullIfNotPresent,
 							Args:            []string{"--namespace=" + integration.Namespace},

@@ -158,8 +158,19 @@ func (h *MessageHandler) HandleMessage(ctx context.Context, topic string, partit
 		},
 	}
 
-	// Attach W3C traceparent as an annotation if present in context.
-	if tp, ok := ctx.Value(traceParentKey{}).(string); ok && tp != "" {
+	// Attach the kafka_message_received span's own W3C traceparent as an
+	// annotation so that flowrun.reconcile (running in a separate process)
+	// becomes its child, mirroring the webhook handler's pattern in
+	// internal/gateway/webhook/handler.go. This must inject the *current*
+	// span context (ctx, carrying kafka_message_received started above) —
+	// not just forward the raw incoming header captured by ConsumeClaim —
+	// otherwise a Kafka message without its own upstream traceparent header
+	// (the common case; most producers don't set one) would leave the
+	// FlowRun with no annotation at all, breaking trace continuity for
+	// nearly every Kafka-triggered flow.
+	traceCarrier := propagation.MapCarrier{}
+	otel.GetTextMapPropagator().Inject(ctx, traceCarrier)
+	if tp := traceCarrier.Get("traceparent"); tp != "" {
 		flowRun.Annotations = map[string]string{
 			"kubezap.io/traceparent": tp,
 		}

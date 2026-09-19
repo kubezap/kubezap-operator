@@ -44,3 +44,22 @@ Automated tooling watches for known vulnerabilities in this project's own depend
 - **CodeQL** (`github/codeql-action`, `.github/workflows/codeql.yml`) runs static analysis (SAST) on KubeZap's own Go source on every push to `main`, every PR, and a weekly schedule, surfacing findings as Code Scanning alerts in the Security tab.
 
 **Triage process**: a Dependabot security PR, a `govulncheck` CI failure, a Trivy CRITICAL/HIGH image finding, or a CodeQL alert is triaged by a maintainer within 5 business days of appearing. Patch-level bumps with passing CI are merged directly; anything requiring a code change (an API break in the updated dependency, a `govulncheck` finding whose fix isn't a simple version bump, a Trivy finding requiring a base-image change, or a CodeQL alert requiring a source fix) is scheduled based on severity, with critical/high findings prioritized ahead of routine work.
+
+## Container Image Signing
+
+All 6 container images published to GHCR (`controller`, `webhook-gateway`, `kafka-gateway`, `amqp-gateway`, `nats-gateway`, `http-executor`) are signed with [cosign](https://docs.sigstore.dev/) using **keyless signing**: the signature is tied to the GitHub Actions OIDC identity of the `.github/workflows/release.yml` workflow run that built and pushed the image, backed by Sigstore's public-good Fulcio (certificate authority) and Rekor (transparency log) instances. There is no long-lived private signing key — every image published by a release (both `-rc.N` release candidates and final tags) is signed this way as a hard gate of the release job; a signing failure fails the job and blocks the release.
+
+Each image is signed by digest, not by tag, so the signature is bound to the exact content that was pushed.
+
+To verify an image's signature before deploying it, install [`cosign`](https://docs.sigstore.dev/cosign/system_config/installation/) and run:
+
+```sh
+cosign verify \
+  --certificate-identity-regexp 'https://github.com/kubezap/kubezap-operator/.github/workflows/release.yml@.*' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  ghcr.io/kubezap/<image>@<digest>
+```
+
+Replace `<image>` with one of the six image names above and `<digest>` with the `sha256:...` digest of the image you intend to run (e.g. from `docker inspect` or your image puller's manifest resolution — verifying a mutable tag instead of a digest does not guarantee you're checking the artifact you'll actually run). A successful verification prints the signing certificate's identity (the release workflow run) and confirms the signature is logged in Rekor's public transparency log.
+
+Note: SLSA provenance attestation is not yet produced for these images — verification today confirms *who built and signed the image* (this repository's release workflow), not a full build provenance chain.

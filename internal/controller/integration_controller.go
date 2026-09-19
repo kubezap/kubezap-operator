@@ -45,6 +45,16 @@ import (
 // integrationTypeKafka is the IntegrationSpec.Type / TriggerSpec.Type value "kafka".
 const integrationTypeKafka = "kafka"
 
+// kafkaGatewayMetricsPort must match cmd/kafka-gateway/main.go's --metrics-port
+// default (:9090), which is what the binary actually listens on for /metrics —
+// see docs/guides/observability.md.
+const kafkaGatewayMetricsPort = int32(9090)
+
+// componentKafkaGateway is the "kafka-gateway" value used for the labelComponent
+// label and the gateway container name, mirroring componentWebhookGateway's
+// convention in gateway_deployment.go.
+const componentKafkaGateway = "kafka-gateway"
+
 // integrationTypeHTTP is the IntegrationSpec.Type value "http" (an HTTP
 // Integration providing shared base URL/auth/default headers to HTTP steps).
 const integrationTypeHTTP = "http"
@@ -82,6 +92,7 @@ const scaledObjectKind = "ScaledObject"
 // +kubebuilder:rbac:groups=automation.kubezap.io,resources=integrations/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups="",resources=serviceaccounts,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups="",resources=services,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=roles;rolebindings,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=keda.sh,resources=scaledobjects,verbs=get;list;watch;create;update;patch;delete
 
@@ -599,7 +610,57 @@ func (r *IntegrationReconciler) reconcileKafkaGateway(ctx context.Context, integ
 	if op != controllerutil.OperationResultNone {
 		log.Info("reconciled kafka gateway deployment", "deployment", deploymentName, "namespace", integration.Namespace, "result", op)
 	}
+
+	desiredSvc := desiredKafkaGatewayService(integration)
+	if err := ctrl.SetControllerReference(integration, desiredSvc, r.Scheme); err != nil {
+		return "", fmt.Errorf("setting owner reference on kafka gateway Service: %w", err)
+	}
+	svcOp, err := controllerutil.CreateOrUpdate(ctx, r.Client, desiredSvc, func() error {
+		// Preserve the ClusterIP/other server-assigned fields CreateOrUpdate
+		// populates from the live object; only the ports need to stay in sync.
+		desiredSvc.Spec.Ports = desiredKafkaGatewayService(integration).Spec.Ports
+		desiredSvc.Spec.Selector = desiredKafkaGatewayService(integration).Spec.Selector
+		return nil
+	})
+	if err != nil {
+		return "", fmt.Errorf("failed to create/update kafka gateway service: %w", err)
+	}
+	if svcOp != controllerutil.OperationResultNone {
+		log.Info("reconciled kafka gateway service", "service", desiredSvc.Name, "namespace", integration.Namespace, "result", svcOp)
+	}
+
 	return deploymentName, nil
+}
+
+// desiredKafkaGatewayService returns the desired metrics-scraping Service for a kafka
+// Integration's gateway Deployment. The kafka gateway is a pull-based consumer with no
+// inbound application traffic, so this Service exists solely so a ServiceMonitor (see
+// docs/guides/observability.md) has a stable endpoint to scrape /metrics from.
+func desiredKafkaGatewayService(integration *automationv1alpha1.Integration) *corev1.Service {
+	name := "kubezap-kafka-gateway-" + integration.Name
+	selector := map[string]string{
+		labelApp:       name,
+		labelComponent: componentKafkaGateway,
+	}
+
+	return &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: integration.Namespace,
+			Labels:    selector,
+		},
+		Spec: corev1.ServiceSpec{
+			Selector: selector,
+			Ports: []corev1.ServicePort{
+				{
+					Name:       portNameMetrics,
+					Protocol:   corev1.ProtocolTCP,
+					Port:       kafkaGatewayMetricsPort,
+					TargetPort: intstr.FromInt32(kafkaGatewayMetricsPort),
+				},
+			},
+		},
+	}
 }
 
 // desiredKafkaGatewayDeployment returns the desired Deployment for a kafka Integration.
@@ -612,7 +673,7 @@ func desiredKafkaGatewayDeployment(integration *automationv1alpha1.Integration) 
 	deploymentName := "kubezap-kafka-gateway-" + integration.Name
 	labels := map[string]string{
 		labelApp:       deploymentName,
-		labelComponent: "kafka-gateway",
+		labelComponent: componentKafkaGateway,
 	}
 
 	envVars := []corev1.EnvVar{
@@ -640,11 +701,14 @@ func desiredKafkaGatewayDeployment(integration *automationv1alpha1.Integration) 
 					},
 					Containers: []corev1.Container{
 						{
-							Name:            "kafka-gateway",
+							Name:            componentKafkaGateway,
 							Image:           image,
 							ImagePullPolicy: corev1.PullIfNotPresent,
 							Args:            []string{"--namespace=" + integration.Namespace},
 							Env:             envVars,
+							Ports: []corev1.ContainerPort{
+								{Name: portNameMetrics, ContainerPort: kafkaGatewayMetricsPort, Protocol: corev1.ProtocolTCP},
+							},
 							SecurityContext: &corev1.SecurityContext{
 								RunAsNonRoot:             ptr.To(true),
 								ReadOnlyRootFilesystem:   ptr.To(true),

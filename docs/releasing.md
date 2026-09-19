@@ -25,7 +25,7 @@ This document describes the end-to-end process for cutting a KubeZap release. Al
 | `:latest` container tag | **Never** — RCs only ever get their own version tag | Moves to point at this version |
 | Helm chart / OLM CSV version | `X.Y.Z-rc.N` | `X.Y.Z` |
 | CHANGELOG.md | Not touched — the entry for the target version is already written before the first RC and doesn't change per RC unless RC testing surfaces something the changelog needs corrected | Date on the version's existing heading is set/confirmed to the actual release date |
-| OperatorHub PR | Never | Only when the CSV changed, and only once the release itself is otherwise final — see [OperatorHub PR](#8-operatorhub-pr-final-releases-only) |
+| OperatorHub PR | Never | Only when the CSV changed, and only once the release itself is otherwise final — see [OperatorHub PR](#9-operatorhub-pr-final-releases-only) |
 
 **Whether to cut an RC at all**: see the note at the top of this document — MINOR/MAJOR or higher-risk PATCH releases, go through an RC; a small, well-understood PATCH release can skip straight to the final tag using [step 1](#1-decide-the-version) through [step 5](#5-tag-and-push) with the plain final version from the start (skip [step 6](#6-validate-the-rc) and [Promoting an RC to Final](#promoting-an-rc-to-final) entirely).
 

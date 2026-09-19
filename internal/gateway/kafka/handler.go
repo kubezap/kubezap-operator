@@ -8,6 +8,10 @@ import (
 
 	"github.com/IBM/sarama"
 	"github.com/go-logr/logr"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/propagation"
+	"go.opentelemetry.io/otel/trace"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -24,6 +28,21 @@ type traceParentKey struct{}
 
 // nonAlphaNumDash matches any character that is not a lowercase letter, digit, or dash.
 var nonAlphaNumDash = regexp.MustCompile(`[^a-z0-9-]`)
+
+// extractKafkaTraceContext reads the W3C traceparent value (if any) stashed
+// under traceParentKey by ConsumeClaim and, if present, extracts it into the
+// returned context via the standard OTel propagator so that
+// kafka_message_received becomes a child of the originating trace. Mirrors
+// extractTraceContext in internal/controller/flowrun_controller.go, adapted
+// for the raw string carried via context.Value rather than a FlowRun
+// annotation map.
+func extractKafkaTraceContext(ctx context.Context) context.Context {
+	tp, ok := ctx.Value(traceParentKey{}).(string)
+	if !ok || tp == "" {
+		return ctx
+	}
+	return otel.GetTextMapPropagator().Extract(ctx, propagation.MapCarrier{"traceparent": tp})
+}
 
 // sanitizeFlowRunName converts a raw name to a valid Kubernetes resource name:
 // lowercase, non-alphanumeric-or-dash replaced with '-', truncated to 253 chars.
@@ -85,6 +104,21 @@ func (h *MessageHandler) ConsumeClaim(session sarama.ConsumerGroupSession, claim
 // payload is the raw message bytes. msgHeaders contains the Kafka message
 // headers; auth-like keys are redacted before being stored in TriggerData.
 func (h *MessageHandler) HandleMessage(ctx context.Context, topic string, partition int32, offset int64, payload []byte, msgHeaders []*sarama.RecordHeader) error {
+	// kafka_message_received is the root span for Kafka-triggered flows. If
+	// the broker message itself carried an upstream W3C traceparent header
+	// (extracted into ctx by ConsumeClaim), continue that trace; otherwise
+	// this starts a new one.
+	ctx = extractKafkaTraceContext(ctx)
+	ctx, span := otel.Tracer("kubezap.io/kafka").Start(ctx, "kafka_message_received",
+		trace.WithAttributes(
+			attribute.String("kubezap.trigger.name", h.triggerName),
+			attribute.String("kubezap.trigger.type", triggerTypeKafka),
+			attribute.String("kafka.topic", topic),
+			attribute.Int64("kafka.partition", int64(partition)),
+			attribute.Int64("kafka.offset", offset),
+		))
+	defer span.End()
+
 	rawName := fmt.Sprintf("%s-p%d-offset-%d", h.triggerName, partition, offset)
 	flowRunName := sanitizeFlowRunName(rawName)
 
@@ -124,8 +158,19 @@ func (h *MessageHandler) HandleMessage(ctx context.Context, topic string, partit
 		},
 	}
 
-	// Attach W3C traceparent as an annotation if present in context.
-	if tp, ok := ctx.Value(traceParentKey{}).(string); ok && tp != "" {
+	// Attach the kafka_message_received span's own W3C traceparent as an
+	// annotation so that flowrun.reconcile (running in a separate process)
+	// becomes its child, mirroring the webhook handler's pattern in
+	// internal/gateway/webhook/handler.go. This must inject the *current*
+	// span context (ctx, carrying kafka_message_received started above) —
+	// not just forward the raw incoming header captured by ConsumeClaim —
+	// otherwise a Kafka message without its own upstream traceparent header
+	// (the common case; most producers don't set one) would leave the
+	// FlowRun with no annotation at all, breaking trace continuity for
+	// nearly every Kafka-triggered flow.
+	traceCarrier := propagation.MapCarrier{}
+	otel.GetTextMapPropagator().Inject(ctx, traceCarrier)
+	if tp := traceCarrier.Get("traceparent"); tp != "" {
 		flowRun.Annotations = map[string]string{
 			"kubezap.io/traceparent": tp,
 		}

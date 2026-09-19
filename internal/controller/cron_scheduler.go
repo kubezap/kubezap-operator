@@ -24,6 +24,9 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/robfig/cron/v3"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -86,6 +89,13 @@ func (s *CronScheduler) Register(trigger *automationv1alpha1.Trigger) error {
 
 	id, err := s.cron.AddFunc(schedule, func() {
 		ctx := context.Background()
+		// cron_fire is the root span for cron-triggered flows.
+		ctx, span := otel.Tracer("kubezap.io/flowrun").Start(ctx, "cron_fire",
+			trace.WithAttributes(
+				attribute.String("kubezap.trigger.name", name),
+				attribute.String("kubezap.trigger.type", triggerTypeCron),
+			))
+		defer span.End()
 		now := time.Now()
 		scheduledTime := metav1.Time{Time: now}
 

@@ -167,6 +167,12 @@ func sourceRange(ipStr string) string {
 	return ip.Mask(mask).String() + "/48"
 }
 
+// authMsgHMACSignatureMismatch is returned by both authenticateRequest's
+// GitHub-style HMAC branch and verifySlackHMAC on a signature check failure,
+// and matched again in authFailureReason — a shared constant so the literal
+// exists exactly once instead of three times.
+const authMsgHMACSignatureMismatch = "HMAC signature mismatch"
+
 // authenticateRequest validates the incoming request against the route entry's auth configuration.
 // triggerName is used only for metric labelling when a request is blocked by IP allowlist.
 // trustedProxies is forwarded to realClientIP for the ipAllowlist case — see its doc comment.
@@ -190,7 +196,7 @@ func authenticateRequest(r *http.Request, body []byte, entry RouteEntry, trigger
 			return mac.Sum(nil)
 		}())
 		if !hmac.Equal([]byte(sigHeader), []byte(expected)) {
-			return http.StatusUnauthorized, "HMAC signature mismatch"
+			return http.StatusUnauthorized, authMsgHMACSignatureMismatch
 		}
 
 	case authTypeBearer:
@@ -283,6 +289,75 @@ func authenticateRequest(r *http.Request, body []byte, entry RouteEntry, trigger
 	return http.StatusOK, ""
 }
 
+// authFailureReason maps authenticateRequest's (and verifySlackHMAC's)
+// free-text failure message to a stable, snake_case reason code for the
+// access log's auth.reason field (docs/guides/observability.md). The
+// messages matched below are the literal strings those functions return
+// today; if those messages change, this mapping must be updated alongside
+// them — a miss falls through to "unknown" rather than silently mismatching.
+// OIDC/JWT validation errors are dynamically generated (wrapped in a JSON
+// blob) and cannot be enumerated exhaustively; only the one static "missing
+// Bearer token" case is special-cased, everything else buckets into
+// "invalid_token".
+func authFailureReason(authType, msg string) string {
+	switch authType {
+	case authTypeHMAC:
+		switch msg {
+		case "missing X-Hub-Signature-256 header", "missing X-Slack-Signature header":
+			return "missing_signature"
+		case "missing X-Slack-Request-Timestamp header":
+			return "missing_timestamp"
+		case "invalid X-Slack-Request-Timestamp header":
+			return "invalid_timestamp"
+		case "X-Slack-Request-Timestamp outside tolerance window":
+			return "timestamp_out_of_tolerance"
+		case authMsgHMACSignatureMismatch:
+			return "invalid_signature"
+		}
+	case authTypeBearer:
+		switch msg {
+		case "missing Authorization header":
+			return "missing_token"
+		case "invalid bearer token":
+			return "invalid_token"
+		}
+	case authTypeAPIKey:
+		switch msg {
+		case "missing API key header":
+			return "missing_api_key"
+		case "invalid API key":
+			return "invalid_api_key"
+		}
+	case authTypeOIDC:
+		if strings.Contains(msg, "missing Bearer token") {
+			return "missing_token"
+		}
+		return "invalid_token"
+	case authTypeBasic:
+		switch msg {
+		case "missing or malformed Basic auth credentials":
+			return "missing_credentials"
+		case "invalid Basic auth credentials":
+			return "invalid_credentials"
+		}
+	case authTypeIPAllowlist:
+		return "ip_not_allowed"
+	case authTypeHeaderEquals:
+		switch msg {
+		case "header-equals auth misconfigured: no header name":
+			return "misconfigured"
+		case "missing required header":
+			return "missing_header"
+		case "invalid header value":
+			return "invalid_header"
+		}
+	}
+	if msg == "authentication type not implemented" {
+		return "not_implemented"
+	}
+	return "unknown"
+}
+
 // verifySlackHMAC verifies Slack's signature scheme: header X-Slack-Signature
 // in the form "v0=<hex>", computed as HMAC-SHA256 over "v0:<timestamp>:<body>"
 // where <timestamp> comes from X-Slack-Request-Timestamp. Requests whose
@@ -314,7 +389,7 @@ func verifySlackHMAC(r *http.Request, body []byte, secret string, toleranceSecon
 	mac.Write([]byte("v0:" + tsHeader + ":" + string(body)))
 	expected := "v0=" + hex.EncodeToString(mac.Sum(nil))
 	if !hmac.Equal([]byte(sigHeader), []byte(expected)) {
-		return http.StatusUnauthorized, "HMAC signature mismatch"
+		return http.StatusUnauthorized, authMsgHMACSignatureMismatch
 	}
 	return http.StatusOK, ""
 }
@@ -329,6 +404,14 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// It is set to "rejected" or "rate_limited" on non-success paths; the
 	// accepted path sets it to "accepted" just before the final write.
 	metricResult := "rejected"
+
+	// alFields is nil unless this request came through AccessLogMiddleware
+	// (which is how the real server wires things up — see
+	// cmd/webhook-gateway/main.go). Every setter is nil-safe, so tests that
+	// call ServeHTTP directly work unchanged; AccessLogMiddleware is the sole
+	// emitter of the access log line and reads these fields back out after
+	// ServeHTTP returns.
+	alFields := accessLogFieldsFromContext(r.Context())
 
 	sourceIP := realClientIP(r, h.trustedProxies)
 
@@ -349,6 +432,16 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		))
 	defer rootSpan.End()
 	r = r.WithContext(spanCtx)
+	// Only record trace/span IDs when tracing is actually configured
+	// (OTEL_EXPORTER_OTLP_ENDPOINT set) — a no-op TracerProvider (the
+	// default) yields an invalid SpanContext with all-zero IDs for a fresh
+	// root span, which would otherwise print as a real-looking-but-meaningless
+	// "00000...0" trace_id on every single access log line in the default
+	// configuration. Omitting the fields entirely when invalid is clearer
+	// than zero-filling them.
+	if sc := rootSpan.SpanContext(); sc.IsValid() {
+		alFields.setTrace(sc.TraceID().String(), sc.SpanID().String())
+	}
 
 	defer func() {
 		if rec := recover(); rec != nil {
@@ -365,21 +458,17 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}()
 
 	defer func() {
-		durationMs := time.Since(start).Milliseconds()
-		h.log.Info("webhook access",
-			"method", r.Method,
-			"path", r.URL.Path,
-			"status", status,
-			"trigger", triggerName,
-			"namespace", triggerNamespace,
-			"flowRun", flowRunName,
-			"duration_ms", durationMs,
-			"content_type", r.Header.Get("Content-Type"),
-			"source_ip", sourceIP,
-		)
 		// Record request latency. triggerName may be empty for 404 paths; that
 		// is acceptable — the histogram label will be an empty string in those
 		// rare cases and does not inflate cardinality.
+		//
+		// The per-request access log line itself is emitted solely by
+		// AccessLogMiddleware (internal/gateway/webhook/accesslog.go), which
+		// reads back the *accessLogFields this handler populates as it goes —
+		// see alFields above. This used to also log a second,
+		// differently-shaped "webhook access" line via h.log directly; that
+		// duplicate emitter was removed so exactly one JSON log line is
+		// produced per request.
 		metrics.WebhookRequestDuration.
 			WithLabelValues(triggerName, metricResult).
 			Observe(time.Since(start).Seconds())
@@ -393,6 +482,7 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	triggerName = entry.TriggerName
 	triggerNamespace = entry.TriggerNamespace
+	alFields.setTrigger(triggerNamespace, entry.AuthType)
 	rootSpan.SetAttributes(
 		attribute.String("kubezap.trigger.name", triggerName),
 		attribute.String("kubezap.trigger.type", triggerTypeWebhook),
@@ -421,6 +511,7 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if len(bodyBytes) > int(maxBody) {
 		bodyBytes = bodyBytes[:maxBody]
 	}
+	alFields.setBodyBytes(len(bodyBytes))
 
 	if bodyTruncated {
 		status = http.StatusRequestEntityTooLarge
@@ -434,9 +525,15 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	authSpan.End()
 	if authStatus != http.StatusOK {
 		status = authStatus
+		alFields.setAuthResult(authResultFailure, authFailureReason(entry.AuthType, authMsg))
 		metrics.TriggerFirings.WithLabelValues(triggerNamespace, triggerName, triggerTypeWebhook, "error").Inc()
 		writeJSON(w, status, map[string]string{errorJSONKey: authMsg})
 		return
+	}
+	if entry.AuthType == "" {
+		alFields.setAuthResult(authResultSkipped, "")
+	} else {
+		alFields.setAuthResult(authResultSuccess, "")
 	}
 
 	// Cooldown window enforcement: suppress requests that exceed maxInvocations within the window.
@@ -546,11 +643,18 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if apierrors.IsAlreadyExists(err) {
 			metricResult = "accepted"
 			status = http.StatusAccepted
+			// A dedup hit (FlowRun already exists) still counts as "created"
+			// for access-log purposes, matching STORY-043's TriggerFirings
+			// metric convention: the caller's event was accepted and a
+			// FlowRun exists under that name, whether or not this exact
+			// request is the one that created it.
+			alFields.setFlowRun(true, flowRunName, entry.FlowRef)
 			metrics.TriggerFirings.WithLabelValues(triggerNamespace, triggerName, triggerTypeWebhook, "success").Inc()
 			writeJSON(w, status, map[string]string{"flowRun": flowRunName, "namespace": entry.TriggerNamespace})
 			return
 		}
 		status = http.StatusInternalServerError
+		alFields.setFlowRun(false, "", "")
 		h.log.Error(err, "unable to create FlowRun", "flowRun", flowRunName, "trigger", entry.TriggerName, "namespace", entry.TriggerNamespace)
 		metrics.TriggerFirings.WithLabelValues(triggerNamespace, triggerName, triggerTypeWebhook, "error").Inc()
 		writeJSON(w, status, map[string]string{errorJSONKey: "unable to create FlowRun"})
@@ -559,6 +663,7 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	metricResult = "accepted"
 	status = http.StatusAccepted
+	alFields.setFlowRun(true, flowRunName, entry.FlowRef)
 	metrics.TriggerFirings.WithLabelValues(triggerNamespace, triggerName, triggerTypeWebhook, "success").Inc()
 	writeJSON(w, status, map[string]string{"flowRun": flowRunName, "namespace": entry.TriggerNamespace})
 }

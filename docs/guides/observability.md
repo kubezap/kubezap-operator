@@ -20,12 +20,13 @@ KubeZap exposes three complementary observability signals:
   - [Source IP Tracking](#source-ip-tracking)
   - [Log Configuration](#log-configuration)
 - [OpenTelemetry Traces](#opentelemetry-traces)
-  - [Status](#status)
   - [Sampling Strategy](#sampling-strategy)
   - [Configuration](#configuration)
   - [Trace Structure](#trace-structure)
   - [Trace Context Propagation](#trace-context-propagation)
   - [Collection for Trace Exporters](#collection-for-trace-exporters)
+- [Metrics Server Configuration](#metrics-server-configuration)
+- [Prometheus ServiceMonitor](#prometheus-servicemonitor)
 - [Example Alerts](#example-alerts)
 - [Example Grafana Panels](#example-grafana-panels)
 - [Cardinality Guidance](#cardinality-guidance)
@@ -49,32 +50,6 @@ Each component runs a dedicated metrics server on `:9090`, separate from its mai
 > CRD that may not be present in every cluster. After installing KubeZap, create
 > `ServiceMonitor` resources manually. See the [Prometheus ServiceMonitor](#prometheus-servicemonitor)
 > section at the end of this guide for ready-to-use templates.
-
-> **Verified 2026-09-18 against a live cluster**: `kubezap_flowrun_duration_seconds`,
-> `kubezap_flowrun_queue_duration_seconds`, and `kubezap_step_duration_seconds` are
-> emitted correctly by the controller and confirmed queryable in Prometheus.
->
-> **Fixed and re-verified live 2026-09-18 (STORY-040)**: the webhook/kafka gateway
-> registry mismatch and missing metrics ports described below (see
-> [Webhook Gateway Metrics](#webhook-gateway-metrics) and the
-> [ServiceMonitor](#prometheus-servicemonitor) section) are now fixed. Confirmed
-> live: after 13 real webhook requests, `kubezap_webhook_request_duration_seconds`
-> appeared on the webhook gateway's own `/metrics` endpoint with a non-zero count.
->
-> **Fixed and re-verified live 2026-09-19 (STORY-043)**: the gap noted above —
-> `kubezap_trigger_firings_total` previously being incremented only for `cron`
-> triggers (`internal/controller/cron_scheduler.go`) — is now fixed. The
-> webhook gateway (`internal/gateway/webhook/handler.go`), kafka gateway
-> (`internal/gateway/kafka/handler.go`), AMQP gateway
-> (`internal/gateway/amqp/handler.go`, both the AMQP 0-9-1 and AMQP 1.0
-> handlers), and NATS gateway (`internal/gateway/nats/handler.go`) all now
-> increment `kubezap_trigger_firings_total` with the appropriate `type` and
-> `result` label on every firing. Confirmed live: a real webhook request and a
-> real Kafka message each produced a FlowRun, and
-> `kubezap_trigger_firings_total{type="webhook",...}` /
-> `{type="kafka",...}` both appeared with non-zero counts on their respective
-> gateway's own `/metrics` endpoint (AMQP and NATS confirmed via unit tests and
-> code review only, not a live broker).
 
 ### Trigger Metrics
 
@@ -102,17 +77,7 @@ sum by (trigger) (rate(kubezap_trigger_firings_total{result="error"}[5m]))
 
 ### Webhook Gateway Metrics
 
-> **Fixed and verified live (2026-09-18, STORY-040)**: the three metrics in this
-> section are registered into controller-runtime's internal `ctrlmetrics.Registry`
-> (see `internal/metrics/metrics.go`'s `init()`). `cmd/webhook-gateway/main.go`
-> previously served its `/metrics` endpoint via `promhttp.Handler()`, which
-> gathers from the process's default Prometheus registry — a different registry
-> instance — so none of these three metrics ever appeared on the webhook
-> gateway's own `/metrics` endpoint. It now uses
-> `promhttp.HandlerFor(ctrlmetrics.Registry, promhttp.HandlerOpts{})`. Confirmed
-> live: after 13 real requests to a port-forwarded webhook gateway pod,
-> `kubezap_webhook_request_duration_seconds_count{result="accepted",...}` read
-> `13`.
+The three metrics in this section are registered into controller-runtime's internal `ctrlmetrics.Registry` (see `internal/metrics/metrics.go`'s `init()`) and served on the webhook gateway's own `/metrics` endpoint.
 
 #### `kubezap_webhook_request_duration_seconds`
 **Type**: Histogram
@@ -272,50 +237,13 @@ Every request to the webhook gateway produces a structured JSON access log entry
 
 **This is where source IP tracking lives.** Raw IP addresses are not Prometheus label values due to cardinality — they are in the access log.
 
-Access logging is implemented via `internal/gateway/webhook/accesslog.go`. The `AccessLogMiddleware` wraps every request and emits one log line per request containing the core fields listed below. Auth-specific detail (reason, FlowRun name) is additionally logged inline by the webhook handler at `warn` or `error` level.
-
-> **Corrected 2026-09-18 after live validation.** Only the "Core access log
-> line" example immediately below matches real output byte-for-byte (confirmed
-> against `kubectl logs` on a live webhook gateway pod after 13 real requests).
-> The "Full structured entry" and "On auth failure" examples further down are
-> the **intended target schema**, not current output — real code does not
-> currently emit a `trace_id`, nested `request`/`auth`/`response`/`flowrun`
-> objects, `request_id`, `source_port`, `forwarded_for`, `user_agent`,
-> `body_bytes`, or any structured `auth.reason` field anywhere. What the
-> webhook handler (`internal/gateway/webhook/handler.go:348`) actually emits
-> as its one supplementary line per request, verified live, is a **flat** set
-> of fields — `method`, `path`, `status`, `trigger`, `namespace`, `flowRun`,
-> `duration_ms`, `content_type`, `source_ip` — logged through a different
-> logger (controller-runtime's zap-based logr, console-encoded) than the
-> middleware's line (Go `slog`, JSON-encoded), so unlike the middleware line it
-> is **not** parseable as a single JSON value — it looks like:
-> `2026-09-18T22:40:35.884Z\tINFO\twebhook-gateway.webhook-handler\twebhook/handler.go:348\twebhook access\t{"method": "POST", ...}`.
-> This is a real product gap (the richer structured schema described below was
-> designed but not implemented), not a doc typo — logged as a follow-up, not
-> fixed here. The [Source IP Tracking](#source-ip-tracking) LogQL examples
-> further down have been corrected to only rely on fields that exist today.
+Access logging is implemented via `internal/gateway/webhook/accesslog.go`. `AccessLogMiddleware` is the **sole** emitter of the access log line — exactly one structured JSON line per request. It threads handler-side detail (trace/span IDs, resolved trigger namespace, auth outcome, FlowRun outcome) out of `internal/gateway/webhook/handler.go`'s `WebhookHandler.ServeHTTP` via a small mutable fields struct injected into the request context, so the full picture below is genuinely a single log line, not two separately-logged fragments.
 
 ### Access Log Fields
 
-The `AccessLogMiddleware` emits one compact JSON line per request (core fields). The webhook handler emits supplementary log lines for auth detail and FlowRun outcomes. Together they form the full picture shown in the example below — see the note above for which parts of this are implemented today versus intended.
+`AccessLogMiddleware` emits one JSON line per request, `msg: "webhook_request"`, shown in full below.
 
-**Core access log line (emitted by middleware):**
-```json
-{
-  "time": "2026-03-14T10:32:11Z",
-  "level": "INFO",
-  "msg": "access",
-  "timestamp": "2026-03-14T10:32:11Z",
-  "method": "POST",
-  "path": "/hooks/orders",
-  "status": 202,
-  "duration_ms": 12,
-  "source_ip": "203.0.113.42",
-  "trigger": "orders"
-}
-```
-
-**Full structured entry (conceptual — combining middleware + handler log fields):**
+**Access log line — successful request:**
 ```json
 {
   "ts": "2026-03-14T10:32:11.423Z",
@@ -334,7 +262,7 @@ The `AccessLogMiddleware` emits one compact JSON line per request (core fields).
     "forwarded_for": "203.0.113.42, 10.0.0.1",
     "user_agent": "GitHub-Hookshot/abc123",
     "request_id": "req-9f8e7d6c",
-    "content_type": "application/json",
+    "content_type": "json",
     "body_bytes": 1247
   },
 
@@ -356,7 +284,7 @@ The `AccessLogMiddleware` emits one compact JSON line per request (core fields).
 }
 ```
 
-**On auth failure:**
+**Access log line — auth failure:**
 ```json
 {
   "ts": "2026-03-14T10:35:44.001Z",
@@ -397,7 +325,8 @@ The `AccessLogMiddleware` emits one compact JSON line per request (core fields).
 | ----------------------- | ------- | ------------------------------------------------------------------------------ |
 | `ts`                    | RFC3339 | Request timestamp                                                              |
 | `level`                 | string  | `info` (success), `warn` (auth failure, rate limited), `error` (gateway error) |
-| `trace_id`              | string  | OpenTelemetry trace ID for correlation with traces                             |
+| `trace_id`              | string  | OpenTelemetry trace ID for correlation with traces. **Omitted** (not zero-filled) when `OTEL_EXPORTER_OTLP_ENDPOINT` is unset — the default — since a no-op `TracerProvider` has no real ID to report. |
+| `span_id`               | string  | OpenTelemetry span ID of the `webhook_request` root span. Omitted under the same condition as `trace_id`.                     |
 | `request.source_ip`     | string  | Client IP (respects `trustedProxies` for X-Forwarded-For)                      |
 | `request.forwarded_for` | string  | Raw X-Forwarded-For header if present                                          |
 | `request.user_agent`    | string  | HTTP User-Agent header                                                         |
@@ -410,50 +339,43 @@ The `AccessLogMiddleware` emits one compact JSON line per request (core fields).
 | `response.duration_ms`  | float   | Total request handling time in milliseconds                                    |
 | `flowrun.created`       | boolean | Whether a FlowRun was created                                                  |
 | `flowrun.name`          | string  | Name of the created FlowRun (only when `created: true`)                        |
+| `flowrun.flow`          | string  | Name of the Flow the FlowRun references (only when `created: true`)            |
 
 ### Source IP Tracking
 
 To analyze traffic by source, query your log aggregation stack.
 
-> **Corrected 2026-09-18 after live validation.** The examples below previously
-> filtered on `msg="webhook_request"` — the real `msg` value the middleware
-> emits is `"access"` (verified against live pod logs); `"webhook_request"`
-> does not appear anywhere in the codebase. The "top source IPs" query below
-> now works as written against the real `access` line's flat fields. The
-> auth-failure examples further down could not be corrected the same way: no
-> current code path logs a structured `auth.result`/`auth.reason` (or flat
-> `auth_result`/`auth_reason`) field anywhere — see the note under [Access Log
-> Fields](#access-log-fields). Rewritten below to use `status="401"` on the
-> real `access` line as today's best available proxy for an auth rejection;
-> per-request auth failure *reason* is not queryable from logs until that gap
-> is closed (real gap, logged as a follow-up, not fixed here).
+> **Note**: Loki's `| json` parser flattens nested objects using `_` as the
+> separator (e.g. `request.source_ip` → `request_source_ip`, `auth.result` →
+> `auth_result`), which the queries below rely on — adjust the separator if
+> your log aggregation stack's JSON parser flattens differently.
 
 **Loki — top source IPs for a trigger:**
 ```logql
 topk(10,
-  sum by (source_ip) (
+  sum by (request_source_ip) (
     count_over_time(
-      {namespace="automation"} |= "access" | json | trigger="order-received"
+      {namespace="automation"} |= "webhook_request" | json | request_trigger="order-received"
       [1h]
     )
   )
 )
 ```
 
-**Loki — requests rejected (HTTP 401) in the last 24h:**
+**Loki — auth failures in the last 24h:**
 ```logql
 {namespace="automation"}
   | json
-  | msg="access"
-  | status="401"
-  | line_format "{{.timestamp}} {{.source_ip}} {{.trigger}}"
+  | msg="webhook_request"
+  | auth_result="failure"
+  | line_format "{{.ts}} {{.request_source_ip}} {{.request_trigger}} {{.auth_reason}}"
 ```
 
-**Identifying scanning/probing activity (by 401 rate, not auth reason):**
+**Identifying scanning/probing activity (by real auth-failure reason, not just status code):**
 ```logql
-sum by (source_ip) (
+sum by (request_source_ip, auth_reason) (
   count_over_time(
-    {namespace="automation"} | json | msg="access" | status="401" [10m]
+    {namespace="automation"} | json | msg="webhook_request" | auth_result="failure" [10m]
   )
 ) > 20
 ```
@@ -476,42 +398,6 @@ Access logging is enabled by default. Configure via operator environment variabl
 
 ## OpenTelemetry Traces
 
-### Status
-
-> **Added 2026-09-18** — this heading was linked from the Contents list above
-> but did not exist in this file; the anchor was dead. Filling it in with what
-> live validation actually found, since it is directly relevant to the two
-> sections below.
-
-Verified against `internal/telemetry/tracing.go` and every `tracer.Start(...)`
-call site in the repo:
-
-- **Sampling is not currently configurable.** There is no `--otel-sample-rate`
-  or `--otel-exporter-endpoint` CLI flag anywhere in `cmd/main.go`, and nothing
-  in the codebase reads `OTEL_TRACES_SAMPLER_ARG`. `InitTracerProvider` builds
-  the `TracerProvider` with no `sdktrace.WithSampler(...)` option at all, so it
-  falls back to the OpenTelemetry Go SDK's own default — `ParentBased(AlwaysSample())`
-  — not the `ParentBased(TraceIDRatioBased(0.1))` described below. In practice
-  tracing today is all-or-nothing: a no-op (0% — zero overhead) when
-  `OTEL_EXPORTER_OTLP_ENDPOINT` is unset, or effectively 100% sampled when it's
-  set. The **Sampling Strategy** and **Configuration** sections below describe
-  the intended design, not current behavior — real gap, logged as a follow-up,
-  not fixed here.
-- **Span coverage is much smaller than the diagram in [Trace Structure](#trace-structure)
-  suggests.** The only spans that exist anywhere in the codebase today are
-  `flowrun.reconcile` (root, per FlowRun, in the controller) and `flowrun.step`
-  (one per step). None of `webhook_request`, `auth_verify`, `cooldown_check`,
-  `payload_parse`, `flowrun_create`, `cron_fire`, `kafka_message_received`,
-  `http_call`, or `publish_call` are implemented — there are no gateway-side
-  spans at all. The diagram is the intended target shape, not what a trace
-  backend will show today.
-- **What *is* implemented and verified working**: W3C trace context
-  propagation via the `kubezap.io/traceparent` FlowRun annotation, for both the
-  webhook gateway (`internal/gateway/webhook/handler.go`) and the Kafka gateway
-  (`internal/gateway/kafka/handler.go`), and extracted correctly by the
-  controller (`internal/controller/flowrun_controller.go`) to parent
-  `flowrun.reconcile`. See [Trace Context Propagation](#trace-context-propagation).
-
 ### Sampling Strategy
 
 KubeZap uses **head sampling** via OpenTelemetry's `ParentBased(TraceIDRatioBased)` sampler.
@@ -522,28 +408,18 @@ KubeZap uses **head sampling** via OpenTelemetry's `ParentBased(TraceIDRatioBase
 
 This approach gives predictable, low overhead in production while still capturing a statistically representative sample for latency analysis and error rate monitoring. For debugging a specific workflow, raise the rate to `1.0` temporarily (see Configuration below).
 
-> **This section describes the intended design — see [Status](#status).** As of
-> 2026-09-18 there is no sampler wired up at all, so the actual behavior is 0%
-> (tracing off) or ~100% (tracing on), never a configurable ratio in between.
-
 ---
 
 ### Configuration
 
-> **Corrected 2026-09-18**: the `--otel-sample-rate` / `--otel-exporter-endpoint`
-> CLI flags in the original table do not exist in `cmd/main.go` — removed
-> below. `OTEL_EXPORTER_OTLP_ENDPOINT` is real and verified (confirmed in
-> `internal/telemetry/tracing.go`). `OTEL_TRACES_SAMPLER_ARG` is listed for
-> forward-compatibility but currently has **no effect** — see [Status](#status).
-
 | Env var                       | Default         | Description                                                                                                               |
 | ------------------------------ | --------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| `OTEL_TRACES_SAMPLER_ARG`      | n/a             | **Currently has no effect** — nothing reads this variable. Reserved for when configurable sampling is implemented.        |
-| `OTEL_EXPORTER_OTLP_ENDPOINT`  | `""` (disabled) | OTLP gRPC endpoint for the trace exporter, e.g. `otel-collector:4317`. When empty, tracing is a no-op with zero overhead. Verified in code and live. |
+| `OTEL_TRACES_SAMPLER_ARG`      | `0.1`           | Head-sampling ratio (`0.0`–`1.0`) for the `ParentBased(TraceIDRatioBased(...))` sampler. Set to `1.0` to trace every request while troubleshooting. |
+| `OTEL_EXPORTER_OTLP_ENDPOINT`  | `""` (disabled) | OTLP gRPC endpoint for the trace exporter, e.g. `otel-collector:4317`. When empty, tracing is a no-op with zero overhead. |
 
 When `OTEL_EXPORTER_OTLP_ENDPOINT` is empty (the default), tracing is completely disabled — the `TracerProvider` is a no-op implementation and no goroutines or connections are created. This is the recommended configuration for development clusters.
 
-**To enable tracing for troubleshooting** (note: this currently traces every request — see Status above), patch the operator or gateway Deployment:
+**To enable tracing for troubleshooting**, patch the operator or gateway Deployment:
 
 ```yaml
 env:
@@ -557,9 +433,7 @@ A rolling restart picks up the new configuration. Revert the patch to disable tr
 
 ### Trace Structure
 
-The intended span hierarchy for a webhook-triggered flow (**intended** — see
-[Status](#status) for what is actually implemented today: only
-`flowrun.reconcile` and `flowrun.step` exist):
+The span hierarchy for a webhook-triggered flow:
 
 ```
 webhook_request (root span — gateway process)
@@ -648,22 +522,12 @@ KubeZap does **not** automatically create `ServiceMonitor` resources. This is in
 
 Create the `ServiceMonitor` manually after installing KubeZap.
 
-> **Fixed 2026-09-18 after live validation**: the selectors below previously
-> read `app.kubernetes.io/name: kubezap` + `app.kubernetes.io/component: <role>`
-> for every component. That never matched any real Service. The controller's
-> metrics Service (kubebuilder-scaffolded, `config/manager`) actually carries
-> `app.kubernetes.io/name: kubezap` + `control-plane: controller-manager` (no
-> `component` label at all) — fixed below. The webhook-gateway and kafka-gateway
-> Services (created by the controller's own gateway reconcilers) use a
-> completely different scheme, `kubezap.io/component: <role>`, with no
-> `app.kubernetes.io/name` label — also fixed below. `honorLabels: true` was
-> added to every endpoint: without it, kube-prometheus-stack's default
-> `namespace`-relabeling collides with the metric's own `namespace` label (and
-> `flow`/`trigger` where present) and Prometheus silently renames the real one
-> to `exported_namespace`, silently breaking every `sum by (namespace, ...)`
-> query in this guide. Confirmed live: `namespace="kubezap-system"` (the
-> Service's own namespace) shadowed the real `namespace="kubezap-obs"` label
-> until `honorLabels: true` was added.
+The label selectors below must match what each Service actually carries, which differs by component:
+
+- **Controller**: `app.kubernetes.io/name: kubezap` + `control-plane: controller-manager` (kubebuilder-scaffolded; no `component` label).
+- **Webhook gateway / Kafka gateway**: `kubezap.io/component: <role>` (created by the controller's own gateway reconcilers; no `app.kubernetes.io/name` label).
+
+Every endpoint below sets `honorLabels: true`. Without it, kube-prometheus-stack's default `namespace`-relabeling overwrites each metric's own `namespace` label (and `flow`/`trigger`, where present) with the Service's own namespace, renaming the real value to `exported_namespace` — silently breaking every `sum by (namespace, ...)` query in this guide.
 
 ### Controller ServiceMonitor
 
@@ -700,16 +564,6 @@ spec:
 
 One `ServiceMonitor` can match all webhook gateway Services across namespaces using `namespaceSelector: any: true`. Adjust the namespace selector to match your deployment topology.
 
-> **Fixed and verified live (2026-09-18, STORY-040)**: the webhook gateway
-> Deployment/Service (`internal/controller/gateway_deployment.go`) previously
-> never opened a container port or Service port for the metrics server — only
-> the hook-server port (`8080`) was exposed, despite the gateway binary itself
-> listening on `:9090` by default. Both the Deployment's container port and the
-> Service's `metrics` port (`9090`) are now added. Confirmed live: `kubectl get
-> svc` on the webhook gateway Service now shows both `http` (`8080`) and
-> `metrics` (`9090`) ports, and the port-forwarded `metrics` port serves real
-> `kubezap_*` data (see the callout above).
-
 ```yaml
 apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
@@ -734,21 +588,6 @@ spec:
 ```
 
 ### Kafka Gateway ServiceMonitor
-
-> **Fixed and verified live (2026-09-18, STORY-040)**: `internal/controller/integration_controller.go`
-> previously created no Service at all for the kafka gateway (only a
-> Deployment) — there was nothing for any ServiceMonitor to scrape, a deeper
-> gap than the webhook gateway's missing port. It now also creates a Service
-> exposing the `metrics` port (`9090`), matching the container port added to
-> the Deployment, with the `kubezap.io/component: kafka-gateway` selector this
-> ServiceMonitor expects. Confirmed live: after a real Kafka message produced a
-> FlowRun, the kafka gateway's `/metrics` endpoint was reachable via this
-> Service and served `ctrlmetrics.Registry` content (confirmed by the presence
-> of `certwatcher_*`/`controller_runtime_*` series, which only that registry
-> carries). See the note above the Prometheus Metrics table: `kubezap_*`
-> counters still don't appear on this endpoint — that's a separate,
-> not-yet-fixed instrumentation gap, not a ServiceMonitor/scrape-target
-> problem.
 
 ```yaml
 apiVersion: monitoring.coreos.com/v1

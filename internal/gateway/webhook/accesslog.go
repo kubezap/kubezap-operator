@@ -1,13 +1,24 @@
 package webhook
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"net"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"time"
+)
+
+// auth.result values for the access log, shared between AccessLogMiddleware
+// (which supplies the "skipped" fallback) and WebhookHandler (which sets
+// "success"/"failure" once authenticateRequest has run).
+const (
+	authResultSuccess = "success"
+	authResultFailure = "failure"
+	authResultSkipped = "skipped"
 )
 
 // accessLogWriter wraps http.ResponseWriter to capture the status code.
@@ -25,6 +36,125 @@ func (w *accessLogWriter) WriteHeader(code int) {
 var accessLogger = slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
 	Level: slog.LevelInfo,
 }))
+
+// accessLogFields carries request detail that only becomes known deep inside
+// WebhookHandler.ServeHTTP (trace/span IDs, the resolved trigger namespace,
+// auth outcome, FlowRun outcome) back out to AccessLogMiddleware, which is
+// the sole emitter of the per-request access log line. AccessLogMiddleware
+// allocates one of these per request and injects a pointer to it into the
+// request context before calling the wrapped handler; WebhookHandler
+// retrieves the same pointer and populates fields as each becomes known. A
+// nil *accessLogFields (e.g. in tests that invoke WebhookHandler directly,
+// bypassing the middleware) is a safe no-op for every setter below.
+type accessLogFields struct {
+	TraceID          string
+	SpanID           string
+	TriggerNamespace string
+	AuthType         string
+	AuthResult       string
+	AuthReason       string
+	BodyBytes        int
+	FlowRunCreated   bool
+	FlowRunName      string
+	FlowName         string
+}
+
+func (f *accessLogFields) setTrace(traceID, spanID string) {
+	if f == nil {
+		return
+	}
+	f.TraceID = traceID
+	f.SpanID = spanID
+}
+
+func (f *accessLogFields) setTrigger(namespace, authType string) {
+	if f == nil {
+		return
+	}
+	f.TriggerNamespace = namespace
+	f.AuthType = authType
+}
+
+func (f *accessLogFields) setAuthResult(result, reason string) {
+	if f == nil {
+		return
+	}
+	f.AuthResult = result
+	f.AuthReason = reason
+}
+
+func (f *accessLogFields) setBodyBytes(n int) {
+	if f == nil {
+		return
+	}
+	f.BodyBytes = n
+}
+
+func (f *accessLogFields) setFlowRun(created bool, name, flow string) {
+	if f == nil {
+		return
+	}
+	f.FlowRunCreated = created
+	f.FlowRunName = name
+	f.FlowName = flow
+}
+
+// accessLogFieldsKey is the unexported context key type under which
+// AccessLogMiddleware stores an *accessLogFields for the duration of a request.
+type accessLogFieldsKey struct{}
+
+// accessLogFieldsFromContext retrieves the *accessLogFields injected by
+// AccessLogMiddleware, or nil if none is present (e.g. a direct ServeHTTP
+// call in tests that bypasses the middleware). Every accessLogFields setter
+// is nil-safe, so callers do not need to check the result before use.
+func accessLogFieldsFromContext(ctx context.Context) *accessLogFields {
+	f, _ := ctx.Value(accessLogFieldsKey{}).(*accessLogFields)
+	return f
+}
+
+// normalizeContentType maps a raw Content-Type header value to one of the
+// coarse buckets documented in docs/guides/observability.md's Access Log
+// Fields Reference: json, xml, form, text, binary. An empty header (no
+// Content-Type sent at all, e.g. a body-less GET) maps to "" rather than
+// "binary" since no content type was asserted either way.
+func normalizeContentType(raw string) string {
+	media := raw
+	if idx := strings.IndexByte(media, ';'); idx >= 0 {
+		media = media[:idx]
+	}
+	media = strings.ToLower(strings.TrimSpace(media))
+
+	switch {
+	case media == "":
+		return ""
+	case media == "application/json" || strings.HasSuffix(media, "+json"):
+		return "json"
+	case media == "application/xml" || media == "text/xml" || strings.HasSuffix(media, "+xml"):
+		return "xml"
+	case media == "application/x-www-form-urlencoded":
+		return "form"
+	case strings.HasPrefix(media, "text/"):
+		return "text"
+	default:
+		return "binary"
+	}
+}
+
+// sourcePortFromRemoteAddr best-effort parses the TCP peer port from
+// r.RemoteAddr. It intentionally does not consult X-Forwarded-For/X-Real-IP
+// (unlike realClientIP) since a forwarded port number from an untrusted
+// header is not meaningful; this always reflects the literal socket peer.
+func sourcePortFromRemoteAddr(remoteAddr string) (int, bool) {
+	_, portStr, err := net.SplitHostPort(remoteAddr)
+	if err != nil {
+		return 0, false
+	}
+	port, err := strconv.Atoi(portStr)
+	if err != nil {
+		return 0, false
+	}
+	return port, true
+}
 
 // realClientIP extracts the client IP, honoring X-Forwarded-For/X-Real-IP only
 // when the immediate TCP peer (r.RemoteAddr) is itself within trustedProxies.
@@ -119,28 +249,112 @@ func triggerFromPath(path string) string {
 	return rest
 }
 
-// AccessLogMiddleware wraps an http.Handler and emits a structured JSON log line for every request.
-// Fields: timestamp, method, path, status, duration_ms, source_ip, trigger.
-// trustedProxies is forwarded to realClientIP — see its doc comment.
+// AccessLogMiddleware wraps an http.Handler and is the sole emitter of the
+// structured, single-JSON-line-per-request access log described in
+// docs/guides/observability.md ("Structured Access Logs" / "Access Log
+// Fields Reference"). It emits msg "webhook_request" with nested
+// request/auth/response/flowrun objects.
+//
+// Handler-side detail (trace/span IDs, trigger namespace, auth outcome,
+// FlowRun outcome) is threaded in via an *accessLogFields injected into the
+// request context before next.ServeHTTP runs, and read back out afterward —
+// see accessLogFields's doc comment. trustedProxies is forwarded to
+// realClientIP — see its doc comment.
 func AccessLogMiddleware(next http.Handler, trustedProxies []*net.IPNet) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
 		lw := &accessLogWriter{ResponseWriter: w, status: http.StatusOK}
 
+		fields := &accessLogFields{}
+		r = r.WithContext(context.WithValue(r.Context(), accessLogFieldsKey{}, fields))
+
 		next.ServeHTTP(lw, r)
 
-		durationMs := time.Since(start).Milliseconds()
+		durationMs := float64(time.Since(start).Microseconds()) / 1000.0
 		sourceIP := realClientIP(r, trustedProxies)
 		trigger := triggerFromPath(r.URL.Path)
 
-		accessLogger.LogAttrs(r.Context(), slog.LevelInfo, "access",
-			slog.String("timestamp", start.UTC().Format(time.RFC3339)),
+		// auth.result defaults to "skipped" when the handler never reached
+		// (or never populated) auth evaluation at all — e.g. /healthz,
+		// /readyz, an unrecognized /hooks/ path (404 before auth runs), or a
+		// wrong-method request (405 before auth runs). A trigger with no
+		// auth configured is set explicitly to "skipped" by the handler, not
+		// via this fallback.
+		authResult := fields.AuthResult
+		if authResult == "" {
+			authResult = "skipped"
+		}
+
+		level := slog.LevelInfo
+		switch {
+		case lw.status >= http.StatusInternalServerError:
+			level = slog.LevelError
+		case authResult == authResultFailure || lw.status == http.StatusTooManyRequests:
+			level = slog.LevelWarn
+		}
+
+		requestID := r.Header.Get("X-Request-ID")
+		if requestID == "" {
+			requestID = randomHex(16)
+		}
+
+		requestAttrs := []any{
 			slog.String("method", r.Method),
 			slog.String("path", r.URL.Path),
-			slog.Int("status", lw.status),
-			slog.Int64("duration_ms", durationMs),
-			slog.String("source_ip", sourceIP),
 			slog.String("trigger", trigger),
+			slog.String("namespace", fields.TriggerNamespace),
+			slog.String("source_ip", sourceIP),
+		}
+		if port, ok := sourcePortFromRemoteAddr(r.RemoteAddr); ok {
+			requestAttrs = append(requestAttrs, slog.Int("source_port", port))
+		}
+		requestAttrs = append(requestAttrs,
+			slog.String("forwarded_for", r.Header.Get("X-Forwarded-For")),
+			slog.String("user_agent", r.Header.Get("User-Agent")),
+			slog.String("request_id", requestID),
+			slog.String("content_type", normalizeContentType(r.Header.Get("Content-Type"))),
+			slog.Int("body_bytes", fields.BodyBytes),
 		)
+
+		authAttrs := []any{
+			slog.String("type", fields.AuthType),
+			slog.String("result", authResult),
+		}
+		if authResult == authResultFailure && fields.AuthReason != "" {
+			authAttrs = append(authAttrs, slog.String("reason", fields.AuthReason))
+		}
+
+		flowrunAttrs := []any{
+			slog.Bool("created", fields.FlowRunCreated),
+		}
+		if fields.FlowRunCreated {
+			if fields.FlowRunName != "" {
+				flowrunAttrs = append(flowrunAttrs, slog.String("name", fields.FlowRunName))
+			}
+			if fields.FlowName != "" {
+				flowrunAttrs = append(flowrunAttrs, slog.String("flow", fields.FlowName))
+			}
+		}
+
+		// trace_id/span_id are only included when tracing is actually
+		// configured (fields.TraceID is non-empty — see the IsValid() check
+		// in WebhookHandler.ServeHTTP where these are populated). Omitting
+		// them when tracing is off (the default) is clearer than printing a
+		// zero-filled, real-looking-but-meaningless ID on every line.
+		var attrs []slog.Attr
+		if fields.TraceID != "" {
+			attrs = append(attrs, slog.String("trace_id", fields.TraceID), slog.String("span_id", fields.SpanID))
+		}
+		attrs = append(attrs,
+			slog.Group("request", requestAttrs...),
+			slog.Group("auth", authAttrs...),
+			slog.Group("response",
+				slog.Int("status_code", lw.status),
+				slog.Float64("duration_ms", durationMs),
+			),
+			slog.Group("flowrun", flowrunAttrs...),
+		)
+
+		accessLogger.LogAttrs(r.Context(), level, "webhook_request", attrs...)
 	})
 }

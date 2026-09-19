@@ -1912,6 +1912,8 @@ func (r *FlowRunReconciler) evaluateWhen(
 		"topic":         "",
 		"partition":     "0",
 		"offset":        "0",
+		"key":           "",
+		"keyEncoding":   "",
 		"scheduledTime": "",
 		"headers":       map[string]interface{}{},
 	}
@@ -1920,6 +1922,8 @@ func (r *FlowRunReconciler) evaluateWhen(
 		triggerMap["topic"] = triggerData.Topic
 		triggerMap["partition"] = fmt.Sprintf("%d", triggerData.Partition)
 		triggerMap["offset"] = fmt.Sprintf("%d", triggerData.Offset)
+		triggerMap["key"] = triggerData.Key
+		triggerMap["keyEncoding"] = triggerData.KeyEncoding
 		if triggerData.ScheduledTime != nil {
 			triggerMap["scheduledTime"] = triggerData.ScheduledTime.UTC().Format(time.RFC3339)
 		}

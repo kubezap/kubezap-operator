@@ -166,7 +166,7 @@ Use `$(syntax)` to reference dynamic values in string fields (URLs, headers, bod
 | `$(trigger.body.<field>)`                  | A field from the trigger body; JSON bodies support full dot-path traversal (e.g., `$(trigger.body.order.id)`), `application/x-www-form-urlencoded` bodies support flat top-level fields only (e.g., `$(trigger.body.text)`) |
 | `$(trigger.headers.<name>)`                | An HTTP header, or a Kafka/AMQP/NATS message header, from the triggering event (case-insensitive lookup) |
 | `$(trigger.topic)` / `$(trigger.partition)` / `$(trigger.offset)` | Kafka topic/partition/offset (empty for non-Kafka triggers)                       |
-| `$(trigger.key)`                           | Kafka record key (Kafka only; empty for non-Kafka triggers or a keyless record). See [Trigger docs](trigger.md#kafka-amqp-nats-broker-triggers) for its UTF-8/base64 encoding rules — this is emitted verbatim, not auto-decoded. Not available as a CEL variable in `condition:` (see below) — only via `$(...)` interpolation. |
+| `$(trigger.key)`                           | Kafka record key (Kafka only; empty for non-Kafka triggers or a keyless record). See [Trigger docs](trigger.md#kafka-amqp-nats-broker-triggers) for its UTF-8/base64 encoding rules — this is emitted verbatim, not auto-decoded. Also available as `trigger.key` (and `trigger.keyEncoding`) in `when` CEL expressions — see below. |
 | `$(trigger.scheduledTime)`                 | RFC3339 scheduled fire time (cron triggers only)                                                |
 | `$(steps.<stepName>.results.<resultName>)` | A result produced by a previous step (hyphens in the step name become underscores)              |
 | `$(secrets.<secretName>.<key>)`            | A value from a Kubernetes Secret in the same namespace                                         |
@@ -231,6 +231,8 @@ Available CEL variables:
 | `trigger.topic`         | `string`              | Kafka topic (empty for non-Kafka triggers)                              |
 | `trigger.partition`     | `string`              | Kafka partition, formatted as a string (empty for non-Kafka triggers)    |
 | `trigger.offset`        | `string`              | Kafka offset, formatted as a string (empty for non-Kafka triggers)      |
+| `trigger.key`           | `string`              | Kafka record key (empty for non-Kafka triggers or a keyless record) — see `keyEncoding`; emitted verbatim, same as the `$(trigger.key)` interpolation token |
+| `trigger.keyEncoding`   | `string`              | `utf8` or `base64`, describing how `trigger.key` is encoded (kafka only) |
 | `trigger.scheduledTime` | `string`              | RFC3339 scheduled fire time (cron only; empty otherwise)                 |
 | `trigger.headers`       | `map<string, dyn>`    | Trigger request headers                                                  |
 | `steps.<name>.status`   | `string`              | Step phase: `Succeeded`, `Failed`, `Skipped`, etc.                       |

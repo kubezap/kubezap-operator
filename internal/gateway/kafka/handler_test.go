@@ -320,6 +320,130 @@ func TestHandleMessage_KeyNil(t *testing.T) {
 	}
 }
 
+// TestHandleMessage_BodyUTF8 verifies a valid-UTF-8 payload is stored
+// verbatim on TriggerData.Body with BodyEncoding "utf8".
+func TestHandleMessage_BodyUTF8(t *testing.T) {
+	fakeClient := fake.NewClientBuilder().WithScheme(newTestScheme()).Build()
+	log := zap.New()
+
+	h := &MessageHandler{
+		client:           fakeClient,
+		log:              log,
+		triggerName:      "body-utf8-trigger",
+		triggerNamespace: "default",
+		flowRefName:      "my-flow",
+	}
+
+	if err := h.HandleMessage(context.Background(), "orders", 0, 10, nil, []byte(`{"order":"abc"}`), nil); err != nil {
+		t.Fatalf("HandleMessage returned error: %v", err)
+	}
+
+	list := &automationv1alpha1.FlowRunList{}
+	if err := fakeClient.List(context.Background(), list); err != nil {
+		t.Fatalf("listing FlowRuns: %v", err)
+	}
+	if len(list.Items) != 1 {
+		t.Fatalf("expected 1 FlowRun, got %d", len(list.Items))
+	}
+
+	td := list.Items[0].Spec.TriggerData
+	if td.Body != `{"order":"abc"}` {
+		t.Errorf("TriggerData.Body = %q", td.Body)
+	}
+	if td.BodyEncoding != "utf8" {
+		t.Errorf("TriggerData.BodyEncoding = %q, want utf8", td.BodyEncoding)
+	}
+}
+
+// TestHandleMessage_BodyBinary verifies a non-UTF-8 Kafka payload (e.g.
+// Avro/Protobuf/schema-registry-encoded) is base64-encoded on
+// TriggerData.Body with BodyEncoding "base64", rather than being silently
+// corrupted to U+FFFD replacement characters when the FlowRun is
+// JSON-marshaled into etcd — the bug
+// docs/design/trigger-body-encoding-safety.md fixes.
+func TestHandleMessage_BodyBinary(t *testing.T) {
+	fakeClient := fake.NewClientBuilder().WithScheme(newTestScheme()).Build()
+	log := zap.New()
+
+	h := &MessageHandler{
+		client:           fakeClient,
+		log:              log,
+		triggerName:      "body-binary-trigger",
+		triggerNamespace: "default",
+		flowRefName:      "my-flow",
+	}
+
+	binaryPayload := []byte{0x00, 0x01, 0xFF, 0xFE, 0xAB, 0xCD}
+
+	if err := h.HandleMessage(context.Background(), "orders", 0, 11, nil, binaryPayload, nil); err != nil {
+		t.Fatalf("HandleMessage returned error: %v", err)
+	}
+
+	list := &automationv1alpha1.FlowRunList{}
+	if err := fakeClient.List(context.Background(), list); err != nil {
+		t.Fatalf("listing FlowRuns: %v", err)
+	}
+	if len(list.Items) != 1 {
+		t.Fatalf("expected 1 FlowRun, got %d", len(list.Items))
+	}
+
+	td := list.Items[0].Spec.TriggerData
+	want := base64.StdEncoding.EncodeToString(binaryPayload)
+	if td.Body != want {
+		t.Errorf("TriggerData.Body = %q, want %q", td.Body, want)
+	}
+	if td.BodyEncoding != "base64" {
+		t.Errorf("TriggerData.BodyEncoding = %q, want base64", td.BodyEncoding)
+	}
+}
+
+// TestHandleMessage_BodySplitRuneBoundary verifies that a payload whose byte
+// sequence is invalid as UTF-8 because it ends mid-rune (the exact shape a
+// truncation splitting a multi-byte rune would produce, per
+// docs/design/trigger-body-encoding-safety.md) is correctly classified as
+// "base64" rather than silently mis-decoded. The Kafka gateway does not
+// itself truncate payloads today (unlike the webhook gateway), so this
+// exercises the encoding check directly against a payload with a dangling
+// lead byte.
+func TestHandleMessage_BodySplitRuneBoundary(t *testing.T) {
+	fakeClient := fake.NewClientBuilder().WithScheme(newTestScheme()).Build()
+	log := zap.New()
+
+	h := &MessageHandler{
+		client:           fakeClient,
+		log:              log,
+		triggerName:      "body-split-rune-trigger",
+		triggerNamespace: "default",
+		flowRefName:      "my-flow",
+	}
+
+	// "é" is the 2-byte UTF-8 sequence 0xC3 0xA9; keeping only the first byte
+	// leaves a dangling lead byte with no continuation byte.
+	full := []byte("é")
+	splitPayload := full[:1]
+
+	if err := h.HandleMessage(context.Background(), "orders", 0, 12, nil, splitPayload, nil); err != nil {
+		t.Fatalf("HandleMessage returned error: %v", err)
+	}
+
+	list := &automationv1alpha1.FlowRunList{}
+	if err := fakeClient.List(context.Background(), list); err != nil {
+		t.Fatalf("listing FlowRuns: %v", err)
+	}
+	if len(list.Items) != 1 {
+		t.Fatalf("expected 1 FlowRun, got %d", len(list.Items))
+	}
+
+	td := list.Items[0].Spec.TriggerData
+	want := base64.StdEncoding.EncodeToString(splitPayload)
+	if td.Body != want {
+		t.Errorf("TriggerData.Body = %q, want %q", td.Body, want)
+	}
+	if td.BodyEncoding != "base64" {
+		t.Errorf("TriggerData.BodyEncoding = %q, want base64", td.BodyEncoding)
+	}
+}
+
 // TestHandleMessage_DedupKeyNamingUnchangedByRecordKey verifies the FlowRun
 // dedup-key naming scheme (<trigger>-p<partition>-offset-<offset>) does not
 // incorporate the Kafka record key — Key is informational/interpolation-only,

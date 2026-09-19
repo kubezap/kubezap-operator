@@ -92,6 +92,13 @@ spec:
                 properties:
                   body:
                     type: string
+                  bodyEncoding:
+                    description: |-
+                      BodyEncoding indicates how Body is encoded: "utf8" or "base64". Body is
+                      captured verbatim as UTF-8 when the (possibly truncated, per
+                      BodyTruncated) payload decodes as valid UTF-8, or base64-encoded
+                      otherwise — mirrors the Key/KeyEncoding convention above.
+                    type: string
                   bodyTruncated:
                     type: boolean
                   contentType:

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/hmac"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -209,6 +210,96 @@ func TestBodyTruncated_EmptyBody(t *testing.T) {
 	}
 	if fr.Spec.TriggerData.Body != "" {
 		t.Errorf("expected empty body, got %q", fr.Spec.TriggerData.Body)
+	}
+}
+
+// TestBodyEncoding_UTF8 verifies a valid-UTF-8 body is stored verbatim on
+// TriggerData.Body with BodyEncoding "utf8".
+func TestBodyEncoding_UTF8(t *testing.T) {
+	h, k8s := newTestHandler(t)
+
+	body := `{"hello":"world"}`
+	req := httptest.NewRequest(http.MethodPost, "/hooks/test", bytes.NewBufferString(body))
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusAccepted {
+		t.Fatalf("expected 202, got %d", rr.Code)
+	}
+
+	fr := lastCreatedFlowRun(t, k8s)
+	if fr.Spec.TriggerData.Body != body {
+		t.Errorf("Body = %q, want %q", fr.Spec.TriggerData.Body, body)
+	}
+	if fr.Spec.TriggerData.BodyEncoding != "utf8" {
+		t.Errorf("BodyEncoding = %q, want utf8", fr.Spec.TriggerData.BodyEncoding)
+	}
+	if fr.Spec.TriggerData.BodyTruncated {
+		t.Error("expected BodyTruncated=false")
+	}
+}
+
+// TestBodyEncoding_Binary verifies a non-UTF-8 binary body is base64-encoded
+// on TriggerData.Body with BodyEncoding "base64", rather than being silently
+// corrupted to replacement characters when the FlowRun is JSON-marshaled
+// (the bug docs/design/trigger-body-encoding-safety.md fixes).
+func TestBodyEncoding_Binary(t *testing.T) {
+	h, k8s := newTestHandler(t)
+
+	binaryBody := []byte{0xFF, 0xFE, 0x00, 0x01, 0x02}
+	req := httptest.NewRequest(http.MethodPost, "/hooks/test", bytes.NewReader(binaryBody))
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusAccepted {
+		t.Fatalf("expected 202, got %d", rr.Code)
+	}
+
+	fr := lastCreatedFlowRun(t, k8s)
+	want := base64.StdEncoding.EncodeToString(binaryBody)
+	if fr.Spec.TriggerData.Body != want {
+		t.Errorf("Body = %q, want %q", fr.Spec.TriggerData.Body, want)
+	}
+	if fr.Spec.TriggerData.BodyEncoding != "base64" {
+		t.Errorf("BodyEncoding = %q, want base64", fr.Spec.TriggerData.BodyEncoding)
+	}
+	if fr.Spec.TriggerData.BodyTruncated {
+		t.Error("expected BodyTruncated=false for a body under the stored-body limit")
+	}
+}
+
+// TestBodyEncoding_TruncatedAtRuneBoundary verifies that truncating a valid
+// UTF-8 body at a byte boundary that splits a multi-byte rune correctly
+// falls back to BodyEncoding "base64" rather than producing another
+// silently-invalid string — the scenario
+// docs/design/trigger-body-encoding-safety.md calls out explicitly as the
+// reason encoding must be determined AFTER truncation, not before.
+func TestBodyEncoding_TruncatedAtRuneBoundary(t *testing.T) {
+	h, k8s := newTestHandlerWithBodyLimit(t, 5)
+
+	// "é" is the 2-byte UTF-8 sequence 0xC3 0xA9; three of them is 6 bytes.
+	// Truncating to 5 bytes splits the final rune, leaving a dangling 0xC3
+	// with no continuation byte — invalid UTF-8.
+	body := strings.Repeat("é", 3)
+	req := httptest.NewRequest(http.MethodPost, "/hooks/test", bytes.NewBufferString(body))
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusAccepted {
+		t.Fatalf("expected 202, got %d", rr.Code)
+	}
+
+	fr := lastCreatedFlowRun(t, k8s)
+	if !fr.Spec.TriggerData.BodyTruncated {
+		t.Error("expected BodyTruncated=true")
+	}
+	if fr.Spec.TriggerData.BodyEncoding != "base64" {
+		t.Errorf("BodyEncoding = %q, want base64 (truncation split a multi-byte rune)", fr.Spec.TriggerData.BodyEncoding)
+	}
+	wantBytes := []byte(body)[:5]
+	want := base64.StdEncoding.EncodeToString(wantBytes)
+	if fr.Spec.TriggerData.Body != want {
+		t.Errorf("Body = %q, want %q", fr.Spec.TriggerData.Body, want)
 	}
 }
 

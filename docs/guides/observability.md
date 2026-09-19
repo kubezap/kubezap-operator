@@ -61,16 +61,20 @@ Each component runs a dedicated metrics server on `:9090`, separate from its mai
 > live: after 13 real webhook requests, `kubezap_webhook_request_duration_seconds`
 > appeared on the webhook gateway's own `/metrics` endpoint with a non-zero count.
 >
-> **New gap found during that same live pass, not yet fixed**:
-> `kubezap_trigger_firings_total` is only ever incremented for `cron` triggers
-> (`internal/controller/cron_scheduler.go`) — nothing in the webhook gateway
-> (`internal/gateway/webhook/handler.go`) or the kafka gateway
-> (`internal/gateway/kafka/`) increments it for webhook or kafka firings. The
-> kafka gateway binary doesn't even import `internal/metrics`, so none of the
-> `kubezap_*` counters are registered in its process at all — confirmed live: a
-> real Kafka message correctly produced a FlowRun, but the kafka gateway's
-> `/metrics` endpoint showed zero `kubezap_*` series before and after. Tracked as
-> a new follow-up (not STORY-040's scope, which was the registry/port bugs only).
+> **Fixed and re-verified live 2026-09-19 (STORY-043)**: the gap noted above —
+> `kubezap_trigger_firings_total` previously being incremented only for `cron`
+> triggers (`internal/controller/cron_scheduler.go`) — is now fixed. The
+> webhook gateway (`internal/gateway/webhook/handler.go`), kafka gateway
+> (`internal/gateway/kafka/handler.go`), AMQP gateway
+> (`internal/gateway/amqp/handler.go`, both the AMQP 0-9-1 and AMQP 1.0
+> handlers), and NATS gateway (`internal/gateway/nats/handler.go`) all now
+> increment `kubezap_trigger_firings_total` with the appropriate `type` and
+> `result` label on every firing. Confirmed live: a real webhook request and a
+> real Kafka message each produced a FlowRun, and
+> `kubezap_trigger_firings_total{type="webhook",...}` /
+> `{type="kafka",...}` both appeared with non-zero counts on their respective
+> gateway's own `/metrics` endpoint (AMQP and NATS confirmed via unit tests and
+> code review only, not a live broker).
 
 ### Trigger Metrics
 

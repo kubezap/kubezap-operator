@@ -18,6 +18,7 @@ import (
 
 	automationv1alpha1 "github.com/kubezap/kubezap-operator/api/v1alpha1"
 	"github.com/kubezap/kubezap-operator/internal/gateway/redact"
+	"github.com/kubezap/kubezap-operator/internal/metrics"
 )
 
 // triggerTypeKafka is the TriggerSpec.Type value "kafka".
@@ -184,11 +185,14 @@ func (h *MessageHandler) HandleMessage(ctx context.Context, topic string, partit
 				"partition", partition,
 				"offset", offset,
 			)
+			metrics.TriggerFirings.WithLabelValues(h.triggerNamespace, h.triggerName, triggerTypeKafka, "success").Inc()
 			return nil
 		}
+		metrics.TriggerFirings.WithLabelValues(h.triggerNamespace, h.triggerName, triggerTypeKafka, "error").Inc()
 		return err
 	}
 
+	metrics.TriggerFirings.WithLabelValues(h.triggerNamespace, h.triggerName, triggerTypeKafka, "success").Inc()
 	h.log.Info("created FlowRun",
 		"flowRun", flowRunName,
 		"topic", topic,

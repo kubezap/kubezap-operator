@@ -7,7 +7,7 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ---
 
-## [v0.1.0] - 2026-09-18
+## [v0.1.0] - 2026-09-19
 
 ### Added
 
@@ -59,4 +59,24 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 **Docs**
 - `docs/guides/cron-triggers.md`, `docs/guides/troubleshooting.md`, `docs/guides/amqp-setup.md`, `docs/guides/nats-setup.md`, `docs/guides/using-the-cli.md`
+
+**Kafka trigger data**
+- Kafka record key captured on `TriggerData.Key`, exposed via `$(trigger.key)` step interpolation and `trigger.key`/`trigger.keyEncoding` in `when:` CEL expressions — encoded as UTF-8 or base64 depending on the key's content (`TriggerData.KeyEncoding`)
+
+### Security
+
+- Container images (`controller`, `webhook-gateway`, `kafka-gateway`, `amqp-gateway`, `nats-gateway`, `http-executor`) scanned for CRITICAL/HIGH CVEs (Trivy) on every push and PR, failing the build on a finding
+- Container images signed with [cosign](https://docs.sigstore.dev/) using keyless signing (Sigstore/Fulcio/Rekor, tied to the release workflow's GitHub Actions OIDC identity) — see `SECURITY.md` for verification instructions
+- All third-party GitHub Actions used in CI/release workflows pinned to commit SHAs rather than mutable tags
+- SSRF blocked-CIDR list consolidated to a single source of truth shared between the executor and the controller
+- `TriggerData.Body`/`.Key` no longer silently corrupt non-UTF-8 (binary) payloads when stored — `BodyEncoding`/`KeyEncoding` fields describe whether the value is literal UTF-8 or base64-encoded
+
+### Fixed
+
+- NATS trigger headers now populated on `TriggerData.Headers` (parity with webhook/Kafka/AMQP); the dead `KafkaHeaders` field was removed
+- Webhook and Kafka gateway Prometheus metrics fixed (wrong metrics registry; no metrics port exposed on either gateway's Service)
+- OpenTelemetry trace sampler wired up (`OTEL_TRACES_SAMPLER_ARG`); previously-undocumented spans added; trace-context propagation bugs fixed for the webhook and Kafka gateways
+- Webhook access logs restructured to match the documented nested JSON schema
+- `kubezap_trigger_firings_total` now incremented by all gateway types (webhook, Kafka, AMQP, NATS), not just the cron scheduler
+- `bundle/manifests/` drift from `config/crd/bases/` is now caught by CI (`make bundle` output must match what's committed)
 

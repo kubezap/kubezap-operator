@@ -20,6 +20,7 @@ import (
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	ctrlmetrics "sigs.k8s.io/controller-runtime/pkg/metrics"
 
 	automationv1alpha1 "github.com/kubezap/kubezap-operator/api/v1alpha1"
 	"github.com/kubezap/kubezap-operator/internal/gateway/kafka"
@@ -84,7 +85,7 @@ func main() {
 	}
 
 	metricsMux := http.NewServeMux()
-	metricsMux.Handle("/metrics", promhttp.Handler())
+	metricsMux.Handle("/metrics", promhttp.HandlerFor(ctrlmetrics.Registry, promhttp.HandlerOpts{}))
 	metricsSrv := &http.Server{Addr: fmt.Sprintf(":%d", metricsPort), Handler: metricsMux}
 	go func() {
 		if metricsTLSCertFile != "" && metricsTLSKeyFile != "" {

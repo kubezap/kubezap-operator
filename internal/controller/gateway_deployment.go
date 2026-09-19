@@ -48,7 +48,16 @@ const webhookGatewayConfigName = "default"
 const (
 	webhookGatewayDeploymentName = "kubezap-webhook-gateway"
 	webhookGatewayPort           = int32(8080)
+	// webhookGatewayMetricsPort must match cmd/webhook-gateway/main.go's
+	// --metrics-port default (:9090), which is what the binary actually
+	// listens on for /metrics — see docs/guides/observability.md.
+	webhookGatewayMetricsPort = int32(9090)
 )
+
+// portNameMetrics names the metrics container/Service port exposed by the
+// webhook gateway and kafka gateway Deployments/Services, matched by the
+// ServiceMonitor examples in docs/guides/observability.md.
+const portNameMetrics = "metrics"
 
 // componentWebhookGateway is the "webhook-gateway" value used for both the
 // labelComponent label and the gateway container/ServiceAccount name suffix.
@@ -406,6 +415,12 @@ func desiredWebhookGatewayService(namespace string, tlsCfg WebhookGatewayTLSConf
 					Port:       webhookGatewayPort,
 					TargetPort: intstr.FromInt32(webhookGatewayPort),
 				},
+				{
+					Name:       portNameMetrics,
+					Protocol:   corev1.ProtocolTCP,
+					Port:       webhookGatewayMetricsPort,
+					TargetPort: intstr.FromInt32(webhookGatewayMetricsPort),
+				},
 			},
 		},
 	}
@@ -500,6 +515,7 @@ func desiredWebhookGatewayDeployment(namespace string, tlsCfg WebhookGatewayTLSC
 							Args:            args,
 							Ports: []corev1.ContainerPort{
 								{Name: portName, ContainerPort: webhookGatewayPort, Protocol: corev1.ProtocolTCP},
+								{Name: portNameMetrics, ContainerPort: webhookGatewayMetricsPort, Protocol: corev1.ProtocolTCP},
 							},
 							VolumeMounts: volumeMounts,
 							SecurityContext: &corev1.SecurityContext{

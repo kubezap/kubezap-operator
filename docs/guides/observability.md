@@ -50,15 +50,27 @@ Each component runs a dedicated metrics server on `:9090`, separate from its mai
 > `ServiceMonitor` resources manually. See the [Prometheus ServiceMonitor](#prometheus-servicemonitor)
 > section at the end of this guide for ready-to-use templates.
 
-> **Verified 2026-09-18 against a live cluster**: `kubezap_trigger_firings_total`,
-> `kubezap_flowrun_duration_seconds`, `kubezap_flowrun_queue_duration_seconds`,
-> and `kubezap_step_duration_seconds` are emitted correctly by the controller and
-> confirmed queryable in Prometheus. The three **Webhook Gateway Metrics** below
-> (`kubezap_webhook_request_duration_seconds`, `kubezap_webhook_ip_blocked_total`,
-> `kubezap_webhook_rate_limited_total`) do **not** currently appear on the webhook
-> gateway's own `/metrics` endpoint at all, in any cluster configuration — see the
-> callout under [Webhook Gateway Metrics](#webhook-gateway-metrics) for why. This
-> is a code gap, not a doc error; tracked as a follow-up, not fixed here.
+> **Verified 2026-09-18 against a live cluster**: `kubezap_flowrun_duration_seconds`,
+> `kubezap_flowrun_queue_duration_seconds`, and `kubezap_step_duration_seconds` are
+> emitted correctly by the controller and confirmed queryable in Prometheus.
+>
+> **Fixed and re-verified live 2026-09-18 (STORY-040)**: the webhook/kafka gateway
+> registry mismatch and missing metrics ports described below (see
+> [Webhook Gateway Metrics](#webhook-gateway-metrics) and the
+> [ServiceMonitor](#prometheus-servicemonitor) section) are now fixed. Confirmed
+> live: after 13 real webhook requests, `kubezap_webhook_request_duration_seconds`
+> appeared on the webhook gateway's own `/metrics` endpoint with a non-zero count.
+>
+> **New gap found during that same live pass, not yet fixed**:
+> `kubezap_trigger_firings_total` is only ever incremented for `cron` triggers
+> (`internal/controller/cron_scheduler.go`) — nothing in the webhook gateway
+> (`internal/gateway/webhook/handler.go`) or the kafka gateway
+> (`internal/gateway/kafka/`) increments it for webhook or kafka firings. The
+> kafka gateway binary doesn't even import `internal/metrics`, so none of the
+> `kubezap_*` counters are registered in its process at all — confirmed live: a
+> real Kafka message correctly produced a FlowRun, but the kafka gateway's
+> `/metrics` endpoint showed zero `kubezap_*` series before and after. Tracked as
+> a new follow-up (not STORY-040's scope, which was the registry/port bugs only).
 
 ### Trigger Metrics
 
@@ -86,18 +98,17 @@ sum by (trigger) (rate(kubezap_trigger_firings_total{result="error"}[5m]))
 
 ### Webhook Gateway Metrics
 
-> **Known gap, verified live (2026-09-18)**: the three metrics in this section
-> are registered into controller-runtime's internal `ctrlmetrics.Registry` (see
-> `internal/metrics/metrics.go`'s `init()`), but `cmd/webhook-gateway/main.go`
-> serves its `/metrics` endpoint via `promhttp.Handler()`, which gathers from
-> the process's default Prometheus registry — a different registry instance.
-> The result: none of these three metrics ever appear on the webhook gateway's
-> `/metrics` endpoint, even after real traffic. Confirmed by port-forwarding
-> directly to a webhook gateway pod after 13 real requests — only Go runtime
-> metrics were present. This is a code bug (wrong registry wired into the HTTP
-> handler), not a doc error — logging it as a follow-up rather than fixing it
-> here. Until fixed, do not rely on these three metrics; use the [structured
-> access logs](#structured-access-logs) instead.
+> **Fixed and verified live (2026-09-18, STORY-040)**: the three metrics in this
+> section are registered into controller-runtime's internal `ctrlmetrics.Registry`
+> (see `internal/metrics/metrics.go`'s `init()`). `cmd/webhook-gateway/main.go`
+> previously served its `/metrics` endpoint via `promhttp.Handler()`, which
+> gathers from the process's default Prometheus registry — a different registry
+> instance — so none of these three metrics ever appeared on the webhook
+> gateway's own `/metrics` endpoint. It now uses
+> `promhttp.HandlerFor(ctrlmetrics.Registry, promhttp.HandlerOpts{})`. Confirmed
+> live: after 13 real requests to a port-forwarded webhook gateway pod,
+> `kubezap_webhook_request_duration_seconds_count{result="accepted",...}` read
+> `13`.
 
 #### `kubezap_webhook_request_duration_seconds`
 **Type**: Histogram
@@ -685,16 +696,15 @@ spec:
 
 One `ServiceMonitor` can match all webhook gateway Services across namespaces using `namespaceSelector: any: true`. Adjust the namespace selector to match your deployment topology.
 
-> **Real gap, verified live (2026-09-18)**: even with the corrected selector
-> below, this ServiceMonitor currently scrapes nothing. The webhook gateway
-> Deployment/Service (`internal/controller/gateway_deployment.go`) never opens
-> a container port or Service port for the metrics server at all — only the
-> hook-server port (`8080`) is exposed, despite the gateway binary itself
-> listening on `:9090` by default. Confirmed: `kubectl get svc` on a live
-> webhook gateway Service shows only its `http` port, no `metrics` port, so
-> this ServiceMonitor's `port: metrics` reference matches nothing. This is a
-> code gap in the gateway Deployment/Service reconciler, not a doc error —
-> logged as a follow-up, not fixed here.
+> **Fixed and verified live (2026-09-18, STORY-040)**: the webhook gateway
+> Deployment/Service (`internal/controller/gateway_deployment.go`) previously
+> never opened a container port or Service port for the metrics server — only
+> the hook-server port (`8080`) was exposed, despite the gateway binary itself
+> listening on `:9090` by default. Both the Deployment's container port and the
+> Service's `metrics` port (`9090`) are now added. Confirmed live: `kubectl get
+> svc` on the webhook gateway Service now shows both `http` (`8080`) and
+> `metrics` (`9090`) ports, and the port-forwarded `metrics` port serves real
+> `kubezap_*` data (see the callout above).
 
 ```yaml
 apiVersion: monitoring.coreos.com/v1
@@ -721,12 +731,20 @@ spec:
 
 ### Kafka Gateway ServiceMonitor
 
-> Not deployed in this validation pass, but `internal/controller/integration_controller.go`
-> (which manages the kafka-gateway/plugin Deployment and Service) has the same
-> shape of gap as the webhook gateway above — it wires up the plugin's
-> publisher port only, never a metrics port — and uses the same
-> `kubezap.io/component` label scheme, fixed below. Treat this ServiceMonitor
-> as unverified/likely non-functional until the underlying gap is fixed.
+> **Fixed and verified live (2026-09-18, STORY-040)**: `internal/controller/integration_controller.go`
+> previously created no Service at all for the kafka gateway (only a
+> Deployment) — there was nothing for any ServiceMonitor to scrape, a deeper
+> gap than the webhook gateway's missing port. It now also creates a Service
+> exposing the `metrics` port (`9090`), matching the container port added to
+> the Deployment, with the `kubezap.io/component: kafka-gateway` selector this
+> ServiceMonitor expects. Confirmed live: after a real Kafka message produced a
+> FlowRun, the kafka gateway's `/metrics` endpoint was reachable via this
+> Service and served `ctrlmetrics.Registry` content (confirmed by the presence
+> of `certwatcher_*`/`controller_runtime_*` series, which only that registry
+> carries). See the note above the Prometheus Metrics table: `kubezap_*`
+> counters still don't appear on this endpoint — that's a separate,
+> not-yet-fixed instrumentation gap, not a ServiceMonitor/scrape-target
+> problem.
 
 ```yaml
 apiVersion: monitoring.coreos.com/v1

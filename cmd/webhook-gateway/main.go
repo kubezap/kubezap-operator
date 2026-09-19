@@ -99,9 +99,14 @@ func main() {
 	ctrl.SetLogger(logger)
 	log = logger
 
+	// allNamespacesMode mirrors the operator's own WATCH_NAMESPACES=* sentinel
+	// (the operator propagates its own env var value verbatim to this gateway's
+	// Deployment) — see docs/design/allnamespaces-secrets-label-restriction.md.
+	allNamespacesMode := os.Getenv("WATCH_NAMESPACES") == "*"
+
 	if namespace == "" {
 		ns := strings.TrimSpace(os.Getenv("WATCH_NAMESPACES"))
-		if ns == "" {
+		if ns == "" || ns == "*" {
 			log.Info("watching all namespaces")
 		} else {
 			namespace = ns
@@ -126,7 +131,7 @@ func main() {
 	jwksCache := webhook.NewJWKSCache(ctx)
 
 	watcher, err := webhook.NewTriggerWatcher(
-		cfg, k8sClient, registry, namespace, log.WithName("trigger-watcher"), jwksCache)
+		cfg, k8sClient, registry, namespace, log.WithName("trigger-watcher"), jwksCache, allNamespacesMode)
 	if err != nil {
 		log.Error(err, "unable to create trigger watcher")
 		os.Exit(1)

@@ -1,6 +1,6 @@
 # TriggerData.Body Binary-Safety Fix
 
-> Status: Draft
+> Status: Approved
 > Date: 2026-09-19
 > Related: `api/v1alpha1/flowrun_types.go`, `internal/gateway/webhook/handler.go`, `internal/gateway/kafka/handler.go`, `docs/api/trigger.md`, `docs/design/kafka-message-key-capture.md`, `planning/backlog/follow-ups.md`
 

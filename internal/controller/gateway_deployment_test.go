@@ -186,7 +186,7 @@ var _ = Describe("validateWebhookGatewayConfigTLS", func() {
 	}
 
 	It("is Ready/NoTLSConfigured when spec.tls is nil", func() {
-		cond := validateWebhookGatewayConfigTLS(ctx, k8sClient, newCfg(nil))
+		cond := validateWebhookGatewayConfigTLS(ctx, k8sClient, newCfg(nil), false)
 
 		Expect(cond.Status).To(Equal(metav1.ConditionTrue))
 		Expect(cond.Reason).To(Equal("NoTLSConfigured"))
@@ -197,7 +197,7 @@ var _ = Describe("validateWebhookGatewayConfigTLS", func() {
 			ServerSecretRef: &corev1.LocalObjectReference{Name: "does-not-exist"},
 		})
 
-		cond := validateWebhookGatewayConfigTLS(ctx, k8sClient, cfg)
+		cond := validateWebhookGatewayConfigTLS(ctx, k8sClient, cfg, false)
 
 		Expect(cond.Status).To(Equal(metav1.ConditionFalse))
 		Expect(cond.Reason).To(Equal("ServerSecretNotFound"))
@@ -213,7 +213,7 @@ var _ = Describe("validateWebhookGatewayConfigTLS", func() {
 			ServerSecretRef: &corev1.LocalObjectReference{Name: secret.Name},
 		})
 
-		cond := validateWebhookGatewayConfigTLS(ctx, k8sClient, cfg)
+		cond := validateWebhookGatewayConfigTLS(ctx, k8sClient, cfg, false)
 
 		Expect(cond.Status).To(Equal(metav1.ConditionFalse))
 		Expect(cond.Reason).To(Equal("ServerSecretMissingKeys"))
@@ -229,7 +229,7 @@ var _ = Describe("validateWebhookGatewayConfigTLS", func() {
 			ServerSecretRef: &corev1.LocalObjectReference{Name: secret.Name},
 		})
 
-		cond := validateWebhookGatewayConfigTLS(ctx, k8sClient, cfg)
+		cond := validateWebhookGatewayConfigTLS(ctx, k8sClient, cfg, false)
 
 		Expect(cond.Status).To(Equal(metav1.ConditionTrue))
 		Expect(cond.Reason).To(Equal("WebhookGatewayConfigReady"))
@@ -246,7 +246,7 @@ var _ = Describe("validateWebhookGatewayConfigTLS", func() {
 			ClientCASecretRef: &corev1.LocalObjectReference{Name: "does-not-exist"},
 		})
 
-		cond := validateWebhookGatewayConfigTLS(ctx, k8sClient, cfg)
+		cond := validateWebhookGatewayConfigTLS(ctx, k8sClient, cfg, false)
 
 		Expect(cond.Status).To(Equal(metav1.ConditionFalse))
 		Expect(cond.Reason).To(Equal("ClientCASecretNotFound"))
@@ -268,7 +268,7 @@ var _ = Describe("validateWebhookGatewayConfigTLS", func() {
 			ClientCASecretRef: &corev1.LocalObjectReference{Name: caSecret.Name},
 		})
 
-		cond := validateWebhookGatewayConfigTLS(ctx, k8sClient, cfg)
+		cond := validateWebhookGatewayConfigTLS(ctx, k8sClient, cfg, false)
 
 		Expect(cond.Status).To(Equal(metav1.ConditionTrue))
 		Expect(cond.Reason).To(Equal("WebhookGatewayConfigReady"))
@@ -279,7 +279,7 @@ var _ = Describe("validateWebhookGatewayConfigTLS", func() {
 			ClientCASecretRef: &corev1.LocalObjectReference{Name: "does-not-exist"},
 		})
 
-		cond := validateWebhookGatewayConfigTLS(ctx, k8sClient, cfg)
+		cond := validateWebhookGatewayConfigTLS(ctx, k8sClient, cfg, false)
 
 		Expect(cond.Status).To(Equal(metav1.ConditionTrue))
 	})
@@ -305,7 +305,7 @@ var _ = Describe("reconcileWebhookGatewayConfigStatus", func() {
 		}
 		Expect(k8sClient.Create(ctx, created)).To(Succeed())
 
-		reconcileWebhookGatewayConfigStatus(ctx, k8sClient, created)
+		reconcileWebhookGatewayConfigStatus(ctx, k8sClient, created, false)
 
 		var got automationv1alpha1.WebhookGatewayConfig
 		Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(created), &got)).To(Succeed())

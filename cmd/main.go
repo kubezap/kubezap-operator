@@ -303,11 +303,15 @@ func main() {
 
 	// WATCH_NAMESPACES controls operator scope (least-privilege by default):
 	//   ""           → OwnNamespace: only the operator's own namespace (default)
-	//   "*"          → AllNamespaces: cluster-wide watch; secrets RBAC is restricted
-	//                  to namespaces labeled kubezap.io/managed=true via ClusterRole
+	//   "*"          → AllNamespaces: cluster-wide watch; secret reads are gated at
+	//                  the application layer (not via RBAC, which cannot express a
+	//                  per-namespace-label restriction) to namespaces labeled
+	//                  kubezap.io/managed=true — see
+	//                  docs/design/allnamespaces-secrets-label-restriction.md
 	//   comma-list   → MultiNamespace
 	cacheOpts := cache.Options{}
 	watchNS := os.Getenv("WATCH_NAMESPACES")
+	allNamespacesMode := watchNS == "*"
 	switch watchNS {
 	case "*":
 		setupLog.Info("AllNamespaces mode: watching all namespaces")
@@ -372,10 +376,11 @@ func main() {
 	}
 
 	if err = (&controller.TriggerReconciler{
-		Client:          mgr.GetClient(),
-		Scheme:          mgr.GetScheme(),
-		CronScheduler:   cronScheduler,
-		ResourceWatcher: resourceWatcher,
+		Client:            mgr.GetClient(),
+		Scheme:            mgr.GetScheme(),
+		CronScheduler:     cronScheduler,
+		ResourceWatcher:   resourceWatcher,
+		AllNamespacesMode: allNamespacesMode,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Trigger")
 		os.Exit(1)
@@ -413,6 +418,7 @@ func main() {
 		SSRFAllowClusterInternal: ssrfAllowClusterInternal,
 		ExecutorBaseURL:          rpcBaseURL,
 		ExecutorTLSConfig:        executorTLSConfig,
+		AllNamespacesMode:        allNamespacesMode,
 	}
 	if err = flowRunReconciler.SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "FlowRun")

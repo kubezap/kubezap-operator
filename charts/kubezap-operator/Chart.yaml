@@ -5,8 +5,8 @@ description: >-
   Define automations via CRDs — webhook, cron, Kafka, AMQP, and NATS triggers with 
   conditional flow execution and data transformation.
 type: application
-version: 0.1.0-rc.1
-appVersion: "0.1.0-rc.1"
+version: 0.1.0
+appVersion: "0.1.0"
 keywords:
   - automation
   - workflow

@@ -144,6 +144,9 @@ jobs:
   docker-build:
     name: Docker Build (validate)
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
     steps:
       - uses: actions/checkout@v7
 
@@ -156,6 +159,19 @@ jobs:
           context: .
           file: Dockerfile
           push: false
+          load: true
+          tags: kubezap/controller:ci
+
+      - name: Scan controller image (Trivy)
+        id: trivy-controller
+        continue-on-error: true
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: kubezap/controller:ci
+          format: sarif
+          output: trivy-controller.sarif
+          severity: 'CRITICAL,HIGH'
+          exit-code: '1'
 
       - name: Build webhook-gateway image
         uses: docker/build-push-action@v6
@@ -163,6 +179,19 @@ jobs:
           context: .
           file: cmd/webhook-gateway/Dockerfile
           push: false
+          load: true
+          tags: kubezap/webhook-gateway:ci
+
+      - name: Scan webhook-gateway image (Trivy)
+        id: trivy-webhook-gateway
+        continue-on-error: true
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: kubezap/webhook-gateway:ci
+          format: sarif
+          output: trivy-webhook-gateway.sarif
+          severity: 'CRITICAL,HIGH'
+          exit-code: '1'
 
       - name: Build kafka-gateway image
         uses: docker/build-push-action@v6
@@ -170,6 +199,19 @@ jobs:
           context: .
           file: cmd/kafka-gateway/Dockerfile
           push: false
+          load: true
+          tags: kubezap/kafka-gateway:ci
+
+      - name: Scan kafka-gateway image (Trivy)
+        id: trivy-kafka-gateway
+        continue-on-error: true
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: kubezap/kafka-gateway:ci
+          format: sarif
+          output: trivy-kafka-gateway.sarif
+          severity: 'CRITICAL,HIGH'
+          exit-code: '1'
 
       - name: Build amqp-gateway image
         uses: docker/build-push-action@v6
@@ -177,6 +219,19 @@ jobs:
           context: .
           file: cmd/amqp-gateway/Dockerfile
           push: false
+          load: true
+          tags: kubezap/amqp-gateway:ci
+
+      - name: Scan amqp-gateway image (Trivy)
+        id: trivy-amqp-gateway
+        continue-on-error: true
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: kubezap/amqp-gateway:ci
+          format: sarif
+          output: trivy-amqp-gateway.sarif
+          severity: 'CRITICAL,HIGH'
+          exit-code: '1'
 
       - name: Build nats-gateway image
         uses: docker/build-push-action@v6
@@ -184,6 +239,19 @@ jobs:
           context: .
           file: cmd/nats-gateway/Dockerfile
           push: false
+          load: true
+          tags: kubezap/nats-gateway:ci
+
+      - name: Scan nats-gateway image (Trivy)
+        id: trivy-nats-gateway
+        continue-on-error: true
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: kubezap/nats-gateway:ci
+          format: sarif
+          output: trivy-nats-gateway.sarif
+          severity: 'CRITICAL,HIGH'
+          exit-code: '1'
 
       - name: Build http-executor image
         uses: docker/build-push-action@v6
@@ -191,3 +259,51 @@ jobs:
           context: .
           file: cmd/http-executor/Dockerfile
           push: false
+          load: true
+          tags: kubezap/http-executor:ci
+
+      - name: Scan http-executor image (Trivy)
+        id: trivy-http-executor
+        continue-on-error: true
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: kubezap/http-executor:ci
+          format: sarif
+          output: trivy-http-executor.sarif
+          severity: 'CRITICAL,HIGH'
+          exit-code: '1'
+
+      - name: Upload Trivy SARIF results
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: |
+            trivy-controller.sarif
+            trivy-webhook-gateway.sarif
+            trivy-kafka-gateway.sarif
+            trivy-amqp-gateway.sarif
+            trivy-nats-gateway.sarif
+            trivy-http-executor.sarif
+
+      - name: Fail job if any image scan found CRITICAL/HIGH findings
+        if: always()
+        run: |
+          failed=0
+          for outcome in \
+            "controller:${{ steps.trivy-controller.outcome }}" \
+            "webhook-gateway:${{ steps.trivy-webhook-gateway.outcome }}" \
+            "kafka-gateway:${{ steps.trivy-kafka-gateway.outcome }}" \
+            "amqp-gateway:${{ steps.trivy-amqp-gateway.outcome }}" \
+            "nats-gateway:${{ steps.trivy-nats-gateway.outcome }}" \
+            "http-executor:${{ steps.trivy-http-executor.outcome }}"; do
+            name="${outcome%%:*}"
+            result="${outcome##*:}"
+            if [ "$result" = "failure" ]; then
+              echo "::error::Trivy found CRITICAL/HIGH vulnerabilities in the $name image."
+              failed=1
+            fi
+          done
+          if [ "$failed" -ne 0 ]; then
+            echo "One or more images failed the Trivy CRITICAL/HIGH scan. See the Security tab for details."
+            exit 1
+          fi

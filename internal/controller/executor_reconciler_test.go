@@ -40,7 +40,7 @@ var _ = Describe("ExecutorReconciler", func() {
 			Client:            k8sClient,
 			Scheme:            scheme.Scheme,
 			ExecutorImage:     testImage,
-			ExecutorPort:      defaultExecutorPort,
+			ExecutorPort:      DefaultExecutorPort,
 			OperatorNamespace: "kubezap-system",
 		}
 	}
@@ -110,7 +110,7 @@ var _ = Describe("ExecutorReconciler", func() {
 			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: executorDeploymentName, Namespace: namespace}, svc)).To(Succeed())
 			Expect(svc.Spec.Type).To(Equal(corev1.ServiceTypeClusterIP))
 			Expect(svc.Spec.Ports).To(HaveLen(1))
-			Expect(svc.Spec.Ports[0].Port).To(Equal(defaultExecutorPort))
+			Expect(svc.Spec.Ports[0].Port).To(Equal(DefaultExecutorPort))
 		})
 
 		It("creates the executor NetworkPolicy", func() {

@@ -2127,6 +2127,9 @@ func (r *FlowRunReconciler) substituteVarsWithSecrets(
 //     bodies, keyed by trigger.contentType)
 //   - $(trigger.headers.<name>) — trigger request header value (case-insensitive)
 //   - $(trigger.topic), $(trigger.partition), $(trigger.offset), $(trigger.scheduledTime)
+//   - $(trigger.key) — Kafka record key (kafka triggers only), emitted verbatim from
+//     TriggerData.Key; if TriggerData.KeyEncoding is "base64" the caller is responsible
+//     for decoding it — this is not done automatically
 //
 // $(secrets.*) is left as literal text — only substituteVarsWithSecrets resolves it.
 func substituteVars(s string, stepResults map[string]map[string]string, triggerData *automationv1alpha1.TriggerData, params map[string]string) string {
@@ -2286,32 +2289,15 @@ func resolveInterpolationToken(
 		name := strings.TrimPrefix(token, "trigger.headers.")
 		return lowerHeaders[strings.ToLower(name)], true, false, nil
 
-	case token == "trigger.topic":
-		if triggerData == nil {
-			return "", false, false, nil
-		}
-		return triggerData.Topic, true, false, nil
-
-	case token == "trigger.partition":
-		if triggerData == nil {
-			return "", false, false, nil
-		}
-		return fmt.Sprintf("%d", triggerData.Partition), true, false, nil
-
-	case token == "trigger.offset":
-		if triggerData == nil {
-			return "", false, false, nil
-		}
-		return fmt.Sprintf("%d", triggerData.Offset), true, false, nil
-
-	case token == "trigger.scheduledTime":
-		if triggerData == nil {
-			return "", false, false, nil
-		}
-		if triggerData.ScheduledTime != nil {
-			return triggerData.ScheduledTime.UTC().Format(time.RFC3339), true, false, nil
-		}
-		return "", true, false, nil
+	case token == "trigger.topic",
+		token == "trigger.partition",
+		token == "trigger.offset",
+		token == "trigger.key",
+		token == "trigger.scheduledTime":
+		// Scalar $(trigger.*) tokens that read a single TriggerData field
+		// directly — split out into resolveTriggerScalarToken to keep this
+		// switch's cyclomatic complexity within lint limits.
+		return resolveTriggerScalarToken(token, triggerData)
 
 	case strings.HasPrefix(token, "secrets."):
 		if resolveSecret == nil {
@@ -2329,6 +2315,43 @@ func resolveInterpolationToken(
 			return "", false, false, fmt.Errorf("resolving $(%s): %w", token, ferr)
 		}
 		return v, true, true, nil
+
+	default:
+		return "", false, false, nil
+	}
+}
+
+// resolveTriggerScalarToken resolves the scalar $(trigger.*) tokens that each
+// read a single field directly off TriggerData: topic, partition, offset,
+// key, and scheduledTime. Extracted out of resolveInterpolationToken purely to
+// keep that function's cyclomatic complexity within the golangci-lint gocyclo
+// budget — behavior is unchanged from when these were inline cases.
+func resolveTriggerScalarToken(token string, triggerData *automationv1alpha1.TriggerData) (value string, matched, isSecret bool, err error) {
+	if triggerData == nil {
+		return "", false, false, nil
+	}
+	switch token {
+	case "trigger.topic":
+		return triggerData.Topic, true, false, nil
+
+	case "trigger.partition":
+		return fmt.Sprintf("%d", triggerData.Partition), true, false, nil
+
+	case "trigger.offset":
+		return fmt.Sprintf("%d", triggerData.Offset), true, false, nil
+
+	case "trigger.key":
+		// Emits TriggerData.Key verbatim — no decoding based on KeyEncoding.
+		// Decoding a base64-encoded key (TriggerData.KeyEncoding == "base64")
+		// is the caller's responsibility, consistent with how $(trigger.body)
+		// is also emitted verbatim regardless of ContentType.
+		return triggerData.Key, true, false, nil
+
+	case "trigger.scheduledTime":
+		if triggerData.ScheduledTime != nil {
+			return triggerData.ScheduledTime.UTC().Format(time.RFC3339), true, false, nil
+		}
+		return "", true, false, nil
 
 	default:
 		return "", false, false, nil

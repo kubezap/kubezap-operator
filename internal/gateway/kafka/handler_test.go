@@ -2,6 +2,7 @@ package kafka
 
 import (
 	"context"
+	"encoding/base64"
 	"testing"
 
 	"github.com/IBM/sarama"
@@ -57,7 +58,7 @@ func TestHandleMessage_CreatesFlowRun(t *testing.T) {
 		flowRefName:      "process-order",
 	}
 
-	if err := h.HandleMessage(context.Background(), "orders", 0, 42, []byte(`{"order":"abc"}`), nil); err != nil {
+	if err := h.HandleMessage(context.Background(), "orders", 0, 42, nil, []byte(`{"order":"abc"}`), nil); err != nil {
 		t.Fatalf("HandleMessage returned error: %v", err)
 	}
 
@@ -83,6 +84,12 @@ func TestHandleMessage_CreatesFlowRun(t *testing.T) {
 	if fr.Spec.TriggerData.Topic != "orders" {
 		t.Errorf("TriggerData.Topic = %q, want orders", fr.Spec.TriggerData.Topic)
 	}
+	if fr.Spec.TriggerData.Key != "" {
+		t.Errorf("TriggerData.Key = %q, want empty (nil record key)", fr.Spec.TriggerData.Key)
+	}
+	if fr.Spec.TriggerData.KeyEncoding != "" {
+		t.Errorf("TriggerData.KeyEncoding = %q, want empty (nil record key)", fr.Spec.TriggerData.KeyEncoding)
+	}
 	if fr.Labels["kubezap.io/trigger-type"] != "kafka" {
 		t.Errorf("trigger-type label = %q", fr.Labels["kubezap.io/trigger-type"])
 	}
@@ -102,11 +109,11 @@ func TestHandleMessage_Duplicate(t *testing.T) {
 		flowRefName:      "my-flow",
 	}
 
-	if err := h.HandleMessage(context.Background(), "topic", 0, 1, []byte("payload"), nil); err != nil {
+	if err := h.HandleMessage(context.Background(), "topic", 0, 1, nil, []byte("payload"), nil); err != nil {
 		t.Fatalf("first HandleMessage: %v", err)
 	}
 	// Second call with same partition+offset — FlowRun already exists.
-	if err := h.HandleMessage(context.Background(), "topic", 0, 1, []byte("payload"), nil); err != nil {
+	if err := h.HandleMessage(context.Background(), "topic", 0, 1, nil, []byte("payload"), nil); err != nil {
 		t.Fatalf("duplicate HandleMessage returned error: %v", err)
 	}
 
@@ -139,7 +146,7 @@ func TestHandleMessage_AuthHeadersRedacted(t *testing.T) {
 		{Key: []byte("cookie"), Value: []byte("session=abc")},
 	}
 
-	if err := h.HandleMessage(context.Background(), "events", 1, 100, []byte(`{"data":"test"}`), msgHeaders); err != nil {
+	if err := h.HandleMessage(context.Background(), "events", 1, 100, nil, []byte(`{"data":"test"}`), msgHeaders); err != nil {
 		t.Fatalf("HandleMessage returned error: %v", err)
 	}
 
@@ -189,7 +196,7 @@ func TestHandleMessage_NilHeadersInSlice(t *testing.T) {
 		nil,
 	}
 
-	if err := h.HandleMessage(context.Background(), "events", 0, 5, []byte("payload"), msgHeaders); err != nil {
+	if err := h.HandleMessage(context.Background(), "events", 0, 5, nil, []byte("payload"), msgHeaders); err != nil {
 		t.Fatalf("HandleMessage with nil header entries: %v", err)
 	}
 
@@ -201,5 +208,162 @@ func TestHandleMessage_NilHeadersInSlice(t *testing.T) {
 
 	if got := list.Items[0].Spec.TriggerData.Headers["x-request-id"]; got != "req-1" {
 		t.Errorf("x-request-id: want req-1, got %q", got)
+	}
+}
+
+// TestHandleMessage_KeyUTF8 verifies a valid-UTF-8 Kafka record key is stored
+// verbatim on TriggerData.Key with KeyEncoding "utf8".
+func TestHandleMessage_KeyUTF8(t *testing.T) {
+	fakeClient := fake.NewClientBuilder().WithScheme(newTestScheme()).Build()
+	log := zap.New()
+
+	h := &MessageHandler{
+		client:           fakeClient,
+		log:              log,
+		triggerName:      "key-utf8-trigger",
+		triggerNamespace: "default",
+		flowRefName:      "my-flow",
+	}
+
+	if err := h.HandleMessage(context.Background(), "orders", 0, 1, []byte("order-123"), []byte("payload"), nil); err != nil {
+		t.Fatalf("HandleMessage returned error: %v", err)
+	}
+
+	list := &automationv1alpha1.FlowRunList{}
+	if err := fakeClient.List(context.Background(), list); err != nil {
+		t.Fatalf("listing FlowRuns: %v", err)
+	}
+	if len(list.Items) != 1 {
+		t.Fatalf("expected 1 FlowRun, got %d", len(list.Items))
+	}
+
+	td := list.Items[0].Spec.TriggerData
+	if td.Key != "order-123" {
+		t.Errorf("TriggerData.Key = %q, want %q", td.Key, "order-123")
+	}
+	if td.KeyEncoding != "utf8" {
+		t.Errorf("TriggerData.KeyEncoding = %q, want %q", td.KeyEncoding, "utf8")
+	}
+}
+
+// TestHandleMessage_KeyBinary verifies a non-UTF-8 Kafka record key is
+// base64-encoded on TriggerData.Key with KeyEncoding "base64".
+func TestHandleMessage_KeyBinary(t *testing.T) {
+	fakeClient := fake.NewClientBuilder().WithScheme(newTestScheme()).Build()
+	log := zap.New()
+
+	h := &MessageHandler{
+		client:           fakeClient,
+		log:              log,
+		triggerName:      "key-binary-trigger",
+		triggerNamespace: "default",
+		flowRefName:      "my-flow",
+	}
+
+	// 0xFF, 0xFE is not valid UTF-8.
+	binaryKey := []byte{0xFF, 0xFE, 0x00, 0x01}
+
+	if err := h.HandleMessage(context.Background(), "orders", 0, 2, binaryKey, []byte("payload"), nil); err != nil {
+		t.Fatalf("HandleMessage returned error: %v", err)
+	}
+
+	list := &automationv1alpha1.FlowRunList{}
+	if err := fakeClient.List(context.Background(), list); err != nil {
+		t.Fatalf("listing FlowRuns: %v", err)
+	}
+	if len(list.Items) != 1 {
+		t.Fatalf("expected 1 FlowRun, got %d", len(list.Items))
+	}
+
+	td := list.Items[0].Spec.TriggerData
+	wantKey := base64.StdEncoding.EncodeToString(binaryKey)
+	if td.Key != wantKey {
+		t.Errorf("TriggerData.Key = %q, want %q", td.Key, wantKey)
+	}
+	if td.KeyEncoding != "base64" {
+		t.Errorf("TriggerData.KeyEncoding = %q, want %q", td.KeyEncoding, "base64")
+	}
+}
+
+// TestHandleMessage_KeyNil verifies a nil Kafka record key leaves both
+// TriggerData.Key and TriggerData.KeyEncoding unset.
+func TestHandleMessage_KeyNil(t *testing.T) {
+	fakeClient := fake.NewClientBuilder().WithScheme(newTestScheme()).Build()
+	log := zap.New()
+
+	h := &MessageHandler{
+		client:           fakeClient,
+		log:              log,
+		triggerName:      "key-nil-trigger",
+		triggerNamespace: "default",
+		flowRefName:      "my-flow",
+	}
+
+	if err := h.HandleMessage(context.Background(), "orders", 0, 3, nil, []byte("payload"), nil); err != nil {
+		t.Fatalf("HandleMessage returned error: %v", err)
+	}
+
+	list := &automationv1alpha1.FlowRunList{}
+	if err := fakeClient.List(context.Background(), list); err != nil {
+		t.Fatalf("listing FlowRuns: %v", err)
+	}
+	if len(list.Items) != 1 {
+		t.Fatalf("expected 1 FlowRun, got %d", len(list.Items))
+	}
+
+	td := list.Items[0].Spec.TriggerData
+	if td.Key != "" {
+		t.Errorf("TriggerData.Key = %q, want empty", td.Key)
+	}
+	if td.KeyEncoding != "" {
+		t.Errorf("TriggerData.KeyEncoding = %q, want empty", td.KeyEncoding)
+	}
+}
+
+// TestHandleMessage_DedupKeyNamingUnchangedByRecordKey verifies the FlowRun
+// dedup-key naming scheme (<trigger>-p<partition>-offset-<offset>) does not
+// incorporate the Kafka record key — Key is informational/interpolation-only,
+// never a dedup input. Two messages with the same topic/partition/offset but
+// DIFFERENT record keys must still collide on the same FlowRun name (the
+// second is treated as a duplicate and skipped), and the resulting FlowRun
+// name must match the pre-existing scheme exactly.
+func TestHandleMessage_DedupKeyNamingUnchangedByRecordKey(t *testing.T) {
+	fakeClient := fake.NewClientBuilder().WithScheme(newTestScheme()).Build()
+	log := zap.New()
+
+	h := &MessageHandler{
+		client:           fakeClient,
+		log:              log,
+		triggerName:      "dedup-trigger",
+		triggerNamespace: "default",
+		flowRefName:      "my-flow",
+	}
+
+	if err := h.HandleMessage(context.Background(), "topic", 2, 7, []byte("key-a"), []byte("payload-a"), nil); err != nil {
+		t.Fatalf("first HandleMessage: %v", err)
+	}
+	// Same topic/partition/offset, different record key — must still be
+	// treated as a duplicate of the same FlowRun name.
+	if err := h.HandleMessage(context.Background(), "topic", 2, 7, []byte("key-b"), []byte("payload-b"), nil); err != nil {
+		t.Fatalf("duplicate HandleMessage returned error: %v", err)
+	}
+
+	list := &automationv1alpha1.FlowRunList{}
+	if err := fakeClient.List(context.Background(), list); err != nil {
+		t.Fatalf("listing FlowRuns: %v", err)
+	}
+	if len(list.Items) != 1 {
+		t.Fatalf("expected 1 FlowRun (key must not affect dedup), got %d", len(list.Items))
+	}
+
+	wantName := sanitizeFlowRunName("dedup-trigger-p2-offset-7")
+	if list.Items[0].Name != wantName {
+		t.Errorf("FlowRun name = %q, want %q (dedup-key naming scheme must be unchanged by record key)", list.Items[0].Name, wantName)
+	}
+	// The first message's key must be the one retained (Create wins; the
+	// duplicate is a no-op), confirming the key is not part of the identity
+	// used for dedup and does not overwrite the existing FlowRun.
+	if list.Items[0].Spec.TriggerData.Key != "key-a" {
+		t.Errorf("TriggerData.Key = %q, want %q (first write should win)", list.Items[0].Spec.TriggerData.Key, "key-a")
 	}
 }

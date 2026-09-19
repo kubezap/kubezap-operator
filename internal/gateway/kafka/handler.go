@@ -2,9 +2,11 @@ package kafka
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"regexp"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/IBM/sarama"
 	"github.com/go-logr/logr"
@@ -87,7 +89,7 @@ func (h *MessageHandler) ConsumeClaim(session sarama.ConsumerGroupSession, claim
 				break
 			}
 		}
-		if err := h.HandleMessage(ctx, msg.Topic, msg.Partition, msg.Offset, msg.Value, msg.Headers); err != nil {
+		if err := h.HandleMessage(ctx, msg.Topic, msg.Partition, msg.Offset, msg.Key, msg.Value, msg.Headers); err != nil {
 			// Log error but continue consuming — do not stop the claim loop on a single failure.
 			h.log.Error(err, "failed to handle kafka message",
 				"topic", msg.Topic,
@@ -102,9 +104,14 @@ func (h *MessageHandler) ConsumeClaim(session sarama.ConsumerGroupSession, claim
 
 // HandleMessage creates a FlowRun for the given raw message.
 // topic, partition, offset identify the message for dedup key generation.
-// payload is the raw message bytes. msgHeaders contains the Kafka message
-// headers; auth-like keys are redacted before being stored in TriggerData.
-func (h *MessageHandler) HandleMessage(ctx context.Context, topic string, partition int32, offset int64, payload []byte, msgHeaders []*sarama.RecordHeader) error {
+// key is the raw Kafka record key (nil if the record has no key); it is
+// captured on TriggerData.Key verbatim as UTF-8 when valid, or base64-encoded
+// otherwise — see TriggerData.KeyEncoding. It is never part of the FlowRun
+// dedup-key naming scheme (topic/partition/offset only), only informational
+// and available for $(trigger.key) interpolation. payload is the raw message
+// bytes. msgHeaders contains the Kafka message headers; auth-like keys are
+// redacted before being stored in TriggerData.
+func (h *MessageHandler) HandleMessage(ctx context.Context, topic string, partition int32, offset int64, key, payload []byte, msgHeaders []*sarama.RecordHeader) error {
 	// kafka_message_received is the root span for Kafka-triggered flows. If
 	// the broker message itself carried an upstream W3C traceparent header
 	// (extracted into ctx by ConsumeClaim), continue that trace; otherwise
@@ -132,6 +139,20 @@ func (h *MessageHandler) HandleMessage(ctx context.Context, topic string, partit
 	}
 	redact.StringMap(hdrs, nil)
 
+	// Capture the Kafka record key, if any. A nil key leaves both fields at
+	// their zero value. A non-nil key is stored verbatim when it decodes as
+	// valid UTF-8, or base64-encoded otherwise — see docs/design/kafka-message-key-capture.md.
+	var keyStr, keyEncoding string
+	if key != nil {
+		if utf8.Valid(key) {
+			keyStr = string(key)
+			keyEncoding = "utf8"
+		} else {
+			keyStr = base64.StdEncoding.EncodeToString(key)
+			keyEncoding = "base64"
+		}
+	}
+
 	flowRun := &automationv1alpha1.FlowRun{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      flowRunName,
@@ -149,12 +170,14 @@ func (h *MessageHandler) HandleMessage(ctx context.Context, topic string, partit
 				Type: triggerTypeKafka,
 			},
 			TriggerData: &automationv1alpha1.TriggerData{
-				Source:    triggerTypeKafka,
-				Body:      string(payload),
-				Headers:   hdrs,
-				Topic:     topic,
-				Partition: partition,
-				Offset:    offset,
+				Source:      triggerTypeKafka,
+				Body:        string(payload),
+				Headers:     hdrs,
+				Topic:       topic,
+				Partition:   partition,
+				Offset:      offset,
+				Key:         keyStr,
+				KeyEncoding: keyEncoding,
 			},
 		},
 	}

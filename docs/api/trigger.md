@@ -350,9 +350,17 @@ The Flow receives the message contents via the same `$(trigger.*)` placeholders 
 - `$(trigger.topic)` — the topic/queue name
 - `$(trigger.partition)` — the partition number (Kafka only; empty for AMQP/NATS)
 - `$(trigger.offset)` — the message offset (Kafka only; empty for AMQP/NATS)
+- `$(trigger.key)` — the Kafka record key (Kafka only; empty for AMQP/NATS, and empty when the record has no key). See below for its encoding.
 - `$(trigger.headers.<name>)` — Kafka record headers, AMQP message headers, and NATS message headers (case-insensitive lookup), via the same placeholder used for webhook HTTP headers.
 
-> **Not accessible from step interpolation**: the Kafka message key is not captured anywhere on the FlowRun object and is not exposed via `$(...)` syntax today. If a Flow needs the message key, there is currently no supported way to read it.
+**Kafka record key encoding**: the raw Kafka record key is captured on `FlowRun.spec.triggerData.key`, along with `FlowRun.spec.triggerData.keyEncoding` describing how it's encoded:
+- A `nil` record key leaves both `key` and `keyEncoding` unset, and `$(trigger.key)` resolves to an empty string.
+- A key that decodes as valid UTF-8 is stored as-is, with `keyEncoding: "utf8"`.
+- A key that is not valid UTF-8 (arbitrary binary data — common for keys that are hashes, UUIDs in raw byte form, or protobuf-encoded values) is base64-encoded, with `keyEncoding: "base64"`.
+
+`$(trigger.key)` always emits `triggerData.key` **verbatim** — it does not decode base64 automatically, the same way `$(trigger.body)` is emitted verbatim regardless of `contentType`. A Flow step must check `keyEncoding` (today, only reachable indirectly — e.g. via a `transform` step reading `$(trigger.body)`-adjacent context, since there is no `$(trigger.keyEncoding)` interpolation token) or otherwise know out-of-band whether to base64-decode the value before using it as binary data.
+
+The Kafka record key is never part of the FlowRun dedup-key naming scheme (`<trigger>-p<partition>-offset-<offset>`) — it is informational/interpolation-only and does not affect deduplication.
 
 ### Kubernetes Resource Events
 

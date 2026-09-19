@@ -43,17 +43,24 @@ type TriggerData struct {
 	// ResourceKind is the kind of the watched resource.
 	ResourceKind string `json:"resourceKind,omitempty"`
 
-	Source        string            `json:"source,omitempty"`
-	Method        string            `json:"method,omitempty"`
-	Path          string            `json:"path,omitempty"`
-	Headers       map[string]string `json:"headers,omitempty"`
-	Topic         string            `json:"topic,omitempty"`
-	Partition     int32             `json:"partition,omitempty"`
-	Offset        int64             `json:"offset,omitempty"`
-	ScheduledTime *metav1.Time      `json:"scheduledTime,omitempty"`
-	Body          string            `json:"body,omitempty"`
-	BodyTruncated bool              `json:"bodyTruncated,omitempty"`
-	ContentType   string            `json:"contentType,omitempty"`
+	Source    string            `json:"source,omitempty"`
+	Method    string            `json:"method,omitempty"`
+	Path      string            `json:"path,omitempty"`
+	Headers   map[string]string `json:"headers,omitempty"`
+	Topic     string            `json:"topic,omitempty"`
+	Partition int32             `json:"partition,omitempty"`
+	Offset    int64             `json:"offset,omitempty"`
+	// Key is the Kafka record key (kafka triggers only), captured verbatim when it
+	// decodes as valid UTF-8, or base64-encoded otherwise. Unset (zero value) when
+	// the record key is nil. See KeyEncoding to determine which form this is in.
+	Key string `json:"key,omitempty"`
+	// KeyEncoding indicates how Key is encoded: "utf8" or "base64". Unset when Key
+	// is unset (nil record key).
+	KeyEncoding   string       `json:"keyEncoding,omitempty"`
+	ScheduledTime *metav1.Time `json:"scheduledTime,omitempty"`
+	Body          string       `json:"body,omitempty"`
+	BodyTruncated bool         `json:"bodyTruncated,omitempty"`
+	ContentType   string       `json:"contentType,omitempty"`
 }
 
 // FlowRunSpec defines the desired state of FlowRun.

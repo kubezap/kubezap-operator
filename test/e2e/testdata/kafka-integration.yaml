@@ -1,5 +1,7 @@
-# Applied only when KAFKA_BOOTSTRAP_SERVERS is set. The test patches
-# spec.kafka.brokers at runtime via kubectl patch.
+# Reference fixture only — not applied directly by the test. When
+# KAFKA_BOOTSTRAP_SERVERS is set, the test builds its own copy of this YAML
+# inline (substituting the env var value), writes it to a temp file, and
+# applies that temp file fresh via `kubectl apply -f`.
 apiVersion: automation.kubezap.io/v1alpha1
 kind: Integration
 metadata:
@@ -7,5 +9,5 @@ metadata:
 spec:
   type: kafka
   kafka:
-    brokers:
+    bootstrapServers:
       - PLACEHOLDER

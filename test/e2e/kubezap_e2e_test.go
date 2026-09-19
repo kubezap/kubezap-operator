@@ -371,7 +371,7 @@ metadata:
 spec:
   type: kafka
   kafka:
-    brokers:
+    bootstrapServers:
       - %s
 `, e2eNS, brokers)
 			tmpFile, err := os.CreateTemp("", "kafka-integration-*.yaml")

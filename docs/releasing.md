@@ -2,7 +2,7 @@
 
 This document describes the end-to-end process for cutting a KubeZap release. All steps are required unless marked optional.
 
-**Every release goes through at least one release candidate (RC) before the final tag.** There is no "skip straight to final" path, even for a patch release — the RC is what actually gets built, published, and validated; promoting to final only ever re-tags that same validated commit, never new, untested code.
+**Cutting a release candidate (RC) first is optional, not mandatory** — use one whenever you want a real validation pass before the final tag goes out. **Recommended** for a MINOR or MAJOR release (new surface area — trigger types, CRD fields, breaking changes) or any patch you're not fully confident in (e.g. a security fix touching a code path you can't easily reason about in isolation). **Safe to skip** for a small, well-understood PATCH release (a doc fix, a narrowly-scoped bug fix) — go straight to [step 1](#1-decide-the-version) → final tag in that case, skipping the RC-specific sections below. If you do cut an RC, promoting it to final only ever re-tags that same validated commit, never new, untested code — see [Promoting an RC to Final](#promoting-an-rc-to-final).
 
 ---
 
@@ -27,7 +27,9 @@ This document describes the end-to-end process for cutting a KubeZap release. Al
 | CHANGELOG.md | Not touched — the entry for the target version is already written before the first RC and doesn't change per RC unless RC testing surfaces something the changelog needs corrected | Date on the version's existing heading is set/confirmed to the actual release date |
 | OperatorHub PR | Never | Only when the CSV changed, and only once the release itself is otherwise final — see [OperatorHub PR](#8-operatorhub-pr-final-releases-only) |
 
-**When to cut a new RC vs. promote to final**: if RC testing finds something that needs a code change, fix it, commit, and cut `rc.<N+1>` from the new commit. Only promote to final once an RC has been validated with **no further code changes** — promotion re-tags the exact commit the last RC was built from, it never introduces new changes (see [Promoting an RC to Final](#promoting-an-rc-to-final)).
+**Whether to cut an RC at all**: see the note at the top of this document — MINOR/MAJOR or higher-risk PATCH releases, go through an RC; a small, well-understood PATCH release can skip straight to the final tag using [step 1](#1-decide-the-version) through [step 5](#5-tag-and-push) with the plain final version from the start (skip [step 6](#6-validate-the-rc) and [Promoting an RC to Final](#promoting-an-rc-to-final) entirely).
+
+**When to cut a new RC vs. promote to final** (once you've decided to use one): if RC testing finds something that needs a code change, fix it, commit, and cut `rc.<N+1>` from the new commit. Only promote to final once an RC has been validated with **no further code changes** — promotion re-tags the exact commit the last RC was built from, it never introduces new changes (see [Promoting an RC to Final](#promoting-an-rc-to-final)).
 
 ---
 
@@ -43,13 +45,13 @@ KubeZap follows [Semantic Versioning](https://semver.org/). Determine the next v
 
 > **Pre-1.0:** Use `v0.MINOR.PATCH`. Breaking changes increment MINOR.
 
-Then decide the RC number: `rc.1` for the first candidate of this version, incrementing only if a later RC is needed after a code change (see above).
+If you're using an RC for this release (see the note above — optional), decide the RC number: `rc.1` for the first candidate of this version, incrementing only if a later RC is needed after a code change (see above). If you're skipping the RC, just use the plain version below.
 
 ---
 
 ## 2. Update version strings
 
-Replace `<NEW>` with the target version **including the RC suffix** (e.g. `0.1.0-rc.1`) and `<PREVIOUS>` with the previous *final* version being replaced (e.g. `0.0.0` — omit `spec.replaces` entirely if there is no previous final release yet, see the note below):
+Replace `<NEW>` with the target version — including the `-rc.N` suffix if you're cutting a candidate (e.g. `0.1.0-rc.1`), or the plain version if going straight to final (e.g. `0.1.0`) — and `<PREVIOUS>` with the previous *final* version being replaced (e.g. `0.0.0` — omit `spec.replaces` entirely if there is no previous final release yet, see the note below):
 
 ```bash
 VERSION=<NEW>
@@ -84,7 +86,10 @@ Review the diff. If a `spec.replaces` line was carried over from a previous rele
 
 ## 4. Confirm CHANGELOG.md
 
-`CHANGELOG.md`'s entry for the target version should already exist (written up front, describing everything going into this release) — an RC does not get its own changelog section. Read it over and correct anything RC testing revealed was wrong, but don't change the version heading or add a date yet; the date is set at [final promotion](#promoting-an-rc-to-final).
+`CHANGELOG.md`'s entry for the target version should already exist (written up front, describing everything going into this release) — an RC does not get its own changelog section.
+
+- **If you're cutting an RC**: read the entry over and correct anything RC testing revealed was wrong, but don't change the version heading or add a date yet — the date is set at [final promotion](#promoting-an-rc-to-final).
+- **If you're skipping the RC**: read the entry over, correct anything that needs it, and set the real release date on the `## [v<X.Y.Z>]` heading now — this tag is the final release, there's no later promotion step to do it in.
 
 Commit the version-bump and bundle regeneration together:
 
@@ -100,18 +105,19 @@ git push origin main
 
 ## 5. Tag and push
 
-**Release candidate:**
 ```bash
 git tag -a "v$VERSION" -m "KubeZap v$VERSION"
 git push origin "v$VERSION"
 ```
 
-(`$VERSION` already includes the `-rc.N` suffix from step 1, e.g. `v0.1.0-rc.1`.)
+(`$VERSION` is whatever you set in [step 1](#1-decide-the-version) — with the `-rc.N` suffix if you're cutting a candidate, e.g. `v0.1.0-rc.1`, or the plain version if going straight to final, e.g. `v0.1.0`.)
 
-This triggers the same two workflows a final release does — see [Release Candidates vs. Final Releases](#release-candidates-vs-final-releases) for what differs in their output:
+This triggers the same two workflows either way — see [Release Candidates vs. Final Releases](#release-candidates-vs-final-releases) for what differs in their output:
 
-- **`.github/workflows/release.yml`** — GoReleaser builds CLI binaries (`kubezap` + `kubectl-kubezap`), creates a GitHub Release (automatically marked **prerelease** for an `-rc.N` tag), and pushes container images to GHCR tagged with the exact RC version — never `:latest`.
-- **`release-helm`** job publishes the Helm chart to `oci://ghcr.io/kubezap/charts` under the RC version.
+- **`.github/workflows/release.yml`** — GoReleaser builds CLI binaries (`kubezap` + `kubectl-kubezap`), creates a GitHub Release (automatically marked **prerelease** for an `-rc.N` tag), and pushes container images to GHCR tagged with the exact version — `:latest` moves only for a plain final tag, never for an `-rc.N` one.
+- **`release-helm`** job publishes the Helm chart to `oci://ghcr.io/kubezap/charts` under this version.
+
+**If you skipped the RC**, this tag *is* the final release — skip ahead to [step 7](#7-verify-the-release) (no [validation](#6-validate-the-rc) or [promotion](#promoting-an-rc-to-final) step needed, since there's no separate RC artifact to validate first).
 
 Monitor the workflow run:
 

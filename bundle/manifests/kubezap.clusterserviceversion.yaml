@@ -565,6 +565,14 @@ spec:
         - apiGroups:
           - rbac.authorization.k8s.io
           resources:
+          - clusterrolebindings
+          verbs:
+          - create
+          - get
+          - update
+        - apiGroups:
+          - rbac.authorization.k8s.io
+          resources:
           - rolebindings
           - roles
           verbs:

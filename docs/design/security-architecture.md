@@ -82,9 +82,9 @@ This also closes the related secret-fetch path: since a Flow's `$(secrets.name.k
 
 ## Secrets RBAC: OwnNamespace default
 
-The controller's ClusterRole (when running in AllNamespaces mode) grants `get/list/watch` on all Secrets cluster-wide — a compromised controller pod would otherwise expose every Secret in the cluster.
+The controller's ClusterRole (when running in AllNamespaces mode) grants full CRUD on Secrets cluster-wide — RBAC itself cannot express "restricted to namespaces carrying a given label" (Role/ClusterRole only match apiGroup/resource/verb/resourceNames, never a namespace's own labels), and the executor's own mTLS cert Secret (`internal/controller/executor_reconciler.go`'s `reconcileExecutorCertSecret`) needs write access wherever an executor is deployed. A compromised controller pod's *RBAC ceiling* is therefore every Secret in the cluster.
 
-**Decision:** default to OwnNamespace (the operator watches and can read Secrets only in its own namespace). In AllNamespaces mode (`WATCH_NAMESPACES=*`), Secrets RBAC is restricted to namespaces labeled `kubezap.io/managed=true`. Combined with the HTTP executor split above, this means even the main controller's Secret access is scoped, and the component that actually makes outbound HTTP calls has no Secret access at all.
+**Decision:** default to OwnNamespace (the operator watches and can read Secrets only in its own namespace, via a namespace-scoped `Role`). In AllNamespaces mode (`WATCH_NAMESPACES=*`), *reading* a Secret to resolve a Trigger/Integration `secretRef` is additionally gated at the application layer — before returning a resolved Secret's data, the operator (and each gateway process) checks that the Secret's own namespace carries `kubezap.io/managed=true`, failing with a visible condition/error otherwise. See `docs/design/allnamespaces-secrets-label-restriction.md` for the full design and why this is enforced in code rather than RBAC. This means even the main controller's Secret *reads* are scoped in practice, and the component that actually makes outbound HTTP calls has no Secret access at all — but note the RBAC grant itself remains broad; a cluster admin auditing via `kubectl auth can-i` or RBAC-visualization tooling will see the full-CRUD grant, not this narrower application-level restriction.
 
 ## Webhook auth: admission warning, not rejection
 

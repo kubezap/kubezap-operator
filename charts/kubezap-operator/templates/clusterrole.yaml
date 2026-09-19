@@ -15,16 +15,26 @@ rules:
       - get
       - list
       - watch
-  # AllNamespaces mode: operator reads secrets to resolve secretRefs in Triggers and Integrations
-  # across all namespaces. To restrict secrets access to the operator namespace, use
+  # AllNamespaces mode: full CRUD is required cluster-wide — read access to resolve
+  # secretRefs in Triggers/Integrations, and write access for the executor's own
+  # mTLS cert Secret (reconcileExecutorCertSecret), which the executor needs in
+  # whatever namespace it's deployed into. The actual security boundary for
+  # *reading* a Secret in AllNamespaces mode is enforced in application code, not
+  # RBAC — see docs/design/allnamespaces-secrets-label-restriction.md for why RBAC
+  # itself cannot express a "namespace must carry a given label" restriction. To
+  # scope secrets access down to the operator's own namespace via RBAC directly, use
   # watchOwnNamespace: true (the default) instead of AllNamespaces mode.
   - apiGroups:
       - ""
     resources:
       - secrets
     verbs:
+      - create
+      - delete
       - get
       - list
+      - patch
+      - update
       - watch
   - apiGroups:
       - ""

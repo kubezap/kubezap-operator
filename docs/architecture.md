@@ -382,11 +382,11 @@ KubeZap supports four watch modes controlled by the `WATCH_NAMESPACES` environme
 | Mode                | `WATCH_NAMESPACES` value      | Default? | Use case                                                                       |
 | ------------------- | ----------------------------- | -------- | ------------------------------------------------------------------------------ |
 | **OwnNamespace**    | `""` (empty) or operator's ns | **Yes**  | Default; maximum isolation, least privilege (OLM default)                      |
-| **AllNamespaces**   | `"*"`                         | No       | Single-org cluster; secrets restricted to `kubezap.io/managed=true` namespaces |
+| **AllNamespaces**   | `"*"`                         | No       | Single-org cluster; secret reads restricted to `kubezap.io/managed=true` namespaces |
 | **MultiNamespace**  | `"ns1,ns2,ns3"`               | No       | Operator serves a defined set of tenant namespaces                             |
 | **SingleNamespace** | `"tenant-a"`                  | No       | One operator installation per tenant group                                     |
 
-> **Security note:** The default is OwnNamespace (least privilege). `WATCH_NAMESPACES=*` enables AllNamespaces mode, where the operator's secrets RBAC is restricted to namespaces labeled `kubezap.io/managed=true`. This prevents the operator from reading secrets in unrelated namespaces.
+> **Security note:** The default is OwnNamespace (least privilege). `WATCH_NAMESPACES=*` enables AllNamespaces mode, where reading a Secret to resolve a `secretRef` additionally requires the Secret's own namespace to carry `kubezap.io/managed=true` — enforced in application code, since Kubernetes RBAC cannot itself express a per-namespace-label restriction (see `docs/design/allnamespaces-secrets-label-restriction.md`). This prevents the operator from reading secrets in unrelated namespaces even though its RBAC grant is necessarily broader.
 
 These map directly to [OLM install modes](https://olm.operatorframework.io/docs/advanced-tasks/operator-scoping-with-operatorgroups/), which is required for OperatorHub certification.
 

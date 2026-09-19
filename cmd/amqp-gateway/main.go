@@ -114,7 +114,12 @@ func main() {
 		}
 	}()
 
-	watcher, err := amqpgateway.NewWatcher(k8sClient, cfg, namespace, log.WithName("watcher"))
+	// allNamespacesMode mirrors the operator's own WATCH_NAMESPACES=* sentinel
+	// (the operator propagates its own env var value verbatim to this gateway's
+	// Deployment) — see docs/design/allnamespaces-secrets-label-restriction.md.
+	allNamespacesMode := os.Getenv("WATCH_NAMESPACES") == "*"
+
+	watcher, err := amqpgateway.NewWatcher(k8sClient, cfg, namespace, log.WithName("watcher"), allNamespacesMode)
 	if err != nil {
 		log.Error(err, "unable to create amqp watcher")
 		os.Exit(1)

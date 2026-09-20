@@ -316,17 +316,12 @@ func main() {
 		os.Exit(1)
 	case "":
 		// Default: OwnNamespace — watch only the operator's own namespace.
-		cacheOpts.DefaultNamespaces = map[string]cache.Config{operatorNamespace: {}}
+		cacheOpts.DefaultNamespaces = resolveCacheNamespaces(watchNS, operatorNamespace)
 		setupLog.Info("OwnNamespace mode: restricting watch to operator namespace", "namespace", operatorNamespace)
 	default:
-		ns := map[string]cache.Config{}
-		for _, n := range strings.Split(watchNS, ",") {
-			if n = strings.TrimSpace(n); n != "" {
-				ns[n] = cache.Config{}
-			}
-		}
-		cacheOpts.DefaultNamespaces = ns
-		setupLog.Info("MultiNamespace mode: restricting watch to namespaces", "namespaces", watchNS)
+		cacheOpts.DefaultNamespaces = resolveCacheNamespaces(watchNS, operatorNamespace)
+		setupLog.Info("MultiNamespace mode: restricting watch to namespaces", "namespaces", watchNS,
+			"operatorNamespace", operatorNamespace)
 	}
 
 	mgr, err := ctrl.NewManager(restCfg, ctrl.Options{
@@ -527,6 +522,27 @@ func main() {
 		setupLog.Error(err, "problem running manager")
 		os.Exit(1)
 	}
+}
+
+// resolveCacheNamespaces builds the manager cache's namespace scope from the
+// WATCH_NAMESPACES env var. operatorNamespace is always included, even in
+// MultiNamespace mode when it isn't one of the explicitly watched namespaces —
+// the controller unconditionally needs cache access to its own namespace to
+// manage its self-signed webhook serving certificate Secret
+// (internal/webhookcerts), regardless of which application namespaces it's
+// also watching. Without this, an operator installed via raw manifests/kustomize
+// (which, unlike the Helm chart's kubezap.watchNamespaceList helper, has no
+// automatic union step) would crash trying to manage that Secret whenever
+// WATCH_NAMESPACES was set to a list that omitted the operator's own namespace
+// (see STORY-063's equivalent Helm-only fix for the same class of bug).
+func resolveCacheNamespaces(watchNS, operatorNamespace string) map[string]cache.Config {
+	ns := map[string]cache.Config{operatorNamespace: {}}
+	for _, n := range strings.Split(watchNS, ",") {
+		if n = strings.TrimSpace(n); n != "" {
+			ns[n] = cache.Config{}
+		}
+	}
+	return ns
 }
 
 // webhookConfigurationName is the ValidatingWebhookConfiguration name generated

@@ -149,6 +149,10 @@ var _ = PDescribe("publish step -> Kafka Integration E2E", Ordered, func() {
 			"pod-security.kubernetes.io/enforce=restricted")
 		_, err = utils.Run(cmd)
 		Expect(err).NotTo(HaveOccurred())
+
+		By("provisioning MultiNamespace RBAC so the controller can reconcile in publishKafkaE2ENS")
+		Expect(utils.ProvisionMultiNamespaceRBAC(publishKafkaE2ENS, "kubezap-system", "kubezap-controller-manager")).
+			To(Succeed())
 	})
 
 	AfterAll(func() {

@@ -76,6 +76,10 @@ var _ = Describe("KubeZap functional E2E", Ordered, func() {
 			"pod-security.kubernetes.io/enforce=restricted")
 		_, err := utils.Run(cmd)
 		Expect(err).NotTo(HaveOccurred())
+
+		By("provisioning MultiNamespace RBAC so the controller can reconcile in e2eNS")
+		Expect(utils.ProvisionMultiNamespaceRBAC(e2eNS, "kubezap-system", "kubezap-controller-manager")).
+			To(Succeed())
 	})
 
 	AfterAll(func() {

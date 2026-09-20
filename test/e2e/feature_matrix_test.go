@@ -306,6 +306,10 @@ var _ = Describe("Feature Matrix", Ordered, func() {
 		_, err := utils.Run(cmd)
 		Expect(err).NotTo(HaveOccurred())
 
+		By("ensuring MultiNamespace RBAC exists in e2eNS (idempotent, same reasoning as above)")
+		Expect(utils.ProvisionMultiNamespaceRBAC(e2eNS, "kubezap-system", "kubezap-controller-manager")).
+			To(Succeed())
+
 		By("deploying shared Mockoon fixture in e2eNS")
 		fmApplyInline(fmMockoonConfigMapYAML)
 		fmApplyInline(fmMockoonDeploymentYAML)

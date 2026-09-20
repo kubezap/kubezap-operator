@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strings"
 	"testing"
 	"time"
 
@@ -140,6 +141,33 @@ var _ = BeforeSuite(func() {
 		ExpectWithOffset(1, err).NotTo(HaveOccurred(), "CRD %s not established", crd)
 	}
 
+	// AllNamespaces mode ("*") was removed (docs/design/namespace-scoped-watch-modes-only.md)
+	// — the controller now rejects it and exits at startup. MultiNamespace mode requires an
+	// explicit, static namespace list instead. controller-runtime's per-namespace cache
+	// evaluates RBAC by literal namespace name as soon as the manager starts — a Forbidden
+	// response on ANY one namespace's informer blocks that informer's cache sync forever,
+	// which blocks manager-wide WaitForCacheSync (and therefore ALL reconciliation, in every
+	// namespace, not just the forbidden one). So every watched namespace's RBAC must exist
+	// BEFORE the controller manager starts — provisioning it lazily from each test file's own
+	// BeforeAll (which necessarily runs after the manager is already up) is too late. Namespace
+	// creation and RBAC provisioning for all of the suite's namespaces therefore happens here,
+	// upfront, before "make deploy". (Each test file's own BeforeAll still creates/labels/
+	// provisions its own namespace too — those calls are idempotent and exist so each test file
+	// remains runnable in isolation, e.g. via ginkgo -focus.)
+	testNamespaces := []string{e2eNS, webhookE2ENS, executorE2ENS, publishKafkaE2ENS}
+
+	By("creating e2e test namespaces upfront")
+	for _, ns := range testNamespaces {
+		cmd = exec.Command("kubectl", "create", "ns", ns)
+		_, _ = utils.Run(cmd) // Ignore error — namespace may already exist from a previous run.
+	}
+
+	By("provisioning MultiNamespace RBAC in each e2e test namespace before the controller starts")
+	for _, ns := range testNamespaces {
+		ExpectWithOffset(1, utils.ProvisionMultiNamespaceRBAC(ns, "kubezap-system", "kubezap-controller-manager")).
+			To(Succeed(), "Failed to provision MultiNamespace RBAC in %s", ns)
+	}
+
 	By("deploying controller manager")
 	cmd = exec.Command("make", "deploy", fmt.Sprintf("IMG=%s", projectImage))
 	_, err = utils.Run(cmd)
@@ -155,9 +183,10 @@ var _ = BeforeSuite(func() {
 	// (internal/webhookcerts) — no manual cert generation or patching needed.
 	// See docs/design/self-managed-webhook-certs.md.
 
-	By("setting WATCH_NAMESPACES=* so controller reconciles e2e test namespaces")
+	By("setting WATCH_NAMESPACES to the explicit e2e test namespace list")
+	watchNamespaces := strings.Join(testNamespaces, ",")
 	cmd = exec.Command("kubectl", "set", "env", "deployment/kubezap-controller-manager",
-		"-n", "kubezap-system", "WATCH_NAMESPACES=*")
+		"-n", "kubezap-system", fmt.Sprintf("WATCH_NAMESPACES=%s", watchNamespaces))
 	_, err = utils.Run(cmd)
 	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to set WATCH_NAMESPACES on controller")
 

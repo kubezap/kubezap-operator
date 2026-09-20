@@ -200,8 +200,11 @@ helm show chart oci://ghcr.io/kubezap/charts/kubezap-operator --version $VERSION
 Never open this for an RC. This step is also independent of — and currently blocked behind — the operator's own release-readiness gate (see the `EPIC-001`/`STORY-007` tracking for current status); don't open an OperatorHub PR just because a final tag shipped without checking that gate first.
 
 1. Fork [community-operators](https://github.com/k8s-operatorhub/community-operators) (or [community-operators-prod](https://github.com/redhat-openshift-ecosystem/community-operators-prod) for OpenShift).
-2. Copy the `bundle/` directory to `operators/kubezap/v$VERSION/`.
-3. Open a PR following the OperatorHub contribution guide.
+2. Confirm the release's images are actually live (step 7), then run `make bundle-pin-digest` locally — it repoints `bundle/manifests/kubezap.clusterserviceversion.yaml`'s manager image from its tag to the exact published digest by querying the registry directly (`docker buildx imagetools`, no pull needed). **Never commit this output to this repo's own `main`** — the committed `bundle/` must stay tag-pinned so `make bundle`/CI's OLM Bundle Drift Check remain deterministic and don't need registry access on every PR. Digest-pinning matters here specifically because this project's own release workflow already cosign-signs images by digest, not tag, and OperatorHub catalogs (`community-operators` has ~800+ CSVs doing this) expect the same immutability guarantee.
+3. Copy the digest-pinned `bundle/` directory to `operators/kubezap/v$VERSION/` in the fork.
+4. **If this is the package's first entry in that specific catalog** (check whether `operators/kubezap/` already exists there before assuming — a version can be "the second real release" in *this* repo's own history while still being the *first* one that catalog has ever seen): drop the `spec.replaces` line from the copied CSV. `replaces`-mode upgrade-graph validation requires the target to already exist in that catalog's package graph — pointing at a version the catalog has never indexed fails CI there, even though the same line is correct in this repo's own `bundle/` (see step 2 of this doc).
+5. Run `git checkout -- bundle/` in this repo to discard the local digest-pinned working-tree change before doing anything else here — otherwise the next `make bundle`/PR will show unexpected local drift until it's regenerated.
+6. Open a PR in the fork following the OperatorHub contribution guide.
 
 ---
 

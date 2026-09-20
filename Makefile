@@ -361,6 +361,27 @@ bundle: manifests kustomize operator-sdk ## Generate bundle manifests and metada
 	sed -i 's|containerImage: .*|containerImage: $(BUNDLE_MANAGER_IMG)|' bundle/manifests/kubezap.clusterserviceversion.yaml
 	$(OPERATOR_SDK) bundle validate ./bundle
 
+.PHONY: bundle-pin-digest
+bundle-pin-digest: ## Repoint the local bundle/'s manager image at its published digest (OperatorHub submissions only — see below).
+	# Run this AFTER `make bundle` + a real tag push, right before copying bundle/
+	# into an OperatorHub submission — never commit its output to this repo's own
+	# main (see docs/releasing.md#9-operatorhub-pr-final-releases-only). It queries
+	# the registry directly (docker buildx imagetools, no pull needed), so it only
+	# works once ghcr.io/kubezap/controller:$(VERSION) has actually been pushed —
+	# this is why it's a separate, manual target instead of folded into `bundle`
+	# itself, which CI runs on every PR, including ones whose VERSION was never
+	# pushed as an image.
+	@digest=$$(docker buildx imagetools inspect $(BUNDLE_MANAGER_IMG) --format '{{json .Manifest}}' 2>/dev/null | jq -r '.digest // empty'); \
+	if [ -z "$$digest" ]; then \
+		echo "error: could not resolve a digest for $(BUNDLE_MANAGER_IMG) — has it been pushed yet? (see step 5 in docs/releasing.md)"; \
+		exit 1; \
+	fi; \
+	pinned="ghcr.io/kubezap/controller@$$digest"; \
+	echo "Pinning bundle manager image to $$pinned"; \
+	sed -i "s|image: ghcr.io/kubezap/controller[:@][^[:space:]]*|image: $$pinned|" bundle/manifests/kubezap.clusterserviceversion.yaml; \
+	sed -i "s|containerImage: ghcr.io/kubezap/controller[:@][^[:space:]]*|containerImage: $$pinned|" bundle/manifests/kubezap.clusterserviceversion.yaml
+	$(OPERATOR_SDK) bundle validate ./bundle
+
 .PHONY: bundle-build
 bundle-build: ## Build the bundle image.
 	$(CONTAINER_TOOL) build -f bundle.Dockerfile -t $(BUNDLE_IMG) .

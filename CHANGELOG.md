@@ -7,6 +7,37 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [v0.2.0] - 2026-09-20
+
+### Removed
+
+- `WATCH_NAMESPACES=*` (AllNamespaces watch mode) — removed entirely. Native Kubernetes RBAC cannot express the documented "restricted to `kubezap.io/managed=true` namespaces" requirement, and every attempt to compensate for that gap produced disproportionate hardening work for a mode with zero real deployments. Rejected at startup (fail-fast) in the controller and all four gateway binaries. See `docs/design/namespace-scoped-watch-modes-only.md`.
+- OLM CSV `AllNamespaces` install mode: now `supported: false`.
+- The operator's own cluster-scoped `ClusterRole` variant — no watch mode needs cluster-scoped reconciler permissions anymore.
+
+### Changed
+
+- `MultiNamespace` mode now provisions a real `Role`+`RoleBinding` pair per watched namespace (Helm and raw manifests), instead of a `ClusterRole`.
+- The alpha "Resource" trigger type's wildcard RBAC requirement is now an explicit opt-in (`config/samples/resource-trigger-rbac.yaml`, applied per namespace) rather than shipped by default.
+- User-facing docs (`docs/architecture.md`, `docs/overview.md`, `README.md`, `docs/contributing.md`, security/troubleshooting guides) rewritten to describe the resulting two-mode model (OwnNamespace/SingleNamespace, MultiNamespace).
+
+### Added
+
+- CI: RBAC parity check comparing generated markers, kustomize, and Helm RBAC sources on every PR — catches the exact class of drift several of the fixes below had to be found by hand.
+- `--health-port` on `http-executor` (default `8092`): a separate, always-plain-HTTP listener for liveness/readiness probes, independent of `--executor-mtls`.
+- `executor.mtls` Helm values toggle for the existing `--executor-mtls` feature, which previously had no Helm-level way to enable.
+
+### Fixed
+
+- Helm install was effectively non-functional at v0.1.0: missing `POD_NAMESPACE` (Downward API) caused 403s managing the operator's own webhook cert Secret; `readOnlyRootFilesystem: true` with no writable volume broke writing that same cert; missing leader-election RBAC (`coordination.k8s.io/leases`, `events`) meant the operator could never win leader election; and RBAC had drifted from the canonical generated role (missing `configmaps`, `webhookgatewayconfigs`, `networkpolicies`, `poddisruptionbudgets`, and more).
+- `--executor-port` was never actually wired to anything — `ExecutorReconciler.ExecutorPort` silently used a hardcoded default regardless of the flag or Helm value.
+- `WebhookGatewayConfig` TLS Secret volumes mounted with `DefaultMode: 0400`, unreadable by the non-root container user — crash-looped any webhook gateway with `spec.tls` configured (server or client-CA), on both Helm and raw-manifest installs.
+- `MultiNamespace` mode crash-looped on startup in Helm installs — the operator's own Role/RoleBinding was never provisioned in its own release namespace, where it still needs to manage its webhook cert Secret.
+- Helm installs never granted leader-election `events` RBAC in any watch mode — non-fatal, but produced a rejected event on every leader-election cycle.
+- KEDA-based Kafka gateway autoscaling never worked — the generated `ScaledObject` used the wrong metadata field name (`brokerList` instead of the KEDA Kafka scaler's actual `bootstrapServers`), so KEDA rejected it and no HPA was ever created.
+- `--executor-mtls=true` broke HTTP step execution entirely — liveness/readiness probes targeted the mTLS-protected main port, which kubelet's cert-less probes can never authenticate against, so the executor Deployment never became `Ready` and the Service kept routing to a stale pod.
+- `spec.amqp.routingKey` docs incorrectly described it as binding a queue to an exchange; the gateway never calls `QueueBind` — it's purely an internal subscription-dedup key. (Docs-only correction; runtime behavior was always as implemented.)
+
 ## [v0.1.0] - 2026-09-19
 
 ### Added

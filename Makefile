@@ -51,6 +51,10 @@ endif
 OPERATOR_SDK_VERSION ?= v1.42.0
 # Image URL to use all building/pushing image targets
 IMG ?= ghcr.io/kubezap/controller:latest
+# Manager image reference embedded in the OLM bundle's CSV. Must be an immutable
+# tag, never :latest — OLM bundles are expected to be reproducible, and
+# `operator-sdk bundle validate` flags a floating tag here.
+BUNDLE_MANAGER_IMG ?= ghcr.io/kubezap/controller:$(VERSION)
 WEBHOOK_GATEWAY_IMAGE ?= ghcr.io/kubezap/webhook-gateway:latest
 KAFKA_GATEWAY_IMAGE ?= ghcr.io/kubezap/kafka-gateway:latest
 AMQP_GATEWAY_IMAGE ?= ghcr.io/kubezap/amqp-gateway:latest
@@ -349,8 +353,12 @@ endif
 .PHONY: bundle
 bundle: manifests kustomize operator-sdk ## Generate bundle manifests and metadata, then validate generated files.
 	$(OPERATOR_SDK) generate kustomize manifests -q
-	cd config/manager && $(KUSTOMIZE) edit set image controller=$(IMG)
+	cd config/manager && $(KUSTOMIZE) edit set image controller=$(BUNDLE_MANAGER_IMG)
 	$(KUSTOMIZE) build config/manifests | $(OPERATOR_SDK) generate bundle $(BUNDLE_GEN_FLAGS)
+	# The CSV's `containerImage` annotation isn't wired to kustomize's image
+	# transformer above (that only rewrites Deployment container specs, never
+	# arbitrary annotation strings) — sync it by hand so it doesn't ship stale.
+	sed -i 's|containerImage: .*|containerImage: $(BUNDLE_MANAGER_IMG)|' bundle/manifests/kubezap.clusterserviceversion.yaml
 	$(OPERATOR_SDK) bundle validate ./bundle
 
 .PHONY: bundle-build

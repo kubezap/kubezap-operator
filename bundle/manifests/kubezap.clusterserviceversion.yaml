@@ -177,8 +177,8 @@ metadata:
       ]
     capabilities: Basic Install
     categories: Integration & Delivery
-    containerImage: ghcr.io/kubezap/controller:latest
-    createdAt: "2026-09-20T20:21:00Z"
+    containerImage: ghcr.io/kubezap/controller:0.2.0
+    createdAt: "2026-09-20T20:33:40Z"
     description: Declarative workflow automation for Kubernetes
     operatorframework.io/suggested-namespace: kubezap-system
     operators.operatorframework.io/builder: operator-sdk-v1.42.0
@@ -460,7 +460,7 @@ spec:
                   valueFrom:
                     fieldRef:
                       fieldPath: metadata.namespace
-                image: ghcr.io/kubezap/controller:latest
+                image: ghcr.io/kubezap/controller:0.2.0
                 imagePullPolicy: IfNotPresent
                 livenessProbe:
                   httpGet:

@@ -17,6 +17,8 @@ limitations under the License.
 package controller
 
 import (
+	"fmt"
+
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
@@ -101,6 +103,31 @@ var _ = Describe("ExecutorReconciler", func() {
 			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: executorDeploymentName, Namespace: namespace}, dep)).To(Succeed())
 			Expect(dep.Spec.Template.Spec.Containers).To(HaveLen(1))
 			Expect(dep.Spec.Template.Spec.Containers[0].Image).To(Equal(testImage))
+		})
+
+		// Live testing found the liveness/readiness probes pointed at the main
+		// --port, which requires a valid client certificate under --mtls=true --
+		// kubelet's httpGet probes can never present one, so the executor Deployment
+		// never became Ready with mTLS enabled, and HTTP steps failed outright since
+		// the Service only routed to the stale, non-mTLS pod. Probes must always
+		// target the separate, always-plain-HTTP health port instead.
+		It("points liveness and readiness probes at the separate health port, not the main port", func() {
+			reconcile(flowRun.Name)
+
+			dep := &appsv1.Deployment{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: executorDeploymentName, Namespace: namespace}, dep)).To(Succeed())
+			container := dep.Spec.Template.Spec.Containers[0]
+
+			Expect(container.Ports).To(ContainElement(corev1.ContainerPort{
+				Name:          portNameHealth,
+				ContainerPort: executorHealthPort,
+				Protocol:      corev1.ProtocolTCP,
+			}))
+			Expect(container.Args).To(ContainElement(fmt.Sprintf("--health-port=%d", executorHealthPort)))
+			Expect(container.LivenessProbe.HTTPGet.Port.IntVal).To(Equal(executorHealthPort))
+			Expect(container.LivenessProbe.HTTPGet.Scheme).To(Equal(corev1.URISchemeHTTP))
+			Expect(container.ReadinessProbe.HTTPGet.Port.IntVal).To(Equal(executorHealthPort))
+			Expect(container.ReadinessProbe.HTTPGet.Scheme).To(Equal(corev1.URISchemeHTTP))
 		})
 
 		It("creates the executor Service", func() {

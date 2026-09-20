@@ -46,6 +46,13 @@ const (
 	defaultExecutorImage      = "ghcr.io/kubezap/http-executor:latest"
 	DefaultExecutorPort       = int32(8091)
 
+	// executorHealthPort is always plain HTTP, even when MTLSEnabled — see
+	// cmd/http-executor/main.go's --health-port flag doc: kubelet's httpGet probes
+	// can never present a client cert, so /healthz on the main mTLS-protected port
+	// would permanently fail readiness/liveness checks.
+	executorHealthPort = int32(8092)
+	portNameHealth     = "health"
+
 	// labelAppKubernetesIOName / labelAppKubernetesIOComponent are the
 	// app.kubernetes.io/* convention label keys used for both the executor's
 	// full label set (executorLabels) and its selector-only label subsets.
@@ -205,7 +212,10 @@ func (r *ExecutorReconciler) reconcileExecutorDeployment(ctx context.Context, na
 		desired.Labels = labels
 
 		// Build container args and optional volume/mounts for mTLS.
-		containerArgs := []string{fmt.Sprintf("--port=%d", port)}
+		containerArgs := []string{
+			fmt.Sprintf("--port=%d", port),
+			fmt.Sprintf("--health-port=%d", executorHealthPort),
+		}
 		if r.SSRFAllowClusterInternal {
 			containerArgs = append(containerArgs, "--ssrf-allow-in-cluster=true")
 		}
@@ -271,6 +281,11 @@ func (r *ExecutorReconciler) reconcileExecutorDeployment(ctx context.Context, na
 									ContainerPort: port,
 									Protocol:      corev1.ProtocolTCP,
 								},
+								{
+									Name:          portNameHealth,
+									ContainerPort: executorHealthPort,
+									Protocol:      corev1.ProtocolTCP,
+								},
 							},
 							SecurityContext: &corev1.SecurityContext{
 								AllowPrivilegeEscalation: ptr.To(false),
@@ -286,7 +301,7 @@ func (r *ExecutorReconciler) reconcileExecutorDeployment(ctx context.Context, na
 								ProbeHandler: corev1.ProbeHandler{
 									HTTPGet: &corev1.HTTPGetAction{
 										Path:   healthzPath,
-										Port:   intstr.FromInt32(port),
+										Port:   intstr.FromInt32(executorHealthPort),
 										Scheme: corev1.URISchemeHTTP,
 									},
 								},
@@ -297,7 +312,7 @@ func (r *ExecutorReconciler) reconcileExecutorDeployment(ctx context.Context, na
 								ProbeHandler: corev1.ProbeHandler{
 									HTTPGet: &corev1.HTTPGetAction{
 										Path:   healthzPath,
-										Port:   intstr.FromInt32(port),
+										Port:   intstr.FromInt32(executorHealthPort),
 										Scheme: corev1.URISchemeHTTP,
 									},
 								},

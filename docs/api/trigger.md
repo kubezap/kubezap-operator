@@ -202,7 +202,7 @@ Configures authentication for a webhook trigger endpoint. If omitted, the endpoi
 | ---------------- | -------------------- | -------- | ------- | ------------------------------------------------------------- |
 | `integrationRef` | LocalObjectReference | **Yes**  | —       | Reference to an `Integration` CR with AMQP connection details |
 | `topic`          | string               | **Yes**  | —       | Queue name to consume from                                    |
-| `routingKey`     | string               | No       | —       | AMQP routing key or binding pattern                           |
+| `routingKey`     | string               | No       | —       | Distinguishes multiple subscriptions on the same `integrationRef`+`topic` from each other. Does not affect AMQP delivery — the gateway consumes directly from the named queue and never declares an exchange or binding. |
 
 ### NatsTrigger
 

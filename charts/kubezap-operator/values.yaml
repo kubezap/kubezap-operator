@@ -99,6 +99,15 @@ affinity:
 executor:
   image: ghcr.io/kubezap/http-executor:latest
   port: 8091
+  # mTLS between the controller and each executor Deployment (see
+  # docs/design/security-architecture.md's "Controller-to-executor channel
+  # security"). Opt-in: a NetworkPolicy already restricts executor ingress to
+  # controller pods regardless of this setting; enable mTLS only if your
+  # cluster has no service mesh already providing it (Istio/Linkerd make this
+  # redundant). When true, the controller generates a self-signed CA at
+  # startup, issues a server cert for the executor and a client cert for
+  # itself, and rotates them automatically.
+  mtls: false
   resources:
     requests:
       cpu: 50m

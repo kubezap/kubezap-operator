@@ -7,4 +7,4 @@ spec:
   webhook:
     path: /hooks/example
   flowRef:
-    name: example-flow
+    name: handle-order

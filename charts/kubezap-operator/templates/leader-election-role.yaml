@@ -1,0 +1,63 @@
+# Leader election needs configmaps/leases/events permissions in the operator's
+# own namespace, unconditionally — regardless of watch mode, since leader
+# election always runs against a Lease in the operator's own release
+# namespace, never a watched one. This is standard kubebuilder-scaffolded
+# leader-election RBAC (client-go's leaderelection package records an Event on
+# each leadership change, independent of anything KubeZap's own reconcilers
+# do) — see config/rbac/leader_election_role.yaml for the raw-manifest
+# equivalent this mirrors. Rendered unconditionally, like webhookcertclusterrole.yaml.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "kubezap.fullname" . }}-leader-election
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "kubezap.labels" . | nindent 4 }}
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - configmaps
+    verbs:
+      - get
+      - list
+      - watch
+      - create
+      - update
+      - patch
+      - delete
+  - apiGroups:
+      - coordination.k8s.io
+    resources:
+      - leases
+    verbs:
+      - get
+      - list
+      - watch
+      - create
+      - update
+      - patch
+      - delete
+  - apiGroups:
+      - ""
+    resources:
+      - events
+    verbs:
+      - create
+      - patch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "kubezap.fullname" . }}-leader-election
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "kubezap.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "kubezap.fullname" . }}-leader-election
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "kubezap.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}

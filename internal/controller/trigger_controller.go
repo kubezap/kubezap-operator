@@ -46,13 +46,6 @@ type TriggerReconciler struct {
 	Scheme          *runtime.Scheme
 	CronScheduler   *CronScheduler
 	ResourceWatcher *ResourceWatcher
-
-	// AllNamespacesMode is true when the operator is running with WATCH_NAMESPACES=*.
-	// Threaded through to validateWebhookGatewayConfigTLS, which additionally
-	// requires the WebhookGatewayConfig's namespace to carry kubezap.io/managed=true
-	// before reading its TLS Secrets when true. See
-	// docs/design/allnamespaces-secrets-label-restriction.md.
-	AllNamespacesMode bool
 }
 
 // +kubebuilder:rbac:groups=automation.kubezap.io,resources=triggers,verbs=get;list;watch;create;update;patch;delete
@@ -208,7 +201,7 @@ func (r *TriggerReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 // reconcileWebhookGatewayDeployment is a thin wrapper so TriggerReconciler can call the
 // package-level helper without threading the client through manually.
 func (r *TriggerReconciler) reconcileWebhookGatewayDeployment(ctx context.Context, namespace string) error {
-	return ensureWebhookGateway(ctx, r.Client, namespace, r.AllNamespacesMode)
+	return ensureWebhookGateway(ctx, r.Client, namespace)
 }
 
 // SetupWithManager sets up the controller with the Manager.
@@ -227,7 +220,7 @@ func (r *TriggerReconciler) SetupWithManager(mgr ctrl.Manager) error {
 // (spec.tls.{serverSecretRef,clientCASecretRef}). A namespace with no
 // WebhookGatewayConfig object, or one with no spec.tls set, gets no TLS cert
 // mounted — the gateway serves plain HTTP.
-func ensureWebhookGateway(ctx context.Context, c client.Client, namespace string, allNamespacesMode bool) error {
+func ensureWebhookGateway(ctx context.Context, c client.Client, namespace string) error {
 	log := logf.FromContext(ctx)
 
 	webhookGatewayCfg, err := getWebhookGatewayConfig(ctx, c, namespace)
@@ -236,7 +229,7 @@ func ensureWebhookGateway(ctx context.Context, c client.Client, namespace string
 	}
 
 	if webhookGatewayCfg != nil {
-		reconcileWebhookGatewayConfigStatus(ctx, c, webhookGatewayCfg, allNamespacesMode)
+		reconcileWebhookGatewayConfigStatus(ctx, c, webhookGatewayCfg)
 	}
 
 	// Build TLS configuration from the namespace's WebhookGatewayConfig (if any).
@@ -277,12 +270,6 @@ func ensureWebhookGateway(ctx context.Context, c client.Client, namespace string
 		return nil
 	}); err != nil {
 		return fmt.Errorf("failed to create/update gateway RoleBinding: %w", err)
-	}
-
-	if allNamespacesMode {
-		if err := ensureGatewayNamespaceReaderBinding(ctx, c, clusterRoleBindingWebhookGatewayNamespaceReader, webhookGatewayDeploymentName, namespace); err != nil {
-			return fmt.Errorf("ensuring webhook gateway namespace-reader ClusterRoleBinding: %w", err)
-		}
 	}
 
 	svc := desiredWebhookGatewayService(namespace, tlsCfg)

@@ -50,13 +50,6 @@ type TriggerWatcher struct {
 	secretIndex *secretindex.Index
 	triggersMu  sync.Mutex
 	triggers    map[types.NamespacedName]*automationv1alpha1.Trigger
-
-	// allNamespacesMode is true when the operator (and therefore this gateway,
-	// which inherits WATCH_NAMESPACES from it) is running with WATCH_NAMESPACES=*.
-	// When true, readSecretKey additionally requires the Secret's namespace to
-	// carry kubezap.io/managed=true. See
-	// docs/design/allnamespaces-secrets-label-restriction.md.
-	allNamespacesMode bool
 }
 
 // NewTriggerWatcher creates a new TriggerWatcher with an informer cache.
@@ -65,7 +58,7 @@ type TriggerWatcher struct {
 // jwksCache is the shared JWKS key cache; callers create it via jwk.NewCache(ctx) in main.
 func NewTriggerWatcher(
 	cfg *rest.Config, k8sClient client.Client, registry *RouteRegistry, namespace string, log logr.Logger,
-	jwksCache *jwk.Cache, allNamespacesMode bool,
+	jwksCache *jwk.Cache,
 ) (*TriggerWatcher, error) {
 	httpClient, err := rest.HTTPClientFor(cfg)
 	if err != nil {
@@ -88,15 +81,14 @@ func NewTriggerWatcher(
 	}
 
 	return &TriggerWatcher{
-		k8sClient:         k8sClient,
-		cache:             watchCache,
-		registry:          registry,
-		namespace:         namespace,
-		log:               log,
-		jwksCache:         jwksCache,
-		secretIndex:       secretindex.New(),
-		triggers:          make(map[types.NamespacedName]*automationv1alpha1.Trigger),
-		allNamespacesMode: allNamespacesMode,
+		k8sClient:   k8sClient,
+		cache:       watchCache,
+		registry:    registry,
+		namespace:   namespace,
+		log:         log,
+		jwksCache:   jwksCache,
+		secretIndex: secretindex.New(),
+		triggers:    make(map[types.NamespacedName]*automationv1alpha1.Trigger),
 	}, nil
 }
 
@@ -438,25 +430,7 @@ func (w *TriggerWatcher) buildRouteEntry(ctx context.Context, trigger *automatio
 }
 
 // readSecretKey fetches a Kubernetes Secret and returns the value for the given key.
-// managedNamespaceLabel/managedNamespaceValue gate secret access in
-// AllNamespaces mode. See docs/design/allnamespaces-secrets-label-restriction.md.
-// Duplicated per-binary rather than shared: see that record's Decision section.
-const (
-	managedNamespaceLabel = "kubezap.io/managed"
-	managedNamespaceValue = "true"
-)
-
 func (w *TriggerWatcher) readSecretKey(ctx context.Context, namespace, name, key string) (string, error) {
-	if w.allNamespacesMode {
-		var ns corev1.Namespace
-		if err := w.k8sClient.Get(ctx, types.NamespacedName{Name: namespace}, &ns); err != nil {
-			return "", fmt.Errorf("checking namespace %q for secret access: %w", namespace, err)
-		}
-		if ns.Labels[managedNamespaceLabel] != managedNamespaceValue {
-			return "", fmt.Errorf("namespace %q is not labeled %s=%s — secrets cannot be read here in AllNamespaces mode",
-				namespace, managedNamespaceLabel, managedNamespaceValue)
-		}
-	}
 	secret := &corev1.Secret{}
 	if err := w.k8sClient.Get(ctx, types.NamespacedName{Namespace: namespace, Name: name}, secret); err != nil {
 		return "", fmt.Errorf("get secret %s/%s: %w", namespace, name, err)

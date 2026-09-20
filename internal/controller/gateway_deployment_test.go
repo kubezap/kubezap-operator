@@ -188,7 +188,7 @@ var _ = Describe("validateWebhookGatewayConfigTLS", func() {
 	}
 
 	It("is Ready/NoTLSConfigured when spec.tls is nil", func() {
-		cond := validateWebhookGatewayConfigTLS(ctx, k8sClient, newCfg(nil), false)
+		cond := validateWebhookGatewayConfigTLS(ctx, k8sClient, newCfg(nil))
 
 		Expect(cond.Status).To(Equal(metav1.ConditionTrue))
 		Expect(cond.Reason).To(Equal("NoTLSConfigured"))
@@ -199,7 +199,7 @@ var _ = Describe("validateWebhookGatewayConfigTLS", func() {
 			ServerSecretRef: &corev1.LocalObjectReference{Name: "does-not-exist"},
 		})
 
-		cond := validateWebhookGatewayConfigTLS(ctx, k8sClient, cfg, false)
+		cond := validateWebhookGatewayConfigTLS(ctx, k8sClient, cfg)
 
 		Expect(cond.Status).To(Equal(metav1.ConditionFalse))
 		Expect(cond.Reason).To(Equal("ServerSecretNotFound"))
@@ -215,7 +215,7 @@ var _ = Describe("validateWebhookGatewayConfigTLS", func() {
 			ServerSecretRef: &corev1.LocalObjectReference{Name: secret.Name},
 		})
 
-		cond := validateWebhookGatewayConfigTLS(ctx, k8sClient, cfg, false)
+		cond := validateWebhookGatewayConfigTLS(ctx, k8sClient, cfg)
 
 		Expect(cond.Status).To(Equal(metav1.ConditionFalse))
 		Expect(cond.Reason).To(Equal("ServerSecretMissingKeys"))
@@ -231,7 +231,7 @@ var _ = Describe("validateWebhookGatewayConfigTLS", func() {
 			ServerSecretRef: &corev1.LocalObjectReference{Name: secret.Name},
 		})
 
-		cond := validateWebhookGatewayConfigTLS(ctx, k8sClient, cfg, false)
+		cond := validateWebhookGatewayConfigTLS(ctx, k8sClient, cfg)
 
 		Expect(cond.Status).To(Equal(metav1.ConditionTrue))
 		Expect(cond.Reason).To(Equal("WebhookGatewayConfigReady"))
@@ -248,7 +248,7 @@ var _ = Describe("validateWebhookGatewayConfigTLS", func() {
 			ClientCASecretRef: &corev1.LocalObjectReference{Name: "does-not-exist"},
 		})
 
-		cond := validateWebhookGatewayConfigTLS(ctx, k8sClient, cfg, false)
+		cond := validateWebhookGatewayConfigTLS(ctx, k8sClient, cfg)
 
 		Expect(cond.Status).To(Equal(metav1.ConditionFalse))
 		Expect(cond.Reason).To(Equal("ClientCASecretNotFound"))
@@ -270,7 +270,7 @@ var _ = Describe("validateWebhookGatewayConfigTLS", func() {
 			ClientCASecretRef: &corev1.LocalObjectReference{Name: caSecret.Name},
 		})
 
-		cond := validateWebhookGatewayConfigTLS(ctx, k8sClient, cfg, false)
+		cond := validateWebhookGatewayConfigTLS(ctx, k8sClient, cfg)
 
 		Expect(cond.Status).To(Equal(metav1.ConditionTrue))
 		Expect(cond.Reason).To(Equal("WebhookGatewayConfigReady"))
@@ -281,7 +281,7 @@ var _ = Describe("validateWebhookGatewayConfigTLS", func() {
 			ClientCASecretRef: &corev1.LocalObjectReference{Name: "does-not-exist"},
 		})
 
-		cond := validateWebhookGatewayConfigTLS(ctx, k8sClient, cfg, false)
+		cond := validateWebhookGatewayConfigTLS(ctx, k8sClient, cfg)
 
 		Expect(cond.Status).To(Equal(metav1.ConditionTrue))
 	})
@@ -307,7 +307,7 @@ var _ = Describe("reconcileWebhookGatewayConfigStatus", func() {
 		}
 		Expect(k8sClient.Create(ctx, created)).To(Succeed())
 
-		reconcileWebhookGatewayConfigStatus(ctx, k8sClient, created, false)
+		reconcileWebhookGatewayConfigStatus(ctx, k8sClient, created)
 
 		var got automationv1alpha1.WebhookGatewayConfig
 		Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(created), &got)).To(Succeed())
@@ -365,10 +365,9 @@ var _ = Describe("desiredWebhookGatewayDeployment TLS volumes", func() {
 // See STORY-056: desiredWebhookGatewayDeployment previously only set
 // Env: otelPassthroughEnv() on the webhook gateway container, never
 // propagating WATCH_NAMESPACES — unlike the kafka/amqp/nats gateway
-// Deployments in integration_controller.go, which all do. This left
-// allNamespacesMode always false in cmd/webhook-gateway/main.go, making the
-// managed-namespace check in webhook/watcher.go's readSecretKey dead code for
-// the webhook gateway specifically.
+// Deployments in integration_controller.go, which all do. Without it, the
+// webhook gateway's own WATCH_NAMESPACES=* startup rejection (cmd/webhook-gateway/main.go)
+// could never trigger, since the env var would always read empty inside that pod.
 var _ = Describe("desiredWebhookGatewayDeployment WATCH_NAMESPACES propagation", func() {
 	It("propagates the operator's WATCH_NAMESPACES value into the container Env", func() {
 		Expect(os.Setenv("WATCH_NAMESPACES", "team-a,team-b")).To(Succeed())

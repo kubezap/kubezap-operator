@@ -99,14 +99,20 @@ func main() {
 	ctrl.SetLogger(logger)
 	log = logger
 
-	// allNamespacesMode mirrors the operator's own WATCH_NAMESPACES=* sentinel
-	// (the operator propagates its own env var value verbatim to this gateway's
-	// Deployment) — see docs/design/allnamespaces-secrets-label-restriction.md.
-	allNamespacesMode := os.Getenv("WATCH_NAMESPACES") == "*"
+	// WATCH_NAMESPACES mirrors the operator's own env var (the operator propagates
+	// its own value verbatim to this gateway's Deployment). AllNamespaces mode
+	// ("*") is not supported — see docs/design/namespace-scoped-watch-modes-only.md.
+	watchNS := os.Getenv("WATCH_NAMESPACES")
+	if watchNS == "*" {
+		log.Error(fmt.Errorf("WATCH_NAMESPACES=* is not supported"),
+			"AllNamespaces mode has been removed; set WATCH_NAMESPACES to an explicit "+
+				"comma-separated namespace list, or leave it unset for OwnNamespace mode")
+		os.Exit(1)
+	}
 
 	if namespace == "" {
-		ns := strings.TrimSpace(os.Getenv("WATCH_NAMESPACES"))
-		if ns == "" || ns == "*" {
+		ns := strings.TrimSpace(watchNS)
+		if ns == "" {
 			log.Info("watching all namespaces")
 		} else {
 			namespace = ns
@@ -131,7 +137,7 @@ func main() {
 	jwksCache := webhook.NewJWKSCache(ctx)
 
 	watcher, err := webhook.NewTriggerWatcher(
-		cfg, k8sClient, registry, namespace, log.WithName("trigger-watcher"), jwksCache, allNamespacesMode)
+		cfg, k8sClient, registry, namespace, log.WithName("trigger-watcher"), jwksCache)
 	if err != nil {
 		log.Error(err, "unable to create trigger watcher")
 		os.Exit(1)

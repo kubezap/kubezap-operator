@@ -293,11 +293,11 @@ func getWebhookGatewayConfig(ctx context.Context, c client.Client, namespace str
 // not load-bearing for the gateway Deployment/Service/HPA reconciliation ensureWebhookGateway
 // actually depends on, and must not fail a Trigger's reconcile.
 func reconcileWebhookGatewayConfigStatus(
-	ctx context.Context, c client.Client, cfg *automationv1alpha1.WebhookGatewayConfig, allNamespacesMode bool,
+	ctx context.Context, c client.Client, cfg *automationv1alpha1.WebhookGatewayConfig,
 ) {
 	log := logf.FromContext(ctx)
 
-	cond := validateWebhookGatewayConfigTLS(ctx, c, cfg, allNamespacesMode)
+	cond := validateWebhookGatewayConfigTLS(ctx, c, cfg)
 	cond.ObservedGeneration = cfg.Generation
 	apimeta.SetStatusCondition(&cfg.Status.Conditions, cond)
 
@@ -314,7 +314,7 @@ func reconcileWebhookGatewayConfigStatus(
 // without ServerSecretRef — that combination is a documented no-op
 // (docs/api/webhookgatewayconfig.md), not an error.
 func validateWebhookGatewayConfigTLS(
-	ctx context.Context, c client.Client, cfg *automationv1alpha1.WebhookGatewayConfig, allNamespacesMode bool,
+	ctx context.Context, c client.Client, cfg *automationv1alpha1.WebhookGatewayConfig,
 ) metav1.Condition {
 	if cfg.Spec.TLS == nil {
 		return metav1.Condition{
@@ -322,15 +322,6 @@ func validateWebhookGatewayConfigTLS(
 			Status:  metav1.ConditionTrue,
 			Reason:  "NoTLSConfigured",
 			Message: "spec.tls is not set; the webhook gateway serves plain HTTP.",
-		}
-	}
-
-	if err := checkNamespaceManagedForSecrets(ctx, c, allNamespacesMode, cfg.Namespace); err != nil {
-		return metav1.Condition{
-			Type:    conditionTypeReady,
-			Status:  metav1.ConditionFalse,
-			Reason:  "NamespaceNotManaged",
-			Message: err.Error(),
 		}
 	}
 

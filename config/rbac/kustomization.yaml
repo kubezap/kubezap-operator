@@ -14,12 +14,6 @@ resources:
 # folded into role.yaml/namespaced_role.yaml.
 - webhook_cert_role.yaml
 - webhook_cert_role_binding.yaml
-# Cluster-scoped Namespace-read permission for gateway ServiceAccounts,
-# meaningful only in AllNamespaces-mode installs (deployed alongside role.yaml,
-# not namespaced_role.yaml) — see gateway_namespace_reader_role.yaml's header
-# comment. Only the ClusterRole is a static manifest; the ClusterRoleBindings
-# that reference it are created/maintained dynamically by the operator.
-- gateway_namespace_reader_role.yaml
 # The following RBAC configurations are used to protect
 # the metrics endpoint with authn/authz. These configurations
 # ensure that only authorized users and service accounts

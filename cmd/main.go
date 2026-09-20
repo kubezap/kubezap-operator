@@ -303,18 +303,17 @@ func main() {
 
 	// WATCH_NAMESPACES controls operator scope (least-privilege by default):
 	//   ""           → OwnNamespace: only the operator's own namespace (default)
-	//   "*"          → AllNamespaces: cluster-wide watch; secret reads are gated at
-	//                  the application layer (not via RBAC, which cannot express a
-	//                  per-namespace-label restriction) to namespaces labeled
-	//                  kubezap.io/managed=true — see
-	//                  docs/design/allnamespaces-secrets-label-restriction.md
-	//   comma-list   → MultiNamespace
+	//   comma-list   → MultiNamespace: an explicit, static list of namespaces
+	// AllNamespaces mode ("*") is not supported — see
+	// docs/design/namespace-scoped-watch-modes-only.md.
 	cacheOpts := cache.Options{}
 	watchNS := os.Getenv("WATCH_NAMESPACES")
-	allNamespacesMode := watchNS == "*"
 	switch watchNS {
 	case "*":
-		setupLog.Info("AllNamespaces mode: watching all namespaces")
+		setupLog.Error(fmt.Errorf("WATCH_NAMESPACES=* is not supported"),
+			"AllNamespaces mode has been removed; set WATCH_NAMESPACES to an explicit "+
+				"comma-separated namespace list, or leave it unset for OwnNamespace mode")
+		os.Exit(1)
 	case "":
 		// Default: OwnNamespace — watch only the operator's own namespace.
 		cacheOpts.DefaultNamespaces = map[string]cache.Config{operatorNamespace: {}}
@@ -376,11 +375,10 @@ func main() {
 	}
 
 	if err = (&controller.TriggerReconciler{
-		Client:            mgr.GetClient(),
-		Scheme:            mgr.GetScheme(),
-		CronScheduler:     cronScheduler,
-		ResourceWatcher:   resourceWatcher,
-		AllNamespacesMode: allNamespacesMode,
+		Client:          mgr.GetClient(),
+		Scheme:          mgr.GetScheme(),
+		CronScheduler:   cronScheduler,
+		ResourceWatcher: resourceWatcher,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Trigger")
 		os.Exit(1)
@@ -418,7 +416,6 @@ func main() {
 		SSRFAllowClusterInternal: ssrfAllowClusterInternal,
 		ExecutorBaseURL:          rpcBaseURL,
 		ExecutorTLSConfig:        executorTLSConfig,
-		AllNamespacesMode:        allNamespacesMode,
 	}
 	if err = flowRunReconciler.SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "FlowRun")
@@ -432,9 +429,8 @@ func main() {
 		os.Exit(1)
 	}
 	if err = (&controller.IntegrationReconciler{
-		Client:            mgr.GetClient(),
-		Scheme:            mgr.GetScheme(),
-		AllNamespacesMode: allNamespacesMode,
+		Client: mgr.GetClient(),
+		Scheme: mgr.GetScheme(),
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Integration")
 		os.Exit(1)

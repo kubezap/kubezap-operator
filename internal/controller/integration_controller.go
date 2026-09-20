@@ -95,23 +95,11 @@ const scaledObjectKind = "ScaledObject"
 // +kubebuilder:rbac:groups="",resources=services,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=roles;rolebindings,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=keda.sh,resources=scaledobjects,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=clusterrolebindings,verbs=get;create;update
 
 // IntegrationReconciler reconciles an Integration object.
 type IntegrationReconciler struct {
 	client.Client
 	Scheme *runtime.Scheme
-
-	// AllNamespacesMode is true when the operator is running with
-	// WATCH_NAMESPACES=*. When true, reconcileKafkaGateway/reconcileAmqpGateway/
-	// reconcileNatsGateway additionally maintain the shared
-	// kubezap-gateway-namespace-reader ClusterRoleBinding's Subjects list so
-	// that namespace's gateway ServiceAccount can pass its readSecretKey
-	// Namespace-read check. See
-	// docs/design/allnamespaces-gateway-namespace-read-rbac.md. No-op in any
-	// other watch mode, mirroring FlowRunReconciler/TriggerReconciler's own
-	// AllNamespacesMode field.
-	AllNamespacesMode bool
 }
 
 func (r *IntegrationReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -602,12 +590,6 @@ func (r *IntegrationReconciler) reconcileKafkaGateway(ctx context.Context, integ
 		log.Info("reconciled kafka gateway RoleBinding", "namespace", ns, "result", rbResult)
 	}
 
-	if r.AllNamespacesMode {
-		if err := ensureGatewayNamespaceReaderBinding(ctx, r.Client, clusterRoleBindingGatewayNamespaceReader, sharedGatewayServiceAccountName, ns); err != nil {
-			return "", fmt.Errorf("ensuring kafka gateway namespace-reader ClusterRoleBinding: %w", err)
-		}
-	}
-
 	desired := desiredKafkaGatewayDeployment(integration)
 
 	if err := ctrl.SetControllerReference(integration, desired, r.Scheme); err != nil {
@@ -981,12 +963,6 @@ func (r *IntegrationReconciler) reconcileAmqpGateway(ctx context.Context, integr
 		log.Info("reconciled amqp gateway RoleBinding", "namespace", ns, "result", rbResult)
 	}
 
-	if r.AllNamespacesMode {
-		if err := ensureGatewayNamespaceReaderBinding(ctx, r.Client, clusterRoleBindingGatewayNamespaceReader, sharedGatewayServiceAccountName, ns); err != nil {
-			return "", fmt.Errorf("ensuring amqp gateway namespace-reader ClusterRoleBinding: %w", err)
-		}
-	}
-
 	desired := desiredAmqpGatewayDeployment(integration)
 
 	if err := ctrl.SetControllerReference(integration, desired, r.Scheme); err != nil {
@@ -1179,12 +1155,6 @@ func (r *IntegrationReconciler) reconcileNatsGateway(ctx context.Context, integr
 		}
 	} else if rbResult != controllerutil.OperationResultNone {
 		log.Info("reconciled nats gateway RoleBinding", "namespace", ns, "result", rbResult)
-	}
-
-	if r.AllNamespacesMode {
-		if err := ensureGatewayNamespaceReaderBinding(ctx, r.Client, clusterRoleBindingGatewayNamespaceReader, sharedGatewayServiceAccountName, ns); err != nil {
-			return "", fmt.Errorf("ensuring nats gateway namespace-reader ClusterRoleBinding: %w", err)
-		}
 	}
 
 	desired := desiredNatsGatewayDeployment(integration)

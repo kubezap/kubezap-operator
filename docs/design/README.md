@@ -62,4 +62,4 @@ Multi-decision reference files are permitted for a single security/architecture 
 | 2026-09-19 | [Kafka Message Key Capture](kafka-message-key-capture.md)                               | Approved |
 | 2026-09-19 | [TriggerData.Body Binary-Safety Fix](trigger-body-encoding-safety.md)                   | Approved |
 | 2026-09-19 | [AllNamespaces-Mode Secrets Access Restricted to kubezap.io/managed](allnamespaces-secrets-label-restriction.md) | Approved |
-| 2026-09-19 | [Cluster-Scoped Namespace-Read RBAC for AllNamespaces-Mode Broker Gateways](allnamespaces-gateway-namespace-read-rbac.md) | Draft |
+| 2026-09-19 | [Cluster-Scoped Namespace-Read RBAC for AllNamespaces-Mode Broker Gateways](allnamespaces-gateway-namespace-read-rbac.md) | Approved |

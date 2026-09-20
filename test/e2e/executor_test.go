@@ -272,6 +272,10 @@ var _ = Describe("HTTP executor", Label("executor"), Ordered, func() {
 		_, err = utils.Run(cmd)
 		Expect(err).NotTo(HaveOccurred())
 
+		By("provisioning MultiNamespace RBAC so the controller can reconcile in executorE2ENS")
+		Expect(utils.ProvisionMultiNamespaceRBAC(executorE2ENS, "kubezap-system", "kubezap-controller-manager")).
+			To(Succeed())
+
 		By("deploying Mockoon ConfigMap for executor E2E")
 		executorKubectlApply(executorMockoonConfigMapYAML)
 

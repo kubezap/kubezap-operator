@@ -245,6 +245,10 @@ var _ = Describe("Webhook Trigger -> Transform -> HTTP -> Mockoon", Ordered, fun
 		_, err = utils.Run(cmd)
 		Expect(err).NotTo(HaveOccurred())
 
+		By("provisioning MultiNamespace RBAC so the controller can reconcile in webhookE2ENS")
+		Expect(utils.ProvisionMultiNamespaceRBAC(webhookE2ENS, "kubezap-system", "kubezap-controller-manager")).
+			To(Succeed())
+
 		By("deploying Mockoon ConfigMap")
 		webhookKubectlApply(mockoonConfigMapYAML)
 

@@ -487,6 +487,8 @@ env:
     value: ""   # or "ns1,ns2"
 ```
 
+> For SingleNamespace/MultiNamespace via raw manifests specifically, this env var alone is not enough — RBAC for each additional namespace must be applied separately, **before** the manager starts (or restarts) with that namespace in the list. See `config/rbac/namespaced_role.yaml`'s header comment for the exact commands and why the ordering matters (a missing Role in even one watched namespace stalls the manager's cache sync, and therefore reconciliation, everywhere — not just in that namespace). The Helm chart and OLM bundle both provision this automatically; only the raw-manifest path requires it by hand.
+
 **Via OLM Subscription:**
 ```yaml
 apiVersion: operators.coreos.com/v1alpha1

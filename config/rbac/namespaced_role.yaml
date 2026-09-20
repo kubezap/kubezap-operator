@@ -58,6 +58,19 @@
 #   (harmless to leave, since it grants nothing outside that namespace) and
 #   MAY be omitted by excluding this file's default rendering.
 #
+#   IMPORTANT — ordering: apply this Role + RoleBinding pair in a namespace
+#   BEFORE the manager Deployment starts (or restarts) with that namespace in
+#   its WATCH_NAMESPACES value, never after. controller-runtime's per-namespace
+#   cache evaluates RBAC by literal namespace name as soon as the manager
+#   starts; a Forbidden response on any ONE watched namespace's informer never
+#   resolves on its own, which blocks that informer's cache sync forever — and
+#   the manager gates ALL controllers on cache sync succeeding manager-wide.
+#   In practice this means one namespace missing its Role/RoleBinding stalls
+#   reconciliation in EVERY watched namespace, not just the one missing RBAC
+#   (found and fixed in STORY-066, which hit exactly this deploying the e2e
+#   test suite's own controller instance before provisioning RBAC in some of
+#   its watched namespaces).
+#
 #   User-facing installation instructions for this are STORY-060's job — this
 #   comment documents the manifest/mechanism itself, not the install guide.
 apiVersion: rbac.authorization.k8s.io/v1

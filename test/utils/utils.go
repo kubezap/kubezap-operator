@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 
 	. "github.com/onsi/ginkgo/v2" // nolint:revive,staticcheck
@@ -199,6 +200,44 @@ func GetProjectDir() (string, error) {
 	}
 	wd = strings.ReplaceAll(wd, "/test/e2e", "")
 	return wd, nil
+}
+
+// ProvisionMultiNamespaceRBAC applies the operator's namespaced Role and its
+// paired RoleBinding (with the ServiceAccount subject rewritten to the real
+// operator namespace/name) into ns. Required for any additional namespace a
+// raw-manifest ("make deploy" / "kubectl apply -k config/default") install
+// wants the controller to reconcile in MultiNamespace mode — setting
+// WATCH_NAMESPACES alone only grants the manager's cache access to ns, never
+// RBAC there — see config/rbac/namespaced_role.yaml's header comment for the
+// full procedure this mirrors.
+func ProvisionMultiNamespaceRBAC(ns, operatorNamespace, operatorServiceAccount string) error {
+	projectDir, err := GetProjectDir()
+	if err != nil {
+		return fmt.Errorf("failed to resolve project dir: %w", err)
+	}
+
+	roleCmd := exec.Command("kubectl", "apply", "-n", ns, "-f", "config/rbac/namespaced_role.yaml")
+	if _, err := Run(roleCmd); err != nil {
+		return fmt.Errorf("failed to apply namespaced_role.yaml in %s: %w", ns, err)
+	}
+
+	bindingPath := filepath.Join(projectDir, "config", "rbac", "namespaced_role_binding.yaml")
+	bindingBytes, err := os.ReadFile(bindingPath) // nolint:gosec
+	if err != nil {
+		return fmt.Errorf("failed to read namespaced_role_binding.yaml: %w", err)
+	}
+	rendered := strings.NewReplacer(
+		"namespace: system", "namespace: "+operatorNamespace,
+		"name: controller-manager", "name: "+operatorServiceAccount,
+	).Replace(string(bindingBytes))
+
+	bindingCmd := exec.Command("kubectl", "apply", "-n", ns, "-f", "-")
+	bindingCmd.Stdin = strings.NewReader(rendered)
+	if _, err := Run(bindingCmd); err != nil {
+		return fmt.Errorf("failed to apply rendered namespaced_role_binding.yaml in %s: %w", ns, err)
+	}
+
+	return nil
 }
 
 // UncommentCode searches for target in the file and remove the comment prefix

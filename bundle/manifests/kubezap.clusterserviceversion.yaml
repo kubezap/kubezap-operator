@@ -178,7 +178,7 @@ metadata:
     capabilities: Basic Install
     categories: Integration & Delivery
     containerImage: ghcr.io/kubezap/controller:latest
-    createdAt: "2026-09-19T19:16:56Z"
+    createdAt: "2026-09-20T13:08:23Z"
     description: Declarative workflow automation for Kubernetes
     operatorframework.io/suggested-namespace: kubezap-system
     operators.operatorframework.io/builder: operator-sdk-v1.42.0
@@ -399,191 +399,6 @@ spec:
       clusterPermissions:
       - rules:
         - apiGroups:
-          - ""
-          resources:
-          - configmaps
-          - namespaces
-          verbs:
-          - get
-          - list
-          - watch
-        - apiGroups:
-          - ""
-          resources:
-          - secrets
-          - serviceaccounts
-          - services
-          verbs:
-          - create
-          - delete
-          - get
-          - list
-          - patch
-          - update
-          - watch
-        - apiGroups:
-          - '*'
-          resources:
-          - '*'
-          verbs:
-          - get
-          - list
-          - watch
-        - apiGroups:
-          - admissionregistration.k8s.io
-          resources:
-          - validatingwebhookconfigurations
-          verbs:
-          - get
-          - list
-          - patch
-          - update
-          - watch
-        - apiGroups:
-          - apps
-          resources:
-          - deployments
-          verbs:
-          - create
-          - delete
-          - get
-          - list
-          - patch
-          - update
-          - watch
-        - apiGroups:
-          - automation.kubezap.io
-          resources:
-          - flowruns
-          - triggers
-          verbs:
-          - create
-          - delete
-          - get
-          - list
-          - patch
-          - update
-          - watch
-        - apiGroups:
-          - automation.kubezap.io
-          resources:
-          - flowruns/finalizers
-          - triggers/finalizers
-          verbs:
-          - update
-        - apiGroups:
-          - automation.kubezap.io
-          resources:
-          - flowruns/status
-          - flows/status
-          - integrations/status
-          - triggers/status
-          - webhookgatewayconfigs/status
-          verbs:
-          - get
-          - patch
-          - update
-        - apiGroups:
-          - automation.kubezap.io
-          resources:
-          - flows
-          - integrations
-          verbs:
-          - get
-          - list
-          - patch
-          - update
-          - watch
-        - apiGroups:
-          - automation.kubezap.io
-          resources:
-          - webhookgatewayconfigs
-          verbs:
-          - get
-          - list
-          - watch
-        - apiGroups:
-          - autoscaling
-          resources:
-          - horizontalpodautoscalers
-          verbs:
-          - create
-          - delete
-          - get
-          - list
-          - patch
-          - update
-          - watch
-        - apiGroups:
-          - coordination.k8s.io
-          resources:
-          - leases
-          verbs:
-          - create
-          - delete
-          - get
-          - list
-          - patch
-          - update
-          - watch
-        - apiGroups:
-          - keda.sh
-          resources:
-          - scaledobjects
-          verbs:
-          - create
-          - delete
-          - get
-          - list
-          - patch
-          - update
-          - watch
-        - apiGroups:
-          - networking.k8s.io
-          resources:
-          - networkpolicies
-          verbs:
-          - create
-          - delete
-          - get
-          - list
-          - patch
-          - update
-          - watch
-        - apiGroups:
-          - policy
-          resources:
-          - poddisruptionbudgets
-          verbs:
-          - create
-          - delete
-          - get
-          - list
-          - patch
-          - update
-          - watch
-        - apiGroups:
-          - rbac.authorization.k8s.io
-          resources:
-          - clusterrolebindings
-          verbs:
-          - create
-          - get
-          - update
-        - apiGroups:
-          - rbac.authorization.k8s.io
-          resources:
-          - rolebindings
-          - roles
-          verbs:
-          - create
-          - delete
-          - get
-          - list
-          - patch
-          - update
-          - watch
-        - apiGroups:
           - authentication.k8s.io
           resources:
           - tokenreviews
@@ -711,6 +526,170 @@ spec:
           verbs:
           - create
           - patch
+        - apiGroups:
+          - ""
+          resources:
+          - configmaps
+          verbs:
+          - get
+          - list
+          - watch
+        - apiGroups:
+          - ""
+          resources:
+          - secrets
+          verbs:
+          - create
+          - delete
+          - get
+          - list
+          - update
+          - watch
+        - apiGroups:
+          - ""
+          resources:
+          - serviceaccounts
+          - services
+          verbs:
+          - create
+          - delete
+          - get
+          - list
+          - update
+          - watch
+        - apiGroups:
+          - apps
+          resources:
+          - deployments
+          verbs:
+          - create
+          - delete
+          - get
+          - list
+          - update
+          - watch
+        - apiGroups:
+          - automation.kubezap.io
+          resources:
+          - flowruns
+          - triggers
+          verbs:
+          - create
+          - delete
+          - get
+          - list
+          - update
+          - watch
+        - apiGroups:
+          - automation.kubezap.io
+          resources:
+          - flowruns/finalizers
+          - triggers/finalizers
+          verbs:
+          - update
+        - apiGroups:
+          - automation.kubezap.io
+          resources:
+          - flowruns/status
+          - flows/status
+          - integrations/status
+          - webhookgatewayconfigs/status
+          verbs:
+          - get
+          - update
+        - apiGroups:
+          - automation.kubezap.io
+          resources:
+          - triggers/status
+          verbs:
+          - get
+          - patch
+          - update
+        - apiGroups:
+          - automation.kubezap.io
+          resources:
+          - flows
+          - integrations
+          verbs:
+          - get
+          - list
+          - update
+          - watch
+        - apiGroups:
+          - automation.kubezap.io
+          resources:
+          - webhookgatewayconfigs
+          verbs:
+          - get
+          - list
+          - watch
+        - apiGroups:
+          - networking.k8s.io
+          resources:
+          - networkpolicies
+          verbs:
+          - create
+          - delete
+          - get
+          - list
+          - update
+          - watch
+        - apiGroups:
+          - coordination.k8s.io
+          resources:
+          - leases
+          verbs:
+          - create
+          - delete
+          - get
+          - list
+          - update
+          - watch
+        - apiGroups:
+          - autoscaling
+          resources:
+          - horizontalpodautoscalers
+          verbs:
+          - create
+          - delete
+          - get
+          - list
+          - update
+          - watch
+        - apiGroups:
+          - keda.sh
+          resources:
+          - scaledobjects
+          verbs:
+          - create
+          - delete
+          - get
+          - list
+          - update
+          - watch
+        - apiGroups:
+          - policy
+          resources:
+          - poddisruptionbudgets
+          verbs:
+          - create
+          - delete
+          - get
+          - list
+          - update
+          - watch
+        - apiGroups:
+          - rbac.authorization.k8s.io
+          resources:
+          - rolebindings
+          - roles
+          verbs:
+          - create
+          - delete
+          - get
+          - list
+          - update
+          - watch
         serviceAccountName: kubezap-controller-manager
     strategy: deployment
   installModes:
@@ -720,7 +699,7 @@ spec:
     type: SingleNamespace
   - supported: true
     type: MultiNamespace
-  - supported: true
+  - supported: false
     type: AllNamespaces
   keywords:
   - automation

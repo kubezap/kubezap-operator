@@ -552,5 +552,5 @@ spec:
   provider:
     name: KubeZap Community
     url: https://github.com/kubezap/kubezap-operator
-  replaces: kubezap.v0.1.0
+  replaces: kubezap.v0.2.0
   version: 0.1.0

@@ -7,6 +7,16 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [v0.2.1] - 2026-09-20
+
+### Fixed
+
+- Helm chart's `NOTES.txt` "create your first automation" command linked to `config/samples/automation_v1alpha1_trigger_webhook.yaml`, which doesn't exist — the exact command every new Helm user is shown 404'd. Repointed at the real sample file, and its `flowRef` (which itself pointed at a nonexistent Flow sample) fixed to reference the actual `handle-order` sample so it works end-to-end.
+- OLM bundle's manager image was pinned to a floating `:latest` tag instead of the release version, in both the CSV's Deployment spec and its `containerImage` annotation — `operator-sdk bundle validate` flags this, and it defeats the reproducibility a versioned bundle is supposed to guarantee. Added `make bundle-pin-digest` for OperatorHub submissions that need digest-pinning instead of tag-pinning.
+- `MultiNamespace` mode could crash a raw-manifest/kustomize install (`make deploy`) if `WATCH_NAMESPACES` didn't happen to include the operator's own namespace — the controller never automatically added it to its own cache scope (only the Helm chart's template helper did, since v0.2.0's STORY-063 fix). Fixed at the source in `cmd/main.go` so both install paths are covered.
+- Discovered and fixed a related MultiNamespace deadlock while restoring e2e coverage for the above: a `Forbidden` RBAC response on any one watched namespace's informer blocks the controller's cache sync manager-wide, stalling reconciliation in *every* watched namespace, not just the one missing RBAC. Documented as an explicit ordering requirement (provision RBAC before the namespace is ever in `WATCH_NAMESPACES`) in `config/rbac/namespaced_role.yaml` and `docs/architecture.md`.
+- Restored the `E2E Tests` GitHub Actions workflow, left broken since `v0.2.0`'s AllNamespaces-mode removal (it still set the now-rejected `WATCH_NAMESPACES=*`).
+
 ## [v0.2.0] - 2026-09-20
 
 ### Removed

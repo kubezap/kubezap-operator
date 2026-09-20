@@ -149,10 +149,20 @@ normalize_rules() {
 # normalize_rules_multidoc FILE_PATH OUT_PATH
 #
 # Same normalization (allowlist filter + flatten to permission tuples), but
-# for a rendered multi-document YAML stream (Helm's `helm template` output):
-# finds the first `kind: Role` document in the stream (the chart renders one
-# Role+RoleBinding pair per watched namespace, all identical, so any one is
-# representative) and normalizes its rules. Uses `yq eval-all` (not a plain
+# for a rendered multi-document YAML stream (Helm's `helm template` output).
+# The chart renders more than one `kind: Role` object: one main operator Role
+# per watched namespace (all identical, so any one is representative), plus a
+# separate, fixed `<fullname>-leader-election` Role (see
+# leader-election-role.yaml) that is NOT part of this comparison — it has no
+# +kubebuilder:rbac-marker-driven equivalent at all (leader election's
+# configmaps/leases/events needs are standard kubebuilder scaffolding, hand-
+# maintained independently of the generated reference, exactly like
+# config/rbac/leader_election_role.yaml on the kustomize side). Select the
+# main operator Role specifically by excluding anything whose name ends in
+# "-leader-election", rather than blindly taking the first Role in the
+# stream — Helm renders templates in filename order, and
+# "leader-election-role.yaml" sorts before "role.yaml", so "first Role found"
+# would silently grab the wrong one. Uses `yq eval-all` (not a plain
 # per-document `yq eval`) so `select()` collects across the whole stream into
 # one list before `.[0]` picks the first match — a plain `yq eval` instead
 # applies the pipeline independently to every document, which silently
@@ -161,7 +171,7 @@ normalize_rules() {
 normalize_rules_multidoc() {
   local src="$1" out="$2"
   yq ea -o=json '
-    [select(.kind == "Role")]
+    [select(.kind == "Role" and (.metadata.name | test("-leader-election$") | not))]
     | .[0].rules
     | map(select( ('"$ALLOWLIST_FILTER"') | not))
     | '"$FLATTEN_EXPR"'

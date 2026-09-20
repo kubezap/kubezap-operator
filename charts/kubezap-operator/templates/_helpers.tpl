@@ -64,18 +64,22 @@ Effective list of namespaces the operator's own reconciler RBAC (Role +
 RoleBinding) must be granted in, as a JSON array for `range ... | fromJsonArray`.
 
   - watchOwnNamespace: true (default) -> [.Release.Namespace]              (OwnNamespace)
-  - watchOwnNamespace: false, watchNamespaces: "ns"                        -> ["ns"]                (SingleNamespace)
-  - watchOwnNamespace: false, watchNamespaces: "ns1,ns2"                   -> ["ns1","ns2"]          (MultiNamespace)
+  - watchOwnNamespace: false, watchNamespaces: "ns"                        -> [.Release.Namespace, "ns"]         (SingleNamespace)
+  - watchOwnNamespace: false, watchNamespaces: "ns1,ns2"                   -> [.Release.Namespace, "ns1","ns2"]  (MultiNamespace)
 
-One templating loop covers all three watch modes — there is no cluster-scoped
-fallback: the operator never needs a ClusterRole for its own reconciler
-permissions (see docs/design/namespace-scoped-watch-modes-only.md).
+.Release.Namespace is always included, regardless of watch mode: the operator
+runs there and must always be able to manage its own operational resources in
+that namespace (its self-managed webhook serving certificate Secret in
+particular — internal/webhookcerts operates in the operator's own namespace
+unconditionally, not just when that namespace happens to be watched).
+Deduplicated, so explicitly listing the release namespace in watchNamespaces
+too is harmless. One templating loop covers all three watch modes — there is
+no cluster-scoped fallback: the operator never needs a ClusterRole for its
+own reconciler permissions (see docs/design/namespace-scoped-watch-modes-only.md).
 */}}
 {{- define "kubezap.watchNamespaceList" -}}
-{{- $result := list -}}
-{{- if .Values.watchOwnNamespace -}}
-{{- $result = list .Release.Namespace -}}
-{{- else -}}
+{{- $result := list .Release.Namespace -}}
+{{- if not .Values.watchOwnNamespace -}}
 {{- range splitList "," .Values.watchNamespaces -}}
 {{- $trimmed := trim . -}}
 {{- if $trimmed -}}
@@ -83,7 +87,7 @@ permissions (see docs/design/namespace-scoped-watch-modes-only.md).
 {{- end -}}
 {{- end -}}
 {{- end -}}
-{{- $result | toJson -}}
+{{- $result | uniq | toJson -}}
 {{- end }}
 
 {{/*

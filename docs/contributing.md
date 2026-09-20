@@ -284,7 +284,7 @@ bin/operator-sdk bundle validate ./bundle
 Common validation errors:
 
 - **Missing replaces field** — set `spec.replaces` in the CSV when upgrading from a previous version.
-- **Unsupported installModes** — all four OLM install modes (`OwnNamespace`, `SingleNamespace`, `MultiNamespace`, `AllNamespaces`) must be listed as supported in the CSV.
+- **Unsupported installModes** — the CSV must mark `OwnNamespace`, `SingleNamespace`, and `MultiNamespace` as `supported: true` in the CSV's `installModes` list.
 - **Icon missing** — add a base64-encoded PNG to `spec.icon` in the CSV for OperatorHub listing display.
 
 ---

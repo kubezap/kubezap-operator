@@ -575,7 +575,7 @@ Credentials are resolved in-memory by the controller and handed to a dedicated, 
 - Multi-replica deployment with leader election
 - OpenShift compatible (restricted SCC compliant)
 - OLM / OperatorHub installable
-- Multi-tenant: configurable `WATCH_NAMESPACES` supports AllNamespaces, MultiNamespace, SingleNamespace, and OwnNamespace OLM install modes
+- Multi-tenant: configurable `WATCH_NAMESPACES` supports MultiNamespace, SingleNamespace, and OwnNamespace OLM install modes
 
 ---
 
@@ -598,11 +598,6 @@ helm install kubezap oci://ghcr.io/kubezap/charts/kubezap-operator \
 # OwnNamespace mode (default — operator watches only its own namespace)
 helm install kubezap oci://ghcr.io/kubezap/charts/kubezap-operator \
   --namespace kubezap-system --create-namespace
-
-# AllNamespaces mode (secrets restricted to kubezap.io/managed=true namespaces)
-helm install kubezap oci://ghcr.io/kubezap/charts/kubezap-operator \
-  --namespace kubezap-system --create-namespace \
-  --set watchNamespaces="*"
 
 # SingleNamespace mode
 helm install kubezap oci://ghcr.io/kubezap/charts/kubezap-operator \

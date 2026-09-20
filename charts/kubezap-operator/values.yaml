@@ -16,8 +16,7 @@ serviceAccount:
 # Installation scope. Controls which namespaces the operator watches and what RBAC is created.
 # Every watch mode below gets a namespace-scoped Role — the operator never requires a
 # ClusterRole for its own reconciler permissions (see
-# docs/design/namespace-scoped-watch-modes-only.md). AllNamespaces mode ("*") is not
-# supported.
+# docs/design/namespace-scoped-watch-modes-only.md).
 #
 # watchOwnNamespace: true  (default — most secure)
 #   Operator watches only its own release namespace. One Role + RoleBinding, scoped to

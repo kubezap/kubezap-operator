@@ -365,10 +365,7 @@ RBAC errors typically look like:
 flowruns.automation.kubezap.io is forbidden: User "system:serviceaccount:kubezap-system:controller-manager" cannot create resource "flowruns" ...
 ```
 
-**For AllNamespaces mode** — the controller uses a `ClusterRole`. Apply the cluster RBAC manifests:
-```bash
-kubectl apply -k config/rbac
-```
+**For MultiNamespace mode** — the controller uses a namespace-scoped `Role`, not a `ClusterRole`: one `Role`/`RoleBinding` pair per watched namespace. Confirm the pair exists in every namespace listed in `WATCH_NAMESPACES` (see `config/rbac/namespaced_role.yaml`'s header comment for the exact per-namespace `kubectl apply` commands on raw-manifest installs; the Helm chart templates this loop automatically).
 
 **For SingleNamespace/OwnNamespace mode** — the controller uses a `Role` scoped to its namespace. Confirm the Role and RoleBinding are created in `kubezap-system`.
 

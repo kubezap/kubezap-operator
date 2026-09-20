@@ -17,6 +17,8 @@ limitations under the License.
 package controller
 
 import (
+	"os"
+
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
@@ -357,5 +359,34 @@ var _ = Describe("desiredWebhookGatewayDeployment TLS volumes", func() {
 		Expect(found).NotTo(BeNil(), "expected a webhook-mtls-ca volume when MTLSCASecretName is set")
 		Expect(found.Secret).NotTo(BeNil())
 		Expect(found.Secret.DefaultMode).To(Equal(ptr.To(int32(0444))))
+	})
+})
+
+// See STORY-056: desiredWebhookGatewayDeployment previously only set
+// Env: otelPassthroughEnv() on the webhook gateway container, never
+// propagating WATCH_NAMESPACES — unlike the kafka/amqp/nats gateway
+// Deployments in integration_controller.go, which all do. This left
+// allNamespacesMode always false in cmd/webhook-gateway/main.go, making the
+// managed-namespace check in webhook/watcher.go's readSecretKey dead code for
+// the webhook gateway specifically.
+var _ = Describe("desiredWebhookGatewayDeployment WATCH_NAMESPACES propagation", func() {
+	It("propagates the operator's WATCH_NAMESPACES value into the container Env", func() {
+		Expect(os.Setenv("WATCH_NAMESPACES", "team-a,team-b")).To(Succeed())
+		DeferCleanup(func() {
+			Expect(os.Unsetenv("WATCH_NAMESPACES")).To(Succeed())
+		})
+
+		dep := desiredWebhookGatewayDeployment("default", WebhookGatewayTLSConfig{})
+
+		var found *corev1.EnvVar
+		env := dep.Spec.Template.Spec.Containers[0].Env
+		for i := range env {
+			if env[i].Name == envVarWatchNamespaces {
+				found = &env[i]
+			}
+		}
+		Expect(found).NotTo(BeNil(), "expected a WATCH_NAMESPACES entry in the webhook gateway container Env")
+		Expect(found.Value).To(Equal(os.Getenv("WATCH_NAMESPACES")))
+		Expect(found.Value).To(Equal("team-a,team-b"))
 	})
 })

@@ -50,14 +50,11 @@ const clusterRoleBindingGatewayNamespaceReader = "kubezap-gateway-namespace-read
 
 // clusterRoleBindingWebhookGatewayNamespaceReader is the counterpart
 // ClusterRoleBinding for the webhook gateway's own ServiceAccount name
-// (webhookGatewayDeploymentName in gateway_deployment.go). No reconcile path
-// calls ensureGatewayNamespaceReaderBinding with this name yet: the webhook
-// gateway's own allNamespacesMode is currently dead code (WATCH_NAMESPACES is
-// not propagated into its container), tracked separately as STORY-056. This
-// constant — and the fact that ensureGatewayNamespaceReaderBinding below is
-// already generic over binding/SA name — exists so STORY-056 does not need to
-// invent a name or duplicate this maintenance logic; it only needs to add one
-// call site once the webhook gateway's AllNamespaces mode becomes reachable.
+// (webhookGatewayDeploymentName in gateway_deployment.go). Maintained by
+// ensureWebhookGateway in trigger_controller.go, gated on that function's
+// allNamespacesMode parameter — see STORY-056, which propagated
+// WATCH_NAMESPACES into the webhook gateway's container (previously dead code)
+// and added that call site.
 const clusterRoleBindingWebhookGatewayNamespaceReader = "kubezap-webhook-gateway-namespace-reader"
 
 // ensureGatewayNamespaceReaderBinding idempotently ensures that the

@@ -54,7 +54,9 @@ func main() {
 
 	flag.IntVar(&port, "port", 8080, "HTTP/HTTPS server port")
 	flag.IntVar(&metricsPort, "metrics-port", 9090, "Port for the dedicated Prometheus metrics server")
-	flag.StringVar(&namespace, "namespace", "", "Namespace to watch; empty=all namespaces")
+	flag.StringVar(&namespace, "namespace", "",
+		"Namespace to watch. The operator always sets this explicitly; leaving it unset falls back to "+
+			"WATCH_NAMESPACES, for standalone invocation only.")
 	flag.StringVar(&logLevel, "log-level", "info", "Log level: debug|info|warn|error")
 	flag.StringVar(&tlsCertFile, "tls-cert-file", "",
 		"Path to TLS certificate file (PEM). When set with --tls-key-file the server listens on HTTPS.")
@@ -113,7 +115,10 @@ func main() {
 	if namespace == "" {
 		ns := strings.TrimSpace(watchNS)
 		if ns == "" {
-			log.Info("watching all namespaces")
+			log.Info("no --namespace flag and no WATCH_NAMESPACES set; watching cluster-wide " +
+				"(standalone invocation only — the operator always sets --namespace explicitly, " +
+				"and this gateway's own Role is namespace-scoped, so a cluster-wide watch will 403 " +
+				"unless additional RBAC is granted manually)")
 		} else {
 			namespace = ns
 			log.Info("WATCH_NAMESPACES applied", "namespace", namespace)

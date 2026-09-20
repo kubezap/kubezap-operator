@@ -52,6 +52,7 @@ spec:
             - --health-probe-bind-address={{ .Values.healthProbeBindAddress }}
             - --executor-image={{ .Values.executor.image }}
             - --executor-port={{ .Values.executor.port }}
+            - --executor-mtls={{ .Values.executor.mtls }}
           env:
             - name: WEBHOOK_GATEWAY_IMAGE
               value: {{ .Values.gatewayImages.webhook | quote }}

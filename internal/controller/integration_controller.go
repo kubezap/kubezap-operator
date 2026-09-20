@@ -876,10 +876,10 @@ func buildKafkaTriggers(integration *automationv1alpha1.Integration, pairs []kaf
 		triggers = append(triggers, map[string]interface{}{
 			"type": "kafka",
 			"metadata": map[string]interface{}{
-				"brokerList":    brokers,
-				"consumerGroup": p.cg,
-				"topic":         p.topic,
-				"lagThreshold":  "10",
+				"bootstrapServers": brokers,
+				"consumerGroup":    p.cg,
+				"topic":            p.topic,
+				"lagThreshold":     "10",
 			},
 		})
 	}

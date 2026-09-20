@@ -527,3 +527,37 @@ var _ = Describe("broker gateway Deployment image pull policy", func() {
 		Expect(dep.Spec.Template.Spec.Containers[0].ImagePullPolicy).To(Equal(corev1.PullIfNotPresent))
 	})
 })
+
+// buildKafkaTriggers's output metadata keys must match KEDA's actual Kafka scaler
+// parameter names exactly, or the ScaledObject fails validation at the KEDA operator
+// (not at kube-apiserver admission, since metadata is a freeform map[string]string) --
+// live testing found this returning "brokerList" instead of the required
+// "bootstrapServers", which silently broke KEDA-based Kafka gateway scaling entirely
+// (the ScaledObject's Ready condition reported "missing required parameter
+// bootstrapServers" and never created the underlying HPA) with no test coverage to
+// catch it.
+var _ = Describe("buildKafkaTriggers", func() {
+	It("produces the exact metadata keys KEDA's Kafka scaler requires", func() {
+		integration := &automationv1alpha1.Integration{
+			Spec: automationv1alpha1.IntegrationSpec{
+				Kafka: &automationv1alpha1.KafkaIntegrationSpec{
+					BootstrapServers: []string{"broker-1:9092", "broker-2:9092"},
+				},
+			},
+		}
+		pairs := []kafkaTopicCGPair{{topic: "orders.created", cg: "kubezap-my-trigger"}}
+
+		triggers := buildKafkaTriggers(integration, pairs)
+
+		Expect(triggers).To(HaveLen(1))
+		trigger, ok := triggers[0].(map[string]interface{})
+		Expect(ok).To(BeTrue())
+		Expect(trigger["type"]).To(Equal("kafka"))
+		metadata, ok := trigger["metadata"].(map[string]interface{})
+		Expect(ok).To(BeTrue())
+		Expect(metadata).To(HaveKeyWithValue("bootstrapServers", "broker-1:9092,broker-2:9092"))
+		Expect(metadata).To(HaveKeyWithValue("consumerGroup", "kubezap-my-trigger"))
+		Expect(metadata).To(HaveKeyWithValue("topic", "orders.created"))
+		Expect(metadata).NotTo(HaveKey("brokerList"))
+	})
+})

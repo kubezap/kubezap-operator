@@ -44,6 +44,7 @@ import (
 
 func main() {
 	var port int
+	var healthPort int
 	var blockedCIDRs string
 	var bodyLimitBytes int
 	var allowTLSSkipVerify bool
@@ -53,6 +54,10 @@ func main() {
 	var logLevel string
 
 	flag.IntVar(&port, "port", 8091, "Port to listen on")
+	flag.IntVar(&healthPort, "health-port", 8092,
+		"Port for the health check server. Always plain HTTP, even when --mtls=true: /healthz on the "+
+			"main --port requires a valid client certificate under mTLS, which kubelet's httpGet probes "+
+			"can never present, so health checks always use this separate, unauthenticated listener.")
 	flag.StringVar(&blockedCIDRs, "blocked-cidrs", "",
 		"Comma-separated extra CIDRs to block in addition to defaults (e.g. '203.0.113.0/24')")
 	flag.IntVar(&bodyLimitBytes, "body-limit-bytes", 4096,
@@ -116,6 +121,25 @@ func main() {
 		IdleTimeout:  120 * time.Second,
 	}
 
+	// Always-plain-HTTP health server, separate from the main listener so kubelet's
+	// certificate-less probes still work when --mtls=true requires a client cert on
+	// the main port (see --health-port's flag description).
+	healthMux := http.NewServeMux()
+	healthMux.HandleFunc("GET /healthz", h.ServeHealthz)
+	healthSrv := &http.Server{
+		Addr:         fmt.Sprintf("0.0.0.0:%d", healthPort),
+		Handler:      healthMux,
+		ReadTimeout:  5 * time.Second,
+		WriteTimeout: 5 * time.Second,
+	}
+	go func() {
+		log.Info("starting health check server", "port", healthPort)
+		if err := healthSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Error(err, "health check server failed")
+			os.Exit(1)
+		}
+	}()
+
 	// Start server in background.
 	go func() {
 		log.Info("starting http-executor server", "port", port, "mtls", mtls,
@@ -174,6 +198,8 @@ func main() {
 	// Graceful shutdown with 15-second deadline.
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer shutdownCancel()
+
+	_ = healthSrv.Shutdown(shutdownCtx)
 
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		log.Error(err, "graceful shutdown failed; forcing exit")

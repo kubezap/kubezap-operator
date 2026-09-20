@@ -4,7 +4,7 @@ KubeZap has been deployed.
   Namespace:  {{ .Release.Namespace }}
   Image:      {{ .Values.image.repository }}:{{ .Values.image.tag }}
   Replicas:   {{ .Values.replicaCount }}
-  Watch mode: {{ if .Values.watchOwnNamespace }}OwnNamespace: {{ .Release.Namespace }} (Role){{ else if eq .Values.watchNamespaces "" }}AllNamespaces (ClusterRole){{ else if contains "," .Values.watchNamespaces }}MultiNamespace: {{ .Values.watchNamespaces }} (ClusterRole){{ else }}SingleNamespace: {{ .Values.watchNamespaces }} (Role){{ end }}
+  Watch mode: {{ if .Values.watchOwnNamespace }}OwnNamespace: {{ .Release.Namespace }} (Role){{ else if eq .Values.watchNamespaces "" }}OwnNamespace: {{ .Release.Namespace }} (Role — watchNamespaces was empty, falling back to OwnNamespace){{ else if contains "," .Values.watchNamespaces }}MultiNamespace: {{ .Values.watchNamespaces }} (one Role+RoleBinding per namespace){{ else }}SingleNamespace: {{ .Values.watchNamespaces }} (Role){{ end }}
 
 Verify:
   kubectl get deployment -n {{ .Release.Namespace }} {{ include "kubezap.fullname" . }}

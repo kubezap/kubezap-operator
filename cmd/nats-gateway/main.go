@@ -114,12 +114,16 @@ func main() {
 		}
 	}()
 
-	// allNamespacesMode mirrors the operator's own WATCH_NAMESPACES=* sentinel
-	// (the operator propagates its own env var value verbatim to this gateway's
-	// Deployment) — see docs/design/allnamespaces-secrets-label-restriction.md.
-	allNamespacesMode := os.Getenv("WATCH_NAMESPACES") == "*"
+	// WATCH_NAMESPACES=* (AllNamespaces mode) is not supported — see
+	// docs/design/namespace-scoped-watch-modes-only.md.
+	if os.Getenv("WATCH_NAMESPACES") == "*" {
+		log.Error(fmt.Errorf("WATCH_NAMESPACES=* is not supported"),
+			"AllNamespaces mode has been removed; set WATCH_NAMESPACES to an explicit "+
+				"comma-separated namespace list, or leave it unset for OwnNamespace mode")
+		os.Exit(1)
+	}
 
-	watcher, err := natsgateway.NewWatcher(k8sClient, cfg, namespace, log.WithName("watcher"), allNamespacesMode)
+	watcher, err := natsgateway.NewWatcher(k8sClient, cfg, namespace, log.WithName("watcher"))
 	if err != nil {
 		log.Error(err, "unable to create nats watcher")
 		os.Exit(1)

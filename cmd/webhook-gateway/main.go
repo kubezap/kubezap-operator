@@ -54,7 +54,9 @@ func main() {
 
 	flag.IntVar(&port, "port", 8080, "HTTP/HTTPS server port")
 	flag.IntVar(&metricsPort, "metrics-port", 9090, "Port for the dedicated Prometheus metrics server")
-	flag.StringVar(&namespace, "namespace", "", "Namespace to watch; empty=all namespaces")
+	flag.StringVar(&namespace, "namespace", "",
+		"Namespace to watch. The operator always sets this explicitly; leaving it unset falls back to "+
+			"WATCH_NAMESPACES, for standalone invocation only.")
 	flag.StringVar(&logLevel, "log-level", "info", "Log level: debug|info|warn|error")
 	flag.StringVar(&tlsCertFile, "tls-cert-file", "",
 		"Path to TLS certificate file (PEM). When set with --tls-key-file the server listens on HTTPS.")
@@ -99,15 +101,24 @@ func main() {
 	ctrl.SetLogger(logger)
 	log = logger
 
-	// allNamespacesMode mirrors the operator's own WATCH_NAMESPACES=* sentinel
-	// (the operator propagates its own env var value verbatim to this gateway's
-	// Deployment) — see docs/design/allnamespaces-secrets-label-restriction.md.
-	allNamespacesMode := os.Getenv("WATCH_NAMESPACES") == "*"
+	// WATCH_NAMESPACES mirrors the operator's own env var (the operator propagates
+	// its own value verbatim to this gateway's Deployment). AllNamespaces mode
+	// ("*") is not supported — see docs/design/namespace-scoped-watch-modes-only.md.
+	watchNS := os.Getenv("WATCH_NAMESPACES")
+	if watchNS == "*" {
+		log.Error(fmt.Errorf("WATCH_NAMESPACES=* is not supported"),
+			"AllNamespaces mode has been removed; set WATCH_NAMESPACES to an explicit "+
+				"comma-separated namespace list, or leave it unset for OwnNamespace mode")
+		os.Exit(1)
+	}
 
 	if namespace == "" {
-		ns := strings.TrimSpace(os.Getenv("WATCH_NAMESPACES"))
-		if ns == "" || ns == "*" {
-			log.Info("watching all namespaces")
+		ns := strings.TrimSpace(watchNS)
+		if ns == "" {
+			log.Info("no --namespace flag and no WATCH_NAMESPACES set; watching cluster-wide " +
+				"(standalone invocation only — the operator always sets --namespace explicitly, " +
+				"and this gateway's own Role is namespace-scoped, so a cluster-wide watch will 403 " +
+				"unless additional RBAC is granted manually)")
 		} else {
 			namespace = ns
 			log.Info("WATCH_NAMESPACES applied", "namespace", namespace)
@@ -131,7 +142,7 @@ func main() {
 	jwksCache := webhook.NewJWKSCache(ctx)
 
 	watcher, err := webhook.NewTriggerWatcher(
-		cfg, k8sClient, registry, namespace, log.WithName("trigger-watcher"), jwksCache, allNamespacesMode)
+		cfg, k8sClient, registry, namespace, log.WithName("trigger-watcher"), jwksCache)
 	if err != nil {
 		log.Error(err, "unable to create trigger watcher")
 		os.Exit(1)

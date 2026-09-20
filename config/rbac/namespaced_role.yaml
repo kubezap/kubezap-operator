@@ -1,20 +1,78 @@
 ---
-# Role for OwnNamespace / SingleNamespace OLM install modes.
-# Grants the same permissions as manager-role (ClusterRole) but scoped to a
-# single namespace.  Use this instead of manager-role when the operator is
-# installed with OwnNamespace or SingleNamespace install mode so that it does
-# not require cluster-wide RBAC.
+# Role for the operator's own reconciler permissions — the default for every
+# supported watch mode. Every watch mode (OwnNamespace, SingleNamespace,
+# MultiNamespace) is namespace-scoped only; the operator never requires a
+# ClusterRole for these permissions. See
+# docs/design/namespace-scoped-watch-modes-only.md.
 #
 # Exception: any rule on a cluster-scoped resource (e.g.
 # validatingwebhookconfigurations.admissionregistration.k8s.io) cannot be
 # granted via a Role at all, regardless of install mode — that permission is
 # instead in the always-applied webhook_cert_role.yaml/webhook_cert_role_binding.yaml
 # ClusterRole pair, which must be deployed alongside this file.
+#
+# How this Role is applied per watch mode:
+#
+#   OwnNamespace (default, WATCH_NAMESPACES unset) and SingleNamespace where the
+#   watched namespace IS the operator's own install namespace:
+#     No extra steps. `kubectl apply -k config/default` (or the top-level
+#     kustomization that wraps it) already renders this Role + the paired
+#     namespaced_role_binding.yaml into the operator's own namespace via
+#     kustomize's top-level `namespace:` transformer (see config/default/kustomization.yaml).
+#
+#   SingleNamespace where the watched namespace DIFFERS from the operator's own
+#   install namespace, or MultiNamespace (2+ explicit namespaces): apply this
+#   same Role + namespaced_role_binding.yaml pair once per watched namespace,
+#   in ADDITION to setting WATCH_NAMESPACES on the manager Deployment (a
+#   separate, pre-existing installer step — not covered by this file). Because
+#   this is a plain `kubectl apply`, not a kustomize build, kustomize's
+#   `namespace:` transformer never runs, so the two files must be applied
+#   directly:
+#
+#     kubectl apply -n <watched-namespace> -f config/rbac/namespaced_role.yaml
+#     sed -e 's/namespace: system/namespace: <operator-install-namespace>/' \
+#         -e 's/name: controller-manager/name: <operator-serviceaccount-name>/' \
+#         config/rbac/namespaced_role_binding.yaml \
+#       | kubectl apply -n <watched-namespace> -f -
+#
+#   Both sed substitutions matter, because a direct `kubectl apply` bypasses
+#   kustomize's transformers entirely:
+#     - namespace: system is the kustomize placeholder convention (see
+#       role_binding.yaml's `namespace: system` for the same pattern elsewhere
+#       in this directory) that config/default's `namespace:` transformer
+#       normally rewrites to the operator's real install namespace — it must
+#       be rewritten by hand instead, to the operator's actual install
+#       namespace (e.g. kubezap-system) — never to <watched-namespace>, since
+#       the ServiceAccount itself only exists in the operator's own namespace.
+#     - name: controller-manager is this file's literal ServiceAccount name,
+#       but config/default's `namePrefix: kubezap-` transformer normally
+#       renames it to kubezap-controller-manager (or another value entirely,
+#       if the install customized namePrefix/serviceAccount.name) — it must
+#       match whatever the operator's ServiceAccount is ACTUALLY named in the
+#       cluster (check with `kubectl get sa -n <operator-install-namespace>`),
+#       not necessarily this file's own unprefixed literal.
+#
+#   Repeat both commands for each additional namespace in WATCH_NAMESPACES.
+#   If the operator's own install namespace is not itself in that list, the
+#   Role + RoleBinding pair `config/default` renders there is simply unused
+#   (harmless to leave, since it grants nothing outside that namespace) and
+#   MAY be omitted by excluding this file's default rendering.
+#
+#   User-facing installation instructions for this are STORY-060's job — this
+#   comment documents the manifest/mechanism itself, not the install guide.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
   name: manager-role
 rules:
+- apiGroups:
+  - ""
+  resources:
+  - configmaps
+  verbs:
+  - get
+  - list
+  - watch
 - apiGroups:
   - ""
   resources:
@@ -24,19 +82,18 @@ rules:
   - delete
   - get
   - list
-  - patch
   - update
   - watch
 - apiGroups:
   - ""
   resources:
   - serviceaccounts
+  - services
   verbs:
   - create
   - delete
   - get
   - list
-  - patch
   - update
   - watch
 - apiGroups:
@@ -48,7 +105,6 @@ rules:
   - delete
   - get
   - list
-  - patch
   - update
   - watch
 - apiGroups:
@@ -61,7 +117,6 @@ rules:
   - delete
   - get
   - list
-  - patch
   - update
   - watch
 - apiGroups:
@@ -77,6 +132,13 @@ rules:
   - flowruns/status
   - flows/status
   - integrations/status
+  - webhookgatewayconfigs/status
+  verbs:
+  - get
+  - update
+- apiGroups:
+  - automation.kubezap.io
+  resources:
   - triggers/status
   verbs:
   - get
@@ -90,7 +152,6 @@ rules:
   verbs:
   - get
   - list
-  - patch
   - update
   - watch
 - apiGroups:
@@ -102,6 +163,17 @@ rules:
   - list
   - watch
 - apiGroups:
+  - networking.k8s.io
+  resources:
+  - networkpolicies
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - update
+  - watch
+- apiGroups:
   - coordination.k8s.io
   resources:
   - leases
@@ -110,7 +182,6 @@ rules:
   - delete
   - get
   - list
-  - patch
   - update
   - watch
 - apiGroups:
@@ -122,7 +193,6 @@ rules:
   - delete
   - get
   - list
-  - patch
   - update
   - watch
 - apiGroups:
@@ -134,7 +204,6 @@ rules:
   - delete
   - get
   - list
-  - patch
   - update
   - watch
 - apiGroups:
@@ -146,7 +215,6 @@ rules:
   - delete
   - get
   - list
-  - patch
   - update
   - watch
 - apiGroups:
@@ -159,6 +227,5 @@ rules:
   - delete
   - get
   - list
-  - patch
   - update
   - watch

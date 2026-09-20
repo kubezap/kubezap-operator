@@ -50,7 +50,7 @@ import (
 //
 // Operators running in OwnNamespace or SingleNamespace mode will have these permissions
 // bound to a Role (not ClusterRole), limiting the blast radius to the watched namespace.
-// For AllNamespaces/MultiNamespace installations the corresponding ClusterRole is used.
+// For MultiNamespace installations the corresponding ClusterRole is used.
 //
 // See docs/api/trigger.md for RBAC guidance and examples of scoping permissions.
 //

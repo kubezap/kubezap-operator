@@ -49,7 +49,7 @@ helm install kubezap oci://ghcr.io/kubezap/charts/kubezap-operator \
   --namespace kubezap-system --create-namespace
 ```
 
-See [docs/overview.md](docs/overview.md#helm-recommended) for install-mode options (OwnNamespace, AllNamespaces, SingleNamespace, MultiNamespace) and image-override examples.
+See [docs/overview.md](docs/overview.md#helm-recommended) for install-mode options (OwnNamespace, SingleNamespace, MultiNamespace) and image-override examples.
 
 ### OperatorHub / OLM _(submission pending)_
 
@@ -139,8 +139,8 @@ For a full walkthrough see [examples/order-router/](examples/order-router/).
 - **Webhook auth**: HMAC, bearer token, OIDC/JWT, API-key header, IP allowlist, mTLS
 - **Observability**: Prometheus metrics, OpenTelemetry traces (OTLP/gRPC), structured JSON access logs
 - **CLI**: `kubezap` command — `watch`, `history`, `triggers`, `flows` subcommands
-- **Multi-namespace**: `WATCH_NAMESPACES` supports AllNamespaces, MultiNamespace, SingleNamespace, OwnNamespace
-- **OLM**: all four install modes supported in the CSV bundle
+- **Multi-namespace**: `WATCH_NAMESPACES` supports MultiNamespace, SingleNamespace, OwnNamespace
+- **OLM**: OwnNamespace, SingleNamespace, and MultiNamespace supported in the CSV bundle
 - **Security**: distroless images, non-root, read-only root FS, restricted SCC compliant, credentials resolved in-memory and never persisted to etcd or a workflow database
 
 ---

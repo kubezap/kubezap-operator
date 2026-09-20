@@ -196,15 +196,6 @@ type FlowRunReconciler struct {
 	// sync.Map is used because the reconciler can run in multiple goroutines concurrently.
 	// Bypassed when DisableCELCache is true.
 	celCache sync.Map
-
-	// AllNamespacesMode is true when the operator is running with WATCH_NAMESPACES=*.
-	// When true, fetchSecretValue and resolveHTTPTLS additionally require the
-	// Secret's own namespace (always identical to the referencing Integration's
-	// namespace — secretRef types have no cross-namespace field) to carry the
-	// kubezap.io/managed=true label before returning its data. See
-	// docs/design/allnamespaces-secrets-label-restriction.md. No-op in any other
-	// watch mode, since RBAC itself already scopes those to specific namespaces.
-	AllNamespacesMode bool
 }
 
 // nolint:gocyclo // single dispatch-heavy reconcile loop; splitting it apart without a
@@ -1283,38 +1274,7 @@ func (r *FlowRunReconciler) doPluginPublish(
 	return map[string]string{}, nil
 }
 
-// managedNamespaceLabel and managedNamespaceValue gate secret access in
-// AllNamespaces mode. See docs/design/allnamespaces-secrets-label-restriction.md.
-const (
-	managedNamespaceLabel = "kubezap.io/managed"
-	managedNamespaceValue = "true"
-)
-
-// checkNamespaceManagedForSecrets enforces
-// docs/design/allnamespaces-secrets-label-restriction.md: in AllNamespaces mode
-// only, a namespace must carry kubezap.io/managed=true before its Secrets may be
-// read. No-op (always allowed) in any other watch mode, since RBAC itself already
-// scopes those to specific namespaces. Cross-namespace secretRefs are impossible
-// by CRD type shape, so ns is always the same namespace as the referencing CR.
-func checkNamespaceManagedForSecrets(ctx context.Context, c client.Client, allNamespacesMode bool, ns string) error {
-	if !allNamespacesMode {
-		return nil
-	}
-	var namespace corev1.Namespace
-	if err := c.Get(ctx, types.NamespacedName{Name: ns}, &namespace); err != nil {
-		return fmt.Errorf("checking namespace %q for secret access: %w", ns, err)
-	}
-	if namespace.Labels[managedNamespaceLabel] != managedNamespaceValue {
-		return fmt.Errorf("namespace %q is not labeled %s=%s — secrets cannot be read here in AllNamespaces mode",
-			ns, managedNamespaceLabel, managedNamespaceValue)
-	}
-	return nil
-}
-
 func (r *FlowRunReconciler) fetchSecretValue(ctx context.Context, namespace string, ref corev1.SecretKeySelector) (string, error) {
-	if err := checkNamespaceManagedForSecrets(ctx, r.Client, r.AllNamespacesMode, namespace); err != nil {
-		return "", err
-	}
 	var secret corev1.Secret
 	if err := r.Get(ctx, types.NamespacedName{Name: ref.Name, Namespace: namespace}, &secret); err != nil {
 		return "", fmt.Errorf("secret %q not found: %w", ref.Name, err)
@@ -1447,9 +1407,6 @@ func (r *FlowRunReconciler) resolveHTTPTLS(
 	}
 
 	if tlsSpec.ClientCertSecretRef != nil {
-		if err := checkNamespaceManagedForSecrets(ctx, r.Client, r.AllNamespacesMode, namespace); err != nil {
-			return httpTLSMaterial{}, err
-		}
 		var secret corev1.Secret
 		if err := r.Get(ctx, types.NamespacedName{
 			Name:      tlsSpec.ClientCertSecretRef.Name,

@@ -33,9 +33,9 @@ This page is a runnable checklist for operators preparing to deploy KubeZap in a
 
   Guide: [docs/architecture/http-executor.md](../architecture/http-executor.md)
 
-### 3. RBAC: OwnNamespace default
+### 3. RBAC: always namespace-scoped
 
-- [ ] **Confirm the operator's namespace scope is correct.** The default install uses `OwnNamespace` mode — the operator watches only the namespace it is deployed in. This is the recommended setting. For multi-namespace deployments, label each target namespace `kubezap.io/managed=true` and set `WATCH_NAMESPACES=*`. In OwnNamespace and SingleNamespace modes, the operator uses a `Role` (not a `ClusterRole`), which is required for OpenShift restricted SCC compliance.
+- [ ] **Confirm the operator's namespace scope is correct.** The default install uses `OwnNamespace` mode — the operator watches only the namespace it is deployed in. This is the recommended setting. For multi-namespace deployments, set `WATCH_NAMESPACES` to an explicit comma-separated list of the target namespaces (MultiNamespace mode). Every watch mode — including MultiNamespace — uses a namespace-scoped `Role` (never a `ClusterRole`): MultiNamespace gets one `Role`/`RoleBinding` pair per listed namespace, so the operator's RBAC ceiling always matches exactly what it watches. This is required for OpenShift restricted SCC compliance.
 
   Guide: [docs/architecture.md](../architecture.md) — see "Namespace Isolation"
 

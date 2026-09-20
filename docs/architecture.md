@@ -361,7 +361,7 @@ The controller uses leader election and should run with 2–3 replicas. Only the
 | Trigger, Flow, FlowRun     | Namespaced | Each namespace has independent CRDs                                                            |
 | Webhook Gateway Deployment | Namespaced | One per namespace where webhook Triggers exist                                                 |
 | Broker gateway Deployment  | Namespaced | One per (namespace × broker Integration); separate gateway for each of `kafka`, `amqp`, `nats` |
-| Controller                 | Cluster    | Watches all namespaces; runs in `kubezap-system`                                               |
+| Controller                 | Namespaced | Watches its own namespace by default, or an explicit namespace list; runs in `kubezap-system`  |
 
 The controller watches CRDs in all namespaces and creates gateway Deployments within each namespace where they are needed. If all Triggers in a namespace are deleted, the controller garbage-collects the gateway Deployments.
 
@@ -371,22 +371,21 @@ The controller watches CRDs in all namespaces and creates gateway Deployments wi
 
 ### Isolation boundaries
 
-Gateway pods are per-namespace — tenant A's webhook traffic never touches tenant B's gateway pod. The **operator controller** is the shared component: in a default installation it watches all namespaces, holds wide RBAC permissions, and its compromise or misconfiguration could affect all tenants.
+Gateway pods are per-namespace — tenant A's webhook traffic never touches tenant B's gateway pod. The **operator controller** is the shared component whenever it is configured to watch more than its own namespace: watching an explicit list of tenant namespaces from one controller widens its RBAC to cover each of them, and its compromise or misconfiguration could then affect every namespace it watches.
 
-For teams within the same organization (separate namespaces for dev/staging/prod, or team-per-namespace), this is generally acceptable. For true multi-tenant scenarios — different organizations sharing a cluster, regulated environments with strict data segregation, or SaaS platforms — the controller must also be isolated.
+For teams within the same organization (separate namespaces for dev/staging/prod, or team-per-namespace), watching a short, explicit list of namespaces from one controller is generally acceptable. For true multi-tenant scenarios — different organizations sharing a cluster, regulated environments with strict data segregation, or SaaS platforms — the controller should be isolated per tenant, using its default, most isolated mode: watching only its own namespace.
 
 ### Watch namespace modes
 
-KubeZap supports four watch modes controlled by the `WATCH_NAMESPACES` environment variable on the controller Deployment (standard Operator SDK / controller-runtime pattern):
+KubeZap supports two watch-mode shapes, controlled by the `WATCH_NAMESPACES` environment variable on the controller Deployment (standard Operator SDK / controller-runtime pattern): the operator watches either its own namespace, or an explicit comma-separated list of one or more namespaces.
 
-| Mode                | `WATCH_NAMESPACES` value      | Default? | Use case                                                                       |
-| ------------------- | ----------------------------- | -------- | ------------------------------------------------------------------------------ |
-| **OwnNamespace**    | `""` (empty) or operator's ns | **Yes**  | Default; maximum isolation, least privilege (OLM default)                      |
-| **AllNamespaces**   | `"*"`                         | No       | Single-org cluster; secret reads restricted to `kubezap.io/managed=true` namespaces |
-| **MultiNamespace**  | `"ns1,ns2,ns3"`               | No       | Operator serves a defined set of tenant namespaces                             |
-| **SingleNamespace** | `"tenant-a"`                  | No       | One operator installation per tenant group                                     |
+| Mode                | `WATCH_NAMESPACES` value      | Default? | Use case                                                        |
+| ------------------- | ----------------------------- | -------- | ---------------------------------------------------------------- |
+| **OwnNamespace**    | `""` (empty) or operator's ns | **Yes**  | Default; maximum isolation, least privilege (OLM default)        |
+| **SingleNamespace** | `"tenant-a"`                  | No       | One operator installation per tenant group                       |
+| **MultiNamespace**  | `"ns1,ns2,ns3"`               | No       | Operator serves an explicit, known set of tenant namespaces      |
 
-> **Security note:** The default is OwnNamespace (least privilege). `WATCH_NAMESPACES=*` enables AllNamespaces mode, where reading a Secret to resolve a `secretRef` additionally requires the Secret's own namespace to carry `kubezap.io/managed=true` — enforced in application code, since Kubernetes RBAC cannot itself express a per-namespace-label restriction (see `docs/design/allnamespaces-secrets-label-restriction.md`). This prevents the operator from reading secrets in unrelated namespaces even though its RBAC grant is necessarily broader.
+> **Security note:** The default is OwnNamespace (least privilege). Every mode — including MultiNamespace — grants the operator a namespace-scoped `Role` (never a `ClusterRole`) for its own reconciler permissions: for MultiNamespace, the operator is provisioned one `Role`+`RoleBinding` pair per listed namespace, so its RBAC grant always matches exactly the namespaces it actually watches.
 
 These map directly to [OLM install modes](https://olm.operatorframework.io/docs/advanced-tasks/operator-scoping-with-operatorgroups/), which is required for OperatorHub certification.
 
@@ -397,7 +396,7 @@ These map directly to [OLM install modes](https://olm.operatorframework.io/docs/
 ```
   ┌─────────────────────────────────────────────────────────────────┐
   │ kubezap-system                                                  │
-  │   kubezap-controller  (WATCH_NAMESPACES="")                     │
+  │   kubezap-controller  (WATCH_NAMESPACES="tenant-a,tenant-b")    │
   └──────────────┬────────────────────────┬───────────────────────── ┘
                  │ manages & watches       │ manages & watches
                  ▼                         ▼
@@ -408,7 +407,7 @@ These map directly to [OLM install modes](https://olm.operatorframework.io/docs/
   └──────────────────────┘   └──────────────────────┘
 ```
 
-- One controller installation, cluster-scoped ClusterRole
+- One controller installation, one namespace-scoped `Role` + `RoleBinding` per tenant namespace it watches
 - Gateway pods are separate per namespace — no cross-tenant traffic mixing
 - Suitable for: teams within an organization, dev/staging/prod isolation, internal platforms
 
@@ -444,17 +443,16 @@ Complete isolation at the infrastructure level. Not a KubeZap concern but worth 
 
 ### RBAC implications by mode
 
-| Mode                           | Controller needs                                                    | Gateway needs                    |
-| ------------------------------ | ------------------------------------------------------------------- | -------------------------------- |
-| AllNamespaces                  | `ClusterRole` with namespace-wide resource access                   | `Role` in each managed namespace |
-| MultiNamespace                 | `ClusterRole` scoped to listed namespaces, or per-namespace `Roles` | `Role` in each managed namespace |
-| SingleNamespace / OwnNamespace | Namespace-scoped `Role` only — no ClusterRole needed                | `Role` in the watched namespace  |
+| Mode                           | Controller needs                                                                    | Gateway needs                    |
+| ------------------------------ | ------------------------------------------------------------------------------------ | --------------------------------- |
+| MultiNamespace                 | One namespace-scoped `Role` + `RoleBinding` per listed namespace — no `ClusterRole`  | `Role` in each managed namespace |
+| SingleNamespace / OwnNamespace | Namespace-scoped `Role` only — no `ClusterRole` needed                               | `Role` in the watched namespace  |
 
-When `WATCH_NAMESPACES` is set to a single namespace, the Helm chart and OLM bundle automatically use `Role`/`RoleBinding` instead of `ClusterRole`/`ClusterRoleBinding`. This is important for OpenShift environments where cluster admins are reluctant to grant ClusterRoles to tenant-managed operators.
+Regardless of how many namespaces `WATCH_NAMESPACES` lists, the Helm chart and OLM bundle always provision `Role`/`RoleBinding` pairs — never a `ClusterRole`/`ClusterRoleBinding` — for the operator's own reconciler permissions. This is important for OpenShift environments where cluster admins are reluctant to grant ClusterRoles to tenant-managed operators.
 
 ### OLM install modes
 
-The OLM bundle generated by `make bundle` supports all four install modes. When submitting to OperatorHub, all four modes should be listed in the CSV:
+The OLM bundle generated by `make bundle` supports OwnNamespace, SingleNamespace, and MultiNamespace — matching the watch modes above, since KubeZap always resolves a watch scope down to the operator's own namespace or an explicit namespace list. AllNamespaces is not supported. OLM's CSV schema requires every install mode to be listed explicitly (supported or not), so the CSV declares all four:
 
 ```yaml
 # In bundle/manifests/kubezap.clusterserviceversion.yaml
@@ -467,7 +465,7 @@ spec:
     - type: MultiNamespace
       supported: true
     - type: AllNamespaces
-      supported: true
+      supported: false
 ```
 
 ### Configuring watch namespaces
@@ -477,7 +475,6 @@ spec:
 # values.yaml
 controller:
   watchNamespaces: ""                     # OwnNamespace (default — least privilege)
-  # watchNamespaces: "*"                  # AllNamespaces (secrets restricted to kubezap.io/managed=true namespaces)
   # watchNamespaces: "tenant-a"           # SingleNamespace
   # watchNamespaces: "tenant-a,tenant-b"  # MultiNamespace
 ```

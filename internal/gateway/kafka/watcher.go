@@ -65,17 +65,10 @@ type Watcher struct {
 	secretIndex *secretindex.Index
 	triggersMu  sync.Mutex
 	triggers    map[types.NamespacedName]*automationv1alpha1.Trigger
-
-	// allNamespacesMode is true when the operator (and therefore this gateway,
-	// which inherits WATCH_NAMESPACES from it) is running with WATCH_NAMESPACES=*.
-	// When true, readSecretKey additionally requires the Secret's namespace to
-	// carry kubezap.io/managed=true. See
-	// docs/design/allnamespaces-secrets-label-restriction.md.
-	allNamespacesMode bool
 }
 
 // NewWatcher creates a new Watcher backed by an informer cache.
-func NewWatcher(c client.Client, cfg *rest.Config, namespace string, log logr.Logger, allNamespacesMode bool) (*Watcher, error) {
+func NewWatcher(c client.Client, cfg *rest.Config, namespace string, log logr.Logger) (*Watcher, error) {
 	httpClient, err := rest.HTTPClientFor(cfg)
 	if err != nil {
 		return nil, fmt.Errorf("unable to create HTTP client for REST config: %w", err)
@@ -97,13 +90,12 @@ func NewWatcher(c client.Client, cfg *rest.Config, namespace string, log logr.Lo
 	}
 
 	return &Watcher{
-		client:            c,
-		cache:             watchCache,
-		namespace:         namespace,
-		log:               log,
-		secretIndex:       secretindex.New(),
-		triggers:          make(map[types.NamespacedName]*automationv1alpha1.Trigger),
-		allNamespacesMode: allNamespacesMode,
+		client:      c,
+		cache:       watchCache,
+		namespace:   namespace,
+		log:         log,
+		secretIndex: secretindex.New(),
+		triggers:    make(map[types.NamespacedName]*automationv1alpha1.Trigger),
 	}, nil
 }
 
@@ -381,25 +373,7 @@ func (w *Watcher) stopSubscription(key types.NamespacedName) {
 }
 
 // readSecretKey fetches a Kubernetes Secret and returns the value for the given key.
-// managedNamespaceLabel/managedNamespaceValue gate secret access in
-// AllNamespaces mode. See docs/design/allnamespaces-secrets-label-restriction.md.
-// Duplicated per-binary rather than shared: see that record's Decision section.
-const (
-	managedNamespaceLabel = "kubezap.io/managed"
-	managedNamespaceValue = "true"
-)
-
 func (w *Watcher) readSecretKey(ctx context.Context, namespace, name, key string) (string, error) {
-	if w.allNamespacesMode {
-		var ns corev1.Namespace
-		if err := w.client.Get(ctx, types.NamespacedName{Name: namespace}, &ns); err != nil {
-			return "", fmt.Errorf("checking namespace %q for secret access: %w", namespace, err)
-		}
-		if ns.Labels[managedNamespaceLabel] != managedNamespaceValue {
-			return "", fmt.Errorf("namespace %q is not labeled %s=%s — secrets cannot be read here in AllNamespaces mode",
-				namespace, managedNamespaceLabel, managedNamespaceValue)
-		}
-	}
 	secret := &corev1.Secret{}
 	if err := w.client.Get(ctx, types.NamespacedName{Namespace: namespace, Name: name}, secret); err != nil {
 		return "", fmt.Errorf("get secret %s/%s: %w", namespace, name, err)

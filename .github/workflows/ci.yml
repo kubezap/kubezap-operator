@@ -100,6 +100,36 @@ jobs:
             exit 1;
           }
 
+  rbac-parity:
+    name: RBAC Install Path Parity Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      # Pinned for reproducibility, matching this repo's existing convention
+      # in .github/workflows/release.yml — ubuntu-latest ships a recent Helm
+      # already, but pinning avoids drift if the runner image's version moves.
+      - name: Install Helm
+        uses: azure/setup-helm@v5
+        with:
+          version: "v3.17.0"
+
+      - name: Regenerate RBAC manifests
+        run: |
+          make generate
+          make manifests
+
+      # No install step for yq: ubuntu-latest ships mikefarah/yq v4 already
+      # (v4.53.6 as of the actions/runner-images Ubuntu 24.04 software
+      # manifest), which is what hack/check-rbac-parity.sh requires.
+      - name: Verify RBAC parity across generated / kustomize / Helm
+        run: make verify-rbac-parity
+
   govulncheck:
     name: Vulnerability Scan (govulncheck)
     runs-on: ubuntu-latest

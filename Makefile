@@ -113,6 +113,10 @@ manifests: controller-gen ## Generate WebhookConfiguration, RBAC reference, and 
 sync-crds: ## Copy config/crd/bases/* into the Helm chart's crds/ dir, so it can't silently drift again.
 	cp config/crd/bases/*.yaml charts/kubezap-operator/crds/
 
+.PHONY: verify-rbac-parity
+verify-rbac-parity: ## Verify config/rbac/generated/role.yaml, config/rbac/namespaced_role.yaml, and the Helm chart's Role all grant identical permissions.
+	./hack/check-rbac-parity.sh
+
 .PHONY: generate
 generate: controller-gen ## Generate code containing DeepCopy, DeepCopyInto, and DeepCopyObject method implementations.
 	$(CONTROLLER_GEN) object:headerFile="hack/boilerplate.go.txt" paths="./..."

@@ -5,8 +5,15 @@ resources:
 # runtime. Be sure to update RoleBinding and ClusterRoleBinding
 # subjects if changing service account names.
 - service_account.yaml
-- role.yaml
-- role_binding.yaml
+# The operator's own reconciler permissions are always a namespace-scoped Role,
+# never a ClusterRole — this base grants it in the operator's own install
+# namespace (kustomize's top-level `namespace:` transformer fills that in),
+# which matches OwnNamespace mode (the default) and SingleNamespace mode when
+# the watched namespace is the operator's own namespace. See
+# namespaced_role.yaml's header comment for how to grant this same Role in
+# additional namespaces (SingleNamespace-elsewhere / MultiNamespace).
+- namespaced_role.yaml
+- namespaced_role_binding.yaml
 - leader_election_role.yaml
 - leader_election_role_binding.yaml
 # Cluster-scoped webhook cert permission, applied regardless of WATCH_NAMESPACES

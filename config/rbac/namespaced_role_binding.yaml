@@ -1,6 +1,9 @@
 ---
-# RoleBinding for OwnNamespace / SingleNamespace OLM install modes.
-# Pairs with namespaced_role.yaml.
+# RoleBinding for the default namespace-scoped operator Role, used by every
+# watch mode (OwnNamespace, SingleNamespace, MultiNamespace). Pairs with
+# namespaced_role.yaml — see that file's header comment for how this is
+# applied per watch mode, including the ServiceAccount subject namespace
+# substitution required for a direct (non-kustomize-built) apply.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:

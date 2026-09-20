@@ -60,28 +60,36 @@ Service account name.
 {{- end }}
 
 {{/*
-Determine if namespace-scoped RBAC should be used.
-Returns "true" when:
-  - watchOwnNamespace is true (default), OR
-  - watchNamespaces is a single non-empty namespace (OwnNamespace/SingleNamespace mode).
-Returns "" (falsy) for AllNamespaces and MultiNamespace ("ns1,ns2").
+Effective list of namespaces the operator's own reconciler RBAC (Role +
+RoleBinding) must be granted in, as a JSON array for `range ... | fromJsonArray`.
+
+  - watchOwnNamespace: true (default) -> [.Release.Namespace]              (OwnNamespace)
+  - watchOwnNamespace: false, watchNamespaces: "ns"                        -> ["ns"]                (SingleNamespace)
+  - watchOwnNamespace: false, watchNamespaces: "ns1,ns2"                   -> ["ns1","ns2"]          (MultiNamespace)
+
+One templating loop covers all three watch modes — there is no cluster-scoped
+fallback: the operator never needs a ClusterRole for its own reconciler
+permissions (see docs/design/namespace-scoped-watch-modes-only.md).
 */}}
-{{- define "kubezap.namespacedRBAC" -}}
+{{- define "kubezap.watchNamespaceList" -}}
+{{- $result := list -}}
 {{- if .Values.watchOwnNamespace -}}
-true
+{{- $result = list .Release.Namespace -}}
 {{- else -}}
-{{- $ns := .Values.watchNamespaces -}}
-{{- if and (ne $ns "") (not (contains "," $ns)) -}}
-true
+{{- range splitList "," .Values.watchNamespaces -}}
+{{- $trimmed := trim . -}}
+{{- if $trimmed -}}
+{{- $result = append $result $trimmed -}}
 {{- end -}}
 {{- end -}}
+{{- end -}}
+{{- $result | toJson -}}
 {{- end }}
 
 {{/*
 Effective WATCH_NAMESPACES value for the controller.
 When watchOwnNamespace is true, uses the release namespace.
 When watchNamespaces is set (and watchOwnNamespace is false), uses that value.
-Otherwise empty (AllNamespaces mode).
 */}}
 {{- define "kubezap.watchNamespaces" -}}
 {{- if .Values.watchOwnNamespace -}}

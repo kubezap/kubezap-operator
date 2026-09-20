@@ -97,8 +97,15 @@ help: ## Display this help.
 ##@ Development
 
 .PHONY: manifests
-manifests: controller-gen ## Generate WebhookConfiguration, ClusterRole and CustomResourceDefinition objects.
-	$(CONTROLLER_GEN) rbac:roleName=manager-role webhook paths="./..."
+manifests: controller-gen ## Generate WebhookConfiguration, RBAC reference, and CustomResourceDefinition objects.
+	# The rbac generator's output is redirected to config/rbac/generated/ rather than
+	# config/rbac/ itself: every deployed watch mode uses a namespace-scoped Role, never
+	# the ClusterRole controller-gen produces from +kubebuilder:rbac markers by
+	# convention (see docs/design/namespace-scoped-watch-modes-only.md). The redirected
+	# file is kept as a committed, always-up-to-date reference of the operator's full
+	# merged permission set (e.g. for OLM CSV permissions/clusterPermissions
+	# generation) — config/rbac/kustomization.yaml never references it.
+	$(CONTROLLER_GEN) rbac:roleName=manager-role webhook paths="./..." output:rbac:artifacts:config=config/rbac/generated
 	$(CONTROLLER_GEN) crd paths="github.com/kubezap/kubezap-operator/api/v1alpha1" output:crd:artifacts:config=config/crd/bases
 	$(MAKE) sync-crds
 

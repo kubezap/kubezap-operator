@@ -1,11 +1,13 @@
-{{- if include "kubezap.namespacedRBAC" . }}
+{{- $root := . -}}
+{{- range (include "kubezap.watchNamespaceList" . | fromJsonArray) }}
+---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
-  name: {{ include "kubezap.fullname" . }}
-  namespace: {{ .Release.Namespace }}
+  name: {{ include "kubezap.fullname" $root }}
+  namespace: {{ . }}
   labels:
-    {{- include "kubezap.labels" . | nindent 4 }}
+    {{- include "kubezap.labels" $root | nindent 4 }}
 rules:
   - apiGroups:
       - ""
@@ -24,7 +26,6 @@ rules:
       - delete
       - get
       - list
-      - patch
       - update
       - watch
   - apiGroups:
@@ -37,7 +38,6 @@ rules:
       - delete
       - get
       - list
-      - patch
       - update
       - watch
   - apiGroups:
@@ -49,7 +49,6 @@ rules:
       - delete
       - get
       - list
-      - patch
       - update
       - watch
   - apiGroups:
@@ -62,7 +61,6 @@ rules:
       - delete
       - get
       - list
-      - patch
       - update
       - watch
   - apiGroups:
@@ -78,8 +76,14 @@ rules:
       - flowruns/status
       - flows/status
       - integrations/status
-      - triggers/status
       - webhookgatewayconfigs/status
+    verbs:
+      - get
+      - update
+  - apiGroups:
+      - automation.kubezap.io
+    resources:
+      - triggers/status
     verbs:
       - get
       - patch
@@ -92,7 +96,6 @@ rules:
     verbs:
       - get
       - list
-      - patch
       - update
       - watch
   - apiGroups:
@@ -112,7 +115,6 @@ rules:
       - delete
       - get
       - list
-      - patch
       - update
       - watch
   - apiGroups:
@@ -124,7 +126,6 @@ rules:
       - delete
       - get
       - list
-      - patch
       - update
       - watch
   - apiGroups:
@@ -136,16 +137,8 @@ rules:
       - delete
       - get
       - list
-      - patch
       - update
       - watch
-  - apiGroups:
-      - ""
-    resources:
-      - events
-    verbs:
-      - create
-      - patch
   - apiGroups:
       - autoscaling
     resources:
@@ -155,7 +148,6 @@ rules:
       - delete
       - get
       - list
-      - patch
       - update
       - watch
   - apiGroups:
@@ -167,7 +159,6 @@ rules:
       - delete
       - get
       - list
-      - patch
       - update
       - watch
   - apiGroups:
@@ -180,7 +171,22 @@ rules:
       - delete
       - get
       - list
-      - patch
       - update
       - watch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "kubezap.fullname" $root }}
+  namespace: {{ . }}
+  labels:
+    {{- include "kubezap.labels" $root | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "kubezap.fullname" $root }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "kubezap.serviceAccountName" $root }}
+    namespace: {{ $root.Release.Namespace }}
 {{- end }}

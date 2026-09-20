@@ -43,7 +43,7 @@ import (
 const webhookGatewayConfigName = "default"
 
 // +kubebuilder:rbac:groups=automation.kubezap.io,resources=webhookgatewayconfigs,verbs=get;list;watch
-// +kubebuilder:rbac:groups=automation.kubezap.io,resources=webhookgatewayconfigs/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=automation.kubezap.io,resources=webhookgatewayconfigs/status,verbs=get;update
 
 const (
 	webhookGatewayDeploymentName = "kubezap-webhook-gateway"

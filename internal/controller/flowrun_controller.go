@@ -108,8 +108,8 @@ type integrationCacheKeyType struct{}
 
 var integrationCacheKey = integrationCacheKeyType{}
 
-// +kubebuilder:rbac:groups=automation.kubezap.io,resources=flowruns,verbs=get;list;watch;update;patch;delete
-// +kubebuilder:rbac:groups=automation.kubezap.io,resources=flowruns/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=automation.kubezap.io,resources=flowruns,verbs=get;list;watch;update;delete
+// +kubebuilder:rbac:groups=automation.kubezap.io,resources=flowruns/status,verbs=get;update
 // +kubebuilder:rbac:groups=automation.kubezap.io,resources=flowruns/finalizers,verbs=update
 // +kubebuilder:rbac:groups=automation.kubezap.io,resources=flows,verbs=get;list;watch
 // +kubebuilder:rbac:groups=automation.kubezap.io,resources=triggers,verbs=get;list;watch

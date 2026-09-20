@@ -8,7 +8,6 @@ rules:
   - ""
   resources:
   - configmaps
-  - namespaces
   verbs:
   - get
   - list
@@ -24,7 +23,6 @@ rules:
   - delete
   - get
   - list
-  - patch
   - update
   - watch
 - apiGroups:
@@ -54,7 +52,6 @@ rules:
   - delete
   - get
   - list
-  - patch
   - update
   - watch
 - apiGroups:
@@ -67,7 +64,6 @@ rules:
   - delete
   - get
   - list
-  - patch
   - update
   - watch
 - apiGroups:
@@ -83,11 +79,9 @@ rules:
   - flowruns/status
   - flows/status
   - integrations/status
-  - triggers/status
   - webhookgatewayconfigs/status
   verbs:
   - get
-  - patch
   - update
 - apiGroups:
   - automation.kubezap.io
@@ -97,9 +91,16 @@ rules:
   verbs:
   - get
   - list
-  - patch
   - update
   - watch
+- apiGroups:
+  - automation.kubezap.io
+  resources:
+  - triggers/status
+  verbs:
+  - get
+  - patch
+  - update
 - apiGroups:
   - automation.kubezap.io
   resources:
@@ -117,7 +118,6 @@ rules:
   - delete
   - get
   - list
-  - patch
   - update
   - watch
 - apiGroups:
@@ -129,7 +129,6 @@ rules:
   - delete
   - get
   - list
-  - patch
   - update
   - watch
 - apiGroups:
@@ -141,7 +140,6 @@ rules:
   - delete
   - get
   - list
-  - patch
   - update
   - watch
 - apiGroups:
@@ -153,7 +151,6 @@ rules:
   - delete
   - get
   - list
-  - patch
   - update
   - watch
 - apiGroups:
@@ -165,7 +162,6 @@ rules:
   - delete
   - get
   - list
-  - patch
   - update
   - watch
 - apiGroups:
@@ -178,6 +174,5 @@ rules:
   - delete
   - get
   - list
-  - patch
   - update
   - watch

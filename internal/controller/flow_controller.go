@@ -40,8 +40,8 @@ const (
 	stepActionWait      = "wait"
 )
 
-// +kubebuilder:rbac:groups=automation.kubezap.io,resources=flows,verbs=get;list;watch;update;patch
-// +kubebuilder:rbac:groups=automation.kubezap.io,resources=flows/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=automation.kubezap.io,resources=flows,verbs=get;list;watch;update
+// +kubebuilder:rbac:groups=automation.kubezap.io,resources=flows/status,verbs=get;update
 
 // FlowReconciler reconciles a Flow object.
 type FlowReconciler struct {

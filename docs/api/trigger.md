@@ -288,6 +288,14 @@ roleRef:
 
 For cross-namespace watches (when `spec.resource.namespace` differs from the Trigger's namespace), use a ClusterRole and ClusterRoleBinding scoped to the target namespace via a RoleBinding in that namespace, or create a ClusterRoleBinding if the resource is cluster-scoped.
 
+**Wildcard alternative:** if you'd rather not maintain a separate Role per watched resource type (for example, because different Triggers in the same namespace watch several different resource types, or you expect that set to grow), you can instead grant the operator a single wildcard `apiGroups: ["*"], resources: ["*"]` read grant covering every `type: resource` Trigger in a namespace at once. This is not applied by default — the operator has no way to know in advance which resource types a given cluster's Triggers will name, so there is no fixed set of rules it could ship. Apply the ready-made example once per namespace that will contain a `type: resource` Trigger:
+
+```bash
+kubectl apply -n <namespace> -f config/samples/resource-trigger-rbac.yaml
+```
+
+See `config/samples/resource-trigger-rbac.yaml` for the full Role/RoleBinding pair and header notes on customizing the ServiceAccount subject for non-default installs.
+
 ---
 
 ## Status Reference
@@ -380,6 +388,8 @@ The Kafka record key is never part of the FlowRun dedup-key naming scheme (`<tri
 Watch any Kubernetes resource type and fire the trigger when resources matching a label selector are created, updated, or deleted. Unlike webhook and Kafka triggers, resource event triggers run inside the controller -- no separate gateway pod is needed.
 
 The controller sets up a dynamic informer for each `type: resource` Trigger. When a matching event occurs, a FlowRun is created with the full resource object in the trigger payload.
+
+**RBAC is required before events will fire.** The operator does not grant itself permission to watch arbitrary resource types by default — see the RBAC note under [ResourceTrigger](#resourcetrigger) above for the required Role/RoleBinding (including a ready-made wildcard example at `config/samples/resource-trigger-rbac.yaml`) that must be applied in every namespace containing a `type: resource` Trigger.
 
 ```yaml
 apiVersion: automation.kubezap.io/v1alpha1

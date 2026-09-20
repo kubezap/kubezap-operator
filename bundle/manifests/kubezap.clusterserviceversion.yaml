@@ -143,7 +143,7 @@ metadata:
           },
           "spec": {
             "flowRef": {
-              "name": "example-flow"
+              "name": "handle-order"
             },
             "type": "webhook",
             "webhook": {
@@ -178,7 +178,7 @@ metadata:
     capabilities: Basic Install
     categories: Integration & Delivery
     containerImage: ghcr.io/kubezap/controller:latest
-    createdAt: "2026-09-20T19:15:34Z"
+    createdAt: "2026-09-20T20:21:00Z"
     description: Declarative workflow automation for Kubernetes
     operatorframework.io/suggested-namespace: kubezap-system
     operators.operatorframework.io/builder: operator-sdk-v1.42.0

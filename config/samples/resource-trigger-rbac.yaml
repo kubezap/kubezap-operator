@@ -1,0 +1,62 @@
+# config/samples/resource-trigger-rbac.yaml
+#
+# Opt-in RBAC for the alpha "Resource" trigger type (Trigger.spec.type: resource).
+#
+# NOT applied by default — this file is not referenced by config/default,
+# any kustomization, or the Helm chart. You must apply it yourself, once per
+# namespace that will contain a `type: resource` Trigger.
+#
+# Why a wildcard grant: internal/controller/resource_watcher.go's dynamic
+# informers back `type: resource` Triggers, and a Trigger can reference
+# ANY built-in or custom Kubernetes resource type (Pods, Deployments, a CRD
+# you haven't installed yet, etc.) — the operator has no way to know in
+# advance which apiGroups/resources a given cluster's Triggers will name, so
+# there is no fixed, narrower set of rules that could be shipped by default.
+# Granting `apiGroups: ["*"], resources: ["*"]` here is what lets a
+# `type: resource` Trigger watch whatever resource type its spec names,
+# without requiring a matching RBAC change every time.
+#
+# If you'd rather not grant read access this broadly, you can instead create
+# a Role scoped to just the specific resource type(s) your Triggers actually
+# watch — see the "RBAC note" under ResourceTrigger in docs/api/trigger.md
+# for a narrower, per-resource-type example.
+#
+# Apply once per namespace containing a `type: resource` Trigger:
+#
+#   kubectl apply -n <namespace> -f config/samples/resource-trigger-rbac.yaml
+#
+# The RoleBinding's subject below assumes the default install (namePrefix
+# "kubezap-", operator installed into the "kubezap-system" namespace). If you
+# customized either, update the ServiceAccount name/namespace to match your
+# actual install (check with `kubectl get sa -n <operator-install-namespace>`).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: kubezap-resource-trigger-watch
+  namespace: default # replace with your namespace — the Trigger's own namespace
+  labels:
+    app.kubernetes.io/name: kubezap
+    app.kubernetes.io/component: resource-trigger-rbac
+    app.kubernetes.io/managed-by: kubezap-operator
+rules:
+  - apiGroups: ["*"]
+    resources: ["*"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: kubezap-resource-trigger-watch
+  namespace: default # replace with your namespace — must match the Role above
+  labels:
+    app.kubernetes.io/name: kubezap
+    app.kubernetes.io/component: resource-trigger-rbac
+    app.kubernetes.io/managed-by: kubezap-operator
+subjects:
+  - kind: ServiceAccount
+    name: kubezap-controller-manager # replace if you customized the operator's ServiceAccount name
+    namespace: kubezap-system # replace with your operator's install namespace
+roleRef:
+  kind: Role
+  name: kubezap-resource-trigger-watch
+  apiGroup: rbac.authorization.k8s.io

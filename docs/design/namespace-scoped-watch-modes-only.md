@@ -1,0 +1,45 @@
+# Remove AllNamespaces Watch Mode; MultiNamespace Gets Real Per-Namespace RBAC
+
+> Status: Approved
+> Date: 2026-09-20
+> Related: `cmd/main.go`, `cmd/{webhook,kafka,amqp,nats}-gateway/main.go`, `internal/controller/{flowrun_controller,trigger_controller,integration_controller,gateway_deployment,gateway_namespace_reader}.go`, `internal/gateway/{webhook,kafka,amqp,nats}/watcher.go`, `charts/kubezap-operator/templates/{role,clusterrole,namespaced_role,clusterrole-gateway-namespace-reader}.yaml`, `charts/kubezap-operator/templates/_helpers.tpl`, `config/rbac/*.yaml`, `bundle/manifests/kubezap.clusterserviceversion.yaml`, `docs/design/security-architecture.md`
+
+## Problem
+
+`WATCH_NAMESPACES=*` (AllNamespaces mode) cannot be secured at the RBAC layer: native Kubernetes `Role`/`ClusterRole` rules match only `apiGroup`/`resource`/`verb`/`resourceNames`, never a namespace's own labels, so "watch every namespace but only touch Secrets in labeled ones" is structurally inexpressible as RBAC. Every attempt to approximate it has required either broad, cluster-wide grants papered over with an application-level check duplicated across 5 binaries (`docs/design/allnamespaces-secrets-label-restriction.md`), or increasingly elaborate dynamically-managed cluster-scoped RBAC objects just to make that check reachable at all (`docs/design/allnamespaces-gateway-namespace-read-rbac.md`, and the deferred `docs/design/allnamespaces-dynamic-secrets-rbac.md`). This has produced a disproportionate share of this project's security-hardening work (STORY-050, 053, 055, 056) for a mode with no actual deployments today. Meanwhile `MultiNamespace` mode (an explicit, static comma-list of namespaces) has the same "unnecessarily broad `ClusterRole`" problem today even though its namespace set is fully known at install time and RBAC *can* express it correctly — it was just never built that way.
+
+## Constraints
+
+- No currently-deployed users of AllNamespaces mode exist — this is a breaking behavior change with zero real-world migration cost today, so no deprecation window or compatibility shim is needed.
+- Cluster-scoped resources unrelated to watch-mode scope (the `ValidatingWebhookConfiguration` objects for Trigger/FlowRun/WebhookGatewayConfig admission) must keep their existing, always-applied `ClusterRole`/`ClusterRoleBinding` pair (`config/rbac/webhook_cert_role*.yaml`) — genuinely cluster-scoped resources are out of this decision's scope regardless of watch mode.
+- OLM: the CSV must still declare all four `installModes` entries (OLM requires the full enum to be present), but `AllNamespaces` flips to `supported: false`.
+- No new reconciling controller, and no new external dependency.
+- Both install paths (Helm and raw-manifest/kustomize) must be able to express `MultiNamespace`, even if the mechanism differs — kustomize has no native per-item templating loop the way Helm does.
+- User-facing docs (`docs/architecture.md`, `docs/overview.md`, `README.md`, install/security guides) describe the resulting three-mode model as the only model that ever existed — no "this used to work differently" narration. Historical rationale belongs in this record and the backlog, not in product docs.
+
+## Rejected Alternatives
+
+- **Keep AllNamespaces mode as-is** — rejected per the stated reasoning above: it is both the weakest link at both the RBAC and application-security layers, and the majority of this project's recent security-hardening effort has gone into papering over that structural gap rather than into features anyone is using.
+- **Delete AllNamespaces mode but leave MultiNamespace on its current `ClusterRole`** — rejected: this would remove the worst offender but leave the identical "broader RBAC grant than necessary" problem unaddressed for the one remaining multi-namespace path. The whole point of this change is that every supported watch mode gets RBAC that actually matches what it touches — half-fixing it defeats that.
+- **Dynamically reconcile per-namespace `Role`/`RoleBinding`s for MultiNamespace at runtime** (mirroring the approach `docs/design/allnamespaces-dynamic-secrets-rbac.md` proposed and deferred for AllNamespaces) — rejected: `MultiNamespace`'s namespace set is static, fixed by `WATCH_NAMESPACES` at deploy time, and already requires an operator restart to change. There is no runtime dynamism to justify a reconciling controller, and static generation avoids the bootstrap problem that made the AllNamespaces version of this idea unattractive (a controller needing pre-existing broad RBAC just to go grant itself narrower RBAC).
+- **Keep a single `ClusterRole` as a documented "opt-in, less secure" fallback for raw-manifest MultiNamespace installs** — rejected: reintroduces the exact unnecessarily-broad grant this decision exists to close, for a convenience that a repeatable, documented per-namespace manifest snippet already provides without the downside.
+
+## Decision
+
+`WATCH_NAMESPACES` supports exactly two shapes going forward: empty (OwnNamespace, the default) and a non-empty comma-list of one or more explicit namespaces (Single/MultiNamespace — already the same code path today). The literal value `*` is no longer accepted; `cmd/main.go` and all four gateway `main.go` entry points reject it (fail fast at startup with a clear error) rather than silently falling back to some other mode.
+
+RBAC changes to match: every supported watch mode now gets a namespace-scoped `Role`, never a `ClusterRole`, for the operator's own reconciler permissions.
+- OwnNamespace and SingleNamespace already work this way today (`config/rbac/namespaced_role.yaml` / Helm's `role.yaml`, gated by `kubezap.namespacedRBAC`) — unchanged.
+- MultiNamespace (2+ explicit namespaces) is reworked to provision one `Role` + one `RoleBinding` **per listed namespace**, each binding the operator's own ServiceAccount (a `RoleBinding` living in namespace X may reference a `ServiceAccount` subject in a different namespace — this is standard, not new). Helm generates this via a template loop over the namespace list. Raw manifests document the same `Role`+`RoleBinding` pair as a copy-once-per-namespace snippet (kustomize has no native loop), since the set of namespaces is a one-time, deploy-time decision an installer already has to make explicitly.
+- The operator's `ClusterRole` variant (`charts/kubezap-operator/templates/clusterrole.yaml`, `config/rbac/role.yaml`) is deleted outright — nothing needs it once every mode is namespace-scoped. `webhook_cert_role.yaml`'s always-applied, genuinely-cluster-scoped `ClusterRole` pair is unaffected and stays.
+- The entire application-level `kubezap.io/managed=true` check (`checkNamespaceManagedForSecrets` and its per-binary duplicates in `flowrun_controller.go`, `gateway_deployment.go`, and each gateway's `watcher.go`) is deleted — it exists only to compensate for AllNamespaces mode's RBAC gap, which no longer exists once AllNamespaces mode doesn't either.
+- The dynamically-managed gateway `ClusterRole`/`ClusterRoleBinding` machinery (`internal/controller/gateway_namespace_reader.go`, its call sites in `integration_controller.go`/`trigger_controller.go`, `charts/kubezap-operator/templates/clusterrole-gateway-namespace-reader.yaml`, `config/rbac/gateway_namespace_reader_role.yaml`) is deleted — it existed solely to make the now-deleted check reachable.
+- `AllNamespacesMode` fields on `FlowRunReconciler`/`TriggerReconciler`/`IntegrationReconciler` and the `allNamespacesMode` derivation in `cmd/main.go` and all four gateway mains are deleted.
+- `bundle/manifests/kubezap.clusterserviceversion.yaml`'s `installModes` keeps all four OLM entries (required by OLM) but flips `AllNamespaces` to `supported: false`.
+
+Superseded design records are deleted outright rather than marked `Superseded by ...`, per the same zero-real-usage reasoning as the Constraints section: `docs/design/allnamespaces-secrets-label-restriction.md`, `docs/design/allnamespaces-dynamic-secrets-rbac.md`, and `docs/design/allnamespaces-gateway-namespace-read-rbac.md`. `docs/design/security-architecture.md`'s "Secrets RBAC: OwnNamespace default" section is rewritten (not deleted, since that file also holds unrelated decisions) to describe the simpler resulting reality: every watch mode's Secret access is bounded by a real, namespace-scoped `Role` — no cluster-wide grant and no compensating application-level check exist anywhere in the system.
+
+### Tradeoffs
+
+- Clusters that create tenant namespaces dynamically and cannot enumerate them at deploy time lose a way to watch them without restarting the operator with an updated `WATCH_NAMESPACES` value. This was AllNamespaces mode's actual reason to exist; removing it is the right call only because no real deployment relies on that today, and MultiNamespace's static, explicit list is a better-secured fit for every currently known use case.
+- Raw-manifest MultiNamespace installs of N namespaces require applying N copies of a small, documented manifest snippet instead of one file — more installer effort than a single `ClusterRole` apply, in exchange for a materially smaller blast radius.

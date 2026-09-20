@@ -279,6 +279,12 @@ func ensureWebhookGateway(ctx context.Context, c client.Client, namespace string
 		return fmt.Errorf("failed to create/update gateway RoleBinding: %w", err)
 	}
 
+	if allNamespacesMode {
+		if err := ensureGatewayNamespaceReaderBinding(ctx, c, clusterRoleBindingWebhookGatewayNamespaceReader, webhookGatewayDeploymentName, namespace); err != nil {
+			return fmt.Errorf("ensuring webhook gateway namespace-reader ClusterRoleBinding: %w", err)
+		}
+	}
+
 	svc := desiredWebhookGatewayService(namespace, tlsCfg)
 	if _, err := controllerutil.CreateOrUpdate(ctx, c, svc, func() error {
 		svc.Labels = desiredWebhookGatewayService(namespace, tlsCfg).Labels

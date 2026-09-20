@@ -89,13 +89,15 @@ var _ = Describe("ensureGatewayNamespaceReaderBinding", func() {
 		))
 	})
 
-	// clusterRoleBindingWebhookGatewayNamespaceReader has no production call site
-	// yet (STORY-056's job — see gateway_namespace_reader.go's doc comment), but
-	// ensureGatewayNamespaceReaderBinding is already generic over binding/SA
-	// name, so it is exercised here directly with the webhook gateway's own SA
-	// name to confirm STORY-056 can wire it up as a pure call-site addition with
-	// no further changes to this function.
-	It("also works for the reserved webhook gateway binding name and SA (STORY-056 will add the call site)", func() {
+	// clusterRoleBindingWebhookGatewayNamespaceReader's production call site is
+	// ensureWebhookGateway in trigger_controller.go (added by STORY-056) — see
+	// the "ensureWebhookGateway AllNamespaces gateway namespace-reader
+	// ClusterRoleBinding" Describe block below for the integration-level
+	// coverage of that call site. This test exercises
+	// ensureGatewayNamespaceReaderBinding directly with the webhook gateway's
+	// own binding/SA name, confirming the helper's genericity over binding/SA
+	// name independent of any one caller.
+	It("also works for the reserved webhook gateway binding name and SA", func() {
 		Expect(ensureGatewayNamespaceReaderBinding(ctx, k8sClient, clusterRoleBindingWebhookGatewayNamespaceReader, webhookGatewayDeploymentName, "gwns-reader-test-ns-webhook")).To(Succeed())
 		DeferCleanup(func() {
 			_ = k8sClient.Delete(ctx, &rbacv1.ClusterRoleBinding{ObjectMeta: metav1.ObjectMeta{Name: clusterRoleBindingWebhookGatewayNamespaceReader}})
@@ -212,5 +214,70 @@ var _ = Describe("IntegrationReconciler AllNamespaces gateway namespace-reader C
 			rbacv1.Subject{Kind: kindServiceAccount, Name: sharedGatewayServiceAccountName, Namespace: gwnsTestNamespaceFirst},
 			rbacv1.Subject{Kind: kindServiceAccount, Name: sharedGatewayServiceAccountName, Namespace: gwnsTestNamespaceSecond},
 		))
+	})
+})
+
+// See STORY-056: ensureWebhookGateway (trigger_controller.go) is the webhook
+// gateway's counterpart call site to reconcileKafkaGateway/
+// reconcileAmqpGateway/reconcileNatsGateway above, using its own
+// ServiceAccount name (webhookGatewayDeploymentName) and its own
+// ClusterRoleBinding (clusterRoleBindingWebhookGatewayNamespaceReader) so it
+// never shares Subjects with the kafka/amqp/nats gateways' binding.
+var _ = Describe("ensureWebhookGateway AllNamespaces gateway namespace-reader ClusterRoleBinding", func() {
+	const (
+		gwnsWebhookNamespaceModeOff = "gwns-reader-ewg-ns-mode-off"
+		gwnsWebhookNamespaceOn      = "gwns-reader-ewg-ns-mode-on"
+	)
+
+	newNamespace := func(name string) {
+		Expect(k8sClient.Create(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: name}})).To(Succeed())
+	}
+
+	getWebhookBinding := func() (rbacv1.ClusterRoleBinding, error) {
+		var crb rbacv1.ClusterRoleBinding
+		err := k8sClient.Get(ctx, types.NamespacedName{Name: clusterRoleBindingWebhookGatewayNamespaceReader}, &crb)
+		return crb, err
+	}
+
+	It("does not create the ClusterRoleBinding when allNamespacesMode is false", func() {
+		_ = k8sClient.Delete(ctx, &rbacv1.ClusterRoleBinding{ObjectMeta: metav1.ObjectMeta{Name: clusterRoleBindingWebhookGatewayNamespaceReader}})
+
+		newNamespace(gwnsWebhookNamespaceModeOff)
+
+		Expect(ensureWebhookGateway(ctx, k8sClient, gwnsWebhookNamespaceModeOff, false)).To(Succeed())
+
+		_, err := getWebhookBinding()
+		Expect(apierrors.IsNotFound(err)).To(BeTrue(), "the webhook gateway ClusterRoleBinding must not be touched at all outside AllNamespaces mode")
+	})
+
+	It("creates the ClusterRoleBinding with the webhook gateway SA as Subject when allNamespacesMode is true, and re-running is idempotent", func() {
+		_ = k8sClient.Delete(ctx, &rbacv1.ClusterRoleBinding{ObjectMeta: metav1.ObjectMeta{Name: clusterRoleBindingWebhookGatewayNamespaceReader}})
+		DeferCleanup(func() {
+			_ = k8sClient.Delete(ctx, &rbacv1.ClusterRoleBinding{ObjectMeta: metav1.ObjectMeta{Name: clusterRoleBindingWebhookGatewayNamespaceReader}})
+		})
+
+		newNamespace(gwnsWebhookNamespaceOn)
+
+		Expect(ensureWebhookGateway(ctx, k8sClient, gwnsWebhookNamespaceOn, true)).To(Succeed())
+
+		crb, err := getWebhookBinding()
+		Expect(err).NotTo(HaveOccurred())
+		Expect(crb.RoleRef).To(Equal(rbacv1.RoleRef{
+			APIGroup: apiGroupRBAC,
+			Kind:     kindClusterRole,
+			Name:     clusterRoleGatewayNamespaceReader,
+		}))
+		Expect(crb.Subjects).To(ConsistOf(rbacv1.Subject{
+			Kind:      kindServiceAccount,
+			Name:      webhookGatewayDeploymentName,
+			Namespace: gwnsWebhookNamespaceOn,
+		}))
+
+		// Re-running ensureWebhookGateway for the same namespace must not
+		// duplicate the Subject entry.
+		Expect(ensureWebhookGateway(ctx, k8sClient, gwnsWebhookNamespaceOn, true)).To(Succeed())
+		crb, err = getWebhookBinding()
+		Expect(err).NotTo(HaveOccurred())
+		Expect(crb.Subjects).To(HaveLen(1))
 	})
 })

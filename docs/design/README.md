@@ -62,3 +62,9 @@ Multi-decision reference files are permitted for a single security/architecture 
 | 2026-09-19 | [Kafka Message Key Capture](kafka-message-key-capture.md)                               | Approved |
 | 2026-09-19 | [TriggerData.Body Binary-Safety Fix](trigger-body-encoding-safety.md)                   | Approved |
 | 2026-09-20 | [Remove AllNamespaces Watch Mode; MultiNamespace Gets Real Per-Namespace RBAC](namespace-scoped-watch-modes-only.md) | Approved |
+| 2026-09-26 | [Close the SSRF DNS-Rebinding Gap at the Transport Level](ssrf-dns-rebinding-transport-fix.md) | Draft |
+| 2026-09-26 | [Multi-Hop Trusted-Proxy Chain Support for the Webhook Gateway](webhook-gateway-multihop-trusted-proxy.md) | Draft |
+| 2026-09-26 | [Detect an Integration's secretRef Being Repointed to a Different Secret](integration-secretref-change-detection.md) | Draft |
+| 2026-09-26 | [Controller-Side mTLS for the Plugin Publisher Channel](plugin-publisher-mtls.md) | Draft |
+| 2026-09-26 | [Certificate Revocation Checking (CRL) for Verified Webhook Client Certs](client-cert-revocation-checking.md) | Draft |
+| 2026-09-26 | [Surface Gateway Credential-Resolution Failures as a Kubernetes-Visible Signal](gateway-credential-failure-visibility.md) | Draft |

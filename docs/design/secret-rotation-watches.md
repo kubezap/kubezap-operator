@@ -24,7 +24,7 @@ Webhook Trigger auth secrets and Kafka/AMQP/NATS broker credentials are read onc
 ## Rejected Alternatives
 
 - **Poll Secrets periodically instead of watching** — strictly worse on every axis: adds rotation-detection latency up to the poll interval and constant API load even when nothing changes, when a working watch pattern (the `Trigger` informer) already exists to extend.
-- **Also watch `Integration` objects** to detect a changed `secretRef` pointer (not just Secret contents) — a real but different gap with its own reverse-indexing question; bundling it doubles this design's scope for a problem not asked about here, left as a named follow-up.
+- **Also watch `Integration` objects** to detect a changed `secretRef` pointer (not just Secret contents) — a real but different gap with its own reverse-indexing question; bundling it doubles this design's scope for a problem not asked about here, left as a named follow-up. **2026-09-26: that follow-up is now `docs/design/integration-secretref-change-detection.md`** — confirmed a real gap, addressed by reusing this record's `secretindex.Index` pattern for a second, Integration-keyed index.
 - **Extract a shared `internal/gateway/secretwatch` package** used by all four watchers rather than native duplication — the four watchers' credential shapes aren't actually identical at the point the index needs building (webhook has 6 inline auth-type branches; kafka/amqp/nats resolve through an Integration's SASL/TLS config), so a shared abstraction would need a callback-heavy interface costing more than the ~30 lines of boilerplate it'd save; fits the existing "duplicate watcher-lifecycle code, share only pure helpers" pattern (`internal/gateway/redact`) rather than breaking it.
 
 ## Decision

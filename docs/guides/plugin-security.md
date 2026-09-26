@@ -149,6 +149,12 @@ Plain HTTP between the controller and the plugin's `/publish` endpoint is a know
 limitation. Controller-side mTLS for the publisher channel is not implemented yet.
 Until it ships, use a service mesh as described above.
 
+Design decided (not yet implemented): a new opt-in `spec.plugin.mtls.enabled` field,
+per-Integration generated certs, and new `KUBEZAP_MTLS_*` contract env vars a plugin
+author must read to actually terminate TLS — see
+`docs/design/plugin-publisher-mtls.md` for the full design and why this can't be a
+zero-plugin-code-change flag the way `--executor-mtls` is.
+
 ## Related Resources
 
 - `config/network-policy/plugin-egress.yaml` — ready-to-apply NetworkPolicy

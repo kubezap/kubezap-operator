@@ -2,7 +2,7 @@
 
 > Status: Approved
 > Date: 2026-09-19
-> Related: `api/v1alpha1/flowrun_types.go`, `internal/gateway/kafka/handler.go`, `docs/api/trigger.md`, `planning/backlog/stories/STORY-038-kafka-message-key-capture.md`
+> Related: `api/v1alpha1/flowrun_types.go`, `internal/gateway/kafka/handler.go`, `docs/api/trigger.md`
 
 ## Problem
 

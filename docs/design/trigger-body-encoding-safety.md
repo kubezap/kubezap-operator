@@ -2,11 +2,11 @@
 
 > Status: Approved
 > Date: 2026-09-19
-> Related: `api/v1alpha1/flowrun_types.go`, `internal/gateway/webhook/handler.go`, `internal/gateway/kafka/handler.go`, `docs/api/trigger.md`, `docs/design/kafka-message-key-capture.md`, `planning/backlog/follow-ups.md`
+> Related: `api/v1alpha1/flowrun_types.go`, `internal/gateway/webhook/handler.go`, `internal/gateway/kafka/handler.go`, `docs/api/trigger.md`, `docs/design/kafka-message-key-capture.md`
 
 ## Problem
 
-`TriggerData.Body` is populated via a naive `string(payload)` conversion in both `internal/gateway/webhook/handler.go` and `internal/gateway/kafka/handler.go`, with no UTF-8 safeguard. A non-UTF-8 binary payload (common for Kafka — Avro/Protobuf/schema-registry-encoded messages; possible for webhooks with a binary content type) is silently corrupted: `encoding/json`'s string marshaling replaces invalid byte sequences with `U+FFFD` when the FlowRun is written to etcd, so the payload a Flow step later reads via `$(trigger.body)` is not the payload that was actually received. `BodyTruncated` covers oversized-body truncation only; it does nothing for encoding safety. Surfaced during `/adr` for STORY-038 (`docs/design/kafka-message-key-capture.md`), which deliberately avoided repeating this exact pattern for the new `Key` field.
+`TriggerData.Body` is populated via a naive `string(payload)` conversion in both `internal/gateway/webhook/handler.go` and `internal/gateway/kafka/handler.go`, with no UTF-8 safeguard. A non-UTF-8 binary payload (common for Kafka — Avro/Protobuf/schema-registry-encoded messages; possible for webhooks with a binary content type) is silently corrupted: `encoding/json`'s string marshaling replaces invalid byte sequences with `U+FFFD` when the FlowRun is written to etcd, so the payload a Flow step later reads via `$(trigger.body)` is not the payload that was actually received. `BodyTruncated` covers oversized-body truncation only; it does nothing for encoding safety. Surfaced during `/adr` for `docs/design/kafka-message-key-capture.md`, which deliberately avoided repeating this exact pattern for the new `Key` field.
 
 ## Constraints
 

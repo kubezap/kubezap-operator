@@ -116,10 +116,13 @@ func (h *Handler) ServeExecute(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(ctx, time.Duration(timeoutSecs)*time.Second)
 	defer cancel()
 
-	// SSRF check — defence-in-depth: the controller also checks before sending.
-	// When AllowClusterInternal is true the in-cluster hostname check and
-	// RFC1918 CIDRs are bypassed (dev/test only).
-	if err := checkSSRF(ctx, req.URL, h.BlockedCIDRs, h.AllowClusterInternal); err != nil {
+	// SSRF pre-flight check — defence-in-depth: the controller also checks
+	// before sending. This only validates structural properties (hostname
+	// present, .svc.cluster.local policy) for a fast, clear error before any
+	// network I/O. The actual DNS-resolution-and-CIDR-check step happens once,
+	// at dial time, in Handler.dialContext (installed on the transport built by
+	// httpClient below) — see checkSSRFPreflight's doc comment for why.
+	if err := checkSSRFPreflight(req.URL, h.AllowClusterInternal); err != nil {
 		resp := ExecuteResponse{
 			Error: "ssrf_blocked: " + err.Error(),
 		}
@@ -265,14 +268,82 @@ func (h *Handler) httpClient(req ExecuteRequest) (*http.Client, error) {
 
 	transport := &http.Transport{
 		TLSClientConfig: tlsConfig,
-		// Use sensible connection timeouts to avoid goroutine leaks.
-		DialContext: (&net.Dialer{
-			Timeout:   30 * time.Second,
-			KeepAlive: 30 * time.Second,
-		}).DialContext,
+		// dialContext performs SSRF validation itself and dials the specific
+		// validated address — see its doc comment. It replaces a plain
+		// net.Dialer.DialContext so that every connection this Transport
+		// establishes (including redirect-triggered ones) is validated at the
+		// moment it is actually dialed, with no separate, re-resolvable
+		// pre-flight check for an attacker to race.
+		DialContext:         h.dialContext,
 		TLSHandshakeTimeout: 10 * time.Second,
 	}
 	return &http.Client{Transport: transport}, nil
+}
+
+// rawDialContext performs the actual network connection once a target
+// address has been validated. It is a package variable — rather than a
+// net.Dialer{} literal inlined into dialContext — so tests can inject a fake
+// dialer to record/observe dial targets (and avoid real network I/O)
+// deterministically. Production code never reassigns this; only *_test.go
+// files in this package do.
+var rawDialContext = (&net.Dialer{
+	Timeout:   30 * time.Second,
+	KeepAlive: 30 * time.Second,
+}).DialContext
+
+// dialContext is installed as the executor's per-request http.Transport's
+// DialContext (see httpClient above). net/http's Transport calls this for
+// every TCP connection it establishes to serve a request — the initial
+// connection and any connection triggered by following a redirect to a
+// different host — so performing SSRF validation here, rather than only
+// once before the request is built, means there is exactly one DNS
+// resolution per connection and it is always the one that gets checked. This
+// closes the DNS-rebinding TOCTOU window structurally: there is no window
+// between "resolve and validate" and "resolve again and connect" for a
+// low-TTL DNS answer to exploit, because both steps use the same resolution.
+//
+// TLS certificate hostname verification is unaffected by pinning the dial to
+// a specific validated IP: net/http's Transport derives the TLS ServerName
+// from addr's original hostname (the connectMethod's target, populated
+// before dialContext runs), not from the net.Conn this function returns or
+// its remote address. Verification therefore continues to check the
+// hostname the caller configured, never the pinned IP.
+//
+// AllowClusterInternal scoping mirrors checkSSRFPreflight: it bypasses
+// validation only for hostnames recognized as in-cluster services (the
+// ".svc.cluster.local" suffix), never for IP literals or other hostnames.
+// This re-check is necessary here (not just in ServeExecute's pre-flight)
+// because a redirect can target a .svc.cluster.local hostname that the
+// original request URL never mentioned.
+func (h *Handler) dialContext(ctx context.Context, network, addr string) (net.Conn, error) {
+	host, port, err := net.SplitHostPort(addr)
+	if err != nil {
+		return nil, fmt.Errorf("ssrf_blocked: invalid dial address %q: %v", addr, err)
+	}
+
+	isClusterInternal := strings.HasSuffix(host, ".svc.cluster.local") ||
+		strings.HasSuffix(host, ".svc.cluster.local.")
+
+	switch {
+	case isClusterInternal && h.AllowClusterInternal:
+		// Bypass CIDR validation only for this in-cluster hostname (its
+		// ClusterIP legitimately falls in RFC1918 space); still resolve and
+		// dial it through the normal path.
+		return rawDialContext(ctx, network, addr)
+	case isClusterInternal:
+		return nil, fmt.Errorf("ssrf_blocked: requests to in-cluster service endpoints (.svc.cluster.local) are not permitted from HTTP steps; use a plugin Integration instead")
+	}
+
+	validated, err := resolveAndValidate(ctx, host, h.BlockedCIDRs)
+	if err != nil {
+		return nil, fmt.Errorf("ssrf_blocked: %v", err)
+	}
+
+	// Dial the specific validated address directly rather than the original
+	// hostname, so the connection cannot be re-resolved to a different,
+	// unvalidated address between validation and connect.
+	pinned := net.JoinHostPort(validated[0].String(), port)
+	return rawDialContext(ctx, network, pinned)
 }
 
 // classifyTransportError maps a net/http transport error to an error-prefix string.
@@ -281,6 +352,18 @@ func (h *Handler) classifyTransportError(err error) string {
 		return ""
 	}
 	msg := err.Error()
+
+	// Dial-time SSRF validation failures (from dialContext) are surfaced as a
+	// distinguishable "ssrf_blocked:"-prefixed error, matching the contract
+	// ServeExecute's pre-flight check already uses. This is checked first,
+	// ahead of the net.OpError/timeout classification below, because
+	// net/http's Transport wraps a DialContext error in its own error types
+	// (e.g. *net.OpError) on the way up through client.Do — the ssrf_blocked
+	// message text survives that wrapping, but its type does not, so we match
+	// on the message rather than relying on errors.As for a specific type.
+	if idx := strings.Index(msg, "ssrf_blocked:"); idx >= 0 {
+		return msg[idx:]
+	}
 
 	// Context deadline / timeout.
 	if errors.Is(err, context.DeadlineExceeded) {

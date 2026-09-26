@@ -109,33 +109,34 @@ func ParseCIDRList(extraCIDRs string) ([]*net.IPNet, error) {
 	return result, nil
 }
 
-// checkSSRF validates that rawURL is safe to connect to from an HTTP step.
-// It rejects:
-//   - URLs whose hostname ends in ".svc.cluster.local" (in-cluster service endpoints)
-//   - URLs that resolve to any IP in the blocked CIDR list
+// checkSSRFPreflight validates the structural properties of rawURL that can
+// be checked before any network I/O: that it has a hostname at all, and the
+// ".svc.cluster.local" in-cluster-service policy (reject unless
+// allowClusterInternal). It deliberately does NOT resolve DNS or check the
+// blocked-CIDR list — that step happens exactly once, at dial time, via
+// resolveAndValidate (called from Handler.dialContext). Splitting it this way
+// closes a DNS-rebinding TOCTOU gap that existed when this function also did
+// the resolve-and-check: it validated a hostname's resolved address here,
+// then net/http's Transport independently re-resolved the same hostname to
+// actually connect, so a low-TTL DNS answer could return a safe address for
+// this check and a blocked one for the real connection moments later. See
+// docs/design/ssrf-dns-rebinding-transport-fix.md.
 //
-// blockedCIDRs defaults to defaultSSRFBlockedCIDRs when nil. Pass a
-// non-nil slice (constructed via ParseCIDRList) to add operator-configured ranges.
-//
-// allowClusterInternal disables the .svc.cluster.local hostname rejection *and* the
-// CIDR blocklist, but only for targets recognized as in-cluster services (the
-// ".svc.cluster.local" suffix) — such a Service's ClusterIP legitimately falls inside
-// the RFC1918 ranges this function otherwise blocks, so the CIDR check must be skipped
-// for it too, or the bypass would be a no-op. It does NOT weaken the CIDR check for any
-// other target: an IP literal or external hostname (e.g. the 169.254.169.254 cloud
-// metadata address) is blocked regardless of allowClusterInternal. This keeps the flag
-// scoped to "let Flow steps reach in-cluster services" rather than "disable SSRF
-// protection," so a single dev/test flag can't simultaneously be required to unblock
-// in-cluster test fixtures (like Mockoon) and be relied on to still block the metadata
-// endpoint from a sibling test.
-//
-// DNS resolution uses the provided context for timeout control. Callers should
-// ensure ctx has a reasonable deadline to prevent long DNS waits.
-func checkSSRF(ctx context.Context, rawURL string, blockedCIDRs []*net.IPNet, allowClusterInternal bool) error {
-	if blockedCIDRs == nil {
-		blockedCIDRs = defaultSSRFBlockedCIDRs
-	}
-
+// allowClusterInternal disables the .svc.cluster.local hostname rejection,
+// but only for targets recognized as in-cluster services (the
+// ".svc.cluster.local" suffix). It does NOT weaken validation for any other
+// target: an IP literal or external hostname (e.g. the 169.254.169.254 cloud
+// metadata address) is still blocked at dial time regardless of
+// allowClusterInternal. This keeps the flag scoped to "let Flow steps reach
+// in-cluster services" rather than "disable SSRF protection," so a single
+// dev/test flag can't simultaneously be required to unblock in-cluster test
+// fixtures (like Mockoon) and be relied on to still block the metadata
+// endpoint from a sibling test. Handler.dialContext re-applies this same
+// ".svc.cluster.local" scoping at dial time (see its doc comment) since every
+// connection — including redirect-triggered ones to a possibly different
+// host — goes through dialContext, not just the original request URL checked
+// here.
+func checkSSRFPreflight(rawURL string, allowClusterInternal bool) error {
 	parsed, err := url.Parse(rawURL)
 	if err != nil {
 		return fmt.Errorf("SSRF check: invalid URL: %w", err)
@@ -156,28 +157,64 @@ func checkSSRF(ctx context.Context, rawURL string, blockedCIDRs []*net.IPNet, al
 		return fmt.Errorf("SSRF check: requests to in-cluster service endpoints (.svc.cluster.local) are not permitted from HTTP steps; use a plugin Integration instead")
 	}
 
-	// If the hostname is already an IP literal, check it directly.
+	return nil
+}
+
+// lookupIPAddr resolves a hostname to its IP addresses. It is a package
+// variable — rather than a direct net.Resolver{} call inlined into
+// resolveAndValidate — so tests can inject a fake resolver to deterministically
+// simulate DNS-rebinding scenarios (successive lookups of the same hostname
+// returning different addresses) without depending on real DNS or network
+// access. Production code never reassigns this; only *_test.go files in this
+// package do.
+var lookupIPAddr = net.DefaultResolver.LookupIPAddr
+
+// resolveAndValidate resolves hostname (or parses it as an IP literal) and
+// validates every resulting address against blockedCIDRs. It is fail-closed:
+// if ANY address is blocked, the whole hostname is rejected and no addresses
+// are returned — a hostname is only ever treated as safe when every address
+// it resolves to is safe. On success it returns the full validated address
+// set so the caller (Handler.dialContext) can pin the connection to one of
+// them instead of letting the transport re-resolve and potentially connect to
+// a different, unvalidated address.
+//
+// blockedCIDRs defaults to defaultSSRFBlockedCIDRs when nil. Pass a non-nil
+// slice (constructed via ParseCIDRList) to add operator-configured ranges.
+//
+// This is the single resolution+validation path shared by dial-time
+// validation; there is no longer a separate pre-flight resolution, so there
+// is exactly one DNS lookup per connection and it is always the one that
+// gets checked.
+func resolveAndValidate(ctx context.Context, hostname string, blockedCIDRs []*net.IPNet) ([]net.IP, error) {
+	if blockedCIDRs == nil {
+		blockedCIDRs = defaultSSRFBlockedCIDRs
+	}
+
+	// If the hostname is already an IP literal, no resolution is needed.
 	if ip := net.ParseIP(hostname); ip != nil {
 		if blocked, cidr := isBlockedIP(ip, blockedCIDRs); blocked {
-			return fmt.Errorf("SSRF check: target IP %s is in blocked range %s", ip, cidr)
+			return nil, fmt.Errorf("target IP %s is in blocked range %s", ip, cidr)
 		}
-		return nil
+		return []net.IP{ip}, nil
 	}
 
-	// Resolve hostname and check every returned address.
-	var resolver net.Resolver
-	addrs, err := resolver.LookupIPAddr(ctx, hostname)
+	addrs, err := lookupIPAddr(ctx, hostname)
 	if err != nil {
 		// Treat DNS failure as a block — we cannot verify safety.
-		return fmt.Errorf("SSRF check: DNS resolution failed for %q: %w", hostname, err)
+		return nil, fmt.Errorf("DNS resolution failed for %q: %w", hostname, err)
+	}
+	if len(addrs) == 0 {
+		return nil, fmt.Errorf("DNS resolution for %q returned no addresses", hostname)
 	}
 
+	validated := make([]net.IP, 0, len(addrs))
 	for _, addr := range addrs {
 		if blocked, cidr := isBlockedIP(addr.IP, blockedCIDRs); blocked {
-			return fmt.Errorf("SSRF check: hostname %q resolves to blocked IP %s (range %s)", hostname, addr.IP, cidr)
+			return nil, fmt.Errorf("hostname %q resolves to blocked IP %s (range %s)", hostname, addr.IP, cidr)
 		}
+		validated = append(validated, addr.IP)
 	}
-	return nil
+	return validated, nil
 }
 
 // isBlockedIP returns true and the matching CIDR string if ip falls within any

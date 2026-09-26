@@ -156,6 +156,14 @@ func sourcePortFromRemoteAddr(remoteAddr string) (int, bool) {
 	return port, true
 }
 
+// maxForwardedForHops bounds how many X-Forwarded-For entries realClientIP
+// will walk (right-to-left) before giving up. This is a fixed, hardcoded
+// safety bound against a pathological header forcing unbounded per-request
+// work — it is defense-in-depth, not a trust-model parameter, so it is not
+// exposed as a flag. It is set generously above any realistic proxy chain
+// depth (CDN → WAF → ingress → gateway is 3-4 hops).
+const maxForwardedForHops = 32
+
 // realClientIP extracts the client IP, honoring X-Forwarded-For/X-Real-IP only
 // when the immediate TCP peer (r.RemoteAddr) is itself within trustedProxies.
 // This matters for more than logging: authenticateRequest's ipAllowlist case
@@ -166,9 +174,23 @@ func sourcePortFromRemoteAddr(remoteAddr string) (int, bool) {
 //
 // When trustedProxies is empty (the default), the headers are never consulted
 // and r.RemoteAddr is always returned. When non-empty and the peer is trusted,
-// the right-most X-Forwarded-For entry is used — the address the trusted hop
-// itself observed, which a client further down the chain cannot overwrite (it
-// can only prepend to the list, which appends rather than replaces).
+// X-Forwarded-For is walked right-to-left: each entry is popped as long as it
+// is itself within trustedProxies (i.e. it's a hop we trust, appended by that
+// hop's own peer, so we keep looking further left for the address that hop
+// observed), stopping at — and returning — the first entry that is NOT within
+// trustedProxies. This supports multi-hop chains (CDN → WAF → ingress →
+// gateway) where every intermediate hop is itself a trusted proxy: see
+// docs/design/webhook-gateway-multihop-trusted-proxy.md. If every entry
+// examined (up to maxForwardedForHops) is itself trusted, the left-most
+// entry examined is returned, since there is nothing further left within the
+// bounded walk to trust it more than that.
+//
+// For a single trusted hop (the pre-existing, still-default-shaped
+// deployment) this degenerates to exactly the old behavior: the right-most
+// entry is the real client's address as the trusted hop observed it, is not
+// itself in trustedProxies, and so is returned on the walk's first step — a
+// client further down the chain cannot overwrite it (it can only prepend to
+// the list, which appends rather than replaces).
 func realClientIP(r *http.Request, trustedProxies []*net.IPNet) string {
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
@@ -181,8 +203,25 @@ func realClientIP(r *http.Request, trustedProxies []*net.IPNet) string {
 
 	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
 		parts := strings.Split(xff, ",")
-		if last := strings.TrimSpace(parts[len(parts)-1]); last != "" {
-			return last
+
+		hops := len(parts)
+		if hops > maxForwardedForHops {
+			hops = maxForwardedForHops
+		}
+
+		leftMost := ""
+		for i := 0; i < hops; i++ {
+			entry := strings.TrimSpace(parts[len(parts)-1-i])
+			if entry == "" {
+				continue
+			}
+			leftMost = entry
+			if !isTrustedProxy(entry, trustedProxies) {
+				return entry
+			}
+		}
+		if leftMost != "" {
+			return leftMost
 		}
 	}
 	if xri := r.Header.Get("X-Real-IP"); xri != "" {

@@ -2,7 +2,7 @@
 
 > Status: Approved
 > Date: 2026-09-19
-> Related: `.github/workflows/release.yml`, `SECURITY.md`, `planning/backlog/stories/STORY-036-container-image-signing-provenance.md`
+> Related: `.github/workflows/release.yml`, `SECURITY.md`
 
 ## Problem
 

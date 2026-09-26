@@ -537,7 +537,11 @@ func (r *IntegrationReconciler) reconcileKafkaGateway(ctx context.Context, integ
 	// Ensure Role (shared kubezap-gateway Role).
 	kafkaGatewayRules := []rbacv1.PolicyRule{
 		{APIGroups: []string{apiGroupAutomation}, Resources: []string{resourceTriggers}, Verbs: []string{verbGet, verbList, verbWatch}},
-		{APIGroups: []string{apiGroupAutomation}, Resources: []string{resourceIntegrations}, Verbs: []string{verbGet}},
+		// list/watch (not just get) let the gateway notice an Integration's
+		// secretRef being repointed to a different Secret without the
+		// referencing Trigger itself being touched — see
+		// docs/design/integration-secretref-change-detection.md.
+		{APIGroups: []string{apiGroupAutomation}, Resources: []string{resourceIntegrations}, Verbs: []string{verbGet, verbList, verbWatch}},
 		{APIGroups: []string{apiGroupAutomation}, Resources: []string{resourceFlowRuns}, Verbs: []string{verbCreate}},
 		// Required to resolve Integration SASL/TLS secrets, and to watch them so a
 		// rotated credential is picked up without waiting for the Trigger or
@@ -911,7 +915,11 @@ func (r *IntegrationReconciler) reconcileAmqpGateway(ctx context.Context, integr
 	// Ensure Role (shared kubezap-gateway Role).
 	amqpGatewayRules := []rbacv1.PolicyRule{
 		{APIGroups: []string{apiGroupAutomation}, Resources: []string{resourceTriggers}, Verbs: []string{verbGet, verbList, verbWatch}},
-		{APIGroups: []string{apiGroupAutomation}, Resources: []string{resourceIntegrations}, Verbs: []string{verbGet}},
+		// list/watch (not just get) let the gateway notice an Integration's
+		// secretRef being repointed to a different Secret without the
+		// referencing Trigger itself being touched — see
+		// docs/design/integration-secretref-change-detection.md.
+		{APIGroups: []string{apiGroupAutomation}, Resources: []string{resourceIntegrations}, Verbs: []string{verbGet, verbList, verbWatch}},
 		{APIGroups: []string{apiGroupAutomation}, Resources: []string{resourceFlowRuns}, Verbs: []string{verbCreate}},
 		// Required to resolve Integration SASL/TLS secrets, and to watch them so a
 		// rotated credential is picked up without waiting for the Trigger or
@@ -1105,7 +1113,11 @@ func (r *IntegrationReconciler) reconcileNatsGateway(ctx context.Context, integr
 	// Ensure Role (shared kubezap-gateway Role).
 	natsGatewayRules := []rbacv1.PolicyRule{
 		{APIGroups: []string{apiGroupAutomation}, Resources: []string{resourceTriggers}, Verbs: []string{verbGet, verbList, verbWatch}},
-		{APIGroups: []string{apiGroupAutomation}, Resources: []string{resourceIntegrations}, Verbs: []string{verbGet}},
+		// list/watch (not just get) let the gateway notice an Integration's
+		// secretRef being repointed to a different Secret without the
+		// referencing Trigger itself being touched — see
+		// docs/design/integration-secretref-change-detection.md.
+		{APIGroups: []string{apiGroupAutomation}, Resources: []string{resourceIntegrations}, Verbs: []string{verbGet, verbList, verbWatch}},
 		{APIGroups: []string{apiGroupAutomation}, Resources: []string{resourceFlowRuns}, Verbs: []string{verbCreate}},
 		// Required to resolve Integration SASL/TLS secrets, and to watch them so a
 		// rotated credential is picked up without waiting for the Trigger or

@@ -58,8 +58,17 @@ type Watcher struct {
 	// secretIndex maps a Secret key to the set of Trigger keys that currently
 	// depend on it (via their Integration's username/password/CA secretRefs).
 	secretIndex *secretindex.Index
-	triggersMu  sync.Mutex
-	triggers    map[types.NamespacedName]*automationv1alpha1.Trigger
+	// integrationIndex maps an Integration key to the set of Trigger keys
+	// whose IntegrationRef currently points at it, mirroring secretIndex —
+	// see docs/design/integration-secretref-change-detection.md. This closes
+	// the gap where an Integration's secretRef is repointed to a different
+	// Secret without the referencing Trigger itself being touched: nothing
+	// previously watched Integration objects, so reconcileTrigger (and thus
+	// secretIndex.Update, which would have picked up the new Secret) never
+	// ran again for that Trigger.
+	integrationIndex *secretindex.Index
+	triggersMu       sync.Mutex
+	triggers         map[types.NamespacedName]*automationv1alpha1.Trigger
 }
 
 // NewWatcher creates a new Watcher backed by an informer cache.
@@ -85,12 +94,13 @@ func NewWatcher(c client.Client, cfg *rest.Config, namespace string, log logr.Lo
 	}
 
 	return &Watcher{
-		client:      c,
-		cache:       watchCache,
-		namespace:   namespace,
-		log:         log,
-		secretIndex: secretindex.New(),
-		triggers:    make(map[types.NamespacedName]*automationv1alpha1.Trigger),
+		client:           c,
+		cache:            watchCache,
+		namespace:        namespace,
+		log:              log,
+		secretIndex:      secretindex.New(),
+		integrationIndex: secretindex.New(),
+		triggers:         make(map[types.NamespacedName]*automationv1alpha1.Trigger),
 	}, nil
 }
 
@@ -119,6 +129,17 @@ func (w *Watcher) Start(ctx context.Context) error {
 		UpdateFunc: func(_, newObj interface{}) { w.handleSecretChange(ctx, newObj) },
 	}); err != nil {
 		return fmt.Errorf("adding secret event handler: %w", err)
+	}
+
+	integrationInformer, err := w.cache.GetInformer(ctx, &automationv1alpha1.Integration{})
+	if err != nil {
+		return fmt.Errorf("unable to get integration informer: %w", err)
+	}
+	if _, err := integrationInformer.AddEventHandler(toolscache.ResourceEventHandlerFuncs{
+		AddFunc:    func(obj interface{}) { w.handleIntegrationChange(ctx, obj) },
+		UpdateFunc: func(_, newObj interface{}) { w.handleIntegrationChange(ctx, newObj) },
+	}); err != nil {
+		return fmt.Errorf("adding integration event handler: %w", err)
 	}
 
 	go func() {
@@ -180,6 +201,7 @@ func (w *Watcher) onTriggerDelete(obj interface{}) {
 	delete(w.triggers, key)
 	w.triggersMu.Unlock()
 	w.secretIndex.Remove(key)
+	w.integrationIndex.Remove(key)
 	w.stopSubscription(key)
 }
 
@@ -193,6 +215,7 @@ func (w *Watcher) reconcileTrigger(ctx context.Context, trigger *automationv1alp
 	// Stop subscription if trigger is not an amqp trigger or is disabled.
 	if trigger.Spec.Type != triggerTypeAMQP || trigger.Spec.Amqp == nil || !trigger.Spec.Enabled {
 		w.secretIndex.Remove(key)
+		w.integrationIndex.Remove(key)
 		w.stopSubscription(key)
 		return
 	}
@@ -200,9 +223,15 @@ func (w *Watcher) reconcileTrigger(ctx context.Context, trigger *automationv1alp
 	topic := trigger.Spec.Amqp.Topic
 	routingKey := trigger.Spec.Amqp.RoutingKey
 	integrationName := trigger.Spec.Amqp.IntegrationRef.Name
+	integrationKey := types.NamespacedName{Namespace: trigger.Namespace, Name: integrationName}
+	// Index the intended Integration ref regardless of read success below, so
+	// a Trigger whose Integration doesn't exist yet still gets reprocessed
+	// once it's created, and so a repointed IntegrationRef is picked up on
+	// the next Trigger event even if the old Integration read had failed.
+	w.integrationIndex.Update(key, []types.NamespacedName{integrationKey})
 
 	integration := &automationv1alpha1.Integration{}
-	if err := w.client.Get(ctx, types.NamespacedName{Namespace: trigger.Namespace, Name: integrationName}, integration); err != nil {
+	if err := w.client.Get(ctx, integrationKey, integration); err != nil {
 		w.log.Error(err, "failed to get integration for amqp trigger", "trigger", key, "integration", integrationName)
 		return
 	}
@@ -296,6 +325,38 @@ func (w *Watcher) handleSecretChange(ctx context.Context, obj interface{}) {
 		return
 	}
 	w.log.Info("secret changed, reprocessing dependent triggers", "secret", secretKey, "count", len(affected))
+	for _, triggerKey := range affected {
+		w.triggersMu.Lock()
+		trigger := w.triggers[triggerKey]
+		w.triggersMu.Unlock()
+		if trigger == nil {
+			continue
+		}
+		w.reconcileTrigger(ctx, trigger)
+	}
+}
+
+// handleIntegrationChange reprocesses every Trigger currently known to
+// reference the changed Integration (via its IntegrationRef), using each
+// Trigger's most recently seen object — the same code path a real Trigger
+// spec change takes. This is what closes the stale-credential and
+// stale-Secret-watch gap left by handleSecretChange alone: reconcileTrigger
+// re-resolves credentials from the Integration's (possibly repointed)
+// secretRefs and calls w.secretIndex.Update with the current, complete set,
+// which naturally drops the old Secret and starts tracking the new one as a
+// side effect of running again — see
+// docs/design/integration-secretref-change-detection.md.
+func (w *Watcher) handleIntegrationChange(ctx context.Context, obj interface{}) {
+	integration, ok := obj.(*automationv1alpha1.Integration)
+	if !ok {
+		return
+	}
+	integrationKey := types.NamespacedName{Name: integration.Name, Namespace: integration.Namespace}
+	affected := w.integrationIndex.ObjectsFor(integrationKey)
+	if len(affected) == 0 {
+		return
+	}
+	w.log.Info("integration changed, reprocessing dependent triggers", "integration", integrationKey, "count", len(affected))
 	for _, triggerKey := range affected {
 		w.triggersMu.Lock()
 		trigger := w.triggers[triggerKey]

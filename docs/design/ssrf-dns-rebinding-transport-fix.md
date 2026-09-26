@@ -1,13 +1,13 @@
 # Close the SSRF DNS-rebinding gap at the HTTP transport level
 
 > Status: Draft
-> Related: `internal/executor/http/ssrf.go`, `internal/executor/http/handler.go`, `docs/design/2026-09-11-executor-egress-networkpolicy.md`, `STORY-031`
+> Related: `internal/executor/http/ssrf.go`, `internal/executor/http/handler.go`, `docs/design/executor-egress-networkpolicy.md`, `STORY-031`
 
 ## 1. Problem Statement
 
 The HTTP executor's SSRF defense (`checkSSRF` in `internal/executor/http/ssrf.go`) resolves the target hostname, validates every resolved address against the blocked-CIDR list, and — if that passes — hands the original URL to a standard `http.Client`. The `http.Transport` then performs its *own*, independent DNS resolution when it actually dials the connection. An attacker who controls the target hostname's DNS (a very short TTL record) can return a safe address for the validation lookup and a blocked/internal address for the connection lookup a moment later — classic DNS rebinding. This defeats the software check entirely; it never blocks the address that's actually connected to.
 
-Today this gap is partially covered by a NetworkPolicy egress rule (`docs/design/2026-09-11-executor-egress-networkpolicy.md`) that blocks the same CIDR ranges at the network layer — but only on a CNI that enforces NetworkPolicy egress (Calico, Cilium, most managed-Kubernetes defaults). On a non-enforcing CNI (plain Flannel — notably **the default CNI on k3s, this project's own documented local/dev/test platform**), the software check is the only defense, and rebinding defeats it completely.
+Today this gap is partially covered by a NetworkPolicy egress rule (`docs/design/executor-egress-networkpolicy.md`) that blocks the same CIDR ranges at the network layer — but only on a CNI that enforces NetworkPolicy egress (Calico, Cilium, most managed-Kubernetes defaults). On a non-enforcing CNI (plain Flannel — notably **the default CNI on k3s, this project's own documented local/dev/test platform**), the software check is the only defense, and rebinding defeats it completely.
 
 This is not purely a "trusted Flow author" risk either: HTTP step URLs support `$(trigger.body.<field>)` interpolation (`docs/api/flow.md`), so a Flow that builds part of its request URL from webhook payload data (a "callback URL" pattern) lets an unauthenticated external caller influence the target hostname. Combined with a non-enforcing CNI, that's a remote, unauthenticated path to internal-network/metadata-endpoint access.
 

@@ -51,9 +51,9 @@ helm install kubezap oci://ghcr.io/kubezap/charts/kubezap-operator \
 
 See [docs/overview.md](docs/overview.md#helm-recommended) for install-mode options (OwnNamespace, SingleNamespace, MultiNamespace) and image-override examples.
 
-### OperatorHub / OLM _(submission pending)_
+### OperatorHub / OLM
 
-Install via the OpenShift OperatorHub catalog or the community OperatorHub.
+KubeZap is listed on the [community OperatorHub](https://operatorhub.io/operator/kubezap). Install via the OperatorHub.io "Install" button (generates the Subscription for your target namespace), or from the OpenShift console's OperatorHub tab by searching for "KubeZap".
 
 ### Local development
 

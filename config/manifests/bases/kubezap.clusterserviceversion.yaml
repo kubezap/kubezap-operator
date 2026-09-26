@@ -217,8 +217,8 @@ spec:
     default RBAC — users must grant them explicitly via an additional ClusterRole or Role.
   displayName: KubeZap
   icon:
-  - base64data: iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAIAAAAlC+aJAAAAv0lEQVR42u3ayw2AMAyD4Z4ZgCNnhmAC5mAuVoUZgNhJxC9lAH881MrtWLaj9QwAAAIB07y2GAAAAAAAkAHYz8s5AADoMAAAAEhdyBoDer+Bxp9Q739AsR6bALrdhAOg2wg5ANL0coA0uhxgSK8CeKKrAM70wQBz9GBASvoYQFb0GEBu+k8AaddQvdjKbOaKPPiXgFLRHwMKpjcBqrTTBdNrAeXOB+qUWQAAAOCICQAArhoAAAAAgBbAzV0APwTc+OiGxC5YJyAAAAAASUVORK5CYII=
-    mediatype: image/png
+  - base64data: PD94bWwgdmVyc2lvbj0iMS4wIiBlbmNvZGluZz0iVVRGLTgiPz4KPHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNTYgMjU2IiByb2xlPSJpbWciIGFyaWEtbGFiZWxsZWRieT0idGl0bGUgZGVzYyI+CiAgPHRpdGxlIGlkPSJ0aXRsZSI+S3ViZVphcCBsb2dvPC90aXRsZT4KICA8ZGVzYyBpZD0iZGVzYyI+S3ViZVphcCBLdWJlcm5ldGVzLW5hdGl2ZSB3b3JrZmxvdyBhdXRvbWF0aW9uIGxvZ28uPC9kZXNjPgogIDxkZWZzPgo8c3ltYm9sIGlkPSJrdWJlemFwLWljb24iIHZpZXdCb3g9IjAgMCAyNTYgMjU2Ij4KICA8IS0tIHRvcCBmYWNlIC0tPgogIDxwYXRoIGZpbGw9IiM0RjcxOEEiIGQ9Ik0xMjggMTggMjMyIDc4IDEyOCAxMzggMjQgNzhaIi8+CiAgPCEtLSBsZWZ0IGZhY2UgLS0+CiAgPHBhdGggZmlsbD0iIzI0MzQ0NyIgZD0iTTI0IDc4IDEyOCAxMzggMTI4IDIzOCAyNCAxNzhaIi8+CiAgPCEtLSByaWdodCBmYWNlIC0tPgogIDxwYXRoIGZpbGw9IiM0RjcxOEEiIGQ9Ik0yMzIgNzggMTI4IDEzOCAxMjggMjM4IDIzMiAxNzhaIi8+CiAgPCEtLSBsaWdodG5pbmcgYm9sdCAtLT4KICA8cGF0aCBmaWxsPSIjQzg5QjNDIiBkPSJNMTQzIDM0IDYyIDE1MWg1OGwtMjIgNzEgOTYtMTMwaC01OVoiLz4KICA8IS0tIHN1YnRsZSBzZXBhcmF0b3JzIGFyb3VuZCB0aGUgYm9sdC9jdWJlIC0tPgogIDxwYXRoIGZpbGw9IiNGRkZGRkYiIGQ9Ik0xNDMgMzQgMTUxIDM5IDc4IDE0NWg1MGwtMiA4SDYyWiIgb3BhY2l0eT0iLjkyIi8+CiAgPHBhdGggZmlsbD0iI0ZGRkZGRiIgZD0ibTE5NCA5Mi05IDEyaC01NGw3LTEwaDU5WiIgb3BhY2l0eT0iLjkyIi8+CiAgPHBhdGggZmlsbD0iI0ZGRkZGRiIgZD0ibTk4IDIyMiAxMC0yOSA4IDAtMTIgMzhaIiBvcGFjaXR5PSIuOTIiLz4KPC9zeW1ib2w+CjwvZGVmcz4KICAKICA8dXNlIGhyZWY9IiNrdWJlemFwLWljb24iIHg9IjAiIHk9IjAiIHdpZHRoPSIyNTYiIGhlaWdodD0iMjU2Ii8+Cgo8L3N2Zz4K
+    mediatype: image/svg+xml
   install:
     spec:
       clusterPermissions:
@@ -541,9 +541,7 @@ spec:
   - operator
   links:
   - name: KubeZap Documentation
-    url: https://github.com/kubezap/kubezap-operator/docs
-  - name: Source Code
-    url: https://github.com/kubezap/kubezap-operator
+    url: https://github.com/kubezap/kubezap-operator/tree/main/docs
   maintainers:
   - email: 6481864+Borfswitch@users.noreply.github.com
     name: KubeZap Maintainers

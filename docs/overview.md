@@ -622,9 +622,9 @@ helm install kubezap oci://ghcr.io/kubezap/charts/kubezap-operator \
   --set gatewayImages.webhook=ghcr.io/kubezap/webhook-gateway:latest
 ```
 
-### OperatorHub / OLM _(submission in progress)_
+### OperatorHub / OLM
 
-Install via the OpenShift OperatorHub catalog or the community OperatorHub. The OLM bundle is validated (`operator-sdk bundle validate`) and passes the OLM scorecard suite. Community-operators PR in progress.
+KubeZap is listed on the [community OperatorHub](https://operatorhub.io/operator/kubezap). Install via the OperatorHub.io "Install" button (generates the Subscription for your target namespace), or from the OpenShift console's OperatorHub tab by searching for "KubeZap".
 
 For a full setup walkthrough including namespace configuration and RBAC see [Getting Started](https://github.com/kubezap/kubezap-operator/tree/main/examples/order-router).
 
@@ -668,7 +668,7 @@ make build-cli   # produces bin/kubezap
 | Platform         | Status                                                        |
 | ---------------- | ------------------------------------------------------------- |
 | Kubernetes 1.27+ | Supported                                                     |
-| OpenShift 4.12+  | Supported (tested on OpenShift 4.12+; OLM bundle in progress) |
+| OpenShift 4.12+  | Supported (tested on OpenShift 4.12+; OLM bundle listed on OperatorHub) |
 | k3s              | Tested (local development)                                    |
 | EKS / GKE / AKS  | Compatible (no cloud-specific dependencies)                   |
 
@@ -676,7 +676,7 @@ make build-cli   # produces bin/kubezap
 
 ## Roadmap
 
-- [ ] OperatorHub community-operators PR — submission in progress
+- [x] OperatorHub community-operators PR — merged, listed on [OperatorHub.io](https://operatorhub.io/operator/kubezap)
 - [ ] Plugin marketplace and integration catalog
 
 See [CHANGELOG.md](../CHANGELOG.md) for everything already implemented.

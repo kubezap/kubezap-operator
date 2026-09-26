@@ -1,7 +1,7 @@
 # Surface Gateway Credential-Resolution Failures as a Kubernetes-Visible Signal
 
 > Status: Draft
-> Related: `internal/gateway/{kafka,amqp,nats}/watcher.go`, `api/v1alpha1/trigger_types.go`, `internal/controller/trigger_controller.go`, `internal/controller/integration_controller.go`, `STORY-067`
+> Related: `internal/gateway/{kafka,amqp,nats}/watcher.go`, `api/v1alpha1/trigger_types.go`, `internal/controller/trigger_controller.go`, `internal/controller/integration_controller.go`
 
 ## 1. Problem Statement
 
@@ -14,7 +14,7 @@ Also confirmed: **Kubernetes Events aren't used anywhere in this codebase today*
 ## 2. Constraints
 
 - No CRD schema change to `Trigger` itself — `TriggerStatus.Conditions []metav1.Condition` already exists, unpopulated; reuse it rather than adding fields.
-- Minimize new RBAC on the three broker gateway Roles specifically — these already run with intentionally narrow, recently-audited grants (STORY-053's RBAC-completeness audit found 0 gaps; STORY-033 this session justified each new grant individually rather than defaulting to broad access). A direct `triggers/status: patch` (or worse, `triggers: update/patch` for an annotation-based signal, since gateways currently have no write verb on `triggers` at all) would be a materially larger widening than anything granted this session.
+- Minimize new RBAC on the three broker gateway Roles specifically — these already run with intentionally narrow, recently-audited grants (a prior RBAC-completeness audit found 0 gaps; a recent Integration-informer addition justified its new grant individually rather than defaulting to broad access). A direct `triggers/status: patch` (or worse, `triggers: update/patch` for an annotation-based signal, since gateways currently have no write verb on `triggers` at all) would be a materially larger widening than anything granted recently.
 - Must not conflate this with webhook gateway auth failures — a different failure class (see Rejected Alternatives) already covered by structured access logs + Prometheus metrics (`docs/guides/observability.md`).
 - Must not introduce a high-frequency signal — whatever mechanism is chosen must fit a low-frequency, persists-until-fixed failure (credential resolution breaks once, stays broken until the operator fixes the Secret/Integration), not a per-event signal.
 - Namespace-scoped only — no ClusterRole, consistent with every other RBAC grant in this project (`docs/design/namespace-scoped-watch-modes-only.md`).

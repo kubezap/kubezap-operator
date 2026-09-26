@@ -1,7 +1,7 @@
 # Detect an Integration's `secretRef` Being Repointed to a Different Secret
 
 > Status: Draft
-> Related: `internal/gateway/{kafka,amqp,nats}/watcher.go`, `internal/gateway/secretindex`, `internal/controller/integration_controller.go`, `docs/design/secret-rotation-watches.md`, `STORY-033`
+> Related: `internal/gateway/{kafka,amqp,nats}/watcher.go`, `internal/gateway/secretindex`, `internal/controller/integration_controller.go`, `docs/design/secret-rotation-watches.md`
 
 ## 1. Problem Statement
 
@@ -31,7 +31,7 @@ A related, prerequisite gap: the kafka/amqp/nats gateway Roles (`internal/contro
 
 **Build a new, Integration-specific reverse-index type instead of reusing `secretindex.Index`.** Rejected: `secretindex.Index`'s implementation has no Secret-specific types anywhere — it's `map[NamespacedName]map[NamespacedName]struct{}` in both directions. A second instance of the same type, keyed by Integration instead of Secret, is a direct fit; a new type would duplicate ~90 lines of already-tested concurrency-safe code for no behavioral difference. (The package's doc comment and name are Secret-specific; renaming the package to something more generic like `revindex` was considered and rejected as unnecessary churn to every existing caller for a cosmetic improvement — a one-line doc-comment update noting the second use is enough.)
 
-**Also fix the "missing/invalid Secret after repoint is only logged, not surfaced as a Condition" gap in this same story.** Rejected as scope creep: that's a pre-existing limitation of *all* credential-resolution failures in these watchers (confirmed via investigation above), not specific to the repoint scenario this story targets, and fixing it means deciding how a gateway process (which today has no RBAC to patch Trigger/status) would surface a Condition at all — a separate design question. Logged as a candidate follow-up in `planning/backlog/follow-ups.md` instead.
+**Also fix the "missing/invalid Secret after repoint is only logged, not surfaced as a Condition" gap in this same story.** Rejected as scope creep: that's a pre-existing limitation of *all* credential-resolution failures in these watchers (confirmed via investigation above), not specific to the repoint scenario this story targets, and fixing it means deciding how a gateway process (which today has no RBAC to patch Trigger/status) would surface a Condition at all — a separate design question. Logged as a candidate follow-up in the project's backlog instead.
 
 **Poll `Integration` objects periodically instead of adding a third informer.** Rejected on the same grounds `secret-rotation-watches.md` already rejected polling for Secrets: strictly worse on every axis given a working informer-based pattern already exists on the exact same cache to extend.
 

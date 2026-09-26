@@ -1,7 +1,7 @@
 # Controller-Side mTLS for the Plugin Publisher Channel
 
 > Status: Draft
-> Related: `docs/guides/plugin-security.md`, `docs/api/plugin-contract.md`, `internal/certutil`, `internal/controller/executor_reconciler.go` (mTLS precedent), `docs/design/security-architecture.md`, `STORY-034`
+> Related: `docs/guides/plugin-security.md`, `docs/api/plugin-contract.md`, `internal/certutil`, `internal/controller/executor_reconciler.go` (mTLS precedent), `docs/design/security-architecture.md`
 
 ## 1. Problem Statement
 

@@ -1,7 +1,7 @@
 # Multi-Hop Trusted-Proxy Chain Support for the Webhook Gateway
 
 > Status: Draft
-> Related: `internal/gateway/webhook/{handler,accesslog}.go`, `docs/design/webhook-gateway-trust-boundary.md`, `docs/guides/webhook-security.md`, `STORY-032`
+> Related: `internal/gateway/webhook/{handler,accesslog}.go`, `docs/design/webhook-gateway-trust-boundary.md`, `docs/guides/webhook-security.md`
 
 ## 1. Problem Statement
 
@@ -33,7 +33,7 @@
 ## 5. Tradeoffs
 
 - **Only the immediate TCP peer is structurally verified** (it's the actual socket connection); every other hop in the chain is trusted purely because the header text at that position falls inside a `trustedProxies` CIDR. This is the same limitation every non-mTLS trusted-proxy implementation has (nginx's `realip` module, Express's `trust proxy` list, etc.) — a compromised or misconfigured immediate peer could fabricate intermediate entries that happen to match the trusted CIDR set. Not closeable without the rejected mTLS alternative's infrastructure cost.
-- **An operator whose `--trusted-proxy-cidrs` is scoped more broadly than their actual proxy infrastructure risks the walk skipping past a legitimate client's real IP** if it happens to fall inside that range. This risk already exists in the single-hop design (STORY-032 doesn't introduce it) but grows slightly with chain-walking, since there are more positions in the header where a too-broad CIDR can cause an incorrect skip. Mitigation is operational, not algorithmic: `docs/guides/webhook-security.md` should keep emphasizing scoping the flag tightly to known proxy IPs, not broad internal ranges.
+- **An operator whose `--trusted-proxy-cidrs` is scoped more broadly than their actual proxy infrastructure risks the walk skipping past a legitimate client's real IP** if it happens to fall inside that range. This risk already exists in the single-hop design (this change doesn't introduce it) but grows slightly with chain-walking, since there are more positions in the header where a too-broad CIDR can cause an incorrect skip. Mitigation is operational, not algorithmic: `docs/guides/webhook-security.md` should keep emphasizing scoping the flag tightly to known proxy IPs, not broad internal ranges.
 - Marginally more CPU per authenticated/logged request for a long trusted chain (bounded walk, O(hop count), negligible in practice).
 
 ## 6. Final Decision

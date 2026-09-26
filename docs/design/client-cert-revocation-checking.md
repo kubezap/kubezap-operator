@@ -1,7 +1,7 @@
 # Certificate Revocation Checking (CRL) for Verified Webhook Client Certs
 
 > Status: Draft
-> Related: `internal/gateway/webhook/handler.go`, `cmd/webhook-gateway/main.go`, `docs/api/webhookgatewayconfig.md`, `docs/guides/webhook-security.md`, `STORY-035`
+> Related: `internal/gateway/webhook/handler.go`, `cmd/webhook-gateway/main.go`, `docs/api/webhookgatewayconfig.md`, `docs/guides/webhook-security.md`
 
 ## 1. Problem Statement
 

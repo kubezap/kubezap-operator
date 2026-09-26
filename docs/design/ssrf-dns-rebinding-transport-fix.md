@@ -1,7 +1,7 @@
 # Close the SSRF DNS-rebinding gap at the HTTP transport level
 
 > Status: Draft
-> Related: `internal/executor/http/ssrf.go`, `internal/executor/http/handler.go`, `docs/design/executor-egress-networkpolicy.md`, `STORY-031`
+> Related: `internal/executor/http/ssrf.go`, `internal/executor/http/handler.go`, `docs/design/executor-egress-networkpolicy.md`
 
 ## 1. Problem Statement
 
@@ -29,7 +29,7 @@ This is not purely a "trusted Flow author" risk either: HTTP step URLs support `
 
 ## 4. Rejected Alternatives
 
-**Document the CNI-enforcement dependency more prominently and defer implementation.** This was the default option this record was required to weigh seriously (per `STORY-031`'s own notes) given the NetworkPolicy mitigation already covers the common case of an enforcing CNI, at meaningfully lower cost than a transport rewrite. Rejected because the "common case" assumption doesn't hold for this project specifically: k3s — the platform `CLAUDE.md` and `docs/overview.md` document as this project's own supported local/dev/test target — ships Flannel by default, which does not enforce NetworkPolicy egress. Combined with `$(trigger.body.*)` URL interpolation making the attacker-controlled-hostname scenario reachable by an unauthenticated webhook caller (not just a trusted Flow author with RBAC access), deferring leaves a plausible, real-world exploitable path with only a docs-level warning as mitigation. The actual implementation also turned out cheaper than the story's own estimate assumed once the executor's existing per-request `Transport` construction was examined (see Tradeoffs) — the cost side of this tradeoff was overstated when the story was groomed.
+**Document the CNI-enforcement dependency more prominently and defer implementation.** This was the default option this record was explicitly asked to weigh seriously, given the NetworkPolicy mitigation already covers the common case of an enforcing CNI, at meaningfully lower cost than a transport rewrite. Rejected because the "common case" assumption doesn't hold for this project specifically: k3s — the platform `CLAUDE.md` and `docs/overview.md` document as this project's own supported local/dev/test target — ships Flannel by default, which does not enforce NetworkPolicy egress. Combined with `$(trigger.body.*)` URL interpolation making the attacker-controlled-hostname scenario reachable by an unauthenticated webhook caller (not just a trusted Flow author with RBAC access), deferring leaves a plausible, real-world exploitable path with only a docs-level warning as mitigation. The actual implementation also turned out cheaper than initially assumed once the executor's existing per-request `Transport` construction was examined (see Tradeoffs) — the cost side of this tradeoff was overstated at first estimate.
 
 **`http.Client.CheckRedirect`-only revalidation, leaving the transport's own connection-time resolution untouched for the initial request.** Would close the redirect-hop variant of the gap but not the primary reported one: the transport still performs its own unvalidated resolution when dialing the *first* connection after our pre-flight `checkSSRF` passes, so the core rebinding window remains open. Rejected as incomplete.
 

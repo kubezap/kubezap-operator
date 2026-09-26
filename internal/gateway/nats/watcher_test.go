@@ -32,11 +32,11 @@ func newMinimalNatsWatcher(t *testing.T, objs ...client.Object) *Watcher {
 	}
 }
 
-func newNatsUserPassSecret(name, namespace, user, pass string) *corev1.Secret {
+func newNatsUserPassSecret(name, pass string) *corev1.Secret {
 	return &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace},
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "default"},
 		Data: map[string][]byte{
-			"username": []byte(user),
+			"username": []byte("alice"),
 			"password": []byte(pass),
 		},
 	}
@@ -70,7 +70,7 @@ func newNatsTrigger(name, integrationName string) *automationv1alpha1.Trigger {
 }
 
 func TestResolveNatsCredentials_FingerprintChangesWithRotatedSecret(t *testing.T) {
-	secret := newNatsUserPassSecret("nats-creds", "default", "alice", "old-password")
+	secret := newNatsUserPassSecret("nats-creds", "old-password")
 	w := newMinimalNatsWatcher(t, secret)
 	spec := authNatsSpec("nats-creds")
 
@@ -101,7 +101,7 @@ func TestResolveNatsCredentials_FingerprintChangesWithRotatedSecret(t *testing.T
 }
 
 func TestReconcileTrigger_IndexesNatsIntegrationSecrets(t *testing.T) {
-	secret := newNatsUserPassSecret("nats-creds", "default", "alice", "s3cr3t")
+	secret := newNatsUserPassSecret("nats-creds", "s3cr3t")
 	integration := &automationv1alpha1.Integration{
 		ObjectMeta: metav1.ObjectMeta{Name: "nats-integ", Namespace: "default"},
 		Spec:       automationv1alpha1.IntegrationSpec{Nats: authNatsSpec("nats-creds")},
@@ -135,8 +135,8 @@ func TestHandleSecretChange_UnrelatedNatsSecretIgnored(t *testing.T) {
 // Integration informer firing) — and the old Secret must be fully dropped
 // from secretIndex, not just have the new one added alongside it.
 func TestHandleIntegrationChange_RepointedSecretRefDropsOldSecretFromIndex(t *testing.T) {
-	oldSecret := newNatsUserPassSecret("nats-creds-old", "default", "alice", "old-password")
-	newSecret := newNatsUserPassSecret("nats-creds-new", "default", "alice", "new-password")
+	oldSecret := newNatsUserPassSecret("nats-creds-old", "old-password")
+	newSecret := newNatsUserPassSecret("nats-creds-new", "new-password")
 	integration := &automationv1alpha1.Integration{
 		ObjectMeta: metav1.ObjectMeta{Name: "nats-integ", Namespace: "default"},
 		Spec:       automationv1alpha1.IntegrationSpec{Nats: authNatsSpec("nats-creds-old")},
@@ -200,7 +200,7 @@ func TestHandleIntegrationChange_UnrelatedNatsIntegrationIgnored(t *testing.T) {
 }
 
 func TestOnTriggerDelete_RemovesNatsTriggerFromIndex(t *testing.T) {
-	secret := newNatsUserPassSecret("nats-creds", "default", "alice", "s3cr3t")
+	secret := newNatsUserPassSecret("nats-creds", "s3cr3t")
 	integration := &automationv1alpha1.Integration{
 		ObjectMeta: metav1.ObjectMeta{Name: "nats-integ", Namespace: "default"},
 		Spec:       automationv1alpha1.IntegrationSpec{Nats: authNatsSpec("nats-creds")},

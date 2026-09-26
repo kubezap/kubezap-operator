@@ -32,11 +32,11 @@ func newMinimalAmqpWatcher(t *testing.T, objs ...client.Object) *Watcher {
 	}
 }
 
-func newUserPassSecret(name, namespace, user, pass string) *corev1.Secret {
+func newUserPassSecret(name, pass string) *corev1.Secret {
 	return &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace},
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "default"},
 		Data: map[string][]byte{
-			"username": []byte(user),
+			"username": []byte("alice"),
 			"password": []byte(pass),
 		},
 	}
@@ -70,7 +70,7 @@ func newAmqpTrigger(name, integrationName string) *automationv1alpha1.Trigger {
 }
 
 func TestResolveAmqpCredentials_FingerprintChangesWithRotatedSecret(t *testing.T) {
-	secret := newUserPassSecret("amqp-creds", "default", "alice", "old-password")
+	secret := newUserPassSecret("amqp-creds", "old-password")
 	w := newMinimalAmqpWatcher(t, secret)
 	spec := authAmqpSpec("amqp-creds")
 
@@ -98,7 +98,7 @@ func TestResolveAmqpCredentials_FingerprintChangesWithRotatedSecret(t *testing.T
 }
 
 func TestReconcileTrigger_IndexesAmqpIntegrationSecrets(t *testing.T) {
-	secret := newUserPassSecret("amqp-creds", "default", "alice", "s3cr3t")
+	secret := newUserPassSecret("amqp-creds", "s3cr3t")
 	integration := &automationv1alpha1.Integration{
 		ObjectMeta: metav1.ObjectMeta{Name: "amqp-integ", Namespace: "default"},
 		Spec:       automationv1alpha1.IntegrationSpec{Amqp: authAmqpSpec("amqp-creds")},
@@ -133,8 +133,8 @@ func TestHandleSecretChange_UnrelatedAmqpSecretIgnored(t *testing.T) {
 // Integration informer firing) — and the old Secret must be fully dropped
 // from secretIndex, not just have the new one added alongside it.
 func TestHandleIntegrationChange_RepointedSecretRefDropsOldSecretFromIndex(t *testing.T) {
-	oldSecret := newUserPassSecret("amqp-creds-old", "default", "alice", "old-password")
-	newSecret := newUserPassSecret("amqp-creds-new", "default", "alice", "new-password")
+	oldSecret := newUserPassSecret("amqp-creds-old", "old-password")
+	newSecret := newUserPassSecret("amqp-creds-new", "new-password")
 	integration := &automationv1alpha1.Integration{
 		ObjectMeta: metav1.ObjectMeta{Name: "amqp-integ", Namespace: "default"},
 		Spec:       automationv1alpha1.IntegrationSpec{Amqp: authAmqpSpec("amqp-creds-old")},
@@ -201,7 +201,7 @@ func TestHandleIntegrationChange_UnrelatedAmqpIntegrationIgnored(t *testing.T) {
 }
 
 func TestOnTriggerDelete_RemovesAmqpTriggerFromIndex(t *testing.T) {
-	secret := newUserPassSecret("amqp-creds", "default", "alice", "s3cr3t")
+	secret := newUserPassSecret("amqp-creds", "s3cr3t")
 	integration := &automationv1alpha1.Integration{
 		ObjectMeta: metav1.ObjectMeta{Name: "amqp-integ", Namespace: "default"},
 		Spec:       automationv1alpha1.IntegrationSpec{Amqp: authAmqpSpec("amqp-creds")},

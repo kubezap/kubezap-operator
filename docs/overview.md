@@ -624,7 +624,7 @@ helm install kubezap oci://ghcr.io/kubezap/charts/kubezap-operator \
 
 ### OperatorHub / OLM
 
-KubeZap is listed on the [community OperatorHub](https://operatorhub.io/operator/kubezap). Install via the OperatorHub.io "Install" button (generates the Subscription for your target namespace), or from the OpenShift console's OperatorHub tab by searching for "KubeZap".
+KubeZap is listed on the [community OperatorHub](https://operatorhub.io/operator/kubezap) (`k8s-operatorhub/community-operators`, for vanilla Kubernetes). Install via the OperatorHub.io "Install" button, which generates the Subscription for your target namespace.
 
 For a full setup walkthrough including namespace configuration and RBAC see [Getting Started](https://github.com/kubezap/kubezap-operator/tree/main/examples/order-router).
 
@@ -665,12 +665,12 @@ make build-cli   # produces bin/kubezap
 
 ## Compatibility
 
-| Platform         | Status                                                        |
-| ---------------- | ------------------------------------------------------------- |
-| Kubernetes 1.27+ | Supported                                                     |
+| Platform         | Status                                                                  |
+| ---------------- | ----------------------------------------------------------------------- |
+| Kubernetes 1.27+ | Supported                                                               |
 | OpenShift 4.12+  | Supported (tested on OpenShift 4.12+; OLM bundle listed on OperatorHub) |
-| k3s              | Tested (local development)                                    |
-| EKS / GKE / AKS  | Compatible (no cloud-specific dependencies)                   |
+| k3s              | Tested (local development)                                              |
+| EKS / GKE / AKS  | Compatible (no cloud-specific dependencies)                             |
 
 ---
 

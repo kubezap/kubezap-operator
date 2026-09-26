@@ -53,7 +53,7 @@ See [docs/overview.md](docs/overview.md#helm-recommended) for install-mode optio
 
 ### OperatorHub / OLM
 
-KubeZap is listed on the [community OperatorHub](https://operatorhub.io/operator/kubezap). Install via the OperatorHub.io "Install" button (generates the Subscription for your target namespace), or from the OpenShift console's OperatorHub tab by searching for "KubeZap".
+KubeZap is listed on the [community OperatorHub](https://operatorhub.io/operator/kubezap) (`k8s-operatorhub/community-operators`, for vanilla Kubernetes). Install via the OperatorHub.io "Install" button, which generates the Subscription for your target namespace.
 
 ### Local development
 

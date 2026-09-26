@@ -23,19 +23,20 @@ func newMinimalNatsWatcher(t *testing.T, objs ...client.Object) *Watcher {
 	t.Helper()
 	fakeClient := fake.NewClientBuilder().WithScheme(newTestScheme()).WithObjects(objs...).Build()
 	return &Watcher{
-		client:      fakeClient,
-		namespace:   "default",
-		log:         zap.New(),
-		secretIndex: secretindex.New(),
-		triggers:    make(map[types.NamespacedName]*automationv1alpha1.Trigger),
+		client:           fakeClient,
+		namespace:        "default",
+		log:              zap.New(),
+		secretIndex:      secretindex.New(),
+		integrationIndex: secretindex.New(),
+		triggers:         make(map[types.NamespacedName]*automationv1alpha1.Trigger),
 	}
 }
 
-func newNatsUserPassSecret(name, namespace, user, pass string) *corev1.Secret {
+func newNatsUserPassSecret(name, pass string) *corev1.Secret {
 	return &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace},
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "default"},
 		Data: map[string][]byte{
-			"username": []byte(user),
+			"username": []byte("alice"),
 			"password": []byte(pass),
 		},
 	}
@@ -69,7 +70,7 @@ func newNatsTrigger(name, integrationName string) *automationv1alpha1.Trigger {
 }
 
 func TestResolveNatsCredentials_FingerprintChangesWithRotatedSecret(t *testing.T) {
-	secret := newNatsUserPassSecret("nats-creds", "default", "alice", "old-password")
+	secret := newNatsUserPassSecret("nats-creds", "old-password")
 	w := newMinimalNatsWatcher(t, secret)
 	spec := authNatsSpec("nats-creds")
 
@@ -100,7 +101,7 @@ func TestResolveNatsCredentials_FingerprintChangesWithRotatedSecret(t *testing.T
 }
 
 func TestReconcileTrigger_IndexesNatsIntegrationSecrets(t *testing.T) {
-	secret := newNatsUserPassSecret("nats-creds", "default", "alice", "s3cr3t")
+	secret := newNatsUserPassSecret("nats-creds", "s3cr3t")
 	integration := &automationv1alpha1.Integration{
 		ObjectMeta: metav1.ObjectMeta{Name: "nats-integ", Namespace: "default"},
 		Spec:       automationv1alpha1.IntegrationSpec{Nats: authNatsSpec("nats-creds")},
@@ -127,8 +128,79 @@ func TestHandleSecretChange_UnrelatedNatsSecretIgnored(t *testing.T) {
 	w.handleSecretChange(context.Background(), unrelated)
 }
 
+// TestHandleIntegrationChange_RepointedSecretRefDropsOldSecretFromIndex covers
+// STORY-033: repointing an Integration's username/password secretRef to a
+// different Secret, without touching the Trigger, must be picked up within
+// one resync (here, one handleIntegrationChange call standing in for the
+// Integration informer firing) — and the old Secret must be fully dropped
+// from secretIndex, not just have the new one added alongside it.
+func TestHandleIntegrationChange_RepointedSecretRefDropsOldSecretFromIndex(t *testing.T) {
+	oldSecret := newNatsUserPassSecret("nats-creds-old", "old-password")
+	newSecret := newNatsUserPassSecret("nats-creds-new", "new-password")
+	integration := &automationv1alpha1.Integration{
+		ObjectMeta: metav1.ObjectMeta{Name: "nats-integ", Namespace: "default"},
+		Spec:       automationv1alpha1.IntegrationSpec{Nats: authNatsSpec("nats-creds-old")},
+	}
+	w := newMinimalNatsWatcher(t, oldSecret, newSecret, integration)
+	trigger := newNatsTrigger("nats-trigger", "nats-integ")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	w.reconcileTrigger(ctx, trigger)
+
+	oldSecretKey := types.NamespacedName{Namespace: "default", Name: "nats-creds-old"}
+	newSecretKey := types.NamespacedName{Namespace: "default", Name: "nats-creds-new"}
+
+	if affected := w.secretIndex.ObjectsFor(oldSecretKey); len(affected) != 1 || affected[0].Name != "nats-trigger" {
+		t.Fatalf("sanity check before repoint: secretIndex.ObjectsFor(%v) want [{default nats-trigger}], got %v", oldSecretKey, affected)
+	}
+
+	// Repoint the Integration's secretRef to the new Secret. The Trigger
+	// object itself is never modified.
+	integration.Spec.Nats.UsernameSecretRef.Name = "nats-creds-new"
+	integration.Spec.Nats.PasswordSecretRef.Name = "nats-creds-new"
+	if err := w.client.Update(ctx, integration); err != nil {
+		t.Fatalf("updating integration: %v", err)
+	}
+
+	// Simulate the Integration informer's update event firing for this
+	// object — the exact code path an add/update event on the new
+	// Integration informer invokes.
+	w.handleIntegrationChange(ctx, integration)
+
+	// The new credential must actually have been picked up (not just the
+	// index touched): resolveNatsCredentials against the repointed spec
+	// returns the new Secret's password.
+	creds, err := w.resolveNatsCredentials(ctx, "default", integration.Spec.Nats)
+	if err != nil {
+		t.Fatalf("resolveNatsCredentials after repoint: %v", err)
+	}
+	if creds.password != "new-password" {
+		t.Fatalf("resolved password after repoint: want %q, got %q", "new-password", creds.password)
+	}
+
+	// The old Secret must be completely gone from the reverse index — not
+	// merely have the new Secret added alongside it. This is the crux of the
+	// stale-Secret-watch fix: secretIndex.Update's full-replace semantics
+	// mean a stale watch doesn't linger.
+	if affected := w.secretIndex.ObjectsFor(oldSecretKey); affected != nil {
+		t.Fatalf("secretIndex.ObjectsFor(%v) after repoint: want nil (old secret dropped), got %v", oldSecretKey, affected)
+	}
+	if affected := w.secretIndex.ObjectsFor(newSecretKey); len(affected) != 1 || affected[0].Name != "nats-trigger" {
+		t.Fatalf("secretIndex.ObjectsFor(%v) after repoint: want [{default nats-trigger}], got %v", newSecretKey, affected)
+	}
+}
+
+func TestHandleIntegrationChange_UnrelatedNatsIntegrationIgnored(t *testing.T) {
+	w := newMinimalNatsWatcher(t)
+	unrelated := &automationv1alpha1.Integration{ObjectMeta: metav1.ObjectMeta{Name: "unrelated", Namespace: "default"}}
+
+	// Must not panic and must not attempt to reconcile anything — the index is empty.
+	w.handleIntegrationChange(context.Background(), unrelated)
+}
+
 func TestOnTriggerDelete_RemovesNatsTriggerFromIndex(t *testing.T) {
-	secret := newNatsUserPassSecret("nats-creds", "default", "alice", "s3cr3t")
+	secret := newNatsUserPassSecret("nats-creds", "s3cr3t")
 	integration := &automationv1alpha1.Integration{
 		ObjectMeta: metav1.ObjectMeta{Name: "nats-integ", Namespace: "default"},
 		Spec:       automationv1alpha1.IntegrationSpec{Nats: authNatsSpec("nats-creds")},

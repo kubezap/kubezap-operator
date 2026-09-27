@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -84,6 +85,47 @@ const (
 	defaultLogLevel              = "info"
 )
 
+// KUBEZAP_MTLS_* env vars injected into a plugin Deployment when
+// spec.plugin.mtls.enabled is true. See docs/api/plugin-contract.md's mTLS
+// section for the contract a plugin must implement to consume these.
+const (
+	envVarMTLSEnabled    = "KUBEZAP_MTLS_ENABLED"
+	envVarMTLSCertFile   = "KUBEZAP_MTLS_CERT_FILE"
+	envVarMTLSKeyFile    = "KUBEZAP_MTLS_KEY_FILE"
+	envVarMTLSCAFile     = "KUBEZAP_MTLS_CA_FILE"
+	envVarMTLSHealthPort = "KUBEZAP_MTLS_HEALTH_PORT"
+
+	// pluginMTLSMountPath is where the per-Integration mTLS Secret (tls.crt,
+	// tls.key, ca.crt) is mounted into the plugin container.
+	pluginMTLSMountPath = "/etc/kubezap/mtls"
+
+	// defaultPluginMTLSHealthPort is the plain-HTTP port a plugin Deployment
+	// must serve GET /healthz on when spec.plugin.mtls.enabled=true. It is a
+	// separate port from PublisherPort because a TLS listener configured
+	// with tls.RequireAndVerifyClientCert rejects the handshake before the
+	// HTTP layer ever sees the request path — kubelet's readinessProbe
+	// httpGet never presents a client certificate, so GET /healthz cannot be
+	// exempted "by path" on the same mTLS-protected port. This mirrors the
+	// controller<->http-executor channel's executorHealthPort split (see
+	// executor_reconciler.go's doc comment on that constant).
+	defaultPluginMTLSHealthPort = int32(8091)
+
+	// pluginMTLSVolumeName is the Volume/VolumeMount name for the mounted
+	// per-Integration mTLS Secret.
+	pluginMTLSVolumeName = "mtls-certs"
+
+	// portNameMTLSHealth is the plugin Deployment's health-check ContainerPort
+	// name when mTLS is enabled.
+	portNameMTLSHealth = "mtls-health"
+)
+
+// pluginMTLSSecretName returns the name of the per-Integration Secret holding
+// the plugin's mTLS server cert + CA (kubezap-plugin-<name>-mtls). Owner-
+// referenced to the Integration so it is garbage-collected on deletion.
+func pluginMTLSSecretName(integrationName string) string {
+	return "kubezap-plugin-" + integrationName + "-mtls"
+}
+
 // scaledObjectKind is the KEDA ScaledObject Kind, used both in the
 // unstructured object's "kind" field and its GroupVersionKind.
 const scaledObjectKind = "ScaledObject"
@@ -95,11 +137,30 @@ const scaledObjectKind = "ScaledObject"
 // +kubebuilder:rbac:groups="",resources=services,verbs=get;list;watch;create;update;delete
 // +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=roles;rolebindings,verbs=get;list;watch;create;update;delete
 // +kubebuilder:rbac:groups=keda.sh,resources=scaledobjects,verbs=get;list;watch;create;update;delete
+// +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch;create;update;delete
 
 // IntegrationReconciler reconciles an Integration object.
 type IntegrationReconciler struct {
 	client.Client
 	Scheme *runtime.Scheme
+
+	// PluginMTLSStore tracks per-Integration mTLS CA/cert bundles for plugin
+	// Integrations with spec.plugin.mtls.enabled=true. Lazily initialized by
+	// pluginMTLSStore() if left nil (e.g. in tests, or before cmd/main.go is
+	// updated to share one instance with the /publish caller — see
+	// plugin_mtls.go's PluginMTLSStore doc comment).
+	PluginMTLSStore *PluginMTLSStore
+}
+
+// pluginMTLSStore returns r.PluginMTLSStore, lazily initializing it on first
+// use. IntegrationReconciler.Reconcile runs with controller-runtime's default
+// concurrency (MaxConcurrentReconciles=1, see SetupWithManager below), so this
+// lazy check-and-set is safe without an additional mutex.
+func (r *IntegrationReconciler) pluginMTLSStore() *PluginMTLSStore {
+	if r.PluginMTLSStore == nil {
+		r.PluginMTLSStore = NewPluginMTLSStore()
+	}
+	return r.PluginMTLSStore
 }
 
 func (r *IntegrationReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -127,12 +188,22 @@ func (r *IntegrationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		return ctrl.Result{}, nil
 	}
 
+	// requeueAfter is non-zero only when this pass needs a periodic follow-up
+	// reconcile independent of any spec/status change — currently just the
+	// plugin mTLS rotation recheck below.
+	var requeueAfter time.Duration
+
 	// Type-specific reconciliation.
 	switch integration.Spec.Type {
 	case integrationTypePlugin:
 		deploymentName := "kubezap-plugin-" + integration.Name
 		if err := r.reconcilePluginRBAC(ctx, &integration); err != nil {
 			return ctrl.Result{}, fmt.Errorf("reconciling plugin RBAC: %w", err)
+		}
+		var mtlsErr error
+		requeueAfter, mtlsErr = r.reconcilePluginMTLS(ctx, &integration)
+		if mtlsErr != nil {
+			return ctrl.Result{}, fmt.Errorf("reconciling plugin mTLS: %w", mtlsErr)
 		}
 		if err := r.reconcilePluginDeployment(ctx, &integration); err != nil {
 			return ctrl.Result{}, fmt.Errorf("reconciling plugin deployment: %w", err)
@@ -183,7 +254,7 @@ func (r *IntegrationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		return ctrl.Result{}, err
 	}
 
-	return ctrl.Result{}, nil
+	return ctrl.Result{RequeueAfter: requeueAfter}, nil
 }
 
 // gatewayAvailableCondition fetches the named Deployment and returns a
@@ -378,6 +449,97 @@ func (r *IntegrationReconciler) reconcilePluginRBAC(ctx context.Context, integra
 // Kubernetes, the RoleBinding must be deleted and recreated rather than updated.
 var errRoleRefChanged = fmt.Errorf("rolebinding RoleRef has changed and must be recreated")
 
+// pluginMTLSRecheckInterval is how often reconcilePluginMTLS asks
+// IntegrationReconciler.Reconcile to be re-invoked for an mTLS-enabled plugin
+// Integration, purely so PluginMTLSStore.GetOrGenerate gets a chance to
+// notice NeedsRotation() and rotate the bundle. This mirrors the 5-minute
+// ticker cmd/main.go runs for the executor channel's MTLSBundle rotation
+// (see cmd/main.go's "Start mTLS rotation goroutine" comment) — the
+// per-Integration bundle here is instead rotated inline by the reconciler
+// itself, since a single global background goroutine has no natural way to
+// iterate "every opted-in Integration" without its own Integration lister.
+const pluginMTLSRecheckInterval = 5 * time.Minute
+
+// reconcilePluginMTLS reconciles the per-Integration mTLS Secret for a plugin
+// Integration and returns the RequeueAfter duration the caller should apply
+// (zero when mTLS is disabled for this Integration, since no periodic
+// rotation recheck is needed in that case).
+//
+// When spec.plugin.mtls.enabled is true: generates (or rotates, transparently
+// via PluginMTLSStore.GetOrGenerate) a per-Integration CA + server/client
+// cert pair, and upserts a Secret containing the server cert + CA that
+// desiredPluginDeployment mounts into the plugin container. The controller's
+// own client cert stays in r.pluginMTLSStore() only — it is never written to
+// a Secret or to etcd.
+//
+// When false (the default): removes any tracked bundle from the store and
+// best-effort deletes a previously-created mTLS Secret, so disabling mTLS on
+// an Integration cleans up after itself rather than leaving an orphaned
+// Secret and an unrotated bundle sitting in memory forever.
+func (r *IntegrationReconciler) reconcilePluginMTLS(ctx context.Context, integration *automationv1alpha1.Integration) (time.Duration, error) {
+	log := logf.FromContext(ctx)
+	plugin := integration.Spec.Plugin
+
+	enabled := plugin != nil && plugin.Mtls != nil && plugin.Mtls.Enabled
+	if !enabled {
+		r.pluginMTLSStore().Remove(integration.Namespace, integration.Name)
+
+		secret := &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      pluginMTLSSecretName(integration.Name),
+				Namespace: integration.Namespace,
+			},
+		}
+		if err := r.Delete(ctx, secret); err != nil && !apierrors.IsNotFound(err) {
+			return 0, fmt.Errorf("deleting stale plugin mTLS secret: %w", err)
+		}
+		return 0, nil
+	}
+
+	deploymentName := "kubezap-plugin-" + integration.Name
+	serverDNSNames := []string{
+		fmt.Sprintf("%s.%s.svc", deploymentName, integration.Namespace),
+		fmt.Sprintf("%s.%s.svc.cluster.local", deploymentName, integration.Namespace),
+	}
+
+	bundle, err := r.pluginMTLSStore().GetOrGenerate(integration.Namespace, integration.Name, serverDNSNames)
+	if err != nil {
+		return 0, fmt.Errorf("generating plugin mTLS bundle: %w", err)
+	}
+
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      pluginMTLSSecretName(integration.Name),
+			Namespace: integration.Namespace,
+		},
+	}
+	op, err := controllerutil.CreateOrUpdate(ctx, r.Client, secret, func() error {
+		secret.Type = corev1.SecretTypeOpaque
+		secret.Data = map[string][]byte{
+			"tls.crt": bundle.ServerCertPEM(),
+			"tls.key": bundle.ServerKeyPEM(),
+			"ca.crt":  bundle.CACertPEM(),
+		}
+		return ctrl.SetControllerReference(integration, secret, r.Scheme)
+	})
+	if err != nil {
+		return 0, fmt.Errorf("upserting plugin mTLS secret: %w", err)
+	}
+	if op != controllerutil.OperationResultNone {
+		log.Info("reconciled plugin mTLS secret", "name", secret.Name, "namespace", integration.Namespace, "result", op)
+	}
+
+	apimeta.SetStatusCondition(&integration.Status.Conditions, metav1.Condition{
+		Type:               "PluginMTLSReady",
+		Status:             metav1.ConditionTrue,
+		Reason:             "CertBundleReconciled",
+		Message:            fmt.Sprintf("mTLS cert bundle reconciled, expires %s", bundle.ExpiresAt.Format(time.RFC3339)),
+		ObservedGeneration: integration.Generation,
+	})
+
+	return pluginMTLSRecheckInterval, nil
+}
+
 // reconcilePluginDeployment ensures the plugin Deployment exists and is up to date.
 // It also records the resolved image reference in the PluginDeployed condition for auditability.
 func (r *IntegrationReconciler) reconcilePluginDeployment(ctx context.Context, integration *automationv1alpha1.Integration) error {
@@ -465,6 +627,58 @@ func desiredPluginDeployment(integration *automationv1alpha1.Integration) *appsv
 		}
 	}
 
+	ports := []corev1.ContainerPort{
+		{Name: "publisher", ContainerPort: publisherPort, Protocol: corev1.ProtocolTCP},
+	}
+
+	// healthPort/healthScheme default to the publisher port over plain HTTP
+	// (today's behavior, unchanged when mTLS is not enabled).
+	healthPort := publisherPort
+	var volumes []corev1.Volume
+	var volumeMounts []corev1.VolumeMount
+
+	mtlsEnabled := plugin.Mtls != nil && plugin.Mtls.Enabled
+	if mtlsEnabled {
+		// The main publisher port now requires client certs (plugin-side TLS
+		// listener with RequireAndVerifyClientCert), so kubelet's readiness
+		// probe — which never presents a client cert — must hit a separate
+		// plain-HTTP health port instead. See defaultPluginMTLSHealthPort's
+		// doc comment.
+		healthPort = defaultPluginMTLSHealthPort
+
+		envVars = append(envVars,
+			corev1.EnvVar{Name: envVarMTLSEnabled, Value: "true"},
+			corev1.EnvVar{Name: envVarMTLSCertFile, Value: pluginMTLSMountPath + "/tls.crt"},
+			corev1.EnvVar{Name: envVarMTLSKeyFile, Value: pluginMTLSMountPath + "/tls.key"},
+			corev1.EnvVar{Name: envVarMTLSCAFile, Value: pluginMTLSMountPath + "/ca.crt"},
+			corev1.EnvVar{Name: envVarMTLSHealthPort, Value: fmt.Sprintf("%d", healthPort)},
+		)
+
+		ports = append(ports, corev1.ContainerPort{
+			Name:          portNameMTLSHealth,
+			ContainerPort: healthPort,
+			Protocol:      corev1.ProtocolTCP,
+		})
+
+		volumeMounts = []corev1.VolumeMount{
+			{
+				Name:      pluginMTLSVolumeName,
+				MountPath: pluginMTLSMountPath,
+				ReadOnly:  true,
+			},
+		}
+		volumes = []corev1.Volume{
+			{
+				Name: pluginMTLSVolumeName,
+				VolumeSource: corev1.VolumeSource{
+					Secret: &corev1.SecretVolumeSource{
+						SecretName: pluginMTLSSecretName(integration.Name),
+					},
+				},
+			},
+		}
+	}
+
 	return &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      deploymentName,
@@ -481,24 +695,32 @@ func desiredPluginDeployment(integration *automationv1alpha1.Integration) *appsv
 					SecurityContext: &corev1.PodSecurityContext{
 						RunAsNonRoot: ptr.To(true),
 					},
+					Volumes: volumes,
 					Containers: []corev1.Container{
 						{
-							Name:  "plugin",
-							Image: pluginImageRef(plugin),
-							Ports: []corev1.ContainerPort{
-								{Name: "publisher", ContainerPort: publisherPort, Protocol: corev1.ProtocolTCP},
-							},
-							Env: envVars,
+							Name:         "plugin",
+							Image:        pluginImageRef(plugin),
+							Ports:        ports,
+							Env:          envVars,
+							VolumeMounts: volumeMounts,
 							SecurityContext: &corev1.SecurityContext{
 								RunAsNonRoot:             ptr.To(true),
 								ReadOnlyRootFilesystem:   ptr.To(true),
 								AllowPrivilegeEscalation: ptr.To(false),
 							},
+							// GET /healthz is always plain HTTP, even when mtlsEnabled
+							// — see healthPort's assignment above. This is the plugin
+							// contract's explicit exemption of the health check from
+							// the client-cert requirement (kubelet readinessProbe
+							// compatibility): kubelet's httpGet probe never presents a
+							// client certificate, so it can only ever succeed against a
+							// port that does not require one.
 							ReadinessProbe: &corev1.Probe{
 								ProbeHandler: corev1.ProbeHandler{
 									HTTPGet: &corev1.HTTPGetAction{
-										Path: healthzPath,
-										Port: intstr.FromInt32(publisherPort),
+										Path:   healthzPath,
+										Port:   intstr.FromInt32(healthPort),
+										Scheme: corev1.URISchemeHTTP,
 									},
 								},
 								InitialDelaySeconds: 5,

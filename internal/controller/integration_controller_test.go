@@ -25,6 +25,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -460,6 +461,157 @@ var _ = Describe("IntegrationReconciler", func() {
 			Expect(cond.Status).To(Equal(metav1.ConditionTrue))
 			Expect(cond.Message).To(ContainSubstring(plainPluginImage))
 			Expect(cond.Message).NotTo(ContainSubstring("@sha256:"))
+		})
+	})
+
+	Context("when type=plugin with spec.plugin.mtls.enabled=true", func() {
+		const mtlsPluginName = "my-plugin-mtls"
+		const mtlsPluginImage = "ghcr.io/my-org/my-plugin:v1.0.0"
+		const mtlsDeploymentName = "kubezap-plugin-" + mtlsPluginName
+		const mtlsSecretName = "kubezap-plugin-" + mtlsPluginName + "-mtls"
+
+		var mtlsIntegration *automationv1alpha1.Integration
+
+		BeforeEach(func() {
+			mtlsIntegration = &automationv1alpha1.Integration{
+				ObjectMeta: metav1.ObjectMeta{Name: mtlsPluginName, Namespace: namespace},
+				Spec: automationv1alpha1.IntegrationSpec{
+					Type: "plugin",
+					Plugin: &automationv1alpha1.PluginIntegrationSpec{
+						Image: mtlsPluginImage,
+						Mtls:  &automationv1alpha1.PluginMTLSSpec{Enabled: true},
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, mtlsIntegration)).To(Succeed())
+			DeferCleanup(func() {
+				dep := &appsv1.Deployment{}
+				if err := k8sClient.Get(ctx, types.NamespacedName{Name: mtlsDeploymentName, Namespace: namespace}, dep); err == nil {
+					_ = k8sClient.Delete(ctx, dep)
+				}
+				secret := &corev1.Secret{}
+				if err := k8sClient.Get(ctx, types.NamespacedName{Name: mtlsSecretName, Namespace: namespace}, secret); err == nil {
+					_ = k8sClient.Delete(ctx, secret)
+				}
+				_ = k8sClient.Delete(ctx, mtlsIntegration)
+			})
+
+			reconcile(mtlsPluginName)
+		})
+
+		It("creates a per-Integration mTLS Secret with tls.crt, tls.key, and ca.crt", func() {
+			secret := &corev1.Secret{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: mtlsSecretName, Namespace: namespace}, secret)).To(Succeed())
+			Expect(secret.Data).To(HaveKey("tls.crt"))
+			Expect(secret.Data).To(HaveKey("tls.key"))
+			Expect(secret.Data).To(HaveKey("ca.crt"))
+		})
+
+		It("owner-references the mTLS Secret to the Integration for GC on delete", func() {
+			secret := &corev1.Secret{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: mtlsSecretName, Namespace: namespace}, secret)).To(Succeed())
+			Expect(secret.OwnerReferences).To(HaveLen(1))
+			Expect(secret.OwnerReferences[0].Name).To(Equal(mtlsPluginName))
+		})
+
+		It("injects KUBEZAP_MTLS_* env vars pointing at the mounted Secret", func() {
+			dep := &appsv1.Deployment{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: mtlsDeploymentName, Namespace: namespace}, dep)).To(Succeed())
+			Expect(dep.Spec.Template.Spec.Containers).To(HaveLen(1))
+			container := dep.Spec.Template.Spec.Containers[0]
+
+			envNames := make(map[string]string, len(container.Env))
+			for _, e := range container.Env {
+				envNames[e.Name] = e.Value
+			}
+			Expect(envNames).To(HaveKeyWithValue("KUBEZAP_MTLS_ENABLED", "true"))
+			Expect(envNames).To(HaveKeyWithValue("KUBEZAP_MTLS_CERT_FILE", "/etc/kubezap/mtls/tls.crt"))
+			Expect(envNames).To(HaveKeyWithValue("KUBEZAP_MTLS_KEY_FILE", "/etc/kubezap/mtls/tls.key"))
+			Expect(envNames).To(HaveKeyWithValue("KUBEZAP_MTLS_CA_FILE", "/etc/kubezap/mtls/ca.crt"))
+			Expect(envNames).To(HaveKeyWithValue("KUBEZAP_MTLS_HEALTH_PORT", fmt.Sprintf("%d", defaultPluginMTLSHealthPort)))
+		})
+
+		It("mounts the mTLS Secret read-only into the plugin container", func() {
+			dep := &appsv1.Deployment{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: mtlsDeploymentName, Namespace: namespace}, dep)).To(Succeed())
+			container := dep.Spec.Template.Spec.Containers[0]
+
+			Expect(container.VolumeMounts).To(HaveLen(1))
+			Expect(container.VolumeMounts[0].MountPath).To(Equal("/etc/kubezap/mtls"))
+			Expect(container.VolumeMounts[0].ReadOnly).To(BeTrue())
+
+			Expect(dep.Spec.Template.Spec.Volumes).To(HaveLen(1))
+			Expect(dep.Spec.Template.Spec.Volumes[0].Secret.SecretName).To(Equal(mtlsSecretName))
+		})
+
+		// Acceptance criterion: GET /healthz must not require a client cert
+		// (kubelet's readinessProbe never presents one). The only way to
+		// exempt a path from a TLS listener configured with
+		// RequireAndVerifyClientCert is to serve it on a different,
+		// plain-HTTP port — so the readiness probe must target that
+		// separate port, not the mTLS-protected publisher port.
+		It("points the readiness probe at the separate plain-HTTP mTLS health port, not the publisher port", func() {
+			dep := &appsv1.Deployment{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: mtlsDeploymentName, Namespace: namespace}, dep)).To(Succeed())
+			container := dep.Spec.Template.Spec.Containers[0]
+
+			Expect(container.ReadinessProbe).NotTo(BeNil())
+			Expect(container.ReadinessProbe.HTTPGet.Path).To(Equal("/healthz"))
+			Expect(container.ReadinessProbe.HTTPGet.Port.IntVal).To(Equal(defaultPluginMTLSHealthPort))
+			Expect(container.ReadinessProbe.HTTPGet.Port.IntVal).NotTo(Equal(int32(8090)))
+			Expect(container.ReadinessProbe.HTTPGet.Scheme).To(Equal(corev1.URISchemeHTTP))
+		})
+
+		It("exposes the mTLS health port as a named ContainerPort", func() {
+			dep := &appsv1.Deployment{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: mtlsDeploymentName, Namespace: namespace}, dep)).To(Succeed())
+			container := dep.Spec.Template.Spec.Containers[0]
+
+			var found bool
+			for _, p := range container.Ports {
+				if p.Name == "mtls-health" {
+					found = true
+					Expect(p.ContainerPort).To(Equal(defaultPluginMTLSHealthPort))
+				}
+			}
+			Expect(found).To(BeTrue())
+		})
+
+		It("sets a PluginMTLSReady=True condition", func() {
+			fetched := &automationv1alpha1.Integration{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: mtlsPluginName, Namespace: namespace}, fetched)).To(Succeed())
+
+			cond := apimeta.FindStatusCondition(fetched.Status.Conditions, "PluginMTLSReady")
+			Expect(cond).NotTo(BeNil())
+			Expect(cond.Status).To(Equal(metav1.ConditionTrue))
+			Expect(cond.Reason).To(Equal("CertBundleReconciled"))
+		})
+
+		It("requeues periodically so the bundle is rechecked for rotation", func() {
+			r := newReconciler()
+			result, err := r.Reconcile(ctx, ctrl.Request{
+				NamespacedName: types.NamespacedName{Name: mtlsPluginName, Namespace: namespace},
+			})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result.RequeueAfter).To(Equal(pluginMTLSRecheckInterval))
+		})
+
+		It("removes the mTLS Secret and tracked bundle when mtls.enabled is set back to false", func() {
+			fetched := &automationv1alpha1.Integration{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: mtlsPluginName, Namespace: namespace}, fetched)).To(Succeed())
+			fetched.Spec.Plugin.Mtls.Enabled = false
+			Expect(k8sClient.Update(ctx, fetched)).To(Succeed())
+
+			r := newReconciler()
+			Expect(r.pluginMTLSStore().ClientTLSConfigFor(namespace, mtlsPluginName)).To(BeNil(), "fresh reconciler has its own lazily-initialized store")
+			_, err := r.Reconcile(ctx, ctrl.Request{
+				NamespacedName: types.NamespacedName{Name: mtlsPluginName, Namespace: namespace},
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			secret := &corev1.Secret{}
+			err = k8sClient.Get(ctx, types.NamespacedName{Name: mtlsSecretName, Namespace: namespace}, secret)
+			Expect(apierrors.IsNotFound(err)).To(BeTrue())
 		})
 	})
 

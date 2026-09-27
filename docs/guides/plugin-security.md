@@ -12,7 +12,9 @@ A plugin is a pod managed by the KubeZap controller; the controller creates a
 **Publisher channel**: When a Flow step has `type: publish`, the controller resolves
 all credentials and calls `POST /publish` on the plugin pod's publisher port (default
 `8090`, overridable via `spec.plugin.publisherPort`). This is a plain HTTP call over
-the pod network — there is no transport-layer encryption by default.
+the pod network by default — there is no transport-layer encryption unless
+`spec.plugin.mtls.enabled` is set (see [Controller-Side mTLS](#controller-side-mtls)) or
+a service mesh is in place.
 
 **Credential injection**: Secrets referenced in `spec.plugin.secretRefs` are injected
 into the plugin pod as environment variables via `envVarMappings`. The credentials
@@ -27,7 +29,7 @@ pod startup.
 | Network-adjacent pod calls `POST /publish` directly | Arbitrary publish injection | NetworkPolicy restricting ingress to the publisher port |
 | Plugin pod makes lateral movement calls to cluster-internal services | Privilege escalation from plugin's SA | Least-privilege SA; NetworkPolicy egress restriction |
 | Plugin image tag mutated between operator reconcile cycles | Unvetted code execution | Image digest pinning via `spec.plugin.imageDigest` |
-| Controller-to-plugin channel intercepted on the pod network | Credential or payload interception | mTLS via service mesh (recommended for sensitive deployments) |
+| Controller-to-plugin channel intercepted on the pod network | Credential or payload interception | mTLS via service mesh, or first-party `spec.plugin.mtls.enabled` (requires plugin-author cooperation — see [Controller-Side mTLS](#controller-side-mtls)) |
 
 ## Mitigations
 
@@ -143,11 +145,47 @@ deploying a plugin. The operator installs whatever image is specified in the
 - Treat third-party community plugins as untrusted code — review their source
   before deploying.
 
-## Controller-Side mTLS (Roadmap)
+## Controller-Side mTLS
 
-Plain HTTP between the controller and the plugin's `/publish` endpoint is a known
-limitation. Controller-side mTLS for the publisher channel is not implemented yet.
-Until it ships, use a service mesh as described above.
+Controller-side mTLS for the `/publish` channel is implemented as an opt-in,
+per-Integration control: `spec.plugin.mtls.enabled` (default `false`). When set,
+the operator generates a CA scoped to that Integration, a server cert for the
+plugin (delivered via a per-Integration Secret mounted into the plugin
+Deployment), and a client cert the controller presents on every `POST /publish`
+call. The controller verifies the plugin's server cert against that
+Integration's own CA — never another Integration's — so one compromised
+plugin's cert cannot be used to intercept another Integration's traffic.
+
+This is deliberately **opt-in per Integration**, not a single global controller
+flag (unlike `--executor-mtls` for the controller-to-http-executor channel):
+plugins are third-party code the operator does not build, so different plugin
+authors adopt the `KUBEZAP_MTLS_*` env var contract at different times. See
+`docs/api/plugin-contract.md`'s [Controller-Side mTLS](../api/plugin-contract.md#controller-side-mtls)
+section for the full contract a plugin must implement, and the explicit
+warning there about adoption ordering: **enable the plugin's TLS support
+first, verify it, and only then set `spec.plugin.mtls.enabled: true`** on the
+Integration — enabling it against a plugin build that has not yet adopted the
+contract breaks every `/publish` call with a TLS handshake error.
+
+`GET /healthz` is explicitly exempted from the client-cert requirement: the
+operator injects a separate `KUBEZAP_MTLS_HEALTH_PORT` (plain HTTP) for
+kubelet's readiness probe, since a TLS listener that requires a client cert
+would otherwise reject kubelet's probe connection (which never presents one)
+before the HTTP layer sees the request path.
+
+The operator rotates each opted-in Integration's CA and leaf certs roughly
+every 23h — the same cadence as `--executor-mtls` — tracked independently per
+Integration.
+
+**mTLS and the service mesh mitigation above are not mutually exclusive.** A
+service mesh's mTLS operates at the pod-network layer and is transparent to
+both the controller and the plugin; this feature's mTLS is enforced by the
+plugin's own application code. Enabling both is safe (defense in depth); a
+service mesh remains the simplest option for a plugin author who cannot adopt
+the `KUBEZAP_MTLS_*` contract.
+
+See `docs/api/integration.md`'s `PluginMTLSSpec` reference for the CRD field,
+and `docs/api/plugin-contract.md` for the plugin-side implementation contract.
 
 Design decided (not yet implemented): a new opt-in `spec.plugin.mtls.enabled` field,
 per-Integration generated certs, and new `KUBEZAP_MTLS_*` contract env vars a plugin

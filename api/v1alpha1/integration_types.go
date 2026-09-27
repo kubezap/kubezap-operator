@@ -153,6 +153,32 @@ type PluginSecretRef struct {
 	EnvVarMappings map[string]string `json:"envVarMappings"`
 }
 
+// PluginMTLSSpec configures controller-side mutual TLS for a plugin
+// Integration's publisher channel (the controller's POST /publish calls to
+// this Integration's plugin Deployment).
+//
+// Opt-in is per-Integration rather than a single global controller flag
+// (unlike the controller<->http-executor RPC channel's --executor-mtls flag)
+// because plugins are third-party code the operator does not build: plugin
+// authors adopt the KUBEZAP_MTLS_* env var contract at different times, so a
+// single global switch would break every plugin that had not yet adopted it
+// the moment it was flipped on. See docs/guides/plugin-security.md's
+// "Controller-Side mTLS" section and docs/api/plugin-contract.md's mTLS
+// section for the full contract a plugin must implement before this is set.
+type PluginMTLSSpec struct {
+	// Enable mTLS for this Integration's /publish channel. When true, the
+	// operator generates and rotates (roughly every 23h) a CA scoped to this
+	// Integration, plus a server leaf cert (mounted into the plugin
+	// Deployment via a per-Integration Secret) and a client leaf cert (used
+	// by the controller when calling POST /publish). The plugin image must
+	// already read the injected KUBEZAP_MTLS_* env vars and serve TLS on its
+	// publisher port before this field is set to true — enabling it against
+	// a plugin that has not adopted the new contract breaks /publish calls
+	// with a TLS handshake error.
+	// +kubebuilder:default=false
+	Enabled bool `json:"enabled,omitempty"`
+}
+
 // PluginIntegrationSpec contains plugin deployment configuration.
 type PluginIntegrationSpec struct {
 	// Container image for plugin.
@@ -181,6 +207,11 @@ type PluginIntegrationSpec struct {
 
 	// Additional environment variables.
 	Env []corev1.EnvVar `json:"env,omitempty"`
+
+	// Controller-side mTLS configuration for the /publish channel. See
+	// PluginMTLSSpec's doc comment for the adoption ordering requirement.
+	// +optional
+	Mtls *PluginMTLSSpec `json:"mtls,omitempty"`
 }
 
 // HttpAuthType specifies the authentication strategy for an HTTP Integration.

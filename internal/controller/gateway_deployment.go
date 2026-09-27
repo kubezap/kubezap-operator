@@ -75,6 +75,13 @@ const (
 	portNameHTTPS = "https"
 )
 
+// resourceConfigMaps is the RBAC resource name granted to the webhook gateway
+// Role when CRL revocation checking is configured (WebhookGatewayTLSConfig.CRLConfigMapName),
+// so the gateway can read the ConfigMap it watches for the current CRL. Kept
+// local to this file rather than added to labels.go's resourceX constants,
+// since it is only ever referenced from desiredWebhookGatewayRole.
+const resourceConfigMaps = "configmaps"
+
 // WebhookGatewayTLSConfig carries TLS/mTLS configuration for the webhook gateway Deployment.
 // An empty struct means plain HTTP with no TLS termination.
 type WebhookGatewayTLSConfig struct {
@@ -85,6 +92,13 @@ type WebhookGatewayTLSConfig struct {
 	// MTLSCASecretName is the name of the Secret containing ca.crt used to verify
 	// client certificates. Only effective when TLSSecretName is also set.
 	MTLSCASecretName string
+
+	// CRLConfigMapName is the name of the ConfigMap (in the gateway namespace)
+	// containing a DER-encoded Certificate Revocation List under the fixed key
+	// "crl.der", sourced from WebhookGatewayConfig.spec.tls.crlConfigMapRef. Only
+	// effective when MTLSCASecretName is also set — matching that CRD field's own
+	// documented precondition. See docs/design/client-cert-revocation-checking.md.
+	CRLConfigMapName string
 }
 
 func webhookGatewayImage() string {
@@ -106,33 +120,56 @@ func desiredWebhookGatewayServiceAccount(namespace string) *corev1.ServiceAccoun
 }
 
 // desiredWebhookGatewayRole returns the desired Role for the webhook gateway.
-func desiredWebhookGatewayRole(namespace string) *rbacv1.Role {
+//
+// tlsCfg.CRLConfigMapName being non-empty (i.e. CRL revocation checking is
+// configured via WebhookGatewayConfig.spec.tls.crlConfigMapRef) additionally
+// grants read access to ConfigMaps, so the gateway's watcher
+// (internal/gateway/webhook/watcher.go) can watch the CRL ConfigMap it was
+// started with via --crl-configmap-name. A zero-value tlsCfg (no CRL
+// configured) omits this rule entirely, keeping the Role byte-identical to
+// before CRL wiring existed — see docs/design/client-cert-revocation-checking.md.
+func desiredWebhookGatewayRole(namespace string, tlsCfg WebhookGatewayTLSConfig) *rbacv1.Role {
+	rules := []rbacv1.PolicyRule{
+		{
+			APIGroups: []string{apiGroupAutomation},
+			Resources: []string{resourceTriggers},
+			Verbs:     []string{verbGet, verbList, verbWatch},
+		},
+		{
+			APIGroups: []string{apiGroupAutomation},
+			Resources: []string{resourceFlowRuns},
+			Verbs:     []string{verbCreate},
+		},
+		{
+			// Required to resolve Trigger webhook auth secrets (HMAC, bearer,
+			// basic, apiKey, header-equals) at route-registration time, and to
+			// watch them so a rotated secret's new value is picked up without
+			// waiting for the referencing Trigger to be reconciled again.
+			APIGroups: []string{""},
+			Resources: []string{resourceSecrets},
+			Verbs:     []string{verbGet, verbList, verbWatch},
+		},
+	}
+
+	if tlsCfg.CRLConfigMapName != "" {
+		rules = append(rules, rbacv1.PolicyRule{
+			// Required so the gateway's CRL watcher can read/watch the
+			// operator-provided ConfigMap named by --crl-configmap-name. CRL
+			// data is public by design (a CA publishes it for anyone to
+			// check), so this is granted whenever CRL checking is configured,
+			// same namespace scope as the Secret rule above.
+			APIGroups: []string{""},
+			Resources: []string{resourceConfigMaps},
+			Verbs:     []string{verbGet, verbList, verbWatch},
+		})
+	}
+
 	return &rbacv1.Role{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      webhookGatewayDeploymentName,
 			Namespace: namespace,
 		},
-		Rules: []rbacv1.PolicyRule{
-			{
-				APIGroups: []string{apiGroupAutomation},
-				Resources: []string{resourceTriggers},
-				Verbs:     []string{verbGet, verbList, verbWatch},
-			},
-			{
-				APIGroups: []string{apiGroupAutomation},
-				Resources: []string{resourceFlowRuns},
-				Verbs:     []string{verbCreate},
-			},
-			{
-				// Required to resolve Trigger webhook auth secrets (HMAC, bearer,
-				// basic, apiKey, header-equals) at route-registration time, and to
-				// watch them so a rotated secret's new value is picked up without
-				// waiting for the referencing Trigger to be reconciled again.
-				APIGroups: []string{""},
-				Resources: []string{resourceSecrets},
-				Verbs:     []string{verbGet, verbList, verbWatch},
-			},
-		},
+		Rules: rules,
 	}
 }
 
@@ -490,6 +527,10 @@ func desiredWebhookGatewayDeployment(namespace string, tlsCfg WebhookGatewayTLSC
 					},
 				},
 			})
+
+			if tlsCfg.CRLConfigMapName != "" {
+				args = append(args, "--crl-configmap-name="+tlsCfg.CRLConfigMapName)
+			}
 		}
 	}
 

@@ -31,7 +31,7 @@ import (
 
 var _ = Describe("desiredWebhookGatewayRole", func() {
 	It("grants get access to secrets, required to resolve webhook auth secretRefs", func() {
-		role := desiredWebhookGatewayRole("default")
+		role := desiredWebhookGatewayRole("default", WebhookGatewayTLSConfig{})
 
 		hasSecretsGet := false
 		for _, rule := range role.Rules {
@@ -40,6 +40,36 @@ var _ = Describe("desiredWebhookGatewayRole", func() {
 			}
 		}
 		Expect(hasSecretsGet).To(BeTrue(), "webhook gateway Role must grant get on secrets, or hmac/bearer/basic/apiKey/header-equals auth can never resolve their secretRef against a live cluster")
+	})
+
+	It("does not grant configmaps access when no CRL ConfigMap is configured (regression: byte-identical to pre-CRL-wiring Role)", func() {
+		role := desiredWebhookGatewayRole("default", WebhookGatewayTLSConfig{})
+
+		for _, rule := range role.Rules {
+			Expect(containsString(rule.Resources, "configmaps")).To(BeFalse(),
+				"a zero-value tlsCfg (no crlConfigMapRef configured) must not grant configmaps access")
+		}
+		Expect(role.Rules).To(HaveLen(3), "Role must have exactly the 3 pre-CRL-wiring rules (triggers, flowruns, secrets) when CRL is not configured")
+	})
+
+	It("grants get/list/watch on configmaps when a CRL ConfigMap is configured", func() {
+		role := desiredWebhookGatewayRole("default", WebhookGatewayTLSConfig{
+			TLSSecretName:    "webhook-tls",
+			MTLSCASecretName: "webhook-client-ca",
+			CRLConfigMapName: "webhook-client-ca-crl",
+		})
+
+		hasConfigMapsRule := false
+		for _, rule := range role.Rules {
+			if containsString(rule.APIGroups, "") &&
+				containsString(rule.Resources, "configmaps") &&
+				containsString(rule.Verbs, "get") &&
+				containsString(rule.Verbs, "list") &&
+				containsString(rule.Verbs, "watch") {
+				hasConfigMapsRule = true
+			}
+		}
+		Expect(hasConfigMapsRule).To(BeTrue(), "webhook gateway Role must grant get;list;watch on configmaps when CRLConfigMapName is set, or the gateway's CRL watcher can never read the ConfigMap it was started with --crl-configmap-name to watch")
 	})
 })
 

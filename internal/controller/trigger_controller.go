@@ -270,6 +270,9 @@ func ensureWebhookGateway(ctx context.Context, c client.Client, namespace string
 			tlsCfg.TLSSecretName = tlsSpec.ServerSecretRef.Name
 			if tlsSpec.ClientCASecretRef != nil {
 				tlsCfg.MTLSCASecretName = tlsSpec.ClientCASecretRef.Name
+				if tlsSpec.CRLConfigMapRef != nil {
+					tlsCfg.CRLConfigMapName = tlsSpec.CRLConfigMapRef.Name
+				}
 			}
 		}
 	}
@@ -282,9 +285,9 @@ func ensureWebhookGateway(ctx context.Context, c client.Client, namespace string
 		return fmt.Errorf("failed to create/update gateway ServiceAccount: %w", err)
 	}
 
-	role := desiredWebhookGatewayRole(namespace)
+	role := desiredWebhookGatewayRole(namespace, tlsCfg)
 	if _, err := controllerutil.CreateOrUpdate(ctx, c, role, func() error {
-		role.Rules = desiredWebhookGatewayRole(namespace).Rules
+		role.Rules = desiredWebhookGatewayRole(namespace, tlsCfg).Rules
 		return nil
 	}); err != nil {
 		return fmt.Errorf("failed to create/update gateway Role: %w", err)

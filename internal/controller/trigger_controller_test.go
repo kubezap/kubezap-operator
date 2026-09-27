@@ -27,6 +27,7 @@ import (
 	autoscalingv2 "k8s.io/api/autoscaling/v2"
 	corev1 "k8s.io/api/core/v1"
 	policyv1 "k8s.io/api/policy/v1"
+	rbacv1 "k8s.io/api/rbac/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -683,6 +684,117 @@ var _ = Describe("TriggerReconciler", func() {
 			var svc corev1.Service
 			Expect(k8sClient.Get(ctx, deployKey, &svc)).To(Succeed())
 			Expect(svc.Spec.Ports[0].Name).To(Equal("https"), "Service port should switch to https once TLS is configured")
+		})
+
+		// Regression coverage for STORY-069: crlConfigMapRef is unset here, so
+		// wiring it into the Deployment/Role must be a no-op — confirming the
+		// RBAC-conditioning choice (grant configmaps access only when a CRL
+		// ConfigMap is actually configured) is genuinely safe by default.
+		It("does not add --crl-configmap-name or configmaps RBAC when crlConfigMapRef is unset", func() {
+			r := newReconciler()
+			nn := types.NamespacedName{Name: trigger.Name, Namespace: testNamespace}
+			_, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
+			Expect(err).NotTo(HaveOccurred())
+
+			var deploy appsv1.Deployment
+			deployKey := types.NamespacedName{Name: webhookGatewayDeploymentName, Namespace: testNamespace}
+			Expect(k8sClient.Get(ctx, deployKey, &deploy)).To(Succeed())
+			for _, arg := range deploy.Spec.Template.Spec.Containers[0].Args {
+				Expect(arg).NotTo(HavePrefix("--crl-configmap-name="), "no --crl-configmap-name arg should be present when spec.tls.crlConfigMapRef is unset")
+			}
+
+			var role rbacv1.Role
+			roleKey := types.NamespacedName{Name: webhookGatewayDeploymentName, Namespace: testNamespace}
+			Expect(k8sClient.Get(ctx, roleKey, &role)).To(Succeed())
+			for _, rule := range role.Rules {
+				Expect(containsString(rule.Resources, "configmaps")).To(BeFalse(), "no configmaps RBAC rule should be granted when spec.tls.crlConfigMapRef is unset")
+			}
+		})
+	})
+
+	// -------------------------------------------------------------------------
+	// STORY-069: WebhookGatewayConfig.spec.tls.crlConfigMapRef wiring
+	// -------------------------------------------------------------------------
+
+	Context("when a WebhookGatewayConfig with spec.tls.crlConfigMapRef exists in the namespace", func() {
+		var trigger *automationv1alpha1.Trigger
+		var cfg *automationv1alpha1.WebhookGatewayConfig
+
+		BeforeEach(func() {
+			cfg = &automationv1alpha1.WebhookGatewayConfig{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      webhookGatewayConfigName,
+					Namespace: testNamespace,
+				},
+				Spec: automationv1alpha1.WebhookGatewayConfigSpec{
+					TLS: &automationv1alpha1.WebhookGatewayTLSSpec{
+						ServerSecretRef:   &corev1.LocalObjectReference{Name: "kubezap-webhook-tls"},
+						ClientCASecretRef: &corev1.LocalObjectReference{Name: "webhook-client-ca"},
+						CRLConfigMapRef:   &corev1.LocalObjectReference{Name: "webhook-client-ca-crl"},
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, cfg)).To(Succeed())
+
+			trigger = makeTrigger(
+				fmt.Sprintf("trg-gwcrl-%d", GinkgoRandomSeed()),
+				automationv1alpha1.TriggerSpec{
+					Type:    "webhook",
+					Enabled: true,
+					Webhook: &automationv1alpha1.WebhookTrigger{
+						Path:   "/hook/gwcrl",
+						Method: "POST",
+					},
+					FlowRef: automationv1alpha1.FlowReference{Name: "example-flow"},
+				},
+			)
+			Expect(k8sClient.Create(ctx, trigger)).To(Succeed())
+			DeferCleanup(func() {
+				_ = k8sClient.Delete(context.Background(), trigger)
+				_ = k8sClient.Delete(context.Background(), cfg)
+			})
+		})
+
+		It("passes --crl-configmap-name to the gateway Deployment and grants configmaps RBAC on the gateway Role", func() {
+			r := newReconciler()
+			nn := types.NamespacedName{Name: trigger.Name, Namespace: testNamespace}
+			_, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
+			Expect(err).NotTo(HaveOccurred())
+
+			var deploy appsv1.Deployment
+			deployKey := types.NamespacedName{Name: webhookGatewayDeploymentName, Namespace: testNamespace}
+			Expect(k8sClient.Get(ctx, deployKey, &deploy)).To(Succeed())
+			Expect(deploy.Spec.Template.Spec.Containers[0].Args).To(ContainElement("--crl-configmap-name=webhook-client-ca-crl"))
+
+			var role rbacv1.Role
+			roleKey := types.NamespacedName{Name: webhookGatewayDeploymentName, Namespace: testNamespace}
+			Expect(k8sClient.Get(ctx, roleKey, &role)).To(Succeed())
+
+			hasConfigMapsRule := false
+			for _, rule := range role.Rules {
+				if containsString(rule.APIGroups, "") &&
+					containsString(rule.Resources, "configmaps") &&
+					containsString(rule.Verbs, "get") &&
+					containsString(rule.Verbs, "list") &&
+					containsString(rule.Verbs, "watch") {
+					hasConfigMapsRule = true
+				}
+			}
+			Expect(hasConfigMapsRule).To(BeTrue(), "webhook gateway Role must grant get;list;watch on configmaps once spec.tls.crlConfigMapRef is set")
+		})
+
+		It("is idempotent across repeated reconciles", func() {
+			r := newReconciler()
+			nn := types.NamespacedName{Name: trigger.Name, Namespace: testNamespace}
+			_, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
+			Expect(err).NotTo(HaveOccurred())
+			_, err = r.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
+			Expect(err).NotTo(HaveOccurred())
+
+			var deploy appsv1.Deployment
+			deployKey := types.NamespacedName{Name: webhookGatewayDeploymentName, Namespace: testNamespace}
+			Expect(k8sClient.Get(ctx, deployKey, &deploy)).To(Succeed())
+			Expect(deploy.Spec.Template.Spec.Containers[0].Args).To(ContainElement("--crl-configmap-name=webhook-client-ca-crl"))
 		})
 	})
 

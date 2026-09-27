@@ -23,6 +23,7 @@ The contract is versioned. Breaking changes will increment the version and be an
     - [`POST /publish`](#post-publish)
     - [Idempotency](#idempotency)
   - [Health Check](#health-check)
+  - [Controller-Side mTLS](#controller-side-mtls)
   - [Environment](#environment)
     - [In-cluster Kubernetes access](#in-cluster-kubernetes-access)
   - [FlowRun Schema](#flowrun-schema)
@@ -201,6 +202,60 @@ GET /healthz  →  HTTP 200  body: "ok"
 
 The operator uses this as the Deployment readiness probe. The plugin should return `200` only when it has successfully connected to the external system and is ready to receive publish calls. Return `5xx` if the broker connection is unavailable; the pod will be removed from the ready set and the operator will not route publish calls to it.
 
+**When `spec.plugin.mtls.enabled` is set** (see [Controller-Side mTLS](#controller-side-mtls) below), `GET /healthz` must be served on `KUBEZAP_MTLS_HEALTH_PORT` over plain HTTP, not on `KUBEZAP_PUBLISHER_PORT`. This is not optional: a TLS listener configured to require a client certificate rejects the handshake before the HTTP layer ever sees the request path, and kubelet's `httpGet` readiness probe never presents a client certificate. There is no way to exempt `/healthz` "by path" on the mTLS-protected publisher port — it must be a separate, unauthenticated port.
+
+---
+
+## Controller-Side mTLS
+
+**Optional, opt-in per Integration via `spec.plugin.mtls.enabled`.** When set, the operator secures the `/publish` channel with mutual TLS: it generates a CA scoped to this Integration, a server cert (for the plugin) signed by that CA, and a client cert (for the controller) signed by the same CA. The controller presents its client cert on every `POST /publish` call and verifies the plugin's server cert against this Integration's own CA — never another Integration's.
+
+**This is opt-in per Integration, not a single global controller flag**, because plugins are third-party code the operator does not build. Different plugin authors adopt this contract at different times, so a global switch would break every plugin that had not yet implemented it. Contrast this with the controller's `--executor-mtls` flag for the (first-party) controller-to-http-executor channel, which the operator can safely flip on unilaterally.
+
+**Ordering matters.** The plugin image must already read the `KUBEZAP_MTLS_*` env vars below and serve TLS (with client cert verification against the injected CA) on `KUBEZAP_PUBLISHER_PORT` **before** the cluster administrator sets `spec.plugin.mtls.enabled: true` on the Integration. If the field is enabled against a plugin build that has not adopted this contract, every `/publish` call fails with a TLS handshake error (the controller dials TLS; the plugin is still listening in plain HTTP, or is listening in TLS but not verifying/presenting the expected client cert), and the step's `retryPolicy` will exhaust retries without ever reaching the plugin's application logic. Roll out plugin support first, verify it, and only then enable the field on the Integration.
+
+When enabled, the operator injects the following into the plugin container in addition to the vars in [Environment](#environment):
+
+| Variable                   | Description                                                                 |
+| -------------------------- | ----------------------------------------------------------------------------|
+| `KUBEZAP_MTLS_ENABLED`     | `"true"`                                                                     |
+| `KUBEZAP_MTLS_CERT_FILE`   | Path to the PEM-encoded server certificate (`/etc/kubezap/mtls/tls.crt`)     |
+| `KUBEZAP_MTLS_KEY_FILE`    | Path to the PEM-encoded server private key (`/etc/kubezap/mtls/tls.key`)     |
+| `KUBEZAP_MTLS_CA_FILE`     | Path to the PEM-encoded CA certificate to verify the controller's client cert against (`/etc/kubezap/mtls/ca.crt`) |
+| `KUBEZAP_MTLS_HEALTH_PORT` | Plain-HTTP port to serve `GET /healthz` on instead of `KUBEZAP_PUBLISHER_PORT` (see [Health Check](#health-check)) |
+
+A minimal Go sketch of what the plugin's publisher HTTP server needs to do:
+
+```go
+caCert, _ := os.ReadFile(os.Getenv("KUBEZAP_MTLS_CA_FILE"))
+caPool := x509.NewCertPool()
+caPool.AppendCertsFromPEM(caCert)
+
+tlsConfig := &tls.Config{
+    ClientCAs:  caPool,
+    ClientAuth: tls.RequireAndVerifyClientCert,
+}
+
+publisherSrv := &http.Server{
+    Addr:      ":" + os.Getenv("KUBEZAP_PUBLISHER_PORT"),
+    TLSConfig: tlsConfig,
+    Handler:   publisherMux, // handles POST /publish only
+}
+go publisherSrv.ListenAndServeTLS(
+    os.Getenv("KUBEZAP_MTLS_CERT_FILE"),
+    os.Getenv("KUBEZAP_MTLS_KEY_FILE"),
+)
+
+// Separate, unauthenticated plain-HTTP server for the readiness probe.
+healthSrv := &http.Server{
+    Addr:    ":" + os.Getenv("KUBEZAP_MTLS_HEALTH_PORT"),
+    Handler: healthMux, // handles GET /healthz only
+}
+go healthSrv.ListenAndServe()
+```
+
+**Rotation**: the operator rotates the CA and both leaf certs roughly every 23h (the server cert + CA delivered to the plugin via the mounted Secret update automatically; Kubernetes propagates the updated Secret content to the mounted volume file without a pod restart — most TLS server implementations, including the sketch above, need to periodically reload the cert from disk, e.g. via `tls.Config.GetCertificate`, to pick up the rotated cert without a restart). See `docs/guides/plugin-security.md`'s Controller-Side mTLS section for the operational picture.
+
 ---
 
 ## Environment
@@ -213,6 +268,8 @@ The operator injects these environment variables into the plugin container:
 | `KUBEZAP_INTEGRATION_NAME` | Name of the `Integration` CRD                           |
 | `KUBEZAP_PUBLISHER_PORT`   | Port to listen on for publisher calls (default: `8090`) |
 | `KUBEZAP_LOG_LEVEL`        | `debug`, `info`, `warn`, or `error`                     |
+
+See [Controller-Side mTLS](#controller-side-mtls) above for the additional `KUBEZAP_MTLS_*` vars injected when `spec.plugin.mtls.enabled` is set.
 
 Secrets referenced in `spec.plugin.secretRefs` are injected as the environment variable names you define in `envVarMappings`. Non-sensitive config is injected via `spec.plugin.env` (see `docs/api/integration.md`'s `PluginIntegrationSpec` table — a dedicated `spec.plugin.config` map is planned but not yet implemented).
 

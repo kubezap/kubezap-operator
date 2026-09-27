@@ -1,0 +1,18 @@
+apiVersion: automation.kubezap.io/v1alpha1
+kind: Integration
+metadata:
+  name: my-plugin-mtls
+  namespace: default
+spec:
+  type: plugin
+  plugin:
+    image: ghcr.io/my-org/my-plugin:v1.2.3
+    publisherPort: 8090
+    # Controller-side mTLS for the /publish channel. Only set this to true
+    # once the plugin image already reads the KUBEZAP_MTLS_* env vars and
+    # serves TLS with client-cert verification on its publisher port — see
+    # docs/api/plugin-contract.md's "Controller-Side mTLS" section. Enabling
+    # this against a plugin build that has not adopted that contract breaks
+    # /publish immediately with a TLS handshake error.
+    mtls:
+      enabled: true

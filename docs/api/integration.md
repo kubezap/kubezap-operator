@@ -35,6 +35,7 @@ An `Integration` stores the connection details and credentials for an external s
   - [SecretKeyRef](#secretkeyref)
   - [PluginIntegrationSpec](#pluginintegrationspec)
   - [PluginSecretRef](#pluginsecretref)
+  - [PluginMTLSSpec](#pluginmtlsspec)
   - [HttpIntegrationSpec](#httpintegrationspec)
   - [HttpTLSSpec](#httptlsspec)
   - [HttpAuthSpec](#httpauthspec)
@@ -59,6 +60,7 @@ An `Integration` stores the connection details and credentials for an external s
   - [Example 10: HTTP Integration (GitHub API)](#example-10-http-integration-github-api)
   - [Example 11: HTTP Integration with a private CA](#example-11-http-integration-with-a-private-ca)
   - [Example 12: HTTP Integration (Slack Webhook — secretUrl)](#example-12-http-integration-slack-webhook--secreturl)
+  - [Example 13: Plugin Integration with Controller-Side mTLS](#example-13-plugin-integration-with-controller-side-mtls)
 - [Community Plugin Graduation](#community-plugin-graduation)
   - [Graduation criteria](#graduation-criteria)
   - [What graduation changes](#what-graduation-changes)
@@ -350,6 +352,8 @@ The operator injects these environment variables into the plugin container:
 | `KUBEZAP_PUBLISHER_PORT`   | Port to listen on for publisher calls     |
 | `KUBEZAP_LOG_LEVEL`        | `debug`, `info`, `warn`, `error`          |
 
+When `spec.plugin.mtls.enabled` is `true`, the operator additionally injects `KUBEZAP_MTLS_ENABLED`, `KUBEZAP_MTLS_CERT_FILE`, `KUBEZAP_MTLS_KEY_FILE`, `KUBEZAP_MTLS_CA_FILE`, and `KUBEZAP_MTLS_HEALTH_PORT` — see [PluginMTLSSpec](#pluginmtlsspec) and `docs/api/plugin-contract.md`'s Controller-Side mTLS section for the full contract.
+
 Secrets referenced in `spec.plugin.secretRefs` are injected as environment variables using the key mapping you define.
 
 ### Plugin health check
@@ -360,7 +364,7 @@ The plugin must implement:
 GET /healthz  →  HTTP 200 with body "ok"
 ```
 
-The operator uses this for the Deployment readiness probe.
+The operator uses this for the Deployment readiness probe. When `spec.plugin.mtls.enabled` is `true`, `/healthz` must be served on `KUBEZAP_MTLS_HEALTH_PORT` over plain HTTP instead of `spec.plugin.publisherPort` — kubelet's readiness probe never presents a client certificate, so it cannot be exempted "by path" on the mTLS-protected publisher port.
 
 ---
 
@@ -459,6 +463,7 @@ There is no plain-text `username` field — the username must always come from a
 | `publisherPort` | integer           | No       | `8090`  | Port the plugin listens on for publisher calls from the controller                                                                              |
 | `secretRefs`    | []PluginSecretRef | No       | —       | Secrets mounted as environment variables in the plugin container                                                                                |
 | `env`           | []EnvVar          | No       | —       | Additional environment variables injected into the plugin container                                                                             |
+| `mtls`          | PluginMTLSSpec    | No       | —       | Controller-side mTLS configuration for the `/publish` channel. See [PluginMTLSSpec](#pluginmtlsspec) below.                                     |
 
 > **Planned:** `replicas` (integer), `resources` (ResourceRequirements), `config` (map[string]string), and `imagePullSecrets` ([]LocalObjectReference) are planned for a future release. They are not yet implemented. Use `env` for non-sensitive configuration today.
 
@@ -468,6 +473,22 @@ There is no plain-text `username` field — the username must always come from a
 | ---------------- | ----------------- | --------------------------------------------------------------------------------- |
 | `secretName`     | string            | Name of the Kubernetes Secret                                                     |
 | `envVarMappings` | map[string]string | Maps Secret keys to environment variable names: `{ "api-key": "PLUGIN_API_KEY" }` |
+
+### PluginMTLSSpec
+
+| Field     | Type    | Required | Default | Description                                                                                                                                         |
+| --------- | ------- | -------- | ------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `enabled` | boolean | No       | `false` | Enable controller-side mTLS for this Integration's `/publish` channel. Requires the plugin image to already implement the `KUBEZAP_MTLS_*` contract — see [`docs/api/plugin-contract.md`'s Controller-Side mTLS section](plugin-contract.md#controller-side-mtls) before setting this to `true`. |
+
+When `enabled: true`, the operator:
+
+1. Generates a CA scoped to this Integration (never shared with any other Integration), plus a server leaf cert (for the plugin) and a client leaf cert (for the controller), both signed by that CA.
+2. Creates a `Secret` named `kubezap-plugin-<name>-mtls` containing the server cert (`tls.crt`), server key (`tls.key`), and CA cert (`ca.crt`), mounted into the plugin Deployment at `/etc/kubezap/mtls`.
+3. Injects `KUBEZAP_MTLS_ENABLED`, `KUBEZAP_MTLS_CERT_FILE`, `KUBEZAP_MTLS_KEY_FILE`, `KUBEZAP_MTLS_CA_FILE`, and `KUBEZAP_MTLS_HEALTH_PORT` into the plugin container.
+4. Presents the client cert on every subsequent `POST /publish` call to this Integration's plugin, and verifies the plugin's server cert against this Integration's own CA only — never another Integration's.
+5. Rotates the CA and both leaf certs roughly every 23h.
+
+**Limitation**: setting `enabled: true` against a plugin image that has not implemented the `KUBEZAP_MTLS_*` contract breaks `/publish` immediately with a TLS handshake error — there is no compatibility fallback. Roll out and verify plugin-side TLS support first. See [`docs/guides/plugin-security.md`'s Controller-Side mTLS section](../guides/plugin-security.md#controller-side-mtls) for the operational picture.
 
 ### HttpIntegrationSpec
 
@@ -543,6 +564,7 @@ There is no plain-text `username` field — the username must always come from a
 | `Ready`            | `False` | Configuration error or gateway pod failed to start. See `message`. |
 | `GatewayAvailable` | `True`  | At least one gateway replica is running and healthy                |
 | `GatewayAvailable` | `False` | No gateway replicas available                                      |
+| `PluginMTLSReady`  | `True`  | `spec.plugin.mtls.enabled` is set and the per-Integration mTLS cert bundle (CA, server cert, client cert) has been reconciled. Only set for `type: plugin` Integrations with `mtls.enabled: true`. |
 
 ### Printer Columns
 
@@ -966,6 +988,42 @@ stringData:
 
 ---
 
+### Example 13: Plugin Integration with Controller-Side mTLS
+
+A community plugin whose author has already implemented the `KUBEZAP_MTLS_*`
+contract (see `docs/api/plugin-contract.md`'s Controller-Side mTLS section):
+
+```yaml
+apiVersion: automation.kubezap.io/v1alpha1
+kind: Integration
+metadata:
+  name: rabbitmq-prod-mtls
+  namespace: automation
+spec:
+  type: plugin
+  plugin:
+    image: ghcr.io/kubezap-community/rabbitmq-plugin:v0.4.0 # a build that serves KUBEZAP_MTLS_* per the contract
+    publisherPort: 8090
+    mtls:
+      enabled: true
+    env:
+      - name: RABBITMQ_HOST
+        value: rabbitmq.infra.svc.cluster.local
+      - name: RABBITMQ_PORT
+        value: "5672"
+    secretRefs:
+      - secretName: rabbitmq-credentials
+        envVarMappings:
+          username: RABBITMQ_USERNAME
+          password: RABBITMQ_PASSWORD
+```
+
+Do not set `mtls.enabled: true` against a plugin image that has not yet
+adopted the `KUBEZAP_MTLS_*` contract — see the Limitation note under
+[PluginMTLSSpec](#pluginmtlsspec).
+
+---
+
 ## Community Plugin Graduation
 
 Community plugins can graduate to first-party built-in types. The lifecycle is:
@@ -1017,3 +1075,4 @@ The community plugin catalog lives at `docs/plugins/` (forthcoming). Each catalo
 - **Plugin image trust**: KubeZap does not verify plugin images. Only use plugin images from sources you trust, as they run inside your cluster with Kubernetes API access.
 - **AMQP and NATS gateways**: `type: amqp` and `type: nats` are implemented (beta). Known limitations: the AMQP and NATS gateway watchers currently use a 30-second polling interval to detect Trigger changes (reaction latency up to 30 s); informer-based watch is planned for the next stabilization sprint.
 - **One gateway Deployment per Integration per namespace**: KubeZap does not share a single Kafka gateway pod across multiple Integrations. Each Integration gets its own gateway Deployment in each namespace where it is used.
+- **Plugin mTLS requires plugin-author cooperation**: `spec.plugin.mtls.enabled` only works against a plugin image that already implements the `KUBEZAP_MTLS_*` contract (see `docs/api/plugin-contract.md`). Enabling it against an older plugin build breaks `/publish` with a TLS handshake error — there is no compatibility fallback.

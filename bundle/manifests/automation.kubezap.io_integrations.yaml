@@ -836,6 +836,25 @@ spec:
                       Example: "abc123...64chars..."
                     pattern: ^[a-f0-9]{64}$
                     type: string
+                  mtls:
+                    description: |-
+                      Controller-side mTLS configuration for the /publish channel. See
+                      PluginMTLSSpec's doc comment for the adoption ordering requirement.
+                    properties:
+                      enabled:
+                        default: false
+                        description: |-
+                          Enable mTLS for this Integration's /publish channel. When true, the
+                          operator generates and rotates (roughly every 23h) a CA scoped to this
+                          Integration, plus a server leaf cert (mounted into the plugin
+                          Deployment via a per-Integration Secret) and a client leaf cert (used
+                          by the controller when calling POST /publish). The plugin image must
+                          already read the injected KUBEZAP_MTLS_* env vars and serve TLS on its
+                          publisher port before this field is set to true — enabling it against
+                          a plugin that has not adopted the new contract breaks /publish calls
+                          with a TLS handshake error.
+                        type: boolean
+                    type: object
                   publisherPort:
                     default: 8090
                     description: Publisher service port.

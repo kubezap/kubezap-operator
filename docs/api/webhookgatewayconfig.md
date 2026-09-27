@@ -13,6 +13,7 @@ must be named `default`, and Kubernetes' own name-uniqueness rejects a second on
 - [Spec Reference](#spec-reference)
   - [WebhookGatewayConfigSpec](#webhookgatewayconfigspec)
   - [WebhookGatewayTLSSpec](#webhookgatewaytlsspec)
+    - [Certificate Revocation (CRL)](#certificate-revocation-crl)
   - [WebhookGatewayHPASpec](#webhookgatewayhpaspec)
   - [WebhookGatewayPDBSpec](#webhookgatewaypdbspec)
 - [Status Reference](#status-reference)
@@ -61,10 +62,13 @@ require separate namespaces (and separate gateway Deployments).
 | ------------------- | -------------------------------- | ----------- | ------- | ------------------------------------------------------------------------------------------------------------ |
 | `serverSecretRef`   | `corev1.LocalObjectReference`    | No          | —       | Secret in this namespace with `tls.crt` + `tls.key` (cert-manager compatible), terminated on the gateway's listener. Omitted means plain HTTP. |
 | `clientCASecretRef` | `corev1.LocalObjectReference`    | Conditional | —       | Secret in this namespace with `ca.crt`, used to verify client certificates for mTLS. **Only effective when `serverSecretRef` is also set** — setting it alone has no effect. |
+| `crlConfigMapRef`   | `corev1.LocalObjectReference`    | Conditional | —       | **ConfigMap** (not a Secret) in this namespace with a DER-encoded Certificate Revocation List under the fixed key `crl.der`. Rejects any client certificate whose serial appears in the CRL, and fails closed once the CRL's `nextUpdate` has passed. **Only effective when `clientCASecretRef` is also set.** See [Certificate Revocation (CRL)](#certificate-revocation-crl) below. |
 
-Both fields reference a Secret **in the same namespace** as the `WebhookGatewayConfig`
-object — there is no cross-namespace Secret reference, matching the convention already used
-by `Integration.spec.kafka.tls.{caSecretRef,clientCertSecretRef}`.
+`serverSecretRef` and `clientCASecretRef` reference a Secret **in the same namespace** as
+the `WebhookGatewayConfig` object — there is no cross-namespace Secret reference, matching
+the convention already used by `Integration.spec.kafka.tls.{caSecretRef,clientCertSecretRef}`.
+`crlConfigMapRef` follows the same same-namespace convention but references a **ConfigMap**,
+not a Secret — see [Certificate Revocation (CRL)](#certificate-revocation-crl) for why.
 
 When `serverSecretRef` is set, the controller:
 1. Mounts the Secret read-only at `/etc/webhook-tls` in the gateway pod
@@ -76,6 +80,26 @@ When `clientCASecretRef` is additionally set, the gateway also mounts it at
 without a valid client certificate are rejected at the TLS handshake, before the webhook
 handler runs. See [webhook-security.md → mTLS (Client Certificate)](../guides/webhook-security.md#mtls-client-certificate)
 for the full walkthrough, including Ingress/Route passthrough requirements.
+
+### Certificate Revocation (CRL)
+
+`crlConfigMapRef` adds certificate revocation checking on top of `clientCASecretRef`'s chain
+verification: a client certificate signed by the trusted CA is still accepted until it
+naturally expires unless its serial number is also listed in the configured CRL. See
+[webhook-security.md → Certificate Revocation (CRL)](../guides/webhook-security.md#certificate-revocation-crl)
+for the full walkthrough (why a ConfigMap and not a Secret, the fail-closed staleness
+behavior, and how to author the ConfigMap) and
+[`docs/design/client-cert-revocation-checking.md`](../design/client-cert-revocation-checking.md)
+for the full design record.
+
+> **Important — wiring gap as of this field's introduction:** the controller does not yet
+> translate `crlConfigMapRef` into the webhook gateway Deployment's args or RBAC (this is
+> deliberately deferred to a follow-up story — see the design record's Tradeoffs section).
+> Setting this field on the CRD alone has **no effect** today. The gateway binary itself
+> fully implements CRL checking via its own `--crl-configmap-name` flag, which can be set
+> directly on the `kubezap-webhook-gateway` Deployment as a stopgap (and needs a
+> `get;list;watch` `ConfigMap` rule added to that Deployment's Role) until the controller-side
+> wiring lands.
 
 ### WebhookGatewayHPASpec
 
@@ -256,3 +280,7 @@ spec:
   organization-wide default HPA range or require TLS across all namespaces from a single
   object; each namespace needs its own `WebhookGatewayConfig` to opt out of the operator's
   built-in defaults.
+- **`crlConfigMapRef` is not yet wired into the controller.** As of this field's
+  introduction, setting it on the CRD has no effect — see the callout in
+  [Certificate Revocation (CRL)](#certificate-revocation-crl) for the stopgap and the
+  design record for why this was deliberately deferred.

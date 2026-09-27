@@ -19,6 +19,7 @@ Authentication is configured per `Trigger`, so different triggers can use differ
   - [What the operator does](#what-the-operator-does)
   - [Calling the webhook with a client certificate](#calling-the-webhook-with-a-client-certificate)
   - [Ingress / Route passthrough](#ingress--route-passthrough)
+  - [Certificate Revocation (CRL)](#certificate-revocation-crl)
 - [API Key Header](#api-key-header)
 - [IP Allowlist](#ip-allowlist)
 - [Body Size Limits](#body-size-limits)
@@ -306,6 +307,74 @@ spec:
     termination: passthrough
 ```
 
+### Certificate Revocation (CRL)
+
+`clientCASecretRef` alone verifies that a presented client certificate was signed by the
+trusted CA — it does not check whether that specific certificate has since been revoked. A
+compromised or otherwise-invalidated client certificate remains accepted until it naturally
+expires unless you also configure a Certificate Revocation List (CRL) via
+`spec.tls.crlConfigMapRef`:
+
+```yaml
+apiVersion: automation.kubezap.io/v1alpha1
+kind: WebhookGatewayConfig
+metadata:
+  name: default
+  namespace: my-namespace
+spec:
+  tls:
+    serverSecretRef:
+      name: kubezap-webhook-tls
+    clientCASecretRef:
+      name: webhook-client-ca
+    crlConfigMapRef:
+      name: webhook-client-ca-crl   # only effective when clientCASecretRef is also set
+```
+
+**Why a ConfigMap, not a Secret:** a CRL is a signed list of revoked serial numbers, meant
+to be freely distributed by the CA — it is public data by design, unlike the CA bundle or a
+private key. Modeling it as a `Secret` would repeat the category error KubeZap has
+deliberately avoided elsewhere (see `docs/design/http-step-outbound-tls.md`'s CA-bundle
+decision). See `docs/design/client-cert-revocation-checking.md` for the full design record,
+including why CRL was chosen over OCSP (OCSP requires a live per-connection network call to
+an external responder, which breaks air-gapped cluster support).
+
+Create the ConfigMap from a DER-encoded CRL under the fixed key `crl.der`:
+
+```bash
+# openssl -outform DER produces a binary CRL file; kubectl auto-detects the
+# non-UTF8 content and stores it in binaryData.
+openssl ca -gencrl -out crl.der -outform DER -config ca.cnf
+kubectl create configmap webhook-client-ca-crl \
+  --from-file=crl.der=crl.der \
+  -n my-namespace
+```
+
+**Fail-closed staleness:** every CRL has a `nextUpdate` field stating when the next CRL is
+due. Once `nextUpdate` passes, the webhook gateway rejects **all** client-certificate
+connections — not just ones with a specific revoked serial — until a fresh, non-stale CRL is
+loaded. This is a deliberate fail-closed choice (matching this project's existing SSRF
+fail-closed precedent): a broken CRL-refresh pipeline must produce a loud, visible failure,
+not a silent downgrade to "no revocation checking." Keep your CRL-refresh automation running
+comfortably inside the CRL's own validity window, and watch the
+`kubezap_webhook_mtls_crl_stale` Prometheus gauge (1 = stale) and
+`kubezap_webhook_mtls_crl_next_update_timestamp_seconds` gauge (unix timestamp) on the
+gateway's own `/metrics` endpoint — see `docs/guides/observability.md`. The gateway also logs
+a structured error line on the fresh-to-stale transition. A CRL ConfigMap that fails to parse
+(malformed DER, missing `crl.der` key) never clears a previously loaded good CRL; it is
+counted in `kubezap_webhook_mtls_crl_parse_errors_total` instead, so a bad update degrades to
+"stale, then fail-closed" on its own schedule rather than immediately disabling revocation
+checking.
+
+No `crlConfigMapRef` configured (the default) behaves identically to today: no certificate
+revocation checking, and `clientCASecretRef`'s chain verification is the only client-cert
+control in effect.
+
+> **Wiring gap as of this feature's introduction:** the controller does not yet translate
+> `crlConfigMapRef` into the webhook gateway Deployment's args or RBAC — see
+> [`docs/api/webhookgatewayconfig.md`](../api/webhookgatewayconfig.md#certificate-revocation-crl)
+> for the current stopgap (setting `--crl-configmap-name` directly on the gateway Deployment).
+
 ---
 
 ## API Key Header
@@ -492,3 +561,5 @@ in etcd.
 - **Token rotation**: Bearer tokens and API keys do not support rotation without briefly accepting both old and new values. Rotate secrets in Kubernetes and the gateway picks up the new value on the next request.
 - **mTLS and shared Ingress**: Inbound mTLS requires TLS passthrough at the Ingress layer. If you are using a shared Ingress that terminates TLS, mTLS to the gateway is not possible — use bearer or HMAC instead.
 - **Single auth type per Trigger**: Only one `spec.webhook.auth.type` is active at a time. Combining multiple auth methods (e.g., HMAC + IP allowlist) on a single Trigger is planned for a future release.
+- **CRL revocation is scoped to the webhook mTLS path only**: `spec.tls.crlConfigMapRef` covers only `kubezap.io/webhook-mtls-ca-secret` (inbound webhook client-cert auth). It does not apply to the executor/plugin internal RPC channel, which uses KubeZap-issued, short-lived, self-rotated certificates with no external-revocation concept. See [Certificate Revocation (CRL)](#certificate-revocation-crl) for the field itself, and note its controller-wiring gap described there.
+- **No OCSP support**: revocation checking is CRL-only, by design — see `docs/design/client-cert-revocation-checking.md` for why OCSP was rejected (its live per-connection network dependency breaks air-gapped cluster support).

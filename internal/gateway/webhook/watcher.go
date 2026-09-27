@@ -2,12 +2,14 @@ package webhook
 
 import (
 	"context"
+	"crypto/x509"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -50,15 +52,38 @@ type TriggerWatcher struct {
 	secretIndex *secretindex.Index
 	triggersMu  sync.Mutex
 	triggers    map[types.NamespacedName]*automationv1alpha1.Trigger
+
+	// crlConfigMapName is the name of the ConfigMap (in this watcher's
+	// namespace) holding the DER-encoded mTLS CRL. Empty means the feature is
+	// disabled: no ConfigMap informer is started at all (see Start), so a
+	// namespace that doesn't use this feature needs no new RBAC and behaves
+	// identically to before this field existed.
+	crlConfigMapName string
+
+	// crlHolder is the shared, concurrency-safe holder for the currently
+	// active parsed CRL. Written here on every successful parse; read by
+	// cmd/webhook-gateway/main.go's TLS VerifyPeerCertificate callback on
+	// every handshake. A nil value stored (the zero value of the pointer) means
+	// "no CRL loaded yet" (or the feature is disabled), and callers must treat
+	// that as a no-op, not as "everything is revoked."
+	crlHolder *atomic.Pointer[x509.RevocationList]
 }
 
 // NewTriggerWatcher creates a new TriggerWatcher with an informer cache.
 // cfg must be a valid *rest.Config; callers typically obtain it via ctrl.GetConfigOrDie()
 // and pass it here to avoid redundant API server round-trips.
 // jwksCache is the shared JWKS key cache; callers create it via jwk.NewCache(ctx) in main.
+//
+// crlConfigMapName and crlHolder configure optional mTLS CRL support (see
+// docs/design/client-cert-revocation-checking.md): crlConfigMapName is the
+// name of a ConfigMap in namespace holding a DER-encoded CRL, or "" to disable
+// the feature entirely (no third informer is started, matching today's
+// behavior exactly). crlHolder is the holder cmd/webhook-gateway/main.go also
+// reads from its TLS VerifyPeerCertificate callback; pass a freshly allocated
+// holder even when crlConfigMapName is "" (it simply never gets written to).
 func NewTriggerWatcher(
 	cfg *rest.Config, k8sClient client.Client, registry *RouteRegistry, namespace string, log logr.Logger,
-	jwksCache *jwk.Cache,
+	jwksCache *jwk.Cache, crlConfigMapName string, crlHolder *atomic.Pointer[x509.RevocationList],
 ) (*TriggerWatcher, error) {
 	httpClient, err := rest.HTTPClientFor(cfg)
 	if err != nil {
@@ -81,14 +106,16 @@ func NewTriggerWatcher(
 	}
 
 	return &TriggerWatcher{
-		k8sClient:   k8sClient,
-		cache:       watchCache,
-		registry:    registry,
-		namespace:   namespace,
-		log:         log,
-		jwksCache:   jwksCache,
-		secretIndex: secretindex.New(),
-		triggers:    make(map[types.NamespacedName]*automationv1alpha1.Trigger),
+		k8sClient:        k8sClient,
+		cache:            watchCache,
+		registry:         registry,
+		namespace:        namespace,
+		log:              log,
+		jwksCache:        jwksCache,
+		secretIndex:      secretindex.New(),
+		triggers:         make(map[types.NamespacedName]*automationv1alpha1.Trigger),
+		crlConfigMapName: crlConfigMapName,
+		crlHolder:        crlHolder,
 	}, nil
 }
 
@@ -120,6 +147,23 @@ func (w *TriggerWatcher) Start(ctx context.Context) error {
 		return fmt.Errorf("adding secret event handler: %w", err)
 	}
 
+	// Only started when the CRL feature is configured — a namespace with no
+	// crlConfigMapName needs no ConfigMap informer, no ConfigMap RBAC, and no
+	// behavior change at all from before this feature existed. See
+	// docs/design/client-cert-revocation-checking.md.
+	if w.crlConfigMapName != "" {
+		configMapInformer, err := w.cache.GetInformer(ctx, &corev1.ConfigMap{})
+		if err != nil {
+			return fmt.Errorf("unable to get configmap informer: %w", err)
+		}
+		if _, err := configMapInformer.AddEventHandler(toolscache.ResourceEventHandlerFuncs{
+			AddFunc:    func(obj interface{}) { w.handleCRLConfigMap(obj) },
+			UpdateFunc: func(oldObj, newObj interface{}) { w.handleCRLConfigMap(newObj) },
+		}); err != nil {
+			return fmt.Errorf("adding configmap event handler: %w", err)
+		}
+	}
+
 	go func() {
 		if err := w.cache.Start(ctx); err != nil && err != context.Canceled {
 			w.log.Error(err, "trigger cache stopped with error")
@@ -132,6 +176,10 @@ func (w *TriggerWatcher) Start(ctx context.Context) error {
 
 	w.registry.MarkSynced()
 	w.log.Info("trigger cache synced")
+
+	if w.crlConfigMapName != "" {
+		go w.watchCRLStaleness(ctx)
+	}
 
 	<-ctx.Done()
 	w.log.Info("trigger watcher context canceled")

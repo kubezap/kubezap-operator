@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/signal"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -39,6 +40,17 @@ func init() {
 	utilruntime.Must(automationv1alpha1.AddToScheme(schemeInstance))
 }
 
+// warnIfCRLConfiguredWithoutMTLS logs a startup warning when --crl-configmap-name
+// is set but --mtls-ca-file is not, since CRL checking only ever runs from the
+// mTLS VerifyPeerCertificate callback and has no effect without it configured.
+func warnIfCRLConfiguredWithoutMTLS(log logr.Logger, crlConfigMapName, mtlsCAFile string) {
+	if crlConfigMapName != "" && mtlsCAFile == "" {
+		log.Info("WARNING: --crl-configmap-name is set but --mtls-ca-file is not; "+
+			"CRL checking has no effect without mTLS client-cert verification enabled",
+			"crlConfigMapName", crlConfigMapName)
+	}
+}
+
 func main() {
 	var port int
 	var metricsPort int
@@ -47,6 +59,7 @@ func main() {
 	var tlsCertFile string
 	var tlsKeyFile string
 	var mtlsCAFile string
+	var crlConfigMapName string
 	var metricsTLSCertFile string
 	var metricsTLSKeyFile string
 	var trustedProxyCIDRs string
@@ -65,6 +78,14 @@ func main() {
 	flag.StringVar(&mtlsCAFile, "mtls-ca-file", "",
 		"Path to CA certificate PEM file for verifying client certificates (mTLS). Requires "+
 			"--tls-cert-file and --tls-key-file.")
+	flag.StringVar(&crlConfigMapName, "crl-configmap-name", "",
+		"Name of a ConfigMap (in --namespace) holding a DER-encoded Certificate Revocation "+
+			"List under the fixed key \"crl.der\", used to reject revoked client certificates "+
+			"on the mTLS handshake path. Empty (default) disables CRL checking entirely -- no "+
+			"ConfigMap informer is started and no additional RBAC is required. Only meaningful "+
+			"when --mtls-ca-file is also set. Once the loaded CRL's nextUpdate has passed, ALL "+
+			"client-certificate auth is rejected fail-closed until a fresh CRL is provided -- "+
+			"see docs/design/client-cert-revocation-checking.md.")
 	flag.StringVar(&metricsTLSCertFile, "metrics-tls-cert-file", "", "Path to TLS certificate PEM for the metrics server")
 	flag.StringVar(&metricsTLSKeyFile, "metrics-tls-key-file", "", "Path to TLS key PEM for the metrics server")
 	flag.StringVar(&trustedProxyCIDRs, "trusted-proxy-cidrs", "",
@@ -127,6 +148,8 @@ func main() {
 		log.Info("namespace flag set", "namespace", namespace)
 	}
 
+	warnIfCRLConfiguredWithoutMTLS(log, crlConfigMapName, mtlsCAFile)
+
 	cfg := ctrl.GetConfigOrDie()
 	k8sClient, err := client.New(cfg, client.Options{Scheme: schemeInstance})
 	if err != nil {
@@ -141,8 +164,17 @@ func main() {
 
 	jwksCache := webhook.NewJWKSCache(ctx)
 
+	// crlHolder is shared between the watcher (writer, on CRL ConfigMap
+	// add/update) and this file's TLS VerifyPeerCertificate callback below
+	// (reader, on every handshake). Always allocated, even when
+	// crlConfigMapName is "" -- it simply never gets written to in that case,
+	// and the callback treats a nil Load() as a no-op. See
+	// docs/design/client-cert-revocation-checking.md.
+	var crlHolder atomic.Pointer[x509.RevocationList]
+
 	watcher, err := webhook.NewTriggerWatcher(
-		cfg, k8sClient, registry, namespace, log.WithName("trigger-watcher"), jwksCache)
+		cfg, k8sClient, registry, namespace, log.WithName("trigger-watcher"), jwksCache,
+		crlConfigMapName, &crlHolder)
 	if err != nil {
 		log.Error(err, "unable to create trigger watcher")
 		os.Exit(1)
@@ -197,6 +229,20 @@ func main() {
 				tlsCfg.ClientCAs = caCertPool
 				tlsCfg.ClientAuth = tls.RequireAndVerifyClientCert
 				log.Info("mTLS client certificate verification enabled", "caFile", mtlsCAFile)
+
+				// VerifyPeerCertificate runs after Go's TLS stack has already
+				// built and verified a chain from the presented client cert up
+				// to a CA in ClientCAs (RequireAndVerifyClientCert above) --
+				// webhook.VerifyClientCertNotRevoked only adds CRL
+				// revocation/staleness checking on top of that, it never
+				// replaces the chain-of-trust check. crlHolder is read fresh
+				// on every handshake, so an updated CRL (loaded by the
+				// watcher's ConfigMap informer) takes effect on the very next
+				// connection with no gateway restart. A nil crlHolder value
+				// (no --crl-configmap-name set, or not loaded yet) makes this
+				// a no-op, identical to today's behavior. See
+				// docs/design/client-cert-revocation-checking.md.
+				tlsCfg.VerifyPeerCertificate = webhook.VerifyClientCertNotRevoked(&crlHolder, log)
 			}
 			srv.TLSConfig = tlsCfg
 			log.Info("starting webhook gateway HTTPS server", "port", port, "certFile", tlsCertFile)

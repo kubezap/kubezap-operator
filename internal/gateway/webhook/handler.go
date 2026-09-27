@@ -671,7 +671,7 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			// request is the one that created it.
 			alFields.setFlowRun(true, flowRunName, entry.FlowRef)
 			metrics.TriggerFirings.WithLabelValues(triggerNamespace, triggerName, triggerTypeWebhook, "success").Inc()
-			writeJSON(w, status, map[string]string{"flowRun": flowRunName, "namespace": entry.TriggerNamespace})
+			writeJSON(w, status, map[string]string{"flowRun": flowRunName, labelNamespace: entry.TriggerNamespace})
 			return
 		}
 		status = http.StatusInternalServerError
@@ -686,5 +686,5 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	status = http.StatusAccepted
 	alFields.setFlowRun(true, flowRunName, entry.FlowRef)
 	metrics.TriggerFirings.WithLabelValues(triggerNamespace, triggerName, triggerTypeWebhook, "success").Inc()
-	writeJSON(w, status, map[string]string{"flowRun": flowRunName, "namespace": entry.TriggerNamespace})
+	writeJSON(w, status, map[string]string{"flowRun": flowRunName, labelNamespace: entry.TriggerNamespace})
 }

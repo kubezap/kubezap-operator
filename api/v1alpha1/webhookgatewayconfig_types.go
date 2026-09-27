@@ -73,6 +73,24 @@ type WebhookGatewayTLSSpec struct {
 	// effective when ServerSecretRef is also set.
 	// +optional
 	ClientCASecretRef *corev1.LocalObjectReference `json:"clientCASecretRef,omitempty"`
+
+	// CRLConfigMapRef references a ConfigMap in this namespace containing a
+	// DER-encoded Certificate Revocation List under the fixed key "crl.der"
+	// (checked in binaryData first, then data as a fallback). When set, the
+	// webhook gateway rejects any client certificate whose serial number
+	// appears in the CRL, and fails closed (rejects all client-cert auth) once
+	// the CRL's nextUpdate has passed. A ConfigMap, not a Secret, is used
+	// deliberately — a CRL is public data by design. Only effective when
+	// ClientCASecretRef is also set. See
+	// docs/design/client-cert-revocation-checking.md and
+	// docs/guides/webhook-security.md#certificate-revocation-crl.
+	//
+	// Note: as of this field's introduction, the operator does not yet wire
+	// this reference into the webhook gateway Deployment's args or RBAC (see
+	// the design record's Tradeoffs section) — the gateway binary supports
+	// this today only via its own --crl-configmap-name flag, set out-of-band.
+	// +optional
+	CRLConfigMapRef *corev1.LocalObjectReference `json:"crlConfigMapRef,omitempty"`
 }
 
 // WebhookGatewayHPASpec overrides the webhook gateway's

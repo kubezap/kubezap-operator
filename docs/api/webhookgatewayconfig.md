@@ -81,6 +81,11 @@ without a valid client certificate are rejected at the TLS handshake, before the
 handler runs. See [webhook-security.md → mTLS (Client Certificate)](../guides/webhook-security.md#mtls-client-certificate)
 for the full walkthrough, including Ingress/Route passthrough requirements.
 
+When `crlConfigMapRef` is additionally set, the controller passes
+`--crl-configmap-name=<name>` to the gateway container and grants the gateway's Role
+`get;list;watch` on `ConfigMaps` in the namespace, so its CRL watcher can read the
+referenced ConfigMap. See [Certificate Revocation (CRL)](#certificate-revocation-crl) below.
+
 ### Certificate Revocation (CRL)
 
 `crlConfigMapRef` adds certificate revocation checking on top of `clientCASecretRef`'s chain
@@ -91,15 +96,6 @@ for the full walkthrough (why a ConfigMap and not a Secret, the fail-closed stal
 behavior, and how to author the ConfigMap) and
 [`docs/design/client-cert-revocation-checking.md`](../design/client-cert-revocation-checking.md)
 for the full design record.
-
-> **Important — wiring gap as of this field's introduction:** the controller does not yet
-> translate `crlConfigMapRef` into the webhook gateway Deployment's args or RBAC (this is
-> deliberately deferred to a follow-up story — see the design record's Tradeoffs section).
-> Setting this field on the CRD alone has **no effect** today. The gateway binary itself
-> fully implements CRL checking via its own `--crl-configmap-name` flag, which can be set
-> directly on the `kubezap-webhook-gateway` Deployment as a stopgap (and needs a
-> `get;list;watch` `ConfigMap` rule added to that Deployment's Role) until the controller-side
-> wiring lands.
 
 ### WebhookGatewayHPASpec
 
@@ -280,7 +276,3 @@ spec:
   organization-wide default HPA range or require TLS across all namespaces from a single
   object; each namespace needs its own `WebhookGatewayConfig` to opt out of the operator's
   built-in defaults.
-- **`crlConfigMapRef` is not yet wired into the controller.** As of this field's
-  introduction, setting it on the CRD has no effect — see the callout in
-  [Certificate Revocation (CRL)](#certificate-revocation-crl) for the stopgap and the
-  design record for why this was deliberately deferred.

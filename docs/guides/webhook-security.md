@@ -370,10 +370,10 @@ No `crlConfigMapRef` configured (the default) behaves identically to today: no c
 revocation checking, and `clientCASecretRef`'s chain verification is the only client-cert
 control in effect.
 
-> **Wiring gap as of this feature's introduction:** the controller does not yet translate
-> `crlConfigMapRef` into the webhook gateway Deployment's args or RBAC — see
-> [`docs/api/webhookgatewayconfig.md`](../api/webhookgatewayconfig.md#certificate-revocation-crl)
-> for the current stopgap (setting `--crl-configmap-name` directly on the gateway Deployment).
+Setting `crlConfigMapRef` is all that's required — the controller translates it into the
+gateway Deployment's `--crl-configmap-name` arg and grants the gateway's Role `get;list;watch`
+on `ConfigMaps` in the namespace automatically on the next Trigger reconcile. There is no
+manual Deployment/RBAC step.
 
 ---
 
@@ -561,5 +561,5 @@ in etcd.
 - **Token rotation**: Bearer tokens and API keys do not support rotation without briefly accepting both old and new values. Rotate secrets in Kubernetes and the gateway picks up the new value on the next request.
 - **mTLS and shared Ingress**: Inbound mTLS requires TLS passthrough at the Ingress layer. If you are using a shared Ingress that terminates TLS, mTLS to the gateway is not possible — use bearer or HMAC instead.
 - **Single auth type per Trigger**: Only one `spec.webhook.auth.type` is active at a time. Combining multiple auth methods (e.g., HMAC + IP allowlist) on a single Trigger is planned for a future release.
-- **CRL revocation is scoped to the webhook mTLS path only**: `spec.tls.crlConfigMapRef` covers only `kubezap.io/webhook-mtls-ca-secret` (inbound webhook client-cert auth). It does not apply to the executor/plugin internal RPC channel, which uses KubeZap-issued, short-lived, self-rotated certificates with no external-revocation concept. See [Certificate Revocation (CRL)](#certificate-revocation-crl) for the field itself, and note its controller-wiring gap described there.
+- **CRL revocation is scoped to the webhook mTLS path only**: `spec.tls.crlConfigMapRef` covers only `kubezap.io/webhook-mtls-ca-secret` (inbound webhook client-cert auth). It does not apply to the executor/plugin internal RPC channel, which uses KubeZap-issued, short-lived, self-rotated certificates with no external-revocation concept. See [Certificate Revocation (CRL)](#certificate-revocation-crl) for the field itself.
 - **No OCSP support**: revocation checking is CRL-only, by design — see `docs/design/client-cert-revocation-checking.md` for why OCSP was rejected (its live per-connection network dependency breaks air-gapped cluster support).

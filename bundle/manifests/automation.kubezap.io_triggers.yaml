@@ -44,6 +44,33 @@ spec:
               amqp:
                 description: Amqp configuration (only for type=amqp)
                 properties:
+                  exchange:
+                    description: |-
+                      Exchange, when set, binds Topic (the consumed queue) to a
+                      broker-declared exchange using RoutingKey as the binding pattern,
+                      instead of consuming Topic directly. Only valid when the Integration's
+                      version is "0-9-1" (the default) — rejected at reconcile time for
+                      version "1.0", which has no portable exchange/binding concept. See
+                      docs/design/amqp-exchange-routing.md.
+                    properties:
+                      name:
+                        description: Name of the exchange to declare (idempotent)
+                          and bind the queue to.
+                        minLength: 1
+                        type: string
+                      type:
+                        description: Type of the exchange, matching RabbitMQ's native
+                          exchange types.
+                        enum:
+                        - direct
+                        - topic
+                        - fanout
+                        - headers
+                        type: string
+                    required:
+                    - name
+                    - type
+                    type: object
                   integrationRef:
                     description: Reference to an Integration CR with AMQP connection
                       details.
@@ -60,7 +87,10 @@ spec:
                     type: object
                     x-kubernetes-map-type: atomic
                   routingKey:
-                    description: RoutingKey is the AMQP routing key or binding pattern.
+                    description: |-
+                      RoutingKey is the AMQP routing key or binding pattern. Used only as an
+                      internal dedup key when Exchange is unset; used as the queue's binding
+                      pattern when Exchange is set.
                     type: string
                   topic:
                     description: Topic (queue name) to consume from.

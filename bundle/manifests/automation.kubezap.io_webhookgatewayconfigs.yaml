@@ -136,10 +136,9 @@ spec:
                       docs/design/client-cert-revocation-checking.md and
                       docs/guides/webhook-security.md#certificate-revocation-crl.
 
-                      Note: as of this field's introduction, the operator does not yet wire
-                      this reference into the webhook gateway Deployment's args or RBAC (see
-                      the design record's Tradeoffs section) — the gateway binary supports
-                      this today only via its own --crl-configmap-name flag, set out-of-band.
+                      The operator translates this into the webhook gateway Deployment's
+                      --crl-configmap-name argument and grants the gateway's Role get/list/
+                      watch access to the referenced ConfigMap.
                     properties:
                       name:
                         default: ""

@@ -327,6 +327,22 @@ See `config/samples/resource-trigger-rbac.yaml` for the full Role/RoleBinding pa
 | `Ready` | `False`   | The trigger has a configuration error. See `message` for details.     |
 | `Ready` | `Unknown` | The trigger is being reconciled                                       |
 
+#### `CredentialResolutionFailed` (kafka/amqp/nats only)
+
+Applies only to `kafka`, `amqp`, and `nats` Triggers — never set for `webhook`, `cron`, or `resource` Triggers. **Absent entirely** until the first time this Trigger's broker gateway watcher hits the credential-resolution path at least once; it is never invented from scratch.
+
+| Type                          | Status  | Reason                          | Meaning                                                                                                            |
+| ------------------------------ | ------- | -------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| `CredentialResolutionFailed`  | `True`  | `CredentialResolutionFailed`     | The kafka/amqp/nats gateway most recently failed to resolve this Trigger's Integration credentials (missing/invalid Secret, malformed Integration spec, or the Integration itself not found). See `message` for the underlying error. |
+| `CredentialResolutionFailed`  | `False` | `CredentialResolutionSucceeded`  | The gateway has since resolved this Trigger's credentials successfully — this clears a prior failure, not a fresh "everything is fine" marker set on every reconcile. |
+
+This Condition is negative-polarity by design (`Type=True` means the failure is occurring, matching the Kubernetes Node `MemoryPressure`/`DiskPressure` convention), and reflects a *subscription-establishment* problem — the broker consumer/producer for this Trigger could never even connect — not a per-message processing failure. It is distinct from `status.lastResult`/`status.lastError`, which describe the outcome of an actual firing attempt.
+
+**Mechanism and latency**: the kafka/amqp/nats gateway watchers have no write access to `Trigger` or its `status` subresource (by design — see `docs/design/gateway-credential-failure-visibility.md`). Instead, a watcher emits a Kubernetes `Event` (`Warning`/`CredentialResolutionFailed` on failure, `Normal`/`CredentialResolutionSucceeded` on a recovery from one) referencing the Trigger, and the controller syncs the most recent such Event into this Condition. This means:
+- The failure is visible immediately via `kubectl describe trigger <name>` (in the Events section) even before the Condition appears.
+- The Condition itself lags slightly behind — by up to one controller reconcile cycle — rather than updating the instant the gateway detects the failure.
+- If the cluster's `--event-ttl` expires the underlying Event before the controller ever syncs it, the Condition may not reflect a very short-lived failure. A persisting failure (the case this mechanism is designed for) is unaffected, since the gateway keeps re-emitting the Event on every reconcile attempt.
+
 ---
 
 ## Trigger Types

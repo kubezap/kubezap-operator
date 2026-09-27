@@ -769,6 +769,11 @@ func (r *IntegrationReconciler) reconcileKafkaGateway(ctx context.Context, integ
 		// rotated credential is picked up without waiting for the Trigger or
 		// Integration to be reconciled again for an unrelated reason.
 		{APIGroups: []string{""}, Resources: []string{resourceSecrets}, Verbs: []string{verbGet, verbList, verbWatch}},
+		// Lets the watcher surface a credential-resolution failure as a
+		// Kubernetes-visible signal without any write access to Trigger or its
+		// status subresource — see
+		// docs/design/gateway-credential-failure-visibility.md.
+		{APIGroups: []string{""}, Resources: []string{resourceEvents}, Verbs: []string{verbCreate}},
 	}
 	role := &rbacv1.Role{ObjectMeta: metav1.ObjectMeta{Name: sharedGatewayServiceAccountName, Namespace: ns}}
 	roleResult, err := controllerutil.CreateOrUpdate(ctx, r.Client, role, func() error {
@@ -1147,6 +1152,11 @@ func (r *IntegrationReconciler) reconcileAmqpGateway(ctx context.Context, integr
 		// rotated credential is picked up without waiting for the Trigger or
 		// Integration to be reconciled again for an unrelated reason.
 		{APIGroups: []string{""}, Resources: []string{resourceSecrets}, Verbs: []string{verbGet, verbList, verbWatch}},
+		// Lets the watcher surface a credential-resolution failure as a
+		// Kubernetes-visible signal without any write access to Trigger or its
+		// status subresource — see
+		// docs/design/gateway-credential-failure-visibility.md.
+		{APIGroups: []string{""}, Resources: []string{resourceEvents}, Verbs: []string{verbCreate}},
 	}
 	role := &rbacv1.Role{ObjectMeta: metav1.ObjectMeta{Name: sharedGatewayServiceAccountName, Namespace: ns}}
 	roleResult, err := controllerutil.CreateOrUpdate(ctx, r.Client, role, func() error {
@@ -1345,6 +1355,11 @@ func (r *IntegrationReconciler) reconcileNatsGateway(ctx context.Context, integr
 		// rotated credential is picked up without waiting for the Trigger or
 		// Integration to be reconciled again for an unrelated reason.
 		{APIGroups: []string{""}, Resources: []string{resourceSecrets}, Verbs: []string{verbGet, verbList, verbWatch}},
+		// Lets the watcher surface a credential-resolution failure as a
+		// Kubernetes-visible signal without any write access to Trigger or its
+		// status subresource — see
+		// docs/design/gateway-credential-failure-visibility.md.
+		{APIGroups: []string{""}, Resources: []string{resourceEvents}, Verbs: []string{verbCreate}},
 	}
 	role := &rbacv1.Role{ObjectMeta: metav1.ObjectMeta{Name: sharedGatewayServiceAccountName, Namespace: ns}}
 	roleResult, err := controllerutil.CreateOrUpdate(ctx, r.Client, role, func() error {

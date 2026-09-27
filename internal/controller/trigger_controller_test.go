@@ -19,6 +19,7 @@ package controller
 import (
 	"context"
 	"fmt"
+	"time"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -721,6 +722,169 @@ var _ = Describe("TriggerReconciler", func() {
 			var svc corev1.Service
 			Expect(k8sClient.Get(ctx, deployKey, &svc)).To(Succeed())
 			Expect(svc.Spec.Ports[0].Name).To(Equal("http"))
+		})
+	})
+
+	// -------------------------------------------------------------------------
+	// STORY-067: CredentialResolutionFailed condition synced from gateway Events
+	// See docs/design/gateway-credential-failure-visibility.md. The
+	// kafka/amqp/nats gateway watchers cannot write to Trigger/status, so they
+	// signal a credential-resolution failure (and later, a recovery from one)
+	// via a Kubernetes Event referencing the Trigger; TriggerReconciler is
+	// responsible for translating the most recent such Event into a real
+	// status.conditions entry.
+	// -------------------------------------------------------------------------
+
+	Context("when a kafka Trigger has a CredentialResolutionFailed Event referencing it", func() {
+		var trigger *automationv1alpha1.Trigger
+
+		// makeCredentialEvent builds (but does not persist) a corev1.Event of the
+		// shape internal/gateway/kafka/watcher.go's recordCredentialFailure /
+		// recordCredentialSuccess emit via record.EventRecorder.Eventf.
+		makeCredentialEvent := func(name, reason, eventType, message string, lastTimestamp metav1.Time) *corev1.Event {
+			return &corev1.Event{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      name,
+					Namespace: testNamespace,
+				},
+				InvolvedObject: corev1.ObjectReference{
+					Kind:       "Trigger",
+					Namespace:  testNamespace,
+					Name:       trigger.Name,
+					APIVersion: "automation.kubezap.io/v1alpha1",
+				},
+				Reason:         reason,
+				Message:        message,
+				Type:           eventType,
+				FirstTimestamp: lastTimestamp,
+				LastTimestamp:  lastTimestamp,
+				Count:          1,
+				Source:         corev1.EventSource{Component: "kafka-gateway"},
+			}
+		}
+
+		BeforeEach(func() {
+			By("creating an enabled kafka Trigger")
+			trigger = makeTrigger(
+				fmt.Sprintf("trg-credfail-%d", GinkgoRandomSeed()),
+				automationv1alpha1.TriggerSpec{
+					Type:    "kafka",
+					Enabled: true,
+					Kafka: &automationv1alpha1.KafkaTrigger{
+						Topic:          "orders",
+						IntegrationRef: corev1.LocalObjectReference{Name: "some-kafka-integration"},
+					},
+					FlowRef: automationv1alpha1.FlowReference{Name: "example-flow"},
+				},
+			)
+			Expect(k8sClient.Create(ctx, trigger)).To(Succeed())
+			DeferCleanup(func() {
+				_ = k8sClient.Delete(context.Background(), trigger)
+			})
+		})
+
+		It("has no CredentialResolutionFailed condition before any Event exists", func() {
+			updated, err := reconcileAndFetch(trigger.Name)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(findCondition(updated, "CredentialResolutionFailed")).To(BeNil(),
+				"a kafka Trigger that has never hit the credential-resolution path must not get an invented Condition")
+		})
+
+		It("sets CredentialResolutionFailed=True once a Warning Event referencing it exists", func() {
+			evt := makeCredentialEvent(trigger.Name+".credfail1", "CredentialResolutionFailed",
+				corev1.EventTypeWarning, `failed to resolve kafka credentials for integration "some-kafka-integration": secret not found`,
+				metav1.Now())
+			Expect(k8sClient.Create(ctx, evt)).To(Succeed())
+			DeferCleanup(func() { _ = k8sClient.Delete(context.Background(), evt) })
+
+			updated, err := reconcileAndFetch(trigger.Name)
+			Expect(err).NotTo(HaveOccurred())
+
+			cond := findCondition(updated, "CredentialResolutionFailed")
+			Expect(cond).NotTo(BeNil(), "expected a CredentialResolutionFailed condition once a matching Event exists")
+			Expect(cond.Status).To(Equal(metav1.ConditionTrue))
+			Expect(cond.Reason).To(Equal("CredentialResolutionFailed"))
+			Expect(cond.Message).To(ContainSubstring("secret not found"))
+		})
+
+		It("clears (Status=False) once a later CredentialResolutionSucceeded Event exists", func() {
+			failedAt := metav1.NewTime(time.Now().Add(-time.Minute))
+			failEvt := makeCredentialEvent(trigger.Name+".credfail2", "CredentialResolutionFailed",
+				corev1.EventTypeWarning, "failed to resolve kafka credentials for integration \"some-kafka-integration\": secret not found",
+				failedAt)
+			Expect(k8sClient.Create(ctx, failEvt)).To(Succeed())
+			DeferCleanup(func() { _ = k8sClient.Delete(context.Background(), failEvt) })
+
+			By("confirming the condition is True while only the failure Event exists")
+			updated, err := reconcileAndFetch(trigger.Name)
+			Expect(err).NotTo(HaveOccurred())
+			cond := findCondition(updated, "CredentialResolutionFailed")
+			Expect(cond).NotTo(BeNil())
+			Expect(cond.Status).To(Equal(metav1.ConditionTrue))
+
+			By("simulating the underlying Secret being fixed and reconcileTrigger succeeding")
+			succeededAt := metav1.Now() // after failedAt
+			succeedEvt := makeCredentialEvent(trigger.Name+".credsucceed1", "CredentialResolutionSucceeded",
+				corev1.EventTypeNormal, `resolved kafka credentials for integration "some-kafka-integration"`,
+				succeededAt)
+			Expect(k8sClient.Create(ctx, succeedEvt)).To(Succeed())
+			DeferCleanup(func() { _ = k8sClient.Delete(context.Background(), succeedEvt) })
+
+			updated, err = reconcileAndFetch(trigger.Name)
+			Expect(err).NotTo(HaveOccurred())
+			cond = findCondition(updated, "CredentialResolutionFailed")
+			Expect(cond).NotTo(BeNil())
+			Expect(cond.Status).To(Equal(metav1.ConditionFalse),
+				"the condition must clear once a later CredentialResolutionSucceeded Event is the most recent one")
+			Expect(cond.Reason).To(Equal("CredentialResolutionSucceeded"))
+		})
+	})
+
+	Context("when a webhook Trigger has a stray CredentialResolutionFailed Event referencing it", func() {
+		// This mechanism is scoped to kafka/amqp/nats Triggers only — the
+		// webhook gateway never emits either reason (docs/design/gateway-credential-failure-visibility.md's
+		// Rejected Alternatives: webhook auth failures are a different,
+		// high-frequency failure class already covered by access logs/metrics).
+		// A stray Event of this shape referencing a webhook Trigger (which
+		// should never happen in practice) must still not produce a Condition,
+		// since syncCredentialResolutionCondition is gated on trg.Spec.Type.
+		It("does not set a CredentialResolutionFailed condition on a webhook Trigger", func() {
+			trigger := makeTrigger(
+				fmt.Sprintf("trg-webhook-stray-evt-%d", GinkgoRandomSeed()),
+				automationv1alpha1.TriggerSpec{
+					Type:    "webhook",
+					Enabled: true,
+					Webhook: &automationv1alpha1.WebhookTrigger{
+						Path:   "/hook/stray-evt",
+						Method: "POST",
+					},
+					FlowRef: automationv1alpha1.FlowReference{Name: "example-flow"},
+				},
+			)
+			Expect(k8sClient.Create(ctx, trigger)).To(Succeed())
+			DeferCleanup(func() { _ = k8sClient.Delete(context.Background(), trigger) })
+
+			evt := &corev1.Event{
+				ObjectMeta: metav1.ObjectMeta{Name: trigger.Name + ".credfail1", Namespace: testNamespace},
+				InvolvedObject: corev1.ObjectReference{
+					Kind: "Trigger", Namespace: testNamespace, Name: trigger.Name,
+					APIVersion: "automation.kubezap.io/v1alpha1",
+				},
+				Reason:         "CredentialResolutionFailed",
+				Message:        "should never be emitted for a webhook Trigger",
+				Type:           corev1.EventTypeWarning,
+				FirstTimestamp: metav1.Now(),
+				LastTimestamp:  metav1.Now(),
+				Count:          1,
+				Source:         corev1.EventSource{Component: "webhook-gateway"},
+			}
+			Expect(k8sClient.Create(ctx, evt)).To(Succeed())
+			DeferCleanup(func() { _ = k8sClient.Delete(context.Background(), evt) })
+
+			updated, err := reconcileAndFetch(trigger.Name)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(findCondition(updated, "CredentialResolutionFailed")).To(BeNil(),
+				"webhook Triggers are out of scope for this mechanism regardless of what Events reference them")
 		})
 	})
 })

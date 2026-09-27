@@ -649,6 +649,86 @@ var _ = Describe("IntegrationReconciler", func() {
 			Expect(hasSecretsRule).To(BeTrue(), "kubezap-gateway Role must grant a secrets rule, or SASL/TLS secretRefs can never resolve against a live cluster")
 		})
 	})
+
+	// STORY-067: docs/design/gateway-credential-failure-visibility.md. The
+	// mechanism deliberately grants only events:create — never any write verb
+	// on triggers/triggers-status — to each of the three broker gateway Role
+	// rule sets (kafkaGatewayRules/amqpGatewayRules/natsGatewayRules), so a
+	// gateway can surface a credential-resolution failure without needing
+	// write access to Trigger or its status subresource.
+	Context("broker gateway RBAC — events:create permission", func() {
+		assertEventsCreateRule := func(role *rbacv1.Role) {
+			var hasEventsRule bool
+			for _, rule := range role.Rules {
+				if containsString(rule.APIGroups, "") && containsString(rule.Resources, "events") {
+					hasEventsRule = true
+					Expect(rule.Verbs).To(ConsistOf("create"),
+						"events rule must grant create only — no read/write verb beyond that is needed for this mechanism")
+				}
+				// Guard against the RBAC bump having accidentally widened the
+				// triggers/triggers-status rules instead of adding a new events rule.
+				if containsString(rule.APIGroups, apiGroupAutomation) && containsString(rule.Resources, resourceTriggers) {
+					Expect(rule.Verbs).To(ConsistOf("get", "list", "watch"),
+						"the triggers rule must remain read-only — this mechanism must never grant a broker gateway write access to Trigger")
+				}
+			}
+			Expect(hasEventsRule).To(BeTrue(), "kubezap-gateway Role must grant an events:create rule")
+		}
+
+		It("grants create on events via the kafka Integration reconcile path", func() {
+			name := "kafka-rbac-events"
+			integration := &automationv1alpha1.Integration{
+				ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace},
+				Spec: automationv1alpha1.IntegrationSpec{
+					Type:  "kafka",
+					Kafka: &automationv1alpha1.KafkaIntegrationSpec{BootstrapServers: []string{"broker:9092"}},
+				},
+			}
+			Expect(k8sClient.Create(ctx, integration)).To(Succeed())
+			DeferCleanup(func() { _ = k8sClient.Delete(ctx, integration) })
+			reconcile(name)
+
+			role := &rbacv1.Role{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "kubezap-gateway", Namespace: namespace}, role)).To(Succeed())
+			assertEventsCreateRule(role)
+		})
+
+		It("grants create on events via the amqp Integration reconcile path", func() {
+			name := "amqp-rbac-events"
+			integration := &automationv1alpha1.Integration{
+				ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace},
+				Spec: automationv1alpha1.IntegrationSpec{
+					Type: "amqp",
+					Amqp: &automationv1alpha1.AmqpIntegrationSpec{URL: "amqp://rabbitmq.default.svc.cluster.local:5672/"},
+				},
+			}
+			Expect(k8sClient.Create(ctx, integration)).To(Succeed())
+			DeferCleanup(func() { _ = k8sClient.Delete(ctx, integration) })
+			reconcile(name)
+
+			role := &rbacv1.Role{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "kubezap-gateway", Namespace: namespace}, role)).To(Succeed())
+			assertEventsCreateRule(role)
+		})
+
+		It("grants create on events via the nats Integration reconcile path", func() {
+			name := "nats-rbac-events"
+			integration := &automationv1alpha1.Integration{
+				ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace},
+				Spec: automationv1alpha1.IntegrationSpec{
+					Type: "nats",
+					Nats: &automationv1alpha1.NatsIntegrationSpec{Servers: []string{"nats://nats.default.svc.cluster.local:4222"}},
+				},
+			}
+			Expect(k8sClient.Create(ctx, integration)).To(Succeed())
+			DeferCleanup(func() { _ = k8sClient.Delete(ctx, integration) })
+			reconcile(name)
+
+			role := &rbacv1.Role{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "kubezap-gateway", Namespace: namespace}, role)).To(Succeed())
+			assertEventsCreateRule(role)
+		})
+	})
 })
 
 // Broker gateway images default to the ":latest" tag, which Kubernetes defaults to

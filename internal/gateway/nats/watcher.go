@@ -17,8 +17,11 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/kubernetes"
+	typedcorev1 "k8s.io/client-go/kubernetes/typed/core/v1"
 	"k8s.io/client-go/rest"
 	toolscache "k8s.io/client-go/tools/cache"
+	"k8s.io/client-go/tools/record"
 	crcache "sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
@@ -33,6 +36,19 @@ func init() {
 	_ = automationv1alpha1.AddToScheme(controllerScheme)
 	_ = corev1.AddToScheme(controllerScheme)
 }
+
+// credentialResolutionFailedReason / credentialResolutionSucceededReason are
+// the Kubernetes Event reasons this watcher emits when reconcileTrigger fails
+// (or, having previously failed, recovers) to resolve a Trigger's Integration
+// credentials. internal/controller/trigger_credential_condition.go watches
+// for Events with these reasons referencing a Trigger and syncs them into a
+// real status.conditions entry — keep these two strings in sync with the
+// matching constants there. See
+// docs/design/gateway-credential-failure-visibility.md.
+const (
+	credentialResolutionFailedReason    = "CredentialResolutionFailed"
+	credentialResolutionSucceededReason = "CredentialResolutionSucceeded"
+)
 
 // subscription tracks an active NATS subscription for a Trigger.
 type subscription struct {
@@ -69,6 +85,18 @@ type Watcher struct {
 	integrationIndex *secretindex.Index
 	triggersMu       sync.Mutex
 	triggers         map[types.NamespacedName]*automationv1alpha1.Trigger
+
+	// recorder emits the credential-resolution Events described above. Built
+	// internally in NewWatcher from the *rest.Config already passed in, so no
+	// cmd/kafka-gateway/main.go-equivalent wiring is required. May be nil on a
+	// Watcher constructed directly (e.g. in tests) rather than via NewWatcher —
+	// every call site guards against that.
+	recorder record.EventRecorder
+	// credentialFailed tracks, per Trigger, whether the most recent credential
+	// resolution attempt failed. Used only to decide whether a recovery is a
+	// failed->succeeded transition worth emitting a "succeeded" Event for, so a
+	// Trigger that has always resolved cleanly never generates one.
+	credentialFailed sync.Map // key: types.NamespacedName, value: bool
 }
 
 // NewWatcher creates a new Watcher backed by an informer cache.
@@ -93,6 +121,19 @@ func NewWatcher(c client.Client, cfg *rest.Config, namespace string, log logr.Lo
 		return nil, fmt.Errorf("unable to create cache: %w", err)
 	}
 
+	// Build a record.EventRecorder for credential-resolution Events (see
+	// docs/design/gateway-credential-failure-visibility.md). This only
+	// requires the events:create RBAC verb granted to the nats gateway's
+	// ServiceAccount (internal/controller/integration_controller.go) — no
+	// write access to Trigger or its status subresource.
+	clientset, err := kubernetes.NewForConfig(cfg)
+	if err != nil {
+		return nil, fmt.Errorf("unable to create clientset for event recorder: %w", err)
+	}
+	eventBroadcaster := record.NewBroadcaster()
+	eventBroadcaster.StartRecordingToSink(&typedcorev1.EventSinkImpl{Interface: clientset.CoreV1().Events("")})
+	recorder := eventBroadcaster.NewRecorder(controllerScheme, corev1.EventSource{Component: "nats-gateway"})
+
 	return &Watcher{
 		client:           c,
 		cache:            watchCache,
@@ -101,6 +142,7 @@ func NewWatcher(c client.Client, cfg *rest.Config, namespace string, log logr.Lo
 		secretIndex:      secretindex.New(),
 		integrationIndex: secretindex.New(),
 		triggers:         make(map[types.NamespacedName]*automationv1alpha1.Trigger),
+		recorder:         recorder,
 	}, nil
 }
 
@@ -202,6 +244,7 @@ func (w *Watcher) onTriggerDelete(obj interface{}) {
 	w.triggersMu.Unlock()
 	w.secretIndex.Remove(key)
 	w.integrationIndex.Remove(key)
+	w.credentialFailed.Delete(key)
 	w.stopSubscription(key)
 }
 
@@ -232,10 +275,13 @@ func (w *Watcher) reconcileTrigger(ctx context.Context, trigger *automationv1alp
 	integration := &automationv1alpha1.Integration{}
 	if err := w.client.Get(ctx, integrationKey, integration); err != nil {
 		w.log.Error(err, "failed to get integration for nats trigger", "trigger", key, "integration", integrationName)
+		w.recordCredentialFailure(key, trigger, integrationName, err)
 		return
 	}
 	if integration.Spec.Nats == nil {
-		w.log.Error(fmt.Errorf("integration has no nats spec"), "cannot reconcile nats trigger", "trigger", key, "integration", integrationName)
+		err := fmt.Errorf("integration has no nats spec")
+		w.log.Error(err, "cannot reconcile nats trigger", "trigger", key, "integration", integrationName)
+		w.recordCredentialFailure(key, trigger, integrationName, err)
 		return
 	}
 
@@ -245,8 +291,10 @@ func (w *Watcher) reconcileTrigger(ctx context.Context, trigger *automationv1alp
 	w.secretIndex.Update(key, creds.secretRefs)
 	if credErr != nil {
 		w.log.Error(credErr, "failed to resolve nats credentials", "trigger", key, "integration", integrationName)
+		w.recordCredentialFailure(key, trigger, integrationName, credErr)
 		return
 	}
+	w.recordCredentialSuccess(key, trigger, integrationName)
 
 	if existing, ok := w.subscriptions.Load(key); ok {
 		sub := existing.(*subscription)
@@ -526,6 +574,36 @@ func (w *Watcher) stopSubscription(key types.NamespacedName) {
 		sub := val.(*subscription)
 		sub.cancel()
 	}
+}
+
+// recordCredentialFailure emits a Warning Event referencing trigger and marks
+// this Trigger as currently credential-failed (see recordCredentialSuccess).
+// Safe to call on every reconcileTrigger pass that hits this failure —
+// client-go's EventRecorder coalesces repeated identical Events into one
+// object with a bumped count/lastTimestamp rather than creating a new object
+// each time, so a persisting failure does not spam the Event stream. See
+// docs/design/gateway-credential-failure-visibility.md.
+func (w *Watcher) recordCredentialFailure(key types.NamespacedName, trigger *automationv1alpha1.Trigger, integrationName string, err error) {
+	w.credentialFailed.Store(key, true)
+	if w.recorder == nil {
+		return
+	}
+	w.recorder.Eventf(trigger, corev1.EventTypeWarning, credentialResolutionFailedReason,
+		"failed to resolve nats credentials for integration %q: %v", integrationName, err)
+}
+
+// recordCredentialSuccess emits a Normal recovery Event only on the
+// failed->succeeded transition for this Trigger, so a Trigger that has always
+// resolved its credentials cleanly never generates one, and a persisting
+// success stays quiet.
+func (w *Watcher) recordCredentialSuccess(key types.NamespacedName, trigger *automationv1alpha1.Trigger, integrationName string) {
+	prev, loaded := w.credentialFailed.Swap(key, false)
+	wasFailed := loaded && prev.(bool)
+	if !wasFailed || w.recorder == nil {
+		return
+	}
+	w.recorder.Eventf(trigger, corev1.EventTypeNormal, credentialResolutionSucceededReason,
+		"resolved nats credentials for integration %q", integrationName)
 }
 
 // readSecretKey fetches a Kubernetes Secret and returns the value for the given key.

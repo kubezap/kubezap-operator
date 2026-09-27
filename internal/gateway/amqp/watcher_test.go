@@ -2,12 +2,14 @@ package amqp
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
@@ -54,9 +56,9 @@ func authAmqpSpec(secretName string) *automationv1alpha1.AmqpIntegrationSpec {
 	}
 }
 
-func newAmqpTrigger(name, integrationName string) *automationv1alpha1.Trigger {
+func newAmqpTrigger(integrationName string) *automationv1alpha1.Trigger {
 	return &automationv1alpha1.Trigger{
-		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "default"},
+		ObjectMeta: metav1.ObjectMeta{Name: "amqp-trigger", Namespace: "default"},
 		Spec: automationv1alpha1.TriggerSpec{
 			Type:    "amqp",
 			Enabled: true,
@@ -104,7 +106,7 @@ func TestReconcileTrigger_IndexesAmqpIntegrationSecrets(t *testing.T) {
 		Spec:       automationv1alpha1.IntegrationSpec{Amqp: authAmqpSpec("amqp-creds")},
 	}
 	w := newMinimalAmqpWatcher(t, secret, integration)
-	trigger := newAmqpTrigger("amqp-trigger", "amqp-integ")
+	trigger := newAmqpTrigger("amqp-integ")
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -140,7 +142,7 @@ func TestHandleIntegrationChange_RepointedSecretRefDropsOldSecretFromIndex(t *te
 		Spec:       automationv1alpha1.IntegrationSpec{Amqp: authAmqpSpec("amqp-creds-old")},
 	}
 	w := newMinimalAmqpWatcher(t, oldSecret, newSecret, integration)
-	trigger := newAmqpTrigger("amqp-trigger", "amqp-integ")
+	trigger := newAmqpTrigger("amqp-integ")
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -200,6 +202,98 @@ func TestHandleIntegrationChange_UnrelatedAmqpIntegrationIgnored(t *testing.T) {
 	w.handleIntegrationChange(context.Background(), unrelated)
 }
 
+// -----------------------------------------------------------------------
+// STORY-067: credential-resolution failure/recovery Events
+// See docs/design/gateway-credential-failure-visibility.md.
+// -----------------------------------------------------------------------
+
+func TestReconcileTrigger_EmitsCredentialResolutionFailedEvent_WhenIntegrationMissing(t *testing.T) {
+	w := newMinimalAmqpWatcher(t) // no Integration created — Get fails
+	fakeRecorder := record.NewFakeRecorder(10)
+	w.recorder = fakeRecorder
+
+	trigger := newAmqpTrigger("missing-integ")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	w.reconcileTrigger(ctx, trigger)
+
+	select {
+	case evt := <-fakeRecorder.Events:
+		if !strings.Contains(evt, "Warning") || !strings.Contains(evt, credentialResolutionFailedReason) {
+			t.Fatalf("expected a Warning %s event, got %q", credentialResolutionFailedReason, evt)
+		}
+	default:
+		t.Fatal("expected a credential-resolution-failed event when the Integration cannot be found")
+	}
+}
+
+func TestReconcileTrigger_NoRecoveryEvent_OnFirstEverSuccess(t *testing.T) {
+	secret := newUserPassSecret("amqp-creds", "s3cr3t")
+	integration := &automationv1alpha1.Integration{
+		ObjectMeta: metav1.ObjectMeta{Name: "amqp-integ", Namespace: "default"},
+		Spec:       automationv1alpha1.IntegrationSpec{Amqp: authAmqpSpec("amqp-creds")},
+	}
+	w := newMinimalAmqpWatcher(t, secret, integration)
+	fakeRecorder := record.NewFakeRecorder(10)
+	w.recorder = fakeRecorder
+
+	trigger := newAmqpTrigger("amqp-integ")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	w.reconcileTrigger(ctx, trigger) // never failed before — recordCredentialSuccess must stay quiet
+	defer w.stopSubscription(types.NamespacedName{Namespace: "default", Name: "amqp-trigger"})
+
+	select {
+	case evt := <-fakeRecorder.Events:
+		t.Fatalf("expected no event on a Trigger's first-ever successful credential resolution, got %q", evt)
+	default:
+	}
+}
+
+func TestReconcileTrigger_EmitsCredentialResolutionSucceededEvent_OnRecoveryFromFailure(t *testing.T) {
+	secret := newUserPassSecret("amqp-creds", "s3cr3t")
+	integration := &automationv1alpha1.Integration{
+		ObjectMeta: metav1.ObjectMeta{Name: "amqp-integ", Namespace: "default"},
+		Spec:       automationv1alpha1.IntegrationSpec{Amqp: authAmqpSpec("amqp-creds")},
+	}
+	w := newMinimalAmqpWatcher(t, integration) // secret absent for now — first reconcile fails
+	fakeRecorder := record.NewFakeRecorder(10)
+	w.recorder = fakeRecorder
+
+	trigger := newAmqpTrigger("amqp-integ")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	defer w.stopSubscription(types.NamespacedName{Namespace: "default", Name: "amqp-trigger"})
+
+	w.reconcileTrigger(ctx, trigger)
+	select {
+	case evt := <-fakeRecorder.Events:
+		if !strings.Contains(evt, "Warning") || !strings.Contains(evt, credentialResolutionFailedReason) {
+			t.Fatalf("expected a Warning %s event on the first (failing) reconcile, got %q", credentialResolutionFailedReason, evt)
+		}
+	default:
+		t.Fatal("expected a credential-resolution-failed event on the first (failing) reconcile")
+	}
+
+	// Fix it: create the secret the Integration references, then reconcile again.
+	if err := w.client.Create(ctx, secret); err != nil {
+		t.Fatalf("creating secret: %v", err)
+	}
+	w.reconcileTrigger(ctx, trigger)
+
+	select {
+	case evt := <-fakeRecorder.Events:
+		if !strings.Contains(evt, "Normal") || !strings.Contains(evt, credentialResolutionSucceededReason) {
+			t.Fatalf("expected a Normal %s event on recovery, got %q", credentialResolutionSucceededReason, evt)
+		}
+	default:
+		t.Fatal("expected a credential-resolution-succeeded event once the missing secret is created and reconcileTrigger succeeds")
+	}
+}
+
 func TestOnTriggerDelete_RemovesAmqpTriggerFromIndex(t *testing.T) {
 	secret := newUserPassSecret("amqp-creds", "s3cr3t")
 	integration := &automationv1alpha1.Integration{
@@ -207,7 +301,7 @@ func TestOnTriggerDelete_RemovesAmqpTriggerFromIndex(t *testing.T) {
 		Spec:       automationv1alpha1.IntegrationSpec{Amqp: authAmqpSpec("amqp-creds")},
 	}
 	w := newMinimalAmqpWatcher(t, secret, integration)
-	trigger := newAmqpTrigger("amqp-trigger", "amqp-integ")
+	trigger := newAmqpTrigger("amqp-integ")
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()

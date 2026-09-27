@@ -2,12 +2,14 @@ package kafka
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
@@ -289,6 +291,138 @@ func TestHandleIntegrationChange_UnrelatedKafkaIntegrationIgnored(t *testing.T) 
 
 	// Must not panic and must not attempt to reconcile anything — the index is empty.
 	w.handleIntegrationChange(context.Background(), unrelated)
+}
+
+// newKafkaTrigger builds a minimal kafka Trigger referencing integrationName,
+// mirroring the amqp/nats packages' newAmqpTrigger/newNatsTrigger helpers.
+func newKafkaTrigger(integrationName string) *automationv1alpha1.Trigger {
+	return &automationv1alpha1.Trigger{
+		ObjectMeta: metav1.ObjectMeta{Name: "kafka-trigger", Namespace: "default"},
+		Spec: automationv1alpha1.TriggerSpec{
+			Type:    "kafka",
+			Enabled: true,
+			Kafka: &automationv1alpha1.KafkaTrigger{
+				Topic:          "orders",
+				IntegrationRef: corev1.LocalObjectReference{Name: integrationName},
+			},
+			FlowRef: automationv1alpha1.FlowReference{Name: "my-flow"},
+		},
+	}
+}
+
+// -----------------------------------------------------------------------
+// STORY-067: credential-resolution failure/recovery Events
+// See docs/design/gateway-credential-failure-visibility.md.
+// -----------------------------------------------------------------------
+
+func TestReconcileTrigger_EmitsCredentialResolutionFailedEvent_WhenIntegrationMissing(t *testing.T) {
+	w := newMinimalKafkaWatcher(t) // no Integration created — Get fails
+	fakeRecorder := record.NewFakeRecorder(10)
+	w.recorder = fakeRecorder
+
+	trigger := newKafkaTrigger("missing-integ")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	w.reconcileTrigger(ctx, trigger)
+
+	select {
+	case evt := <-fakeRecorder.Events:
+		if !strings.Contains(evt, "Warning") || !strings.Contains(evt, credentialResolutionFailedReason) {
+			t.Fatalf("expected a Warning %s event, got %q", credentialResolutionFailedReason, evt)
+		}
+	default:
+		t.Fatal("expected a credential-resolution-failed event when the Integration cannot be found")
+	}
+}
+
+func TestReconcileTrigger_EmitsCredentialResolutionFailedEvent_WhenSecretMissing(t *testing.T) {
+	integration := &automationv1alpha1.Integration{
+		ObjectMeta: metav1.ObjectMeta{Name: "kafka-integ", Namespace: "default"},
+		Spec:       automationv1alpha1.IntegrationSpec{Kafka: saslKafkaSpec()},
+	}
+	w := newMinimalKafkaWatcher(t, integration) // secret deliberately absent
+	fakeRecorder := record.NewFakeRecorder(10)
+	w.recorder = fakeRecorder
+
+	trigger := newKafkaTrigger("kafka-integ")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	w.reconcileTrigger(ctx, trigger)
+
+	select {
+	case evt := <-fakeRecorder.Events:
+		if !strings.Contains(evt, "Warning") || !strings.Contains(evt, credentialResolutionFailedReason) {
+			t.Fatalf("expected a Warning %s event, got %q", credentialResolutionFailedReason, evt)
+		}
+	default:
+		t.Fatal("expected a credential-resolution-failed event when the SASL secret cannot be resolved")
+	}
+}
+
+func TestReconcileTrigger_NoRecoveryEvent_OnFirstEverSuccess(t *testing.T) {
+	secret := newSASLSecret("s3cr3t")
+	integration := &automationv1alpha1.Integration{
+		ObjectMeta: metav1.ObjectMeta{Name: "kafka-integ", Namespace: "default"},
+		Spec:       automationv1alpha1.IntegrationSpec{Kafka: saslKafkaSpec()},
+	}
+	w := newMinimalKafkaWatcher(t, secret, integration)
+	fakeRecorder := record.NewFakeRecorder(10)
+	w.recorder = fakeRecorder
+
+	trigger := newKafkaTrigger("kafka-integ")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	w.reconcileTrigger(ctx, trigger) // never failed before — recordCredentialSuccess must stay quiet
+
+	select {
+	case evt := <-fakeRecorder.Events:
+		t.Fatalf("expected no event on a Trigger's first-ever successful credential resolution, got %q", evt)
+	default:
+	}
+}
+
+func TestReconcileTrigger_EmitsCredentialResolutionSucceededEvent_OnRecoveryFromFailure(t *testing.T) {
+	secret := newSASLSecret("s3cr3t")
+	integration := &automationv1alpha1.Integration{
+		ObjectMeta: metav1.ObjectMeta{Name: "kafka-integ", Namespace: "default"},
+		Spec:       automationv1alpha1.IntegrationSpec{Kafka: saslKafkaSpec()},
+	}
+	w := newMinimalKafkaWatcher(t, integration) // secret absent for now — first reconcile fails
+	fakeRecorder := record.NewFakeRecorder(10)
+	w.recorder = fakeRecorder
+
+	trigger := newKafkaTrigger("kafka-integ")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	w.reconcileTrigger(ctx, trigger)
+	select {
+	case evt := <-fakeRecorder.Events:
+		if !strings.Contains(evt, "Warning") || !strings.Contains(evt, credentialResolutionFailedReason) {
+			t.Fatalf("expected a Warning %s event on the first (failing) reconcile, got %q", credentialResolutionFailedReason, evt)
+		}
+	default:
+		t.Fatal("expected a credential-resolution-failed event on the first (failing) reconcile")
+	}
+
+	// Fix it: create the secret the Integration references, then reconcile again.
+	if err := w.client.Create(ctx, secret); err != nil {
+		t.Fatalf("creating secret: %v", err)
+	}
+	w.reconcileTrigger(ctx, trigger)
+
+	select {
+	case evt := <-fakeRecorder.Events:
+		if !strings.Contains(evt, "Normal") || !strings.Contains(evt, credentialResolutionSucceededReason) {
+			t.Fatalf("expected a Normal %s event on recovery, got %q", credentialResolutionSucceededReason, evt)
+		}
+	default:
+		t.Fatal("expected a credential-resolution-succeeded event once the missing secret is created and reconcileTrigger succeeds")
+	}
 }
 
 func TestOnTriggerDelete_RemovesKafkaTriggerFromIndex(t *testing.T) {

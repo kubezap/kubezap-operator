@@ -398,6 +398,13 @@ func main() {
 		executorTLSConfig = initialMTLSBundle.ClientTLSConfig()
 	}
 
+	// pluginMTLSStore is shared between IntegrationReconciler (which generates
+	// and rotates each opted-in plugin Integration's cert bundle) and
+	// FlowRunReconciler (whose doPluginPublish call looks up that bundle's
+	// client TLS config). A single shared instance is required — see
+	// PluginMTLSStore's doc comment in internal/controller/plugin_mtls.go.
+	pluginMTLSStore := controller.NewPluginMTLSStore()
+
 	flowRunReconciler := &controller.FlowRunReconciler{
 		Client:                   mgr.GetClient(),
 		Scheme:                   mgr.GetScheme(),
@@ -411,6 +418,7 @@ func main() {
 		SSRFAllowClusterInternal: ssrfAllowClusterInternal,
 		ExecutorBaseURL:          rpcBaseURL,
 		ExecutorTLSConfig:        executorTLSConfig,
+		PluginMTLSStore:          pluginMTLSStore,
 	}
 	if err = flowRunReconciler.SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "FlowRun")
@@ -424,8 +432,9 @@ func main() {
 		os.Exit(1)
 	}
 	if err = (&controller.IntegrationReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
+		Client:          mgr.GetClient(),
+		Scheme:          mgr.GetScheme(),
+		PluginMTLSStore: pluginMTLSStore,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Integration")
 		os.Exit(1)

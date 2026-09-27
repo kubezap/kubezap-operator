@@ -61,11 +61,17 @@ const (
 	kindRole           = "Role"
 	kindServiceAccount = "ServiceAccount"
 
-	// resourceTriggers / resourceFlowRuns / resourceSecrets are the RBAC
-	// resource names granted to gateway/plugin Roles.
+	// resourceTriggers / resourceFlowRuns / resourceSecrets / resourceEvents are
+	// the RBAC resource names granted to gateway/plugin Roles.
 	resourceTriggers = "triggers"
 	resourceFlowRuns = "flowruns"
 	resourceSecrets  = "secrets"
+	// resourceEvents backs the kafka/amqp/nats gateway Roles' events:create
+	// grant — see docs/design/gateway-credential-failure-visibility.md. This
+	// is deliberately the only write verb any broker gateway gets on any
+	// resource: it lets a watcher surface a credential-resolution failure
+	// without ever needing write access to Trigger or its status subresource.
+	resourceEvents = "events"
 
 	// verbGet / verbCreate / verbList / verbWatch are RBAC verbs used across
 	// gateway/plugin PolicyRules.

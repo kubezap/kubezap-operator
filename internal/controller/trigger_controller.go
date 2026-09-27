@@ -32,6 +32,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	automationv1alpha1 "github.com/kubezap/kubezap-operator/api/v1alpha1"
@@ -51,6 +52,7 @@ type TriggerReconciler struct {
 // +kubebuilder:rbac:groups=automation.kubezap.io,resources=triggers,verbs=get;list;watch;create;update;delete
 // +kubebuilder:rbac:groups=automation.kubezap.io,resources=triggers/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=automation.kubezap.io,resources=triggers/finalizers,verbs=update
+// +kubebuilder:rbac:groups="",resources=events,verbs=get;list;watch
 // +kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch;create;update;delete
 // +kubebuilder:rbac:groups="",resources=serviceaccounts,verbs=get;list;watch;create;update;delete
 // +kubebuilder:rbac:groups="",resources=services,verbs=get;list;watch;create;update;delete
@@ -167,6 +169,18 @@ func (r *TriggerReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 
 	// Update Trigger condition and status based on enabled state.
 	statusPatch := client.MergeFrom(trg.DeepCopy())
+
+	// Sync the CredentialResolutionFailed condition from any credential-
+	// resolution Events the kafka/amqp/nats gateway watchers have emitted for
+	// this Trigger — see docs/design/gateway-credential-failure-visibility.md
+	// and trigger_credential_condition.go. Webhook/cron/resource Triggers
+	// never hit this path, so this is a no-op for them.
+	if trg.Spec.Type == triggerTypeKafka || trg.Spec.Type == triggerTypeAmqp || trg.Spec.Type == triggerTypeNats {
+		if _, err := r.syncCredentialResolutionCondition(ctx, &trg); err != nil {
+			return ctrl.Result{}, fmt.Errorf("syncing credential-resolution condition: %w", err)
+		}
+	}
+
 	ready := trg.Spec.Enabled
 	condStatus := metav1.ConditionFalse
 	condReason := "Disabled"
@@ -205,9 +219,23 @@ func (r *TriggerReconciler) reconcileWebhookGatewayDeployment(ctx context.Contex
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *TriggerReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	// Registers the field index that syncCredentialResolutionCondition's
+	// client.MatchingFields List relies on — see
+	// eventInvolvedObjectNameField's doc comment in
+	// trigger_credential_condition.go for why this index key is also a field
+	// selector the API server itself understands natively for Event objects.
+	if err := mgr.GetFieldIndexer().IndexField(context.Background(), &corev1.Event{},
+		eventInvolvedObjectNameField, indexEventsByInvolvedTriggerName); err != nil {
+		return fmt.Errorf("indexing events by involved Trigger name: %w", err)
+	}
+
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&automationv1alpha1.Trigger{}).
 		Named("trigger").
+		Watches(
+			&corev1.Event{},
+			handler.EnqueueRequestsFromMapFunc(enqueueTriggerForCredentialEvent),
+		).
 		Complete(r)
 }
 

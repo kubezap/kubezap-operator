@@ -175,6 +175,18 @@ type FlowRunReconciler struct {
 	executorMTLSClient     *http.Client
 	executorMTLSClientOnce sync.Once
 
+	// PluginMTLSStore tracks per-Integration mTLS CA/cert bundles for plugin
+	// Integrations with spec.plugin.mtls.enabled=true (see plugin_mtls.go).
+	// Unlike ExecutorTLSConfig above, this is not a single shared TLS config:
+	// each plugin Integration has its own bundle, so doPluginPublish looks up
+	// ClientTLSConfigFor(namespace, integrationName) per call and — only when
+	// it returns non-nil — builds a request-scoped *http.Client rather than a
+	// single cached one. Must be the SAME *PluginMTLSStore instance that
+	// IntegrationReconciler uses to generate bundles (wired by cmd/main.go);
+	// left nil in tests that don't exercise plugin mTLS, in which case
+	// behavior falls back to r.HTTPClient over plain HTTP unchanged.
+	PluginMTLSStore *PluginMTLSStore
+
 	// DisableCELCache bypasses the compiled-program cache so every eval recompiles.
 	// The cache is unbounded: it grows to hold one entry per distinct `when` expression
 	// across all deployed Flows and converges once those Flows stabilise. For typical
@@ -1148,6 +1160,9 @@ func (r *FlowRunReconciler) executePublishStep(
 		port = 8090
 	}
 
+	// Built with http:// here; doPluginPublish swaps to https:// (same
+	// strings.ReplaceAll idiom cmd/main.go uses for the executor RPC channel)
+	// when PluginMTLSStore has a bundle for this Integration.
 	pluginURL := fmt.Sprintf("http://kubezap-plugin-%s.%s.svc.cluster.local:%d/publish",
 		integration.Name, flowRun.Namespace, port)
 
@@ -1214,6 +1229,19 @@ type pluginPublishFailure struct {
 // contract. It creates a per-call context with the given timeout so
 // cancellation is scoped to this attempt rather than leaking across retry
 // iterations.
+//
+// When r.PluginMTLSStore has a bundle registered for this Integration (i.e.
+// spec.plugin.mtls.enabled=true), resolvedURL's scheme is rewritten from
+// http:// to https:// (the same strings.ReplaceAll idiom cmd/main.go uses to
+// switch the executor RPC base URL) and the request is sent using a
+// request-scoped *http.Client configured with that Integration's client cert
+// and CA pool — never r.HTTPClient. Each Integration's TLS config differs
+// (per-Integration CA), so unlike callExecutor's single shared
+// executorMTLSClient, no client is cached across calls here.
+//
+// When PluginMTLSStore is nil or has no bundle for this Integration, behavior
+// is unchanged from before mTLS wiring: r.HTTPClient (or http.DefaultClient)
+// over plain http://, resolvedURL untouched.
 func (r *FlowRunReconciler) doPluginPublish(
 	ctx context.Context,
 	resolvedURL, integrationName, namespace, destination, body string,
@@ -1239,16 +1267,28 @@ func (r *FlowRunReconciler) doPluginPublish(
 		return nil, fmt.Errorf("marshalling publish envelope: %w", err)
 	}
 
+	httpClient := r.HTTPClient
+	if httpClient == nil {
+		httpClient = http.DefaultClient
+	}
+	if r.PluginMTLSStore != nil {
+		if tlsConfig := r.PluginMTLSStore.ClientTLSConfigFor(namespace, integrationName); tlsConfig != nil {
+			// Same strings.ReplaceAll idiom cmd/main.go uses to switch the
+			// executor RPC base URL to https:// when mTLS is enabled.
+			resolvedURL = strings.ReplaceAll(resolvedURL, "http://", "https://")
+			httpClient = &http.Client{
+				Transport: &http.Transport{
+					TLSClientConfig: tlsConfig,
+				},
+			}
+		}
+	}
+
 	req, err := http.NewRequestWithContext(publishCtx, http.MethodPost, resolvedURL, bytes.NewReader(envelopeBytes))
 	if err != nil {
 		return nil, fmt.Errorf("building publish request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
-
-	httpClient := r.HTTPClient
-	if httpClient == nil {
-		httpClient = http.DefaultClient
-	}
 
 	resp, err := httpClient.Do(req)
 	if err != nil {

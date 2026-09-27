@@ -18,6 +18,8 @@ package controller
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -1743,6 +1745,94 @@ var _ = Describe("FlowRunReconciler", func() {
 				"my-integ", "my-ns", "orders.processed", "body", nil, 5*time.Second)
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("plain text failure, not JSON"))
+		})
+	})
+
+	Describe("doPluginPublish — mTLS wiring (STORY-068)", func() {
+		// STORY-034 (PR #285) built PluginMTLSStore/ClientTLSConfigFor; this
+		// covers the consumer side wired up here: when a bundle is registered
+		// for the target Integration, doPluginPublish must present that
+		// Integration's client cert and connect over https://, using a
+		// request-scoped client rather than r.HTTPClient.
+		It("presents the Integration's client cert and connects over TLS when a bundle is registered", func() {
+			store := NewPluginMTLSStore()
+			bundle, err := store.GetOrGenerate("mtls-ns", "mtls-integ", []string{"localhost"})
+			Expect(err).NotTo(HaveOccurred())
+
+			var receivedClientCertCN string
+			srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+				if req.TLS != nil && len(req.TLS.PeerCertificates) > 0 {
+					receivedClientCertCN = req.TLS.PeerCertificates[0].Subject.CommonName
+				}
+				w.WriteHeader(http.StatusOK)
+				_, _ = w.Write([]byte(`{}`))
+			}))
+
+			caPool := x509.NewCertPool()
+			caPool.AddCert(bundle.CACert)
+			srv.TLS = &tls.Config{
+				Certificates: []tls.Certificate{bundle.ServerCert},
+				ClientAuth:   tls.RequireAndVerifyClientCert,
+				ClientCAs:    caPool,
+				MinVersion:   tls.VersionTLS13,
+			}
+			srv.StartTLS()
+			defer srv.Close()
+
+			// Use hostname "localhost" (matching the bundle's server DNS SAN)
+			// rather than the httptest server's raw 127.0.0.1 address, so the
+			// client's TLS verification (driven off the request URL's host,
+			// not the dialed IP) succeeds without needing to override
+			// ServerName — the same as production, which always dials a DNS
+			// name, never a bare IP.
+			port := srv.Listener.Addr().(*net.TCPAddr).Port
+			pluginURL := fmt.Sprintf("http://localhost:%d/publish", port)
+
+			r := &FlowRunReconciler{HTTPClient: http.DefaultClient, PluginMTLSStore: store}
+			result, err := r.doPluginPublish(context.Background(), pluginURL,
+				"mtls-integ", "mtls-ns", "orders.processed", "body", nil, 5*time.Second)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result).To(Equal(map[string]string{}))
+			Expect(receivedClientCertCN).To(Equal("kubezap-controller"),
+				"the server should have received the controller's plugin-mTLS client cert")
+		})
+
+		It("falls back to r.HTTPClient over plain http:// when no bundle is registered for the Integration (regression)", func() {
+			var sawTLS bool
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+				sawTLS = req.TLS != nil
+				w.WriteHeader(http.StatusOK)
+				_, _ = w.Write([]byte(`{}`))
+			}))
+			defer server.Close()
+
+			// A non-nil store with no bundle registered for this Integration —
+			// e.g. mTLS not enabled — must behave identically to a nil store.
+			r := &FlowRunReconciler{HTTPClient: http.DefaultClient, PluginMTLSStore: NewPluginMTLSStore()}
+			result, err := r.doPluginPublish(context.Background(), server.URL,
+				"plain-integ", "plain-ns", "orders.processed", "body", nil, 5*time.Second)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result).To(Equal(map[string]string{}))
+			Expect(sawTLS).To(BeFalse(), "no bundle registered means the call must stay on plain http://")
+		})
+
+		It("behaves identically to before mTLS wiring when PluginMTLSStore is nil (regression)", func() {
+			var sawTLS bool
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+				sawTLS = req.TLS != nil
+				w.WriteHeader(http.StatusOK)
+				_, _ = w.Write([]byte(`{"messageId":"msg-1"}`))
+			}))
+			defer server.Close()
+
+			r := &FlowRunReconciler{HTTPClient: http.DefaultClient}
+			Expect(r.PluginMTLSStore).To(BeNil())
+
+			result, err := r.doPluginPublish(context.Background(), server.URL,
+				"plain-integ", "plain-ns", "orders.processed", "body", nil, 5*time.Second)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result).To(Equal(map[string]string{"messageId": "msg-1"}))
+			Expect(sawTLS).To(BeFalse())
 		})
 	})
 

@@ -68,3 +68,4 @@ Multi-decision reference files are permitted for a single security/architecture 
 | 2026-09-26 | [Controller-Side mTLS for the Plugin Publisher Channel](plugin-publisher-mtls.md) | Draft |
 | 2026-09-26 | [Certificate Revocation Checking (CRL) for Verified Webhook Client Certs](client-cert-revocation-checking.md) | Draft |
 | 2026-09-26 | [Surface Gateway Credential-Resolution Failures as a Kubernetes-Visible Signal](gateway-credential-failure-visibility.md) | Draft |
+| 2026-09-27 | [AMQP Exchange-Based Routing Support](amqp-exchange-routing.md) | Approved |

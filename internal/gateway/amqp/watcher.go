@@ -45,6 +45,10 @@ func init() {
 // real status.conditions entry — keep these two strings in sync with the
 // matching constants there. See
 // docs/design/gateway-credential-failure-visibility.md.
+// amqpVersion091 is the AMQP 0-9-1 version string (default when unset) —
+// the only version Exchange (spec.amqp.exchange) is valid for.
+const amqpVersion091 = "0-9-1"
+
 const (
 	credentialResolutionFailedReason    = "CredentialResolutionFailed"
 	credentialResolutionSucceededReason = "CredentialResolutionSucceeded"
@@ -440,11 +444,17 @@ func (w *Watcher) startSubscription(ctx context.Context, trigger *automationv1al
 
 	version := amqpSpec.Version
 	if version == "" {
-		version = "0-9-1"
+		version = amqpVersion091
+	}
+
+	if amqp.Exchange != nil && version != amqpVersion091 {
+		cancel()
+		w.subscriptions.Delete(key)
+		return fmt.Errorf("amqp exchange routing (spec.amqp.exchange) is only supported for version %q, got version %q for trigger %s/%s", amqpVersion091, version, trigger.Namespace, trigger.Name)
 	}
 
 	switch version {
-	case "0-9-1":
+	case amqpVersion091:
 		go w.runSubscription091(subCtx, key, trigger, amqpSpec, topic, flowRefName)
 	case "1.0":
 		go w.runSubscription10(subCtx, key, trigger, amqpSpec, topic, flowRefName)
@@ -496,6 +506,76 @@ func (w *Watcher) runSubscription091(
 			backoff = 5 * time.Second
 		}
 	}
+}
+
+// amqp091Channel is the subset of *amqp091.Channel that declareAndBind091
+// uses, extracted as an interface so tests can inject a fake and assert the
+// exact declare/bind/consume call sequence without a live broker.
+type amqp091Channel interface {
+	ExchangeDeclare(name, kind string, durable, autoDelete, internal, noWait bool, args amqp091.Table) error
+	QueueDeclare(name string, durable, autoDelete, exclusive, noWait bool, args amqp091.Table) (amqp091.Queue, error)
+	QueueBind(name, key, exchange string, noWait bool, args amqp091.Table) error
+	Consume(queue, consumer string, autoAck, exclusive, noLocal, noWait bool, args amqp091.Table) (<-chan amqp091.Delivery, error)
+}
+
+// declareAndBind091 declares topic (the queue) exactly as before this
+// feature, and — only when exchange is set — additionally declares the
+// exchange (idempotent) before the queue and binds the queue to it using
+// routingKey as the binding pattern before Consume starts. When exchange is
+// nil, behavior is byte-for-byte unchanged: no ExchangeDeclare/QueueBind
+// calls are made.
+func declareAndBind091(ch amqp091Channel, topic, routingKey string, exchange *automationv1alpha1.AmqpExchangeSpec, consumerTag string) (<-chan amqp091.Delivery, error) {
+	if exchange != nil {
+		if err := ch.ExchangeDeclare(
+			exchange.Name, // name
+			exchange.Type, // kind
+			true,          // durable
+			false,         // auto-delete
+			false,         // internal
+			false,         // no-wait
+			nil,           // args
+		); err != nil {
+			return nil, fmt.Errorf("declaring exchange %q: %w", exchange.Name, err)
+		}
+	}
+
+	// Declare the queue (idempotent).
+	if _, err := ch.QueueDeclare(
+		topic, // name
+		true,  // durable
+		false, // auto-delete
+		false, // exclusive
+		false, // no-wait
+		nil,   // args
+	); err != nil {
+		return nil, fmt.Errorf("declaring queue %q: %w", topic, err)
+	}
+
+	if exchange != nil {
+		if err := ch.QueueBind(
+			topic,         // queue name
+			routingKey,    // binding pattern
+			exchange.Name, // exchange
+			false,         // no-wait
+			nil,           // args
+		); err != nil {
+			return nil, fmt.Errorf("binding queue %q to exchange %q: %w", topic, exchange.Name, err)
+		}
+	}
+
+	deliveries, err := ch.Consume(
+		topic,       // queue
+		consumerTag, // consumer tag
+		false,       // auto-ack (false: manual ack after FlowRun creation)
+		false,       // exclusive
+		false,       // no-local
+		false,       // no-wait
+		nil,         // args
+	)
+	if err != nil {
+		return nil, fmt.Errorf("starting consume on queue %q: %w", topic, err)
+	}
+	return deliveries, nil
 }
 
 // connect091 establishes one AMQP 0-9-1 connection and runs the message loop until it closes.
@@ -550,30 +630,9 @@ func (w *Watcher) connect091(
 	}
 	defer func() { _ = ch.Close() }()
 
-	// Declare the queue (idempotent).
-	_, err = ch.QueueDeclare(
-		topic, // name
-		true,  // durable
-		false, // auto-delete
-		false, // exclusive
-		false, // no-wait
-		nil,   // args
-	)
+	deliveries, err := declareAndBind091(ch, topic, trigger.Spec.Amqp.RoutingKey, trigger.Spec.Amqp.Exchange, "kubezap-"+trigger.Name)
 	if err != nil {
-		return fmt.Errorf("declaring queue %q: %w", topic, err)
-	}
-
-	deliveries, err := ch.Consume(
-		topic,                   // queue
-		"kubezap-"+trigger.Name, // consumer tag
-		false,                   // auto-ack (false: manual ack after FlowRun creation)
-		false,                   // exclusive
-		false,                   // no-local
-		false,                   // no-wait
-		nil,                     // args
-	)
-	if err != nil {
-		return fmt.Errorf("starting consume on queue %q: %w", topic, err)
+		return err
 	}
 
 	handler := &MessageHandler091{

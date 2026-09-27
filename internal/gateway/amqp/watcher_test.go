@@ -2,10 +2,13 @@ package amqp
 
 import (
 	"context"
+	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
 
+	amqp091 "github.com/rabbitmq/amqp091-go"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -312,5 +315,128 @@ func TestOnTriggerDelete_RemovesAmqpTriggerFromIndex(t *testing.T) {
 	secretKey := types.NamespacedName{Namespace: "default", Name: "amqp-creds"}
 	if affected := w.secretIndex.ObjectsFor(secretKey); affected != nil {
 		t.Fatalf("secretIndex.ObjectsFor(%v) after delete: want nil, got %v", secretKey, affected)
+	}
+}
+
+// TestStartSubscription_RejectsExchangeWithVersion10 covers STORY-070: an
+// Exchange configured alongside version "1.0" must be rejected with a clear
+// error, never silently ignored (the exact bug this story fixes for
+// routingKey).
+func TestStartSubscription_RejectsExchangeWithVersion10(t *testing.T) {
+	w := newMinimalAmqpWatcher(t)
+	trigger := newAmqpTrigger("amqp-integ")
+	trigger.Spec.Amqp.Exchange = &automationv1alpha1.AmqpExchangeSpec{Name: "orders-exchange", Type: "topic"}
+	amqpSpec := authAmqpSpec("amqp-creds")
+	amqpSpec.Version = "1.0"
+
+	err := w.startSubscription(context.Background(), trigger, amqpSpec, "fingerprint")
+	if err == nil {
+		t.Fatal("expected an error rejecting spec.amqp.exchange with version \"1.0\", got nil")
+	}
+	if !strings.Contains(err.Error(), "0-9-1") || !strings.Contains(err.Error(), `"1.0"`) {
+		t.Fatalf("error should clearly name both the required and given version, got: %v", err)
+	}
+
+	key := types.NamespacedName{Namespace: "default", Name: "amqp-trigger"}
+	if _, ok := w.subscriptions.Load(key); ok {
+		t.Fatal("startSubscription must not leave a subscription registered after rejecting the config")
+	}
+}
+
+// fakeAmqp091Channel implements amqp091Channel, recording the exact call
+// sequence declareAndBind091 makes so tests can assert it without a live
+// broker.
+type fakeAmqp091Channel struct {
+	calls []string
+
+	exchangeDeclareErr error
+	queueDeclareErr    error
+	queueBindErr       error
+	consumeErr         error
+}
+
+func (f *fakeAmqp091Channel) ExchangeDeclare(name, kind string, durable, autoDelete, internal, noWait bool, args amqp091.Table) error {
+	f.calls = append(f.calls, fmt.Sprintf("ExchangeDeclare(name=%s,kind=%s,durable=%v)", name, kind, durable))
+	return f.exchangeDeclareErr
+}
+
+func (f *fakeAmqp091Channel) QueueDeclare(name string, durable, autoDelete, exclusive, noWait bool, args amqp091.Table) (amqp091.Queue, error) {
+	f.calls = append(f.calls, fmt.Sprintf("QueueDeclare(name=%s,durable=%v)", name, durable))
+	if f.queueDeclareErr != nil {
+		return amqp091.Queue{}, f.queueDeclareErr
+	}
+	return amqp091.Queue{Name: name}, nil
+}
+
+func (f *fakeAmqp091Channel) QueueBind(name, key, exchange string, noWait bool, args amqp091.Table) error {
+	f.calls = append(f.calls, fmt.Sprintf("QueueBind(queue=%s,key=%s,exchange=%s)", name, key, exchange))
+	return f.queueBindErr
+}
+
+func (f *fakeAmqp091Channel) Consume(queue, consumer string, autoAck, exclusive, noLocal, noWait bool, args amqp091.Table) (<-chan amqp091.Delivery, error) {
+	f.calls = append(f.calls, fmt.Sprintf("Consume(queue=%s,consumer=%s)", queue, consumer))
+	if f.consumeErr != nil {
+		return nil, f.consumeErr
+	}
+	return make(chan amqp091.Delivery), nil
+}
+
+// TestDeclareAndBind091_NoExchange_UnchangedSequence is the regression test
+// for STORY-070: with no Exchange configured, behavior must be byte-for-byte
+// unchanged — same QueueDeclare + Consume sequence, no ExchangeDeclare/
+// QueueBind calls.
+func TestDeclareAndBind091_NoExchange_UnchangedSequence(t *testing.T) {
+	ch := &fakeAmqp091Channel{}
+	if _, err := declareAndBind091(ch, "orders", "unused-routing-key", nil, "kubezap-amqp-trigger"); err != nil {
+		t.Fatalf("declareAndBind091: %v", err)
+	}
+	want := []string{
+		"QueueDeclare(name=orders,durable=true)",
+		"Consume(queue=orders,consumer=kubezap-amqp-trigger)",
+	}
+	if !reflect.DeepEqual(ch.calls, want) {
+		t.Fatalf("call sequence: want %v, got %v", want, ch.calls)
+	}
+}
+
+// TestDeclareAndBind091_WithExchange_DeclaresAndBindsBeforeConsume covers
+// STORY-070's core feature: the exchange is declared idempotently before the
+// queue, the queue is declared unchanged, and it's bound to the exchange
+// using RoutingKey as the binding pattern before Consume starts.
+func TestDeclareAndBind091_WithExchange_DeclaresAndBindsBeforeConsume(t *testing.T) {
+	ch := &fakeAmqp091Channel{}
+	exchange := &automationv1alpha1.AmqpExchangeSpec{Name: "orders-exchange", Type: "topic"}
+	if _, err := declareAndBind091(ch, "orders", "orders.*", exchange, "kubezap-amqp-trigger"); err != nil {
+		t.Fatalf("declareAndBind091: %v", err)
+	}
+	want := []string{
+		"ExchangeDeclare(name=orders-exchange,kind=topic,durable=true)",
+		"QueueDeclare(name=orders,durable=true)",
+		"QueueBind(queue=orders,key=orders.*,exchange=orders-exchange)",
+		"Consume(queue=orders,consumer=kubezap-amqp-trigger)",
+	}
+	if !reflect.DeepEqual(ch.calls, want) {
+		t.Fatalf("call sequence: want %v, got %v", want, ch.calls)
+	}
+}
+
+// TestDeclareAndBind091_MismatchedExchangeRedeclare_SurfacesClearError covers
+// the case where an exchange pre-exists on the broker with an incompatible
+// type: ExchangeDeclare fails, and declareAndBind091 must surface a clear
+// error (for the caller's reconnect-backoff logging) rather than proceeding
+// to declare/bind/consume the queue.
+func TestDeclareAndBind091_MismatchedExchangeRedeclare_SurfacesClearError(t *testing.T) {
+	ch := &fakeAmqp091Channel{exchangeDeclareErr: fmt.Errorf("PRECONDITION_FAILED - inequivalent arg 'type' for exchange 'orders-exchange'")}
+	exchange := &automationv1alpha1.AmqpExchangeSpec{Name: "orders-exchange", Type: "topic"}
+
+	_, err := declareAndBind091(ch, "orders", "orders.*", exchange, "kubezap-amqp-trigger")
+	if err == nil {
+		t.Fatal("expected an error when the exchange redeclare fails")
+	}
+	if !strings.Contains(err.Error(), "orders-exchange") {
+		t.Fatalf("error should name the exchange, got: %v", err)
+	}
+	if len(ch.calls) != 1 {
+		t.Fatalf("expected declareAndBind091 to stop after the failed ExchangeDeclare, got calls: %v", ch.calls)
 	}
 }

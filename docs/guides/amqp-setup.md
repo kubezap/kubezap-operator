@@ -14,6 +14,7 @@ For the full field reference, see the [Integration CRD spec](../api/integration.
   - [ActiveMQ Artemis (AMQP 1.0)](#activemq-artemis-amqp-10)
   - [Verifying the Integration](#verifying-the-integration)
 - [Creating an AMQP Trigger](#creating-an-amqp-trigger)
+  - [Exchange-Based Routing](#exchange-based-routing)
   - [Verifying the Gateway Deployment](#verifying-the-gateway-deployment)
 - [Producing a Test Message and Watching the FlowRun](#producing-a-test-message-and-watching-the-flowrun)
   - [RabbitMQ](#rabbitmq)
@@ -198,10 +199,12 @@ spec:
     # For AMQP 1.0: this is the address name.
     topic: orders.created
 
-    # Optional. Does not affect AMQP delivery — the gateway consumes directly
-    # from the queue named above; it never declares an exchange or binding.
-    # Only used to distinguish two otherwise-identical subscriptions (same
-    # integration + topic) from each other internally.
+    # Optional. With no `exchange` configured (as here), this does not affect
+    # AMQP delivery — the gateway consumes directly from the queue named
+    # above; it never declares an exchange or binding. Only used to
+    # distinguish two otherwise-identical subscriptions (same integration +
+    # topic) from each other internally. See "Exchange-Based Routing" below
+    # for what routingKey does once `exchange` is set.
     # routingKey: "order.new"
 
   # Flow to execute for each message.
@@ -212,6 +215,55 @@ spec:
 ```bash
 kubectl apply -f order-events-trigger.yaml
 ```
+
+### Exchange-Based Routing
+
+> AMQP 0-9-1 only. AMQP 1.0 (Artemis, Azure Service Bus) has no portable exchange/binding concept — see [AMQP 0-9-1 vs AMQP 1.0 Differences](#amqp-0-9-1-vs-amqp-10-differences). Setting `exchange` alongside `version: "1.0"` on the Integration is rejected at reconcile time.
+
+By default (no `exchange` set, as in the Trigger above), the gateway consumes directly from the named queue in `topic` — `routingKey` is just an internal dedup key. Set `spec.amqp.exchange` to instead bind that same durable, named queue to a broker exchange, with `routingKey` used as the binding pattern:
+
+```yaml
+apiVersion: automation.kubezap.io/v1alpha1
+kind: Trigger
+metadata:
+  name: order-events-topic-routed
+  namespace: default
+spec:
+  type: amqp
+  amqp:
+    integrationRef:
+      name: rabbitmq
+
+    # Still the durable, named queue — exchange routing changes how it
+    # receives messages, never whether it's named. A stable queue name
+    # across gateway restarts is what makes FlowRun dedup and observability
+    # (see FlowRun naming in docs/architecture.md) work the same way whether
+    # or not an exchange is configured.
+    topic: orders.created
+
+    # Binding pattern used to bind `topic` to the exchange below. For a
+    # "topic" exchange this supports AMQP wildcards (* = one word, # = zero
+    # or more words).
+    routingKey: "orders.*.created"
+
+    exchange:
+      name: orders-exchange
+      type: topic # direct | topic | fanout | headers
+
+  flowRef:
+    name: process-order
+```
+
+On each reconnect, the gateway:
+
+1. Declares `orders-exchange` idempotently (durable, type `topic`).
+2. Declares the `orders.created` queue exactly as it would with no `exchange` set (durable, named).
+3. Binds the queue to the exchange using `routingKey` as the binding pattern.
+4. Starts consuming from the queue.
+
+If an exchange with the same name already exists on the broker with a different type (e.g. `direct` instead of `topic`), the broker rejects the redeclare — the gateway logs a reconnect error and retries with backoff, the same as any other connection error; it does not silently ignore the mismatch.
+
+This durable-named-queue approach is a deliberate tradeoff: operators wanting RabbitMQ's typical ephemeral, per-consumer, anonymous fan-out queue idiom don't get it here — they get a stable queue name bound to an exchange instead, so a gateway pod restart doesn't lose messages queued in the meantime or discard state tied to that queue's name. See `docs/design/amqp-exchange-routing.md` for the full rationale.
 
 ### Verifying the Gateway Deployment
 
@@ -449,7 +501,8 @@ Despite sharing the AMQP name, these are fundamentally different wire protocols.
 | **Brokers**               | RabbitMQ, ActiveMQ Classic                                                                                                                           | ActiveMQ Artemis, Solace PubSub+, Azure Service Bus, IBM MQ                                                                       |
 | **`spec.amqp.version`**   | `"0-9-1"` (default)                                                                                                                                  | `"1.0"`                                                                                                                           |
 | **`topic` field meaning** | Queue name. The gateway declares this as a durable queue and consumes from it.                                                                       | Address name. The gateway creates a receiver link on this address.                                                                |
-| **`routingKey` field**    | Distinguishes multiple subscriptions on the same integration+topic. Does not affect delivery — the gateway never declares an exchange or binding.    | Not applicable. Ignored if set.                                                                                                   |
+| **`routingKey` field**    | With no `exchange` set: distinguishes multiple subscriptions on the same integration+topic, does not affect delivery. With `exchange` set: the binding pattern used to bind the queue to the exchange. | Not applicable. Ignored if set.                                                                                                   |
+| **`exchange` field**      | Optional. Binds `topic` (the queue) to a broker-declared exchange using `routingKey` as the binding pattern. See [Exchange-Based Routing](#exchange-based-routing). | Not applicable. Rejected at reconcile time if set — AMQP 1.0 has no portable exchange/binding concept. |
 | **Authentication**        | Credentials embedded in the AMQP URL (`amqp://user:pass@host`). The gateway handles this automatically from `usernameSecretRef`/`passwordSecretRef`. | SASL PLAIN sent during the AMQP 1.0 connection handshake. Configured via the same `usernameSecretRef`/`passwordSecretRef` fields. |
 | **Client library**        | [rabbitmq/amqp091-go](https://github.com/rabbitmq/amqp091-go)                                                                                        | [Azure/go-amqp](https://github.com/Azure/go-amqp)                                                                                 |
 | **Delivery guarantee**    | At-least-once (manual ack after FlowRun creation)                                                                                                    | At-least-once (message accepted after FlowRun creation)                                                                           |

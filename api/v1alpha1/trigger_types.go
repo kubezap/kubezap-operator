@@ -208,8 +208,31 @@ type AmqpTrigger struct {
 	// Topic (queue name) to consume from.
 	Topic string `json:"topic"`
 
-	// RoutingKey is the AMQP routing key or binding pattern.
+	// RoutingKey is the AMQP routing key or binding pattern. Used only as an
+	// internal dedup key when Exchange is unset; used as the queue's binding
+	// pattern when Exchange is set.
 	RoutingKey string `json:"routingKey,omitempty"`
+
+	// Exchange, when set, binds Topic (the consumed queue) to a
+	// broker-declared exchange using RoutingKey as the binding pattern,
+	// instead of consuming Topic directly. Only valid when the Integration's
+	// version is "0-9-1" (the default) — rejected at reconcile time for
+	// version "1.0", which has no portable exchange/binding concept. See
+	// docs/design/amqp-exchange-routing.md.
+	// +optional
+	Exchange *AmqpExchangeSpec `json:"exchange,omitempty"`
+}
+
+// AmqpExchangeSpec declares an AMQP 0-9-1 exchange that a Trigger's queue
+// (Topic) is bound to, in place of consuming that queue directly.
+type AmqpExchangeSpec struct {
+	// Name of the exchange to declare (idempotent) and bind the queue to.
+	// +kubebuilder:validation:MinLength=1
+	Name string `json:"name"`
+
+	// Type of the exchange, matching RabbitMQ's native exchange types.
+	// +kubebuilder:validation:Enum=direct;topic;fanout;headers
+	Type string `json:"type"`
 }
 
 // NatsTrigger configures a NATS-based trigger (type=nats).

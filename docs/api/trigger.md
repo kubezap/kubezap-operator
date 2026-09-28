@@ -15,6 +15,7 @@ A `Trigger` defines an event source that starts a `Flow`. It listens for an even
   - [CronTrigger](#crontrigger)
   - [KafkaTrigger](#kafkatrigger)
   - [AmqpTrigger](#amqptrigger)
+    - [AmqpExchangeSpec](#amqpexchangespec)
   - [NatsTrigger](#natstrigger)
   - [FlowReference](#flowreference)
   - [CooldownPolicy](#cooldownpolicy)
@@ -202,7 +203,15 @@ Configures authentication for a webhook trigger endpoint. If omitted, the endpoi
 | ---------------- | -------------------- | -------- | ------- | ------------------------------------------------------------- |
 | `integrationRef` | LocalObjectReference | **Yes**  | —       | Reference to an `Integration` CR with AMQP connection details |
 | `topic`          | string               | **Yes**  | —       | Queue name to consume from                                    |
-| `routingKey`     | string               | No       | —       | Distinguishes multiple subscriptions on the same `integrationRef`+`topic` from each other. Does not affect AMQP delivery — the gateway consumes directly from the named queue and never declares an exchange or binding. |
+| `routingKey`     | string               | No       | —       | With no `exchange` configured: an internal dedup key only, distinguishing multiple subscriptions on the same `integrationRef`+`topic` from each other — does not affect AMQP delivery. With `exchange` configured: the binding pattern used to bind `topic` (the queue) to the exchange. |
+| `exchange`       | AmqpExchangeSpec     | No       | —       | When set, binds `topic` to a broker-declared exchange instead of consuming it directly. Valid only for AMQP 0-9-1 (the `Integration`'s `version` unset or `"0-9-1"`) — rejected at reconcile time for `version: "1.0"`, which has no portable exchange/binding concept. See [amqp-setup.md](../guides/amqp-setup.md#exchange-based-routing). |
+
+#### AmqpExchangeSpec
+
+| Field  | Type   | Required | Default | Description                                                                 |
+| ------ | ------ | -------- | ------- | ---------------------------------------------------------------------------- |
+| `name` | string | **Yes**  | —       | Name of the exchange to declare (idempotently) and bind `topic` to           |
+| `type` | enum   | **Yes**  | —       | Exchange type: `direct`, `topic`, `fanout`, or `headers` (RabbitMQ-native types) |
 
 ### NatsTrigger
 

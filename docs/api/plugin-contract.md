@@ -74,10 +74,12 @@ A plugin may implement one or both roles. A subscriber-only plugin (e.g., an inb
 The plugin must watch `Trigger` resources in its namespace (`KUBEZAP_NAMESPACE`) and process only those matching:
 
 ```
-spec.type == <your-integration-type>  // e.g. the value matching this plugin, e.g. "kafka", or a custom type name
-  AND spec.<type>.integrationRef.name == KUBEZAP_INTEGRATION_NAME
+spec.type == "plugin"
+  AND spec.plugin.integrationRef.name == KUBEZAP_INTEGRATION_NAME
   AND spec.enabled == true  (or spec.enabled is absent)
 ```
+
+`spec.plugin.config` (a `map[string]string`) is opaque to the operator and carries plugin-defined settings per Trigger. The operator validates only that `integrationRef` resolves to an existing `type: plugin` Integration (see [Trigger CRD → Plugin](trigger.md#plugin)).
 
 The plugin must **not** process Triggers in other namespaces.
 

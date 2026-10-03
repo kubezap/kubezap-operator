@@ -242,6 +242,37 @@ spec:
                 - integrationRef
                 - subject
                 type: object
+              plugin:
+                description: |-
+                  Plugin configuration (only for type=plugin). The Trigger is consumed by
+                  the subscriber-role plugin behind the referenced Integration, not by the
+                  operator itself. See docs/api/plugin-contract.md.
+                properties:
+                  config:
+                    additionalProperties:
+                      type: string
+                    description: |-
+                      Config is opaque, plugin-defined configuration (e.g. a queue URL). The
+                      operator never interprets, validates, or defaults these values.
+                    type: object
+                  integrationRef:
+                    description: Reference to an Integration CR of type=plugin whose
+                      plugin serves this Trigger.
+                    properties:
+                      name:
+                        default: ""
+                        description: |-
+                          Name of the referent.
+                          This field is effectively required, but due to backwards compatibility is
+                          allowed to be empty. Instances of this type with an empty value here are
+                          almost certainly wrong.
+                          More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                        type: string
+                    type: object
+                    x-kubernetes-map-type: atomic
+                required:
+                - integrationRef
+                type: object
               resource:
                 description: |-
                   Resource configuration (only for type=resource).
@@ -339,7 +370,8 @@ spec:
                 - kind
                 type: object
               type:
-                description: Type of trigger (webhook, cron, kafka, amqp, nats, resource)
+                description: Type of trigger (webhook, cron, kafka, amqp, nats, resource,
+                  plugin)
                 enum:
                 - webhook
                 - cron
@@ -347,6 +379,7 @@ spec:
                 - amqp
                 - nats
                 - resource
+                - plugin
                 type: string
               webhook:
                 description: Webhook configuration (only for type=webhook)

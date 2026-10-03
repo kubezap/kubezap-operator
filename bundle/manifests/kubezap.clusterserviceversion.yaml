@@ -178,7 +178,7 @@ metadata:
     capabilities: Basic Install
     categories: Integration & Delivery
     containerImage: ghcr.io/kubezap/controller:0.2.1
-    createdAt: "2026-09-27T22:05:47Z"
+    createdAt: "2026-10-03T20:17:15Z"
     description: Declarative workflow automation for Kubernetes
     operatorframework.io/suggested-namespace: kubezap-system
     operators.operatorframework.io/builder: operator-sdk-v1.42.0
@@ -308,7 +308,8 @@ spec:
         name: ""
         version: v1
       specDescriptors:
-      - description: Type of trigger (webhook, cron, kafka, amqp, nats, resource)
+      - description: Type of trigger (webhook, cron, kafka, amqp, nats, resource,
+          plugin)
         displayName: Type
         path: type
       - description: Webhook configuration (only for type=webhook)

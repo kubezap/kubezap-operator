@@ -25,8 +25,8 @@ import (
 
 // TriggerSpec defines the desired state of Trigger.
 type TriggerSpec struct {
-	// Type of trigger (webhook, cron, kafka, amqp, nats, resource)
-	// +kubebuilder:validation:Enum=webhook;cron;kafka;amqp;nats;resource
+	// Type of trigger (webhook, cron, kafka, amqp, nats, resource, plugin)
+	// +kubebuilder:validation:Enum=webhook;cron;kafka;amqp;nats;resource;plugin
 	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="Type",order=1
 	Type string `json:"type"`
 
@@ -49,6 +49,12 @@ type TriggerSpec struct {
 
 	// Nats configuration (only for type=nats)
 	Nats *NatsTrigger `json:"nats,omitempty"`
+
+	// Plugin configuration (only for type=plugin). The Trigger is consumed by
+	// the subscriber-role plugin behind the referenced Integration, not by the
+	// operator itself. See docs/api/plugin-contract.md.
+	// +optional
+	Plugin *PluginTrigger `json:"plugin,omitempty"`
 
 	// Resource configuration (only for type=resource).
 	// Watches a Kubernetes resource type for create/update/delete events
@@ -243,6 +249,19 @@ type NatsTrigger struct {
 	// Subject is the NATS subject to subscribe to.
 	// Supports NATS wildcards (e.g. "orders.*", "events.>").
 	Subject string `json:"subject"`
+}
+
+// PluginTrigger configures a plugin-backed trigger (type=plugin). The
+// referenced Integration must have spec.type=plugin; the plugin pod owns the
+// entire subscription lifecycle (docs/api/plugin-contract.md, subscriber role).
+type PluginTrigger struct {
+	// Reference to an Integration CR of type=plugin whose plugin serves this Trigger.
+	IntegrationRef corev1.LocalObjectReference `json:"integrationRef"`
+
+	// Config is opaque, plugin-defined configuration (e.g. a queue URL). The
+	// operator never interprets, validates, or defaults these values.
+	// +optional
+	Config map[string]string `json:"config,omitempty"`
 }
 
 // ResourceTrigger watches a Kubernetes resource type for events.

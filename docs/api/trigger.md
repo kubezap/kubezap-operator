@@ -60,7 +60,7 @@ Each `Trigger` has a `type` (webhook, cron, kafka, amqp, nats, or resource) and 
 
 | Field      | Type             | Required    | Default | Description                                                                      |
 | ---------- | ---------------- | ----------- | ------- | -------------------------------------------------------------------------------- |
-| `type`     | enum             | **Yes**     | —       | Trigger source type: `webhook`, `cron`, `kafka`, `amqp`, `nats`, or `resource`   |
+| `type`     | enum             | **Yes**     | —       | Trigger source type: `webhook`, `cron`, `kafka`, `amqp`, `nats`, `resource`, or `plugin` |
 | `enabled`  | boolean          | No          | `true`  | Whether this trigger is active. Set to `false` to pause without deleting.        |
 | `webhook`  | WebhookTrigger   | Conditional | —       | Required when `type: webhook`                                                    |
 | `cron`     | CronTrigger      | Conditional | —       | Required when `type: cron`                                                       |
@@ -68,6 +68,7 @@ Each `Trigger` has a `type` (webhook, cron, kafka, amqp, nats, or resource) and 
 | `amqp`     | AmqpTrigger      | Conditional | —       | Required when `type: amqp`                                                       |
 | `nats`     | NatsTrigger      | Conditional | —       | Required when `type: nats`                                                       |
 | `resource` | ResourceTrigger  | Conditional | —       | Required when `type: resource`                                                   |
+| `plugin`   | PluginTrigger    | Conditional | —       | Required when `type: plugin`                                                     |
 | `flowRef`  | FlowReference    | **Yes**     | —       | Reference to the Flow to execute                                                 |
 | `cooldown` | CooldownPolicy   | No          | —       | Rate limiting policy to prevent trigger storms                                   |
 | `flowRunGC`| FlowRunGCPolicy  | No          | —       | Per-trigger GC policy for completed FlowRuns. See [FlowRun GC](flowrun.md#garbage-collection). |
@@ -220,6 +221,13 @@ Configures authentication for a webhook trigger endpoint. If omitted, the endpoi
 | `integrationRef` | LocalObjectReference | **Yes**  | —       | Reference to an `Integration` CR with NATS connection details                  |
 | `subject`        | string               | **Yes**  | —       | NATS subject to subscribe to. Supports wildcards (e.g. `orders.*`, `events.>`) |
 
+### PluginTrigger
+
+| Field            | Type                 | Required | Default | Description                                                                                                  |
+| ---------------- | -------------------- | -------- | ------- | ------------------------------------------------------------------------------------------------------------ |
+| `integrationRef` | LocalObjectReference | **Yes**  | —       | Reference to an `Integration` in the same namespace with `spec.type: plugin`                                 |
+| `config`         | map[string]string    | No       | —       | Opaque, plugin-defined settings (e.g. a queue URL). The operator never interprets, validates, or defaults it. |
+
 ### FlowReference
 
 | Field  | Type   | Required | Description                    |
@@ -352,6 +360,17 @@ This Condition is negative-polarity by design (`Type=True` means the failure is 
 - The Condition itself lags slightly behind — by up to one controller reconcile cycle — rather than updating the instant the gateway detects the failure.
 - If the cluster's `--event-ttl` expires the underlying Event before the controller ever syncs it, the Condition may not reflect a very short-lived failure. A persisting failure (the case this mechanism is designed for) is unaffected, since the gateway keeps re-emitting the Event on every reconcile attempt.
 
+#### `PluginIntegrationInvalid` (plugin only)
+
+Set only on enabled `type: plugin` Triggers. Negative-polarity, like `CredentialResolutionFailed`.
+
+| Type                        | Status  | Reason                                                              | Meaning                                                                                       |
+| --------------------------- | ------- | ------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| `PluginIntegrationInvalid`  | `True`  | `PluginIntegrationNotFound`, `PluginIntegrationWrongType`, `PluginSpecMissing` | `spec.plugin.integrationRef` does not resolve to an existing `type: plugin` Integration. `Ready` is also set to `False`. The controller re-checks every 30s. |
+| `PluginIntegrationInvalid`  | `False` | `PluginIntegrationValid`                                            | The reference resolves to a `type: plugin` Integration.                                       |
+
+No Kubernetes Event is emitted for this condition (the controller has no `events` create permission); use the condition via `kubectl describe trigger`.
+
 ---
 
 ## Trigger Types
@@ -405,6 +424,10 @@ The Flow receives the message contents via the same `$(trigger.*)` placeholders 
 `$(trigger.key)` always emits `triggerData.key` **verbatim** — it does not decode base64 automatically, the same way `$(trigger.body)` is emitted verbatim regardless of `contentType`. A Flow step must check `keyEncoding` (today, only reachable indirectly — e.g. via a `transform` step reading `$(trigger.body)`-adjacent context, since there is no `$(trigger.keyEncoding)` interpolation token) or otherwise know out-of-band whether to base64-decode the value before using it as binary data.
 
 The Kafka record key is never part of the FlowRun dedup-key naming scheme (`<trigger>-p<partition>-offset-<offset>`) — it is informational/interpolation-only and does not affect deduplication.
+
+### Plugin
+
+A `type: plugin` Trigger is served by the subscriber-role plugin behind the referenced `Integration` (`spec.type: plugin`); see [Plugin Contract](plugin-contract.md) for the subscriber role. The plugin pod watches Trigger CRDs and owns the entire subscription lifecycle and FlowRun creation. The operator only validates that `spec.plugin.integrationRef` resolves to an existing `type: plugin` Integration (see the `PluginIntegrationInvalid` condition above); it creates no gateway, informer, or per-Trigger state. `spec.plugin.config` is passed through untouched for the plugin to interpret. This is generic: any subscriber-role plugin can use it without a CRD change.
 
 ### Kubernetes Resource Events
 

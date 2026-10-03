@@ -133,7 +133,8 @@ spec:
         name: ""
         version: v1
       specDescriptors:
-      - description: Type of trigger (webhook, cron, kafka, amqp, nats, resource)
+      - description: Type of trigger (webhook, cron, kafka, amqp, nats, resource,
+          plugin)
         displayName: Type
         path: type
       - description: Webhook configuration (only for type=webhook)

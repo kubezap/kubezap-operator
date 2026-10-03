@@ -181,6 +181,17 @@ func (r *TriggerReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		}
 	}
 
+	// type=plugin: validate the Integration reference only. The plugin pod owns
+	// the subscription lifecycle, so there is nothing further to do on success.
+	pluginRefErr := ""
+	if trg.Spec.Type == triggerTypePlugin && trg.Spec.Enabled {
+		msg, err := r.syncPluginIntegrationRefCondition(ctx, &trg)
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+		pluginRefErr = msg
+	}
+
 	ready := trg.Spec.Enabled
 	condStatus := metav1.ConditionFalse
 	condReason := "Disabled"
@@ -190,6 +201,11 @@ func (r *TriggerReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		condReason = "Enabled"
 		condMsg = "Trigger is accepted and active"
 		trg.Status.LastResult = "Accepted"
+	}
+	if pluginRefErr != "" {
+		condStatus = metav1.ConditionFalse
+		condReason = reasonPluginIntegrationInvalid
+		condMsg = pluginRefErr
 	}
 	setTriggerCondition(&trg.Status, metav1.Condition{
 		Type:    "Accepted",
@@ -206,6 +222,12 @@ func (r *TriggerReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 
 	if err := r.Status().Patch(ctx, &trg, statusPatch); err != nil {
 		return ctrl.Result{}, fmt.Errorf("updating Trigger status: %w", err)
+	}
+
+	if pluginRefErr != "" {
+		// The Integration may be created or fixed later; Integration changes
+		// are deliberately not watched (keeps reconcile O(1)), so poll.
+		return ctrl.Result{RequeueAfter: pluginIntegrationRecheckInterval}, nil
 	}
 
 	return ctrl.Result{}, nil

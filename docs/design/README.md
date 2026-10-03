@@ -69,3 +69,4 @@ Multi-decision reference files are permitted for a single security/architecture 
 | 2026-09-26 | [Certificate Revocation Checking (CRL) for Verified Webhook Client Certs](client-cert-revocation-checking.md) | Draft |
 | 2026-09-26 | [Surface Gateway Credential-Resolution Failures as a Kubernetes-Visible Signal](gateway-credential-failure-visibility.md) | Draft |
 | 2026-09-27 | [AMQP Exchange-Based Routing Support](amqp-exchange-routing.md) | Approved |
+| 2026-09-27 | [AWS SQS/SNS Messaging Plugin (EPIC-008 Pilot)](aws-sqs-sns-messaging-plugin.md) | Draft |

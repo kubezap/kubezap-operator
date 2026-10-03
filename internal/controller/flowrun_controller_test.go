@@ -26,7 +26,10 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
+	"regexp"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -34,6 +37,9 @@ import (
 	"github.com/google/cel-go/cel"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/propagation"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
@@ -1667,7 +1673,7 @@ var _ = Describe("FlowRunReconciler", func() {
 
 			_, err := r.doPluginPublish(context.Background(), server.URL,
 				"my-integ", "my-ns", "orders.processed", "the message body",
-				map[string]string{"X-Correlation-Id": "corr-1"}, 5*time.Second)
+				map[string]string{"X-Correlation-Id": "corr-1"}, testPublishIdempotencyKey, 5*time.Second)
 			Expect(err).NotTo(HaveOccurred())
 
 			Expect(receivedContentType).To(Equal("application/json"))
@@ -1691,7 +1697,7 @@ var _ = Describe("FlowRunReconciler", func() {
 
 			_, err := r.doPluginPublish(context.Background(), server.URL,
 				"my-integ", "my-ns", "orders.processed", "body",
-				map[string]string{"X-Correlation-Id": "corr-1"}, 5*time.Second)
+				map[string]string{"X-Correlation-Id": "corr-1"}, testPublishIdempotencyKey, 5*time.Second)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(sawCustomHeader).To(BeFalse(),
 				"message headers belong in the envelope's \"headers\" field, not as literal HTTP headers on the /publish call")
@@ -1704,7 +1710,7 @@ var _ = Describe("FlowRunReconciler", func() {
 			}))
 
 			result, err := r.doPluginPublish(context.Background(), server.URL,
-				"my-integ", "my-ns", "orders.processed", "body", nil, 5*time.Second)
+				"my-integ", "my-ns", "orders.processed", "body", nil, testPublishIdempotencyKey, 5*time.Second)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(result).To(Equal(map[string]string{"messageId": "broker-msg-42"}))
 		})
@@ -1716,7 +1722,7 @@ var _ = Describe("FlowRunReconciler", func() {
 			}))
 
 			result, err := r.doPluginPublish(context.Background(), server.URL,
-				"my-integ", "my-ns", "orders.processed", "body", nil, 5*time.Second)
+				"my-integ", "my-ns", "orders.processed", "body", nil, testPublishIdempotencyKey, 5*time.Second)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(result).To(Equal(map[string]string{}))
 		})
@@ -1728,7 +1734,7 @@ var _ = Describe("FlowRunReconciler", func() {
 			}))
 
 			_, err := r.doPluginPublish(context.Background(), server.URL,
-				"my-integ", "my-ns", "orders.processed", "body", nil, 5*time.Second)
+				"my-integ", "my-ns", "orders.processed", "body", nil, testPublishIdempotencyKey, 5*time.Second)
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("broker unavailable"))
 			Expect(err.Error()).NotTo(ContainSubstring(`{"error"`),
@@ -1742,7 +1748,7 @@ var _ = Describe("FlowRunReconciler", func() {
 			}))
 
 			_, err := r.doPluginPublish(context.Background(), server.URL,
-				"my-integ", "my-ns", "orders.processed", "body", nil, 5*time.Second)
+				"my-integ", "my-ns", "orders.processed", "body", nil, testPublishIdempotencyKey, 5*time.Second)
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("plain text failure, not JSON"))
 		})
@@ -1790,7 +1796,7 @@ var _ = Describe("FlowRunReconciler", func() {
 
 			r := &FlowRunReconciler{HTTPClient: http.DefaultClient, PluginMTLSStore: store}
 			result, err := r.doPluginPublish(context.Background(), pluginURL,
-				"mtls-integ", "mtls-ns", "orders.processed", "body", nil, 5*time.Second)
+				"mtls-integ", "mtls-ns", "orders.processed", "body", nil, testPublishIdempotencyKey, 5*time.Second)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(result).To(Equal(map[string]string{}))
 			Expect(receivedClientCertCN).To(Equal("kubezap-controller"),
@@ -1810,7 +1816,7 @@ var _ = Describe("FlowRunReconciler", func() {
 			// e.g. mTLS not enabled — must behave identically to a nil store.
 			r := &FlowRunReconciler{HTTPClient: http.DefaultClient, PluginMTLSStore: NewPluginMTLSStore()}
 			result, err := r.doPluginPublish(context.Background(), server.URL,
-				"plain-integ", "plain-ns", "orders.processed", "body", nil, 5*time.Second)
+				"plain-integ", "plain-ns", "orders.processed", "body", nil, testPublishIdempotencyKey, 5*time.Second)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(result).To(Equal(map[string]string{}))
 			Expect(sawTLS).To(BeFalse(), "no bundle registered means the call must stay on plain http://")
@@ -1829,10 +1835,222 @@ var _ = Describe("FlowRunReconciler", func() {
 			Expect(r.PluginMTLSStore).To(BeNil())
 
 			result, err := r.doPluginPublish(context.Background(), server.URL,
-				"plain-integ", "plain-ns", "orders.processed", "body", nil, 5*time.Second)
+				"plain-integ", "plain-ns", "orders.processed", "body", nil, testPublishIdempotencyKey, 5*time.Second)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(result).To(Equal(map[string]string{"messageId": "msg-1"}))
 			Expect(sawTLS).To(BeFalse())
+		})
+	})
+
+	Describe("plugin /publish idempotencyKey and trace context (STORY-077)", func() {
+		// See docs/design/plugin-publish-idempotency-and-trace.md: every plugin
+		// /publish carries idempotencyKey = "kz1-" + hex(sha256(uid+"\x00"+step)),
+		// computed once per step execution so it is identical across retries,
+		// and W3C trace context travels as HTTP request headers only.
+		keyPattern := regexp.MustCompile(`^kz1-[0-9a-f]{64}$`)
+
+		Describe("pluginPublishIdempotencyKey", func() {
+			It("is deterministic for the same (UID, step name)", func() {
+				Expect(pluginPublishIdempotencyKey("uid-1", "notify")).
+					To(Equal(pluginPublishIdempotencyKey("uid-1", "notify")))
+			})
+
+			It("differs for a different step name or a different UID", func() {
+				base := pluginPublishIdempotencyKey("uid-1", "notify")
+				Expect(pluginPublishIdempotencyKey("uid-1", "notify-2")).NotTo(Equal(base))
+				Expect(pluginPublishIdempotencyKey("uid-2", "notify")).NotTo(Equal(base))
+			})
+
+			It("does not collide when the UID/step boundary shifts", func() {
+				Expect(pluginPublishIdempotencyKey("uid-1a", "b")).
+					NotTo(Equal(pluginPublishIdempotencyKey("uid-1", "ab")))
+			})
+
+			DescribeTable("always yields a 68-char kz1- key regardless of step name content",
+				func(stepName string) {
+					key := pluginPublishIdempotencyKey("3f1c2a9e-0000-4000-8000-000000000001", stepName)
+					Expect(key).To(HaveLen(68))
+					Expect(key).To(MatchRegexp(keyPattern.String()))
+				},
+				Entry("simple", "publish-order"),
+				Entry("empty", ""),
+				Entry("300-char", strings.Repeat("s", 300)),
+				Entry("non-ASCII", "publicación-注文-🚀"),
+				Entry("long non-ASCII", strings.Repeat("注", 300)),
+			)
+		})
+
+		Describe("doPluginPublish", func() {
+			var server *httptest.Server
+			var receivedBody []byte
+			var receivedHeader http.Header
+			var r *FlowRunReconciler
+
+			BeforeEach(func() {
+				receivedBody = nil
+				receivedHeader = nil
+				r = &FlowRunReconciler{HTTPClient: http.DefaultClient}
+				server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+					receivedHeader = req.Header.Clone()
+					receivedBody, _ = io.ReadAll(req.Body)
+					w.WriteHeader(http.StatusOK)
+					_, _ = w.Write([]byte(`{}`))
+				}))
+				DeferCleanup(server.Close)
+			})
+
+			// installTestTracing swaps in a real TracerProvider and the W3C
+			// TraceContext propagator, restoring the previous globals afterwards.
+			installTestTracing := func() *sdktrace.TracerProvider {
+				prevTP := otel.GetTracerProvider()
+				prevProp := otel.GetTextMapPropagator()
+				tp := sdktrace.NewTracerProvider()
+				otel.SetTracerProvider(tp)
+				otel.SetTextMapPropagator(propagation.NewCompositeTextMapPropagator(
+					propagation.TraceContext{}, propagation.Baggage{}))
+				DeferCleanup(func() {
+					otel.SetTracerProvider(prevTP)
+					otel.SetTextMapPropagator(prevProp)
+					_ = tp.Shutdown(context.Background())
+				})
+				return tp
+			}
+
+			envelopeOf := func() map[string]interface{} {
+				var envelope map[string]interface{}
+				ExpectWithOffset(1, json.Unmarshal(receivedBody, &envelope)).To(Succeed())
+				return envelope
+			}
+
+			It("sends the given idempotencyKey in the envelope", func() {
+				key := pluginPublishIdempotencyKey("uid-1", "notify")
+				_, err := r.doPluginPublish(context.Background(), server.URL,
+					"my-integ", "my-ns", "orders.processed", "body", nil, key, 5*time.Second)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(envelopeOf()["idempotencyKey"]).To(Equal(key))
+			})
+
+			It("injects a traceparent request header carrying the active span's trace ID", func() {
+				tp := installTestTracing()
+				ctx, span := tp.Tracer("test").Start(context.Background(), "publish_call")
+				defer span.End()
+
+				_, err := r.doPluginPublish(ctx, server.URL,
+					"my-integ", "my-ns", "orders.processed", "body",
+					map[string]string{"X-Correlation-Id": "corr-1"}, testPublishIdempotencyKey, 5*time.Second)
+				Expect(err).NotTo(HaveOccurred())
+
+				traceparent := receivedHeader.Get("traceparent")
+				Expect(traceparent).NotTo(BeEmpty())
+				parts := strings.Split(traceparent, "-")
+				Expect(parts).To(HaveLen(4))
+				Expect(parts[1]).To(Equal(span.SpanContext().TraceID().String()))
+
+				headers, _ := envelopeOf()["headers"].(map[string]interface{})
+				Expect(headers).To(Equal(map[string]interface{}{"X-Correlation-Id": "corr-1"}),
+					"trace context must travel as HTTP request headers, never inside the envelope's headers map")
+				for k := range headers {
+					Expect(strings.ToLower(k)).NotTo(Equal("traceparent"))
+				}
+			})
+
+			It("sends no traceparent header when ctx carries no span context", func() {
+				installTestTracing()
+
+				_, err := r.doPluginPublish(context.Background(), server.URL,
+					"my-integ", "my-ns", "orders.processed", "body", nil, testPublishIdempotencyKey, 5*time.Second)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(receivedHeader.Get("traceparent")).To(BeEmpty())
+				Expect(receivedHeader.Get("tracestate")).To(BeEmpty())
+			})
+
+			It("passes a user-set traceparent message header through verbatim in the envelope", func() {
+				tp := installTestTracing()
+				ctx, span := tp.Tracer("test").Start(context.Background(), "publish_call")
+				defer span.End()
+
+				const userValue = "00-11111111111111111111111111111111-2222222222222222-01"
+				_, err := r.doPluginPublish(ctx, server.URL,
+					"my-integ", "my-ns", "orders.processed", "body",
+					map[string]string{"traceparent": userValue}, testPublishIdempotencyKey, 5*time.Second)
+				Expect(err).NotTo(HaveOccurred())
+
+				Expect(envelopeOf()["headers"]).To(Equal(map[string]interface{}{"traceparent": userValue}),
+					"the user's own message header is broker data and must not be rewritten")
+				Expect(receivedHeader.Get("traceparent")).To(ContainSubstring(span.SpanContext().TraceID().String()),
+					"the HTTP request header still carries the controller's own trace context")
+			})
+		})
+
+		Describe("executePublishStep — plugin branch", func() {
+			It("sends the same kz1- idempotencyKey on every retry attempt of one step", func() {
+				var mu sync.Mutex
+				var keys []string
+				server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+					body, _ := io.ReadAll(req.Body)
+					var envelope map[string]interface{}
+					_ = json.Unmarshal(body, &envelope)
+					key, _ := envelope["idempotencyKey"].(string)
+					mu.Lock()
+					keys = append(keys, key)
+					n := len(keys)
+					mu.Unlock()
+					if n == 1 {
+						w.WriteHeader(http.StatusServiceUnavailable)
+						_, _ = w.Write([]byte(`{"error":"broker unavailable"}`))
+						return
+					}
+					w.WriteHeader(http.StatusOK)
+					_, _ = w.Write([]byte(`{"messageId":"m-1"}`))
+				}))
+				defer server.Close()
+				serverURL, err := url.Parse(server.URL)
+				Expect(err).NotTo(HaveOccurred())
+
+				// The plugin branch builds an in-cluster Service URL; route every
+				// request to the test server instead.
+				r := &FlowRunReconciler{HTTPClient: &http.Client{Transport: rewriteHostTransport{host: serverURL.Host}}}
+
+				integration := &automationv1alpha1.Integration{
+					ObjectMeta: metav1.ObjectMeta{Name: "plugin-integ", Namespace: "default"},
+					Spec: automationv1alpha1.IntegrationSpec{
+						Plugin: &automationv1alpha1.PluginIntegrationSpec{Image: "example/plugin:latest"},
+					},
+				}
+				flowRun := &automationv1alpha1.FlowRun{
+					ObjectMeta: metav1.ObjectMeta{Name: "run-1", Namespace: "default", UID: "8d0b3c2e-1111-4222-8333-444455556666"},
+				}
+				step := &automationv1alpha1.FlowStep{
+					Name: "publish-step",
+					Action: automationv1alpha1.StepAction{
+						Type: "publish",
+						Publish: &automationv1alpha1.PublishAction{
+							IntegrationRef: corev1.LocalObjectReference{Name: "plugin-integ"},
+							Topic:          "orders",
+							Body:           "hello",
+						},
+					},
+					RetryPolicy: &automationv1alpha1.RetryPolicy{
+						MaxRetries:   1,
+						BackoffType:  "Fixed",
+						InitialDelay: &metav1.Duration{Duration: time.Millisecond},
+					},
+				}
+				integCache := map[string]*automationv1alpha1.Integration{"default/plugin-integ": integration}
+				ctx := context.WithValue(context.Background(), integrationCacheKey, integCache)
+
+				result, attempts, err := r.executePublishStep(ctx, flowRun, step, &automationv1alpha1.TriggerData{}, nil, nil)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(attempts).To(Equal(2))
+				Expect(result).To(Equal(map[string]string{"messageId": "m-1"}))
+
+				mu.Lock()
+				defer mu.Unlock()
+				Expect(keys).To(HaveLen(2))
+				Expect(keys[0]).To(MatchRegexp(keyPattern.String()))
+				Expect(keys[1]).To(Equal(keys[0]), "every retry attempt of one step must carry the same key")
+				Expect(keys[0]).To(Equal(pluginPublishIdempotencyKey(flowRun.UID, step.Name)))
+			})
 		})
 	})
 
@@ -2052,3 +2270,20 @@ var _ = Describe("FlowRunReconciler", func() {
 		})
 	})
 })
+
+// testPublishIdempotencyKey is a well-formed idempotencyKey for doPluginPublish
+// tests that aren't about the key itself.
+var testPublishIdempotencyKey = pluginPublishIdempotencyKey("test-flowrun-uid", "test-step")
+
+// rewriteHostTransport sends every request to host over plain HTTP, so code
+// that builds in-cluster Service URLs can be exercised against httptest.
+type rewriteHostTransport struct {
+	host string
+}
+
+func (t rewriteHostTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	clone := req.Clone(req.Context())
+	clone.URL.Scheme = "http"
+	clone.URL.Host = t.host
+	return http.DefaultTransport.RoundTrip(clone)
+}

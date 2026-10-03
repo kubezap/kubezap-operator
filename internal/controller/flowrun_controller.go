@@ -26,6 +26,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -1184,6 +1185,13 @@ func (r *FlowRunReconciler) executePublishStep(
 	// Wrap ctx with a 30s timeout unless ctx already has a shorter deadline.
 	const publishTimeout = 30 * time.Second
 
+	// Computed once per step execution, outside the retry loop, from persisted
+	// identity only (FlowRun UID + step name) — never from body/headers/
+	// destination or any secret-resolved value — so every attempt, and any
+	// re-execution after controller restart/failover, carries the same key.
+	// See docs/design/plugin-publish-idempotency-and-trace.md.
+	idempotencyKey := pluginPublishIdempotencyKey(flowRun.UID, step.Name)
+
 	var lastErr error
 	for attempt := 0; attempt < maxAttempts; attempt++ {
 		if attempt > 0 {
@@ -1194,7 +1202,7 @@ func (r *FlowRunReconciler) executePublishStep(
 			}
 		}
 
-		result, attemptErr := r.doPluginPublish(ctx, pluginURL, integration.Name, flowRun.Namespace, destination, body, headers, publishTimeout)
+		result, attemptErr := r.doPluginPublish(ctx, pluginURL, integration.Name, flowRun.Namespace, destination, body, headers, idempotencyKey, publishTimeout)
 		if attemptErr == nil {
 			return result, attempt + 1, nil
 		}
@@ -1203,14 +1211,32 @@ func (r *FlowRunReconciler) executePublishStep(
 	return nil, maxAttempts, lastErr
 }
 
+// pluginPublishIdempotencyKeyPrefix versions the idempotency-key derivation.
+// Bump it (e.g. to "kz2-") if the inputs ever change, such as adding a loop
+// iteration index once steps can repeat within one FlowRun.
+const pluginPublishIdempotencyKeyPrefix = "kz1-"
+
+// pluginPublishIdempotencyKey derives the idempotencyKey sent on a plugin
+// /publish call: "kz1-" + hex(sha256(uid + "\x00" + stepName)). The result
+// always matches ^kz1-[0-9a-f]{64}$ (68 chars) regardless of step name length
+// or content, so it fits the strictest broker caller-supplied-ID rules (SNS/SQS
+// FIFO MessageDeduplicationId, Service Bus MessageId, NATS Nats-Msg-Id). The
+// NUL separator keeps (uid, stepName) pairs unambiguous.
+func pluginPublishIdempotencyKey(uid types.UID, stepName string) string {
+	sum := sha256.Sum256([]byte(string(uid) + "\x00" + stepName))
+	return pluginPublishIdempotencyKeyPrefix + hex.EncodeToString(sum[:])
+}
+
 // pluginPublishEnvelope is the JSON envelope POSTed to a plugin's /publish
-// endpoint, per the Publisher contract in docs/api/integration.md.
+// endpoint, per the Publisher contract in docs/api/integration.md and
+// docs/api/plugin-contract.md.
 type pluginPublishEnvelope struct {
-	Integration string            `json:"integration"`
-	Namespace   string            `json:"namespace"`
-	Destination string            `json:"destination"`
-	Headers     map[string]string `json:"headers,omitempty"`
-	Body        string            `json:"body"`
+	Integration    string            `json:"integration"`
+	Namespace      string            `json:"namespace"`
+	Destination    string            `json:"destination"`
+	Headers        map[string]string `json:"headers,omitempty"`
+	Body           string            `json:"body"`
+	IdempotencyKey string            `json:"idempotencyKey,omitempty"`
 }
 
 // pluginPublishSuccess is the documented success response body. messageId is
@@ -1230,6 +1256,12 @@ type pluginPublishFailure struct {
 // cancellation is scoped to this attempt rather than leaking across retry
 // iterations.
 //
+// idempotencyKey is sent verbatim in the envelope; callers compute it once per
+// step execution (see pluginPublishIdempotencyKey) so it is stable across
+// retries. W3C trace context from ctx is injected as HTTP request headers on
+// the /publish call (never into the envelope's headers map, which is broker
+// message data); with no trace context on ctx, no traceparent is sent.
+//
 // When r.PluginMTLSStore has a bundle registered for this Integration (i.e.
 // spec.plugin.mtls.enabled=true), resolvedURL's scheme is rewritten from
 // http:// to https:// (the same strings.ReplaceAll idiom cmd/main.go uses to
@@ -1246,6 +1278,7 @@ func (r *FlowRunReconciler) doPluginPublish(
 	ctx context.Context,
 	resolvedURL, integrationName, namespace, destination, body string,
 	headers map[string]string,
+	idempotencyKey string,
 	timeout time.Duration,
 ) (map[string]string, error) {
 	publishCtx := ctx
@@ -1256,11 +1289,12 @@ func (r *FlowRunReconciler) doPluginPublish(
 	}
 
 	envelope := pluginPublishEnvelope{
-		Integration: integrationName,
-		Namespace:   namespace,
-		Destination: destination,
-		Headers:     headers,
-		Body:        body,
+		Integration:    integrationName,
+		Namespace:      namespace,
+		Destination:    destination,
+		Headers:        headers,
+		Body:           body,
+		IdempotencyKey: idempotencyKey,
 	}
 	envelopeBytes, err := json.Marshal(envelope)
 	if err != nil {
@@ -1289,6 +1323,10 @@ func (r *FlowRunReconciler) doPluginPublish(
 		return nil, fmt.Errorf("building publish request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
+	// Propagate W3C trace context to the plugin, mirroring callExecutor, so the
+	// plugin's publish span (and the broker message it forwards traceparent
+	// onto) joins this step's trace. A no-op when ctx carries no span context.
+	otel.GetTextMapPropagator().Inject(publishCtx, propagation.HeaderCarrier(req.Header))
 
 	resp, err := httpClient.Do(req)
 	if err != nil {

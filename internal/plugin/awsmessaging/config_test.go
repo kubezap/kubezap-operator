@@ -59,6 +59,17 @@ func TestLoadConfig_MTLSHealthPort(t *testing.T) {
 	if !c.MTLSEnabled || c.HealthPort != 8091 || c.PublisherPort != 8090 {
 		t.Errorf("unexpected config: %+v", c)
 	}
+	if c.MTLSCertFile != DefaultMTLSCertFile || c.MTLSKeyFile != DefaultMTLSKeyFile || c.MTLSCAFile != DefaultMTLSCAFile {
+		t.Errorf("mTLS file defaults not applied: %+v", c)
+	}
+	e[EnvMTLSCertFile], e[EnvMTLSKeyFile], e[EnvMTLSCAFile] = "/c", "/k", "/ca"
+	if c, err := LoadConfig(envMap(e)); err != nil || c.MTLSCertFile != "/c" || c.MTLSKeyFile != "/k" || c.MTLSCAFile != "/ca" {
+		t.Errorf("mTLS file overrides: %+v %v", c, err)
+	}
+	e[EnvMTLSHealthPort] = "8090"
+	if _, err := LoadConfig(envMap(e)); err == nil {
+		t.Error("expected error when health port equals publisher port")
+	}
 	delete(e, EnvMTLSHealthPort)
 	if _, err := LoadConfig(envMap(e)); err == nil {
 		t.Error("expected error when mTLS enabled without health port")

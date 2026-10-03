@@ -7,6 +7,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
+	"github.com/aws/aws-sdk-go-v2/service/sns"
 	"github.com/aws/aws-sdk-go-v2/service/sqs"
 )
 
@@ -20,9 +21,18 @@ type SQSAPI interface {
 
 var _ SQSAPI = (*sqs.Client)(nil)
 
+// SNSAPI is the subset of the SNS client the publisher uses (Publish only, so
+// the credentials need nothing beyond sns:Publish). *sns.Client satisfies it;
+// unit tests substitute a fake.
+type SNSAPI interface {
+	Publish(ctx context.Context, in *sns.PublishInput, optFns ...func(*sns.Options)) (*sns.PublishOutput, error)
+}
+
+var _ SNSAPI = (*sns.Client)(nil)
+
 // NewAWSConfig builds the shared aws.Config (static credentials from the
 // environment-injected Secret values, region, optional endpoint override).
-// It is shared by the SQS subscriber and, in STORY-073, the SNS publisher.
+// It is shared by the SQS subscriber and the SNS publisher.
 // IRSA / workload identity is out of scope for the pilot.
 func NewAWSConfig(ctx context.Context, c Config) (aws.Config, error) {
 	cfg, err := awsconfig.LoadDefaultConfig(ctx,
@@ -43,6 +53,19 @@ func NewSQSClient(ctx context.Context, c Config) (*sqs.Client, error) {
 		return nil, err
 	}
 	return sqs.NewFromConfig(cfg, func(o *sqs.Options) {
+		if c.EndpointURL != "" {
+			o.BaseEndpoint = aws.String(c.EndpointURL)
+		}
+	}), nil
+}
+
+// NewSNSClient returns an SNS client honoring Config.EndpointURL (LocalStack).
+func NewSNSClient(ctx context.Context, c Config) (*sns.Client, error) {
+	cfg, err := NewAWSConfig(ctx, c)
+	if err != nil {
+		return nil, err
+	}
+	return sns.NewFromConfig(cfg, func(o *sns.Options) {
 		if c.EndpointURL != "" {
 			o.BaseEndpoint = aws.String(c.EndpointURL)
 		}

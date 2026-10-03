@@ -13,7 +13,8 @@ import (
 // Health tracks readiness for GET /healthz. The plugin is ready when the
 // initial Trigger sync has completed and every active subscription has an
 // established SQS session (a successful GetQueueAttributes/ReceiveMessage
-// against its queue). A plugin with no active subscriptions is idle and
+// against its queue) and, when the publisher role is active, the SNS client is
+// valid. A plugin with no active subscriptions is idle and
 // reports ready, since there is no session that could be failing; otherwise
 // the Integration's Deployment could never become Ready before its first
 // Trigger exists.
@@ -21,6 +22,9 @@ type Health struct {
 	mu       sync.Mutex
 	started  bool
 	sessions map[types.NamespacedName]sessionState
+	// publisherCheck, when set, reports whether the publisher role (the SNS
+	// client) is usable. nil means the publisher role is not active.
+	publisherCheck func() error
 }
 
 type sessionState struct {
@@ -47,6 +51,14 @@ func (h *Health) SetSession(key types.NamespacedName, ok bool, msg string) {
 	h.mu.Unlock()
 }
 
+// SetPublisherCheck registers the publisher-readiness probe consulted by
+// Check. Call it before serving /healthz.
+func (h *Health) SetPublisherCheck(f func() error) {
+	h.mu.Lock()
+	h.publisherCheck = f
+	h.mu.Unlock()
+}
+
 // Forget drops a Trigger's session state (subscription removed).
 func (h *Health) Forget(key types.NamespacedName) {
 	h.mu.Lock()
@@ -70,6 +82,11 @@ func (h *Health) Check() error {
 	if len(bad) > 0 {
 		sort.Strings(bad)
 		return fmt.Errorf("no SQS session for: %s", strings.Join(bad, "; "))
+	}
+	if h.publisherCheck != nil {
+		if err := h.publisherCheck(); err != nil {
+			return fmt.Errorf("SNS publisher unavailable: %w", err)
+		}
 	}
 	return nil
 }

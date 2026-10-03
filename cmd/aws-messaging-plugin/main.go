@@ -1,13 +1,13 @@
 // Command aws-messaging-plugin is the KubeZap AWS messaging plugin
-// (Integration{type: plugin}). This binary currently implements the SQS
-// subscriber role; the SNS publisher role is added in STORY-073.
+// (Integration{type: plugin}). It implements both plugin-contract roles: an
+// SQS subscriber (Trigger -> FlowRun) and an SNS publisher (POST /publish),
+// with optional controller-side mTLS on the publisher port.
 package main
 
 import (
 	"context"
 	"errors"
 	"fmt"
-	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
@@ -82,18 +82,19 @@ func run() error {
 		return err
 	}
 
-	health := awsmessaging.NewHealth()
-	healthSrv := &http.Server{
-		Addr:              fmt.Sprintf(":%d", cfg.HealthPort),
-		Handler:           health.Mux(),
-		ReadHeaderTimeout: 5 * time.Second,
+	snsClient, err := awsmessaging.NewSNSClient(ctx, cfg)
+	if err != nil {
+		return err
 	}
-	go func() {
-		log.Info("starting health HTTP server", "port", cfg.HealthPort)
-		if err := healthSrv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			log.Error(err, "health HTTP server failed")
-		}
-	}()
+	publisher := awsmessaging.NewPublisher(snsClient, cfg.Namespace, cfg.IntegrationName, log.WithName("publisher"))
+
+	health := awsmessaging.NewHealth()
+	health.SetPublisherCheck(publisher.Ready)
+	servers, err := awsmessaging.NewServers(cfg, publisher, health)
+	if err != nil {
+		return fmt.Errorf("building HTTP servers: %w", err)
+	}
+	serverErrs := servers.Start(log)
 
 	sub := awsmessaging.NewSubscriber(k8s, sqsClient, health, cfg.Namespace, cfg.IntegrationName,
 		awsmessaging.Options{}, log.WithName("subscriber"))
@@ -117,15 +118,21 @@ func run() error {
 	log.Info("aws messaging plugin started", "namespace", cfg.Namespace,
 		"integration", cfg.IntegrationName, "region", cfg.Region)
 
-	<-ctx.Done()
+	var serveErr error
+	select {
+	case <-ctx.Done():
+	case serveErr = <-serverErrs:
+		log.Error(serveErr, "HTTP server failed; shutting down")
+	}
 	log.Info("shutting down")
 	sub.Stop()
 
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	// Drain in-flight publishes (bounded below the pod's termination grace).
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	if err := healthSrv.Shutdown(shutdownCtx); err != nil {
-		log.Error(err, "failed to shut down health server gracefully")
+	if err := servers.Shutdown(shutdownCtx); err != nil {
+		log.Error(err, "failed to shut down HTTP servers gracefully")
 	}
 	log.Info("aws messaging plugin stopped")
-	return nil
+	return serveErr
 }

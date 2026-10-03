@@ -1,6 +1,6 @@
 // Package awsmessaging implements the KubeZap AWS messaging plugin: an
 // Integration{type: plugin} workload that acts as an SQS subscriber (creating
-// one FlowRun per message) and, in a later story, an SNS publisher. See
+// one FlowRun per message) and an SNS publisher. See
 // docs/design/aws-sqs-sns-messaging-plugin.md and docs/api/plugin-contract.md.
 //
 // The AWS SDK for Go v2 is imported only by this package and
@@ -26,12 +26,22 @@ const (
 	EnvLogLevel        = "KUBEZAP_LOG_LEVEL"
 	EnvMTLSEnabled     = "KUBEZAP_MTLS_ENABLED"
 	EnvMTLSHealthPort  = "KUBEZAP_MTLS_HEALTH_PORT"
+	EnvMTLSCertFile    = "KUBEZAP_MTLS_CERT_FILE"
+	EnvMTLSKeyFile     = "KUBEZAP_MTLS_KEY_FILE"
+	EnvMTLSCAFile      = "KUBEZAP_MTLS_CA_FILE"
 
 	EnvAWSAccessKeyID     = "AWS_ACCESS_KEY_ID"
 	EnvAWSSecretAccessKey = "AWS_SECRET_ACCESS_KEY"
 	EnvAWSSessionToken    = "AWS_SESSION_TOKEN"
 	EnvAWSRegion          = "AWS_REGION"
 	EnvAWSEndpointURL     = "AWS_ENDPOINT_URL"
+
+	// Documented mount paths of the operator-injected mTLS Secret
+	// (docs/api/plugin-contract.md#controller-side-mtls), used when the
+	// KUBEZAP_MTLS_*_FILE vars are unset.
+	DefaultMTLSCertFile = "/etc/kubezap/mtls/tls.crt"
+	DefaultMTLSKeyFile  = "/etc/kubezap/mtls/tls.key"
+	DefaultMTLSCAFile   = "/etc/kubezap/mtls/ca.crt"
 
 	// DefaultPublisherPort is the contract default for KUBEZAP_PUBLISHER_PORT.
 	DefaultPublisherPort = 8090
@@ -48,13 +58,18 @@ type Config struct {
 	IntegrationName string
 	LogLevel        string
 
-	// PublisherPort is KUBEZAP_PUBLISHER_PORT (used by the publisher role in
-	// STORY-073; /healthz is served on it too unless mTLS is enabled).
+	// PublisherPort is KUBEZAP_PUBLISHER_PORT (POST /publish is served on it; so is
+	// /healthz unless mTLS is enabled).
 	PublisherPort int
 	// HealthPort is the port /healthz is served on: PublisherPort normally,
 	// KUBEZAP_MTLS_HEALTH_PORT when mTLS is enabled (plugin-contract.md).
 	HealthPort  int
 	MTLSEnabled bool
+	// MTLSCertFile / MTLSKeyFile / MTLSCAFile locate the server cert, key and
+	// the CA used to verify the controller's client cert (mTLS only).
+	MTLSCertFile string
+	MTLSKeyFile  string
+	MTLSCAFile   string
 
 	Region      string
 	EndpointURL string
@@ -115,10 +130,16 @@ func LoadConfig(getenv func(string) string) (Config, error) {
 	c.HealthPort = c.PublisherPort
 	if strings.EqualFold(strings.TrimSpace(getenv(EnvMTLSEnabled)), "true") {
 		c.MTLSEnabled = true
+		c.MTLSCertFile = envOr(getenv, EnvMTLSCertFile, DefaultMTLSCertFile)
+		c.MTLSKeyFile = envOr(getenv, EnvMTLSKeyFile, DefaultMTLSKeyFile)
+		c.MTLSCAFile = envOr(getenv, EnvMTLSCAFile, DefaultMTLSCAFile)
 		p, err := parsePort(strings.TrimSpace(getenv(EnvMTLSHealthPort)))
-		if err != nil {
+		switch {
+		case err != nil:
 			errs = append(errs, fmt.Errorf("%s: %w", EnvMTLSHealthPort, err))
-		} else {
+		case p == c.PublisherPort:
+			errs = append(errs, fmt.Errorf("%s must differ from %s (%d): the health port is plain HTTP", EnvMTLSHealthPort, EnvPublisherPort, p))
+		default:
 			c.HealthPort = p
 		}
 	}
@@ -127,6 +148,13 @@ func LoadConfig(getenv func(string) string) (Config, error) {
 		return Config{}, err
 	}
 	return c, nil
+}
+
+func envOr(getenv func(string) string, key, def string) string {
+	if v := strings.TrimSpace(getenv(key)); v != "" {
+		return v
+	}
+	return def
 }
 
 func parsePort(v string) (int, error) {

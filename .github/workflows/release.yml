@@ -54,6 +54,8 @@ jobs:
             dockerfile: cmd/nats-gateway/Dockerfile
           - name: http-executor
             dockerfile: cmd/http-executor/Dockerfile
+          - name: aws-messaging-plugin
+            dockerfile: cmd/aws-messaging-plugin/Dockerfile
     steps:
       - uses: actions/checkout@v7
 

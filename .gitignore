@@ -41,4 +41,5 @@ CLAUDE.md
 /webhook-gateway
 /amqp-gateway
 /nats-gateway
+/aws-messaging-plugin
 /kubezap

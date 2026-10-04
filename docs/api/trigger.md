@@ -17,6 +17,7 @@ A `Trigger` defines an event source that starts a `Flow`. It listens for an even
   - [AmqpTrigger](#amqptrigger)
     - [AmqpExchangeSpec](#amqpexchangespec)
   - [NatsTrigger](#natstrigger)
+  - [PluginTrigger](#plugintrigger)
   - [FlowReference](#flowreference)
   - [CooldownPolicy](#cooldownpolicy)
   - [ResourceTrigger](#resourcetrigger)
@@ -28,6 +29,7 @@ A `Trigger` defines an event source that starts a `Flow`. It listens for an even
   - [Webhook](#webhook)
   - [Cron](#cron)
   - [Kafka, AMQP, NATS (Broker Triggers)](#kafka-amqp-nats-broker-triggers)
+  - [Plugin](#plugin)
   - [Kubernetes Resource Events](#kubernetes-resource-events)
 - [Exposing Webhook Triggers](#exposing-webhook-triggers)
   - [Kubernetes Ingress](#kubernetes-ingress)
@@ -227,6 +229,8 @@ Configures authentication for a webhook trigger endpoint. If omitted, the endpoi
 | ---------------- | -------------------- | -------- | ------- | ------------------------------------------------------------------------------------------------------------ |
 | `integrationRef` | LocalObjectReference | **Yes**  | —       | Reference to an `Integration` in the same namespace with `spec.type: plugin`                                 |
 | `config`         | map[string]string    | No       | —       | Opaque, plugin-defined settings (e.g. a queue URL). The operator never interprets, validates, or defaults it. |
+
+The keys `config` accepts are defined by the plugin, not by KubeZap. For a complete worked example — the first-party AWS SQS/SNS plugin, which reads `config.queueUrl` — including the matching `Integration`, Flow, IAM policy, and semantics, see [AWS SQS/SNS Messaging Plugin](../plugins/aws-sqs-sns/README.md#5-trigger-sqs-subscriber).
 
 ### FlowReference
 
@@ -428,6 +432,8 @@ The Kafka record key is never part of the FlowRun dedup-key naming scheme (`<tri
 ### Plugin
 
 A `type: plugin` Trigger is served by the subscriber-role plugin behind the referenced `Integration` (`spec.type: plugin`); see [Plugin Contract](plugin-contract.md) for the subscriber role. The plugin pod watches Trigger CRDs and owns the entire subscription lifecycle and FlowRun creation. The operator only validates that `spec.plugin.integrationRef` resolves to an existing `type: plugin` Integration (see the `PluginIntegrationInvalid` condition above); it creates no gateway, informer, or per-Trigger state. `spec.plugin.config` is passed through untouched for the plugin to interpret. This is generic: any subscriber-role plugin can use it without a CRD change.
+
+Because the operator only checks the Integration reference, `Ready=True` on a plugin Trigger does not mean the plugin can reach its external system — check the plugin pod's readiness and logs for that. Worked example: [AWS SQS/SNS Messaging Plugin](../plugins/aws-sqs-sns/README.md) (an SQS queue subscriber, `config.queueUrl`).
 
 ### Kubernetes Resource Events
 

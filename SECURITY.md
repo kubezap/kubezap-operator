@@ -30,7 +30,7 @@ Please include:
 
 ### Scope
 
-In scope: the operator (`cmd/main.go`), gateways (webhook/kafka/amqp/nats), the HTTP executor, the `kubezap` CLI, and the Helm chart / OLM bundle as shipped in this repository.
+In scope: the operator (`cmd/main.go`), gateways (webhook/kafka/amqp/nats), the HTTP executor, the first-party AWS messaging plugin (`cmd/aws-messaging-plugin`), the `kubezap` CLI, and the Helm chart / OLM bundle as shipped in this repository.
 
 Out of scope: vulnerabilities in third-party dependencies (report those upstream — see below for how we track and pick up upstream fixes ourselves), and issues that require an attacker to already have cluster-admin or equivalent privileges within the target cluster.
 
@@ -40,7 +40,7 @@ Automated tooling watches for known vulnerabilities in this project's own depend
 
 - **Dependabot** (`.github/dependabot.yml`) opens a weekly PR for any outdated Go module, GitHub Action, or Docker base image, including ones with a known CVE.
 - **`govulncheck`** runs on every push to `main` and every PR (`.github/workflows/ci.yml`), scanning for known vulnerabilities in the Go module dependency graph that are actually reachable from KubeZap's own code (not just present in `go.sum`).
-- **Trivy** (`aquasecurity/trivy-action`, in the `docker-build` job of `.github/workflows/ci.yml`) scans each of the 6 built container images (`controller`, `webhook-gateway`, `kafka-gateway`, `amqp-gateway`, `nats-gateway`, `http-executor`) for known OS-package CVEs on every push to `main` and every PR — catching vulnerabilities introduced into a base image between Dependabot bumps, not just outdated declared dependencies. The job fails on any `CRITICAL`/`HIGH` finding; findings print directly to that step's job log (table format) rather than the GitHub Security tab — this repository is private and doesn't carry a GitHub Advanced Security license, so Code Scanning alerts aren't available here (see note below).
+- **Trivy** (`aquasecurity/trivy-action`, in the `docker-build` job of `.github/workflows/ci.yml`) scans each of the 7 built container images (`controller`, `webhook-gateway`, `kafka-gateway`, `amqp-gateway`, `nats-gateway`, `http-executor`, `aws-messaging-plugin`) for known OS-package CVEs on every push to `main` and every PR — catching vulnerabilities introduced into a base image between Dependabot bumps, not just outdated declared dependencies. The job fails on any `CRITICAL`/`HIGH` finding; findings print directly to that step's job log (table format) rather than the GitHub Security tab — this repository is private and doesn't carry a GitHub Advanced Security license, so Code Scanning alerts aren't available here (see note below).
 
 **Triage process**: a Dependabot security PR, a `govulncheck` CI failure, or a Trivy CRITICAL/HIGH image finding is triaged by a maintainer within 5 business days of appearing. Patch-level bumps with passing CI are merged directly; anything requiring a code change (an API break in the updated dependency, a `govulncheck` finding whose fix isn't a simple version bump, or a Trivy finding requiring a base-image change) is scheduled based on severity, with critical/high findings prioritized ahead of routine work.
 
@@ -48,7 +48,7 @@ Automated tooling watches for known vulnerabilities in this project's own depend
 
 ## Container Image Signing
 
-All 6 container images published to GHCR (`controller`, `webhook-gateway`, `kafka-gateway`, `amqp-gateway`, `nats-gateway`, `http-executor`) are signed with [cosign](https://docs.sigstore.dev/) using **keyless signing**: the signature is tied to the GitHub Actions OIDC identity of the `.github/workflows/release.yml` workflow run that built and pushed the image, backed by Sigstore's public-good Fulcio (certificate authority) and Rekor (transparency log) instances. There is no long-lived private signing key — every image published by a release (both `-rc.N` release candidates and final tags) is signed this way as a hard gate of the release job; a signing failure fails the job and blocks the release.
+All 7 container images published to GHCR (`controller`, `webhook-gateway`, `kafka-gateway`, `amqp-gateway`, `nats-gateway`, `http-executor`, `aws-messaging-plugin`) are signed with [cosign](https://docs.sigstore.dev/) using **keyless signing**: the signature is tied to the GitHub Actions OIDC identity of the `.github/workflows/release.yml` workflow run that built and pushed the image, backed by Sigstore's public-good Fulcio (certificate authority) and Rekor (transparency log) instances. There is no long-lived private signing key — every image published by a release (both `-rc.N` release candidates and final tags) is signed this way as a hard gate of the release job; a signing failure fails the job and blocks the release.
 
 Each image is signed by digest, not by tag, so the signature is bound to the exact content that was pushed.
 
@@ -61,6 +61,6 @@ cosign verify \
   ghcr.io/kubezap/<image>@<digest>
 ```
 
-Replace `<image>` with one of the six image names above and `<digest>` with the `sha256:...` digest of the image you intend to run (e.g. from `docker inspect` or your image puller's manifest resolution — verifying a mutable tag instead of a digest does not guarantee you're checking the artifact you'll actually run). A successful verification prints the signing certificate's identity (the release workflow run) and confirms the signature is logged in Rekor's public transparency log.
+Replace `<image>` with one of the seven image names above and `<digest>` with the `sha256:...` digest of the image you intend to run (e.g. from `docker inspect` or your image puller's manifest resolution — verifying a mutable tag instead of a digest does not guarantee you're checking the artifact you'll actually run). A successful verification prints the signing certificate's identity (the release workflow run) and confirms the signature is logged in Rekor's public transparency log.
 
 Note: SLSA provenance attestation is not yet produced for these images — verification today confirms *who built and signed the image* (this repository's release workflow), not a full build provenance chain.

@@ -7,6 +7,14 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [Unreleased]
+
+### Added
+
+- **AWS SQS/SNS messaging plugin (pilot)** — new first-party `Integration{type: plugin}` image `ghcr.io/kubezap/aws-messaging-plugin` (`cmd/aws-messaging-plugin`, `internal/plugin/awsmessaging`), the seventh published container image (cosign-signed and Trivy-scanned like the others). It serves both plugin roles: an SQS subscriber that creates one FlowRun per message (`<trigger>-msg-<MessageId>` dedup key; message deleted only after the FlowRun create succeeds or returns 409) and an SNS publisher for `type: publish` steps (full topic ARN required; FIFO topics supported). Static access-key credentials via `spec.plugin.secretRefs`; optional controller-side mTLS. Setup, semantics and limitations: `docs/plugins/aws-sqs-sns/README.md`. See `docs/design/aws-sqs-sns-messaging-plugin.md`.
+- `type: plugin` Triggers: new `plugin` value for `spec.type` and a generic `spec.plugin` (`integrationRef` + opaque `config` map), served entirely by the subscriber-role plugin behind a `type: plugin` Integration. The controller only validates the Integration reference and reports it in the new `PluginIntegrationInvalid` condition.
+- Plugin `POST /publish` calls now carry an `idempotencyKey` (`kz1-` + SHA-256 of FlowRun UID and step name, stable across retries and controller failover) and W3C trace context (`traceparent`/`tracestate` HTTP headers) — letting plugins deduplicate retried publishes (e.g. SNS FIFO `MessageDeduplicationId`) and continue the publish step's trace. See `docs/design/plugin-publish-idempotency-and-trace.md` and `docs/api/plugin-contract.md`.
+
 ## [v0.2.1] - 2026-09-20
 
 ### Fixed

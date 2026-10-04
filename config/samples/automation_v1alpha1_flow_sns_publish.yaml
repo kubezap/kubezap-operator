@@ -1,0 +1,31 @@
+# Flow publishing to an SNS topic through the aws-messaging plugin.
+# topic must be the full SNS topic ARN (topic names are not resolved). For a
+# FIFO topic use its .fifo ARN; the plugin sets MessageGroupId and maps the
+# controller's idempotencyKey to MessageDeduplicationId.
+# See docs/plugins/aws-sqs-sns/README.md.
+apiVersion: automation.kubezap.io/v1alpha1
+kind: Flow
+metadata:
+  labels:
+    app.kubernetes.io/name: kubezap
+    app.kubernetes.io/managed-by: kustomize
+  name: process-sqs-order
+  namespace: default
+spec:
+  steps:
+    - name: publish-order-event
+      action:
+        type: publish
+        publish:
+          integrationRef:
+            name: aws-messaging
+          topic: arn:aws:sns:us-east-1:123456789012:order-events
+          headers:
+            event-type: order.received
+            order-id: "$(trigger.body.orderId)"
+          body: |
+            {"orderId": "$(trigger.body.orderId)", "status": "received"}
+      retryPolicy:
+        maxRetries: 3
+        backoffType: Exponential
+        initialDelay: "2s"

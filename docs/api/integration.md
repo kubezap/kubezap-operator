@@ -64,6 +64,7 @@ An `Integration` stores the connection details and credentials for an external s
 - [Community Plugin Graduation](#community-plugin-graduation)
   - [Graduation criteria](#graduation-criteria)
   - [What graduation changes](#what-graduation-changes)
+  - [Worked example: AWS SQS/SNS plugin](#worked-example-aws-sqssns-plugin)
   - [Plugin catalog](#plugin-catalog)
 - [kubectl Reference](#kubectl-reference)
 - [Limitations](#limitations)
@@ -239,6 +240,8 @@ When a Flow step sets `http.integrationRef`, the controller:
 
 For external systems not supported natively, `type: plugin` runs a community or custom container image that implements the [plugin protocol](#plugin-protocol-specification). The KubeZap controller manages the plugin container's lifecycle — you provide the image.
 
+For a complete, working plugin covering both roles — Integration, `type: plugin` Trigger, and a Flow `type: publish` step — see the first-party [AWS SQS/SNS messaging plugin](../plugins/aws-sqs-sns/README.md).
+
 ### How it works
 
 ```
@@ -263,7 +266,9 @@ The operator:
 1. Creates a Deployment for the plugin pod using the image you specify
 2. Mounts any referenced Secrets as environment variables or volume mounts
 3. Grants the plugin's ServiceAccount RBAC permission to watch Trigger CRDs and create FlowRun CRDs in its namespace
-4. Routes publisher calls from the controller to the plugin pod's HTTP endpoint
+4. Routes publisher calls from the controller to the plugin pod's HTTP endpoint, at `http://kubezap-plugin-<name>.<namespace>.svc.cluster.local:<publisherPort>/publish` (`https://` when `spec.plugin.mtls.enabled`)
+
+> **Known gap:** the operator does not currently create the `kubezap-plugin-<name>` Service that this address resolves to — it creates only the Deployment (pods labelled `app: kubezap-plugin-<name>`), ServiceAccount, Role, and RoleBinding. Until it does, create that Service yourself (selector `app: kubezap-plugin-<name>`, port = `publisherPort`) or every `type: publish` step against the Integration fails with a DNS error. Subscriber-only plugins are unaffected. See the [AWS plugin guide's step 4](../plugins/aws-sqs-sns/README.md#4-publisher-service-required-for-publish-steps) for a ready-to-use manifest.
 
 ---
 
@@ -276,8 +281,8 @@ A plugin image must implement both the subscriber and publisher contracts. You m
 The plugin container must:
 
 1. Connect to the Kubernetes API (in-cluster `ServiceAccount` is provided)
-2. Watch `Trigger` resources in its namespace for triggers whose `spec.type` matches this Integration type and that reference this Integration
-3. Subscribe to the external system based on the Trigger spec
+2. Watch `Trigger` resources in its namespace with `spec.type: plugin`, `spec.plugin.integrationRef.name` equal to this Integration's name, and `spec.enabled: true` (see [Plugin Contract — Trigger selection](plugin-contract.md#trigger-selection))
+3. Subscribe to the external system based on the Trigger spec (plugin-specific settings arrive in the opaque `spec.plugin.config` map)
 4. For each received event, create a `FlowRun` in the same namespace:
 
 ```go
@@ -1054,9 +1059,15 @@ When a plugin graduates:
 - A first-party `kubezap/<protocol>-gateway` image is built and published
 - `type: plugin` with the community image continues to work indefinitely — existing Integration CRs do not need to migrate
 
+### Worked example: AWS SQS/SNS plugin
+
+The [AWS SQS/SNS messaging plugin](../plugins/aws-sqs-sns/README.md) (`ghcr.io/kubezap/aws-messaging-plugin`, source in `cmd/aws-messaging-plugin/` and `internal/plugin/awsmessaging/`) is a real, working `type: plugin` integration that implements the full [plugin contract](./plugin-contract.md) — SQS subscriber (`Trigger{type: plugin}` → FlowRun, deterministic dedup key, delete-after-create), SNS publisher (`POST /publish` with `idempotencyKey` → FIFO dedup), session-aware `/healthz`, controller-side mTLS with cert hot-reload, and W3C trace propagation in both directions. Its guide includes a [contract-compliance table](../plugins/aws-sqs-sns/README.md#contract-compliance-worked-example) mapping each contract requirement to the code that satisfies it; use it as the template when evaluating a community plugin against criterion 3 above.
+
+It is first-party-maintained and is not itself a graduation candidate: SQS/SNS is a vendor-proprietary API rather than an open wire protocol (criterion 1), so it stays `type: plugin` — which is exactly the path this section describes for brokers without a protocol-level built-in type.
+
 ### Plugin catalog
 
-The community plugin catalog lives at `docs/plugins/` (forthcoming). Each catalog entry declares the supported broker, required secrets schema, supported trigger types, and maturity level (`community` / `verified` / `core`). See that directory for contribution guidelines.
+Plugin documentation lives under [`docs/plugins/`](../plugins/aws-sqs-sns/README.md), one directory per plugin. The first entry is the first-party [AWS SQS/SNS plugin](../plugins/aws-sqs-sns/README.md) (maturity: pilot). Each entry documents the supported broker, required secrets schema, supported roles/trigger configuration, and maturity level (`community` / `verified` / `core`). A broader community catalog with contribution guidelines is planned.
 
 ---
 
@@ -1075,6 +1086,7 @@ The community plugin catalog lives at `docs/plugins/` (forthcoming). Each catalo
 
 - **Namespace-scoped references**: A Trigger and the Integration it references must be in the same namespace. Cross-namespace Integration references are not supported.
 - **Plugin RBAC is namespace-scoped**: Plugin pods are granted Role (not ClusterRole) permissions to watch Triggers and create FlowRuns only in their own namespace. This is intentional for security and OpenShift SCC compliance.
+- **No publisher Service for plugins**: the operator does not create the `kubezap-plugin-<name>` Service the controller's `/publish` calls resolve to; create it yourself (see [How it works](#how-it-works)).
 - **Plugin image trust**: KubeZap does not verify plugin images. Only use plugin images from sources you trust, as they run inside your cluster with Kubernetes API access.
 - **AMQP and NATS gateways**: `type: amqp` and `type: nats` are implemented (beta). Known limitations: the AMQP and NATS gateway watchers currently use a 30-second polling interval to detect Trigger changes (reaction latency up to 30 s); informer-based watch is planned for the next stabilization sprint.
 - **One gateway Deployment per Integration per namespace**: KubeZap does not share a single Kafka gateway pod across multiple Integrations. Each Integration gets its own gateway Deployment in each namespace where it is used.

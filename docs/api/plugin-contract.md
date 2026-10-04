@@ -422,4 +422,20 @@ A community plugin may graduate to a first-party built-in Integration type. See 
 
 ## Reference Implementation
 
-There is no standalone reference plugin today. The Kafka gateway source at `cmd/kafka-gateway/` and `internal/gateway/kafka/` demonstrates the subscriber pattern against the Kubernetes API, and the `internal/controller/flowrun_controller.go` publish path demonstrates the publisher call sequence.
+**AWS SQS/SNS messaging plugin** — `cmd/aws-messaging-plugin/` and `internal/plugin/awsmessaging/` — is the full reference implementation of this contract, covering both roles in one image (`ghcr.io/kubezap/aws-messaging-plugin`):
+
+| Contract area | Where to look |
+| ------------- | ------------- |
+| [Trigger selection](#trigger-selection), [dynamic subscription management](#dynamic-subscription-management) | `internal/plugin/awsmessaging/subscriber.go` (`Selects`, `Reconcile`, `Remove`, `EventHandler`); namespace-scoped Trigger cache in `cmd/aws-messaging-plugin/main.go` |
+| [FlowRun creation](#flowrun-creation), [dedup key](#dedup-key-requirements), [duplicates](#handling-duplicates), [commit ordering](#offsetcursor-commit) | `subscriber.go` (`FlowRunName` → `<trigger>-msg-<MessageId>`, `BuildFlowRun`, `handleMessage`: delete the SQS message only after create/409) |
+| [`POST /publish`](#post-publish), [idempotency](#idempotency) | `internal/plugin/awsmessaging/publisher.go` (envelope decoding, `idempotencyKey` → SNS FIFO `MessageDeduplicationId`, 4xx/5xx classification) |
+| [Health check](#health-check) | `internal/plugin/awsmessaging/health.go` (per-subscription session readiness, idle readiness) |
+| [Controller-side mTLS](#controller-side-mtls) | `internal/plugin/awsmessaging/mtls.go` (`RequireAndVerifyClientCert`, separate plain-HTTP health port, cert/key/CA hot-reload on rotation) |
+| [Environment](#environment) | `internal/plugin/awsmessaging/config.go` (`LoadConfig`) |
+| [Trace context propagation](#trace-context-propagation) | `subscriber.go` (message `traceparent` → FlowRun annotation), `publisher.go` (`traceparent` request header → broker message attribute) |
+
+User-facing setup, semantics, and limitations, plus a requirement-by-requirement compliance table: [`docs/plugins/aws-sqs-sns/README.md`](../plugins/aws-sqs-sns/README.md). Plugin documentation for other plugins should follow the same layout under `docs/plugins/<plugin-name>/`.
+
+The built-in Kafka gateway (`cmd/kafka-gateway/`, `internal/gateway/kafka/`) also demonstrates the subscriber pattern against the Kubernetes API (it is operator-managed rather than a `type: plugin` image), and the `internal/controller/flowrun_controller.go` publish path (`doPluginPublish`) shows the controller side of the publisher call sequence.
+
+> **Operator-side gap:** the controller calls `/publish` at `kubezap-plugin-<integration>.<namespace>.svc.cluster.local:<publisherPort>`, but the operator does not yet create that Service — see [Integration CRD → How it works](integration.md#how-it-works).

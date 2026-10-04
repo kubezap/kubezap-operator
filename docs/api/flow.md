@@ -450,11 +450,12 @@ The controller routes the publish call based on the `Integration` type reference
   POST http://kubezap-plugin-{integration-name}.{namespace}.svc.cluster.local:{port}/publish
   ```
   where `{port}` defaults to `8090` if `spec.plugin.publisherPort` is unset.
-- **Content-Type**: defaults to `application/json`; override by setting `Content-Type` in `headers`.
-- **Body**: the value of `body` after `$(...)` interpolation. If `body` is empty, the request is sent with no body.
-- **Timeout**: 30 seconds, unless the enclosing step or flow timeout context is shorter.
-- **Success**: HTTP 2xx response — the step succeeds with an empty results map.
-- **Failure**: HTTP status >= 400 — the step fails with an error message containing the status code. The response body is not included in the error message.
+- **Request**: always a JSON envelope (`Content-Type: application/json`) carrying `integration`, `namespace`, `destination` (the interpolated `topic`), `headers` (the interpolated `headers` map — forwarded to the broker as message headers/attributes, not sent as HTTP headers), `body` (the interpolated `body`), and an `idempotencyKey` stable across retries of the step. W3C trace context travels as HTTP request headers. See [Plugin Contract — `POST /publish`](plugin-contract.md#post-publish).
+- **Timeout**: 30 seconds per attempt, unless the enclosing step or flow timeout context is shorter.
+- **Success**: any status below 400 — the step succeeds. If the plugin returns `{"messageId": "..."}`, it is exposed as the step result `messageId` (e.g. `$(steps.<step>.results.messageId)`); otherwise the results map is empty.
+- **Failure**: HTTP status >= 400 — the step attempt fails with an error containing the status code and the plugin's `error` message (or the first 1 KiB of a non-JSON response body).
+
+For a complete worked example of a plugin publisher (SNS, including FIFO deduplication via `idempotencyKey`), see [AWS SQS/SNS Messaging Plugin](../plugins/aws-sqs-sns/README.md#6-flow-with-an-sns-publish-step).
 
 **Retry interaction**: publish steps respect `retryPolicy` if configured on the step. Each retry re-executes the full publish call (Kafka produce or HTTP POST).
 

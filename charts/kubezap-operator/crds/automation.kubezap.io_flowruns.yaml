@@ -170,6 +170,7 @@ spec:
                     - amqp
                     - nats
                     - resource
+                    - plugin
                     type: string
                 required:
                 - name

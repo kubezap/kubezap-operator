@@ -43,3 +43,8 @@ updates:
     directory: "/cmd/http-executor"
     schedule:
       interval: "weekly"
+
+  - package-ecosystem: "docker"
+    directory: "/cmd/aws-messaging-plugin"
+    schedule:
+      interval: "weekly"

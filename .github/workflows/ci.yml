@@ -167,6 +167,7 @@ jobs:
           go build -o bin/kafka-gateway   ./cmd/kafka-gateway
           go build -o bin/amqp-gateway    ./cmd/amqp-gateway
           go build -o bin/nats-gateway    ./cmd/nats-gateway
+          go build -o bin/aws-messaging-plugin ./cmd/aws-messaging-plugin
 
       - name: Build http-executor binary
         run: go build -o bin/http-executor ./cmd/http-executor
@@ -296,6 +297,25 @@ jobs:
           severity: 'CRITICAL,HIGH'
           exit-code: '1'
 
+      - name: Build aws-messaging-plugin image
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: cmd/aws-messaging-plugin/Dockerfile
+          push: false
+          load: true
+          tags: kubezap/aws-messaging-plugin:ci
+
+      - name: Scan aws-messaging-plugin image (Trivy)
+        id: trivy-aws-messaging-plugin
+        continue-on-error: true
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: kubezap/aws-messaging-plugin:ci
+          format: table
+          severity: 'CRITICAL,HIGH'
+          exit-code: '1'
+
       - name: Fail job if any image scan found CRITICAL/HIGH findings
         if: always()
         run: |
@@ -306,7 +326,8 @@ jobs:
             "kafka-gateway:${{ steps.trivy-kafka-gateway.outcome }}" \
             "amqp-gateway:${{ steps.trivy-amqp-gateway.outcome }}" \
             "nats-gateway:${{ steps.trivy-nats-gateway.outcome }}" \
-            "http-executor:${{ steps.trivy-http-executor.outcome }}"; do
+            "http-executor:${{ steps.trivy-http-executor.outcome }}" \
+            "aws-messaging-plugin:${{ steps.trivy-aws-messaging-plugin.outcome }}"; do
             name="${outcome%%:*}"
             result="${outcome##*:}"
             if [ "$result" = "failure" ]; then

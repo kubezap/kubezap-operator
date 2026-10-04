@@ -26,7 +26,7 @@ type TriggerReference struct {
 	Name string `json:"name"`
 
 	// Type of the trigger.
-	// +kubebuilder:validation:Enum=webhook;cron;kafka;amqp;nats;resource
+	// +kubebuilder:validation:Enum=webhook;cron;kafka;amqp;nats;resource;plugin
 	Type string `json:"type"`
 }
 

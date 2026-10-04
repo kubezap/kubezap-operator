@@ -116,6 +116,7 @@ FlowRuns are always created by KubeZap components — never directly by users (t
 | `kubezap-nats-gateway`    | `spec.type: nats`                      | `<trigger-name>-<subject>-<sequence>`           |
 | `kubezap-controller`      | `spec.type: cron`                      | `<trigger-name>-<scheduled-time>`               |
 | `kubezap-controller`      | Kubernetes resource events _(alpha)_   | `<trigger-name>-<resource-name>-<event-type>-<timestamp>-<random>` |
+| Subscriber-role plugin (e.g. `aws-messaging-plugin`) | `spec.type: plugin` | Plugin-defined dedup key (AWS plugin: `<trigger-name>-msg-<messageId>`) — see [plugin-contract.md](./plugin-contract.md) |
 
 The Kafka naming convention (`-p0-offset-12345`) is the deduplication key — see [Deduplication](#deduplication).
 
@@ -138,7 +139,7 @@ The Kafka naming convention (`-p0-offset-12345`) is the deduplication key — se
 | Field  | Type   | Description                                                          |
 | ------ | ------ | -------------------------------------------------------------------- |
 | `name` | string | Name of the Trigger that created this FlowRun                        |
-| `type` | string | Trigger type: `webhook`, `cron`, `kafka`, `amqp`, `nats`, `resource` |
+| `type` | string | Trigger type: `webhook`, `cron`, `kafka`, `amqp`, `nats`, `resource`, `plugin` |
 
 ### TriggerData
 

@@ -148,17 +148,33 @@ The plugin must expose an HTTP server on `KUBEZAP_PUBLISHER_PORT` (default: `809
 ```
 POST /publish
 Content-Type: application/json
+traceparent: <W3C traceparent>   (only when the step has an active trace)
+tracestate:  <W3C tracestate>    (only when present)
 ```
 
 ```json
 {
-    "integration": "<integration-name>",
-    "namespace":   "<namespace>",
-    "destination": "<topic, queue, or exchange name>",
-    "headers":     { "<key>": "<value>" },
-    "body":        "<message body string>"
+    "integration":    "<integration-name>",
+    "namespace":      "<namespace>",
+    "destination":    "<topic, queue, or exchange name>",
+    "headers":        { "<key>": "<value>" },
+    "body":           "<message body string>",
+    "idempotencyKey": "kz1-<64 lowercase hex chars>"
 }
 ```
+
+| Field            | Required | Description |
+| ---------------- | -------- | ----------- |
+| `integration`    | yes      | Name of the `Integration` this publish targets. |
+| `namespace`      | yes      | Namespace of the FlowRun / Integration. |
+| `destination`    | yes      | Topic, queue, or exchange name (the step's resolved `topic`). |
+| `headers`        | no       | Message headers/attributes to set on the broker message, exactly as the step defined them. Broker data only — the controller never adds trace context here. |
+| `body`           | yes      | Message body string. |
+| `idempotencyKey` | no       | Opaque, stable per-(FlowRun, step) deduplication key. The current controller always sends it; plugins must still treat it as optional. See [Idempotency](#idempotency). |
+
+**Forward compatibility:** plugins must ignore unknown envelope fields rather than rejecting the request. New optional fields may be added to this envelope without a contract version bump.
+
+**Trace context:** W3C trace context (`traceparent`, and `tracestate` when present) arrives as **HTTP request headers** on the `/publish` call, injected by the controller's OpenTelemetry propagator from the publish step's span — the same mechanism the controller uses for its internal executor RPC. It is never placed in the envelope's `headers` map. When the step has no active trace, no `traceparent` header is sent; plugins must not fabricate one. Plugins that support it should continue the trace (start their publish span as a child) and forward `traceparent` onto the outgoing broker message so downstream subscribers can join the same trace.
 
 **Response on success:**
 
@@ -190,7 +206,26 @@ The controller applies the step's `retryPolicy` on any non-200 response. The plu
 
 ### Idempotency
 
-The controller may retry a publish call if the step is re-executed (e.g., after FlowRun failover). If the external system supports idempotent publishing via a caller-supplied message ID, the plugin should accept an optional `idempotencyKey` field in the request body and forward it to the broker.
+The controller may call `/publish` more than once for the same logical message: the step's `retryPolicy` retries on any non-200 response (including ones where the broker actually accepted the message but the response was lost), and a step can be re-executed after controller restart or leader failover. To let brokers deduplicate these, every `/publish` request carries an `idempotencyKey`.
+
+**Derivation.** The key is computed from persisted identity only:
+
+```
+idempotencyKey = "kz1-" + hex(sha256(<FlowRun metadata.uid> + "\x00" + <step name>))
+```
+
+It never depends on the body, headers, destination, or any secret-resolved value. It always matches `^kz1-[0-9a-f]{64}$` (68 characters) regardless of the step name's length or characters, so it fits the strictest common caller-supplied-ID rules (SNS/SQS FIFO `MessageDeduplicationId`, Azure Service Bus `MessageId`, NATS `Nats-Msg-Id`). Operators debugging a dedup can recompute it from the FlowRun UID and step name.
+
+**Stability guarantees.**
+
+- **Same key** for every retry attempt of a step within a FlowRun, and for re-execution of that step after controller restart/failover.
+- **New key** for every distinct (FlowRun, step) pair: two steps in the same FlowRun get different keys, and the same step in a different FlowRun gets a different key — including a user-initiated re-run, which creates a new FlowRun with a new UID. A re-run is therefore never suppressed as a duplicate of the original.
+
+**Versioning.** The `kz1-` prefix versions the derivation. If its inputs ever change (for example, adding an iteration index once steps can loop within a FlowRun), the prefix is bumped (`kz2-`). Plugins must treat the key as opaque and must not parse it.
+
+**What plugins should do.** If the external system supports idempotent publishing via a caller-supplied message ID, forward `idempotencyKey` to it (e.g. SNS/SQS FIFO `MessageDeduplicationId`, Service Bus `MessageId`, NATS JetStream `Nats-Msg-Id`). If it doesn't, ignore the field. A missing or empty key must not cause a request to be rejected — older controllers don't send it.
+
+**Dedup-window caveat.** Deduplication windows are defined by the broker, not KubeZap (SNS/SQS FIFO: 5 minutes; NATS JetStream: the stream's `duplicate_window`). A step re-executed after the window has elapsed — e.g. after a long outage — may still be delivered twice. Consumers that need exactly-once effects must still be idempotent.
 
 ---
 

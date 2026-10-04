@@ -311,13 +311,16 @@ POST /publish
 Content-Type: application/json
 
 {
-    "integration": "<integration-name>",
-    "namespace":   "<namespace>",
-    "destination": "<topic or queue name>",
-    "headers":     { "<key>": "<value>", ... },
-    "body":        "<message body string>"
+    "integration":    "<integration-name>",
+    "namespace":      "<namespace>",
+    "destination":    "<topic or queue name>",
+    "headers":        { "<key>": "<value>", ... },
+    "body":           "<message body string>",
+    "idempotencyKey": "kz1-<64 lowercase hex chars>"
 }
 ```
+
+`idempotencyKey` is optional in the contract (plugins must tolerate its absence and must ignore unknown fields), but the controller always sends it: a stable per-(FlowRun, step) key that is identical across retries and failover. W3C trace context (`traceparent`/`tracestate`) arrives as HTTP request headers, never in `headers`. See [Plugin Contract — Idempotency](plugin-contract.md#idempotency) for the derivation and guarantees.
 
 Response on success:
 

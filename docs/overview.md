@@ -47,7 +47,7 @@ All of this is configured through Kubernetes custom resources, meaning it is ver
 
 A `Trigger` defines the event source that starts a workflow. It specifies what to listen for and which `Flow` to execute when the event fires.
 
-Supported trigger types: **webhook**, **cron**, **kafka**, **amqp**, **nats**, **resource** (alpha); additional brokers via the `Integration` plugin model — see [Integration CRD](api/integration.md).
+Supported trigger types: **webhook**, **cron**, **kafka**, **amqp**, **nats**, **resource** (alpha), and **plugin** — additional brokers served by an `Integration` plugin image (e.g. the first-party [AWS SQS/SNS plugin](plugins/aws-sqs-sns/README.md)); see [Integration CRD](api/integration.md).
 
 ### Flow
 
@@ -205,6 +205,22 @@ spec:
     integrationRef:
       name: nats-cluster
     subject: orders.created
+  flowRef:
+    name: process-order
+```
+
+### Plugin
+
+Served by the plugin image behind a `type: plugin` Integration — the plugin pod watches the Trigger and creates FlowRuns; the operator only validates the Integration reference. `config` is opaque, plugin-defined settings. Example using the first-party [AWS SQS/SNS messaging plugin](plugins/aws-sqs-sns/README.md) (pilot):
+
+```yaml
+spec:
+  type: plugin
+  plugin:
+    integrationRef:
+      name: aws-messaging
+    config:
+      queueUrl: https://sqs.us-east-1.amazonaws.com/123456789012/orders
   flowRef:
     name: process-order
 ```
@@ -561,7 +577,7 @@ A workflow is three CRDs — `Trigger`, `Flow`, `FlowRun` — one mental model f
 Reconcilers are designed to be re-run safely. Flows track execution state in status subresources. Duplicate trigger firings are handled gracefully via cooldown policies.
 
 **Extensible by design**
-The plugin model is based on external webhook calls, making it possible to add integrations in any language or runtime. A marketplace of community integrations is planned.
+The plugin model is a small, versioned [contract](api/plugin-contract.md) — watch Triggers and create FlowRuns (subscriber), serve `POST /publish` (publisher) — making it possible to add integrations in any language or runtime. The first-party [AWS SQS/SNS plugin](plugins/aws-sqs-sns/README.md) is a complete reference implementation. A marketplace of community integrations is planned.
 
 **Observable from day one**
 Every trigger firing, flow execution, and step result is recorded in CRD status and emitted as Prometheus metrics and OpenTelemetry traces. No black-box execution.

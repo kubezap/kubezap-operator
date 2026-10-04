@@ -1,0 +1,21 @@
+# SQS subscriber Trigger served by the aws-messaging plugin Integration.
+# queueUrl is the only config key the plugin reads; the operator never
+# validates it. See docs/plugins/aws-sqs-sns/README.md.
+apiVersion: automation.kubezap.io/v1alpha1
+kind: Trigger
+metadata:
+  labels:
+    app.kubernetes.io/name: kubezap
+    app.kubernetes.io/managed-by: kustomize
+  name: orders-sqs
+  namespace: default
+spec:
+  type: plugin
+  enabled: true
+  plugin:
+    integrationRef:
+      name: aws-messaging
+    config:
+      queueUrl: https://sqs.us-east-1.amazonaws.com/123456789012/orders
+  flowRef:
+    name: process-sqs-order

@@ -1,0 +1,40 @@
+# AWS SQS/SNS messaging plugin (first-party pilot plugin).
+# Full guide: docs/plugins/aws-sqs-sns/README.md
+#
+# Prerequisite: a Secret holding static AWS access keys, e.g.
+#   kubectl create secret generic aws-messaging-credentials -n default \
+#     --from-literal=access-key-id=AKIA... --from-literal=secret-access-key=...
+# Publish steps additionally need the Service in
+# aws-messaging-plugin-publisher-service.yaml (the operator does not create it).
+apiVersion: automation.kubezap.io/v1alpha1
+kind: Integration
+metadata:
+  labels:
+    app.kubernetes.io/name: kubezap
+    app.kubernetes.io/managed-by: kustomize
+  name: aws-messaging
+  namespace: default
+spec:
+  type: plugin
+  plugin:
+    # Replace <version> with a release version (no leading "v"), and pin
+    # imageDigest in production.
+    image: ghcr.io/kubezap/aws-messaging-plugin:<version>
+    publisherPort: 8090
+    env:
+      - name: AWS_REGION
+        value: us-east-1
+      # Optional endpoint override for both SQS and SNS (e.g. LocalStack).
+      # - name: AWS_ENDPOINT_URL
+      #   value: http://localstack.localstack.svc.cluster.local:4566
+    secretRefs:
+      - secretName: aws-messaging-credentials
+        envVarMappings:
+          access-key-id: AWS_ACCESS_KEY_ID
+          secret-access-key: AWS_SECRET_ACCESS_KEY
+          # Map only if the Secret actually has this key (temporary credentials).
+          # session-token: AWS_SESSION_TOKEN
+    # This plugin implements the controller-side mTLS contract, so this is
+    # safe to enable from the start.
+    # mtls:
+    #   enabled: true

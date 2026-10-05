@@ -38,6 +38,71 @@ jobs:
           go mod tidy
           make test
 
+  # LocalStack-backed integration tests for the AWS messaging plugin
+  # (test/localstack/, build tag `localstack`). Kept as a separate job with no
+  # `needs:` so the fast Unit Tests job never waits on container startup.
+  # LocalStack is pinned to 4.14.0 by digest: newer (2026.x / latest) images
+  # require a LOCALSTACK_AUTH_TOKEN, and this job deliberately uses no secrets.
+  # See test/localstack/README.md.
+  localstack-tests:
+    name: LocalStack Integration Tests (AWS plugin)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    services:
+      localstack:
+        image: localstack/localstack:4.14.0@sha256:3ebc37595918b8accb852f8048fef2aff047d465167edd655528065b07bc364a
+        ports:
+          - 4566:4566
+        env:
+          SERVICES: sqs,sns
+          SQS_ENDPOINT_STRATEGY: path
+          LOCALSTACK_HOST: localhost:4566
+        options: >-
+          --health-cmd "curl -fsS http://localhost:4566/_localstack/health"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 24
+    env:
+      AWS_ENDPOINT_URL: http://localhost:4566
+      AWS_REGION: us-east-1
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Wait for LocalStack SQS and SNS
+        run: |
+          for _ in $(seq 1 60); do
+            if curl -fsS "$AWS_ENDPOINT_URL/_localstack/health" \
+              | python3 -c 'import json,sys; s=json.load(sys.stdin)["services"]; sys.exit(0 if all(s.get(k) in ("available","running") for k in ("sqs","sns")) else 1)'; then
+              echo "LocalStack SQS and SNS are ready"; exit 0
+            fi
+            sleep 2
+          done
+          echo "::error::LocalStack SQS/SNS did not become ready"
+          curl -sS "$AWS_ENDPOINT_URL/_localstack/health" || true
+          exit 1
+
+      - name: Vet the localstack-tagged package
+        run: go vet -tags localstack ./test/localstack/...
+
+      # The repo-wide Lint job runs without build tags and therefore never sees
+      # these files; lint them here with the tag set.
+      - name: golangci-lint (localstack-tagged package)
+        uses: golangci/golangci-lint-action@v9
+        with:
+          version: v2.13.2
+          args: --build-tags=localstack ./test/localstack/...
+
+      - name: Run LocalStack integration tests
+        run: make test-localstack
+
   generated-files:
     name: Generated Files Drift Check
     runs-on: ubuntu-latest

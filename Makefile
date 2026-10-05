@@ -137,6 +137,12 @@ vet: ## Run go vet against code.
 test: manifests generate fmt vet setup-envtest ## Run tests.
 	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)" go test $$(go list ./... | grep -v /e2e) -coverprofile cover.out
 
+.PHONY: test-localstack
+test-localstack: setup-envtest ## Run the LocalStack-backed AWS plugin tests (LocalStack must be running; see test/localstack/README.md).
+	AWS_ENDPOINT_URL="$${AWS_ENDPOINT_URL:-http://localhost:4566}" \
+	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)" \
+	go test -tags localstack -count=1 -v ./test/localstack/... -timeout 10m
+
 # TODO(user): To use a different vendor for e2e tests, modify the setup under 'tests/e2e'.
 # The default setup assumes Kind is pre-installed and builds/loads the Manager Docker image locally.
 # CertManager is installed by default; skip with:

@@ -9,7 +9,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/config v1.33.9
 	github.com/aws/aws-sdk-go-v2/credentials v1.20.9
 	github.com/aws/aws-sdk-go-v2/service/sns v1.47.5
-	github.com/aws/aws-sdk-go-v2/service/sqs v1.52.4
+	github.com/aws/aws-sdk-go-v2/service/sqs v1.52.5
 	github.com/aws/smithy-go v1.28.5
 	github.com/go-logr/logr v1.4.4
 	github.com/go-logr/zapr v1.3.0
@@ -19,7 +19,7 @@ require (
 	github.com/onsi/ginkgo/v2 v2.33.1
 	github.com/onsi/gomega v1.44.0
 	github.com/prometheus/client_golang v1.25.0
-	github.com/rabbitmq/amqp091-go v1.15.0
+	github.com/rabbitmq/amqp091-go v1.16.0
 	github.com/robfig/cron/v3 v3.0.1
 	github.com/spf13/cobra v1.10.2
 	go.opentelemetry.io/otel v1.47.0
